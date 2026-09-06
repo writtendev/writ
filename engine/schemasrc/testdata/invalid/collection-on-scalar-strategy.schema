@@ -1,0 +1,7 @@
+namespace acme
+
+type t {
+  op create 1 {
+    tags  [person-ref]  lww
+  }
+}

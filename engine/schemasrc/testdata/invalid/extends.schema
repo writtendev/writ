@@ -1,0 +1,7 @@
+namespace acme
+
+type child extends base {
+  op create 1 {
+    name string lww
+  }
+}

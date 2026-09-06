@@ -11,7 +11,12 @@ conformance: an implementation that disagrees with them is wrong.
 **Informative** files explain, index, or generate; disagreeing with them
 is a documentation bug, not a conformance failure. Machine-readable
 files are the stronger half of the spec — when prose and fixtures
-disagree, the fixtures win and the prose gets fixed.
+disagree, the fixtures win and the prose gets fixed. A surface syntax is
+informative on the same basis a wire vocabulary is normative: conformance
+is defined by the ops two implementations exchange, not by whichever
+human-facing grammar one of them happens to parse, so `schema-source.md`
+below carries no `spec/testdata/` corpus of its own — a corpus there would
+read as a conformance surface it does not have.
 
 **Pins** (on `testdata/` rows only) states which half of the producer/reader
 split (§What each corpus pins, below) the row belongs to: **producer**
@@ -39,6 +44,7 @@ producer would have refused. A blank cell means the split does not apply
 | `project-cycle.md` | Normative | | Project and cycle operation vocabularies (v1): repo-scoped grouping types, creation, status transitions, cycle dates, and issue membership |
 | `resolution.md` | Normative | | Re-anchoring & orphan degradation (v1): the `resolve(anchor, tree)` ladder, tiebreaks, thresholds, and orphan semantics |
 | `schema-ops.md` | Normative | | The `schema` object type (v1): writ's one hard-coded vocabulary — namespace/`object_type` binding, envelope binding, `create`/`define-type`/`define-field`/`define-op`/`deprecate-type`/`deprecate-field`, bootstrap order, conflicts, evolution, and rule validation |
+| `schema-source.md` | Informative | | The `writ.schema` source form (v1): grammar, the op sequence each production compiles to, and canonical rendering. The normative artefact is `schema-ops.md`'s op vocabulary; an independent implementation must agree on the ops and need not parse this file |
 | `schemas/op-envelope.schema.json` | Normative | | JSON Schema (draft 2020-12) for the payload half of the envelope |
 | `schemas/anchor.schema.json` | Normative | | JSON Schema (draft 2020-12) for the anchor object |
 | `schemas/identifiers.schema.json` | Normative | | JSON Schema (draft 2020-12) for identifiers and references |
@@ -84,7 +90,7 @@ producer would have refused. A blank cell means the split does not apply
 | `foldvectors.go` | Informative | | Go loader and structural validation for fold ordering and merge test vectors |
 | `resolutionvectors.go` | Informative | | Go loader and structural validation for resolution test cases |
 | `fixtures/` | Mixed | | The fixture-repo generator and golden harness (informative tooling) producing the golden corpus under `fixtures/testdata/` (normative) |
-| `README.md` | Informative | This document: index, conformance model, independent-implementation guide |
+| `README.md` | Informative | | This document: index, conformance model, independent-implementation guide |
 
 ### Schema Identity ($id)
 
@@ -111,6 +117,7 @@ spec/
 ├── project-cycle.md        — normative: project & cycle grouping op vocabularies (v1)
 ├── resolution.md           — normative: re-anchoring & orphan degradation (v1)
 ├── schema-ops.md           — normative: the `schema` object type (v1), writ's one hard-coded vocabulary
+├── schema-source.md        — informative: the `writ.schema` source form (v1), grammar and compile/render rules
 ├── spec.go                 — go:embed of schemas/ and testdata/ (package spec)
 ├── foldvectors.go          — loader and structural validation for fold test vectors
 ├── resolutionvectors.go    — loader and structural validation for resolution test cases

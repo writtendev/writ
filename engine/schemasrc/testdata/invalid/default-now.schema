@@ -1,0 +1,7 @@
+namespace acme
+
+type t {
+  op create 1 {
+    created_at  timestamp  lww  default now()
+  }
+}
