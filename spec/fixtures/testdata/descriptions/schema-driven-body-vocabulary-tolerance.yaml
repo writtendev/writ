@@ -1,8 +1,8 @@
 name: schema-driven-body-vocabulary-tolerance
 description: >
-  The schema-parametric restatement of envelope-body-vocabulary-tolerance.yaml,
-  whose current point -- a body a producer would refuse, a reader must
-  accept -- depends on the review-ops vocabulary WRIT-194 deletes. Here the
+  The schema-parametric restatement of envelope-body-vocabulary-tolerance.yaml's
+  point -- a body a producer would refuse, a reader must accept -- under a
+  schema resolved from the log rather than a hard-coded vocabulary. Here the
   schema declares an enum-typed field and a person-ref field; a conforming
   producer would refuse a verdict outside the declared enum and an empty
   person identifier (spec/op-envelope.md producer validation rule 3, now

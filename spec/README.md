@@ -323,10 +323,11 @@ apart (see the **Pins** column in the file table above):
   producer step to lean on and cannot assume the log it reads was ever
   validated. `spec/schema-ops.md` §3.1's non-canonical `op_version`
   quarantine and §9's rule-validation gate are the sharpest instances of
-  this split: each has a producer-side fixture already
-  (`testdata/schema-ops/invalid/define-field-op-version-leading-zero.json`
-  pins the producer half of §3.1), and this ticket is where the reader half
-  of both finally gets one too.
+  this split: `testdata/schema-ops/invalid/define-field-op-version-leading-zero.json`
+  pins the producer half of §3.1, and
+  `fixtures/testdata/golden/schema/schema-op-version-non-canonical.json`
+  (§3.1) and `fixtures/testdata/golden/schema-driven/schema-driven-invalid-rule.json`
+  (§9) pin the reader half of both.
 
 On the read path, `value_type` is consulted for exactly one purpose —
 `person-ref` normalization (`spec/value-types.md` §Producer-side and
