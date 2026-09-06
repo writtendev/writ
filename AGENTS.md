@@ -57,10 +57,11 @@ stubs alone. Same pattern as the rest of the studio.
   expressions, no permissions, no logic in defaults (see
   ARCHITECTURE.md §Schema layer). This fence is a house rule, not a
   suggestion; framework-building is a bug even one field at a time.
-- Writ names no downstream product: no ticket, spec file, fixture, or
-  symbol names what's built on top of writ's schema layer. Writ
-  defines `writ.schema`; who authors one, and for what domain, is not
-  writ's business — the way git knows nothing about GitHub.
+- Writ names no downstream product: no ticket, spec file, fixture,
+  symbol, or documentation prose names what's built on top of writ's
+  schema layer. Writ defines `writ.schema`; who authors one, and for
+  what domain, is not writ's business — the way git knows nothing
+  about GitHub.
 - When you file a Linear ticket, set a priority and an estimate — your
   best judgment, stated once, not discussed.
 - Every commit needs a `Signed-off-by` trailer (DCO, enforced by CI —

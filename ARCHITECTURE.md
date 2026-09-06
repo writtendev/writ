@@ -29,11 +29,11 @@ Signing rides git's existing commit-signature machinery (SSH signing preferred �
 
 Writ hard-codes exactly one object type: `schema`. That is the bootstrap and the only permitted exception — every other type, `review`, `comment`, `issue`, `project`, `cycle`, `document`, `label`, `workflow-state`, `settings` included, is declared by a `schema` object written into the log, not baked into writ's spec (see §Schema layer below). Object IDs and cross-references are globally unique (`<repo-id>#<object-id>` or bare `<object-id>` for repo-local references, where IDs are 128-bit random lowercase hex strings; decided and spec'd in `spec/identifiers.md`, WRIT-16), with the qualified form an opaque pointer to an object that may live in another repo, so "issue in repo A fixed by review in repo B" is representable regardless of which layer defines "issue" or "review" — the one-graph query is the point. Every object, whatever its schema-declared type, homes in the single repo the client is operating on when it's created (see §Object homing below).
 
-The SDLC vocabulary this hard-coding replaces still ships today, unmoved: `review` (base/head, revisions, status, approvals, ci-statuses) and `comment` (threaded, anchored) in `spec/review-ops.md`; `issue`, `project`, and `cycle` in `spec/issue-ops.md` and `spec/project-cycle.md`. Those files remain the normative reference for that vocabulary until WRIT-194 deletes it from the spec, once a consumer can declare the same types as a `schema` object instead.
+The SDLC vocabulary this hard-coding replaces still ships today, unmoved, across eight files: `review` (base/head, revisions, status, approvals, ci-statuses) in `spec/review-ops.md`; `comment` (threaded, anchored) in `spec/comments.md`; `issue` in `spec/issue-ops.md`; `project` and `cycle` in `spec/project-cycle.md`; `document` in `spec/documents.md` (see §Document concurrency model); `label` in `spec/label-ops.md`; `workflow-state` in `spec/workflow-state-ops.md`; `settings` in `spec/settings-ops.md`. Those files remain the normative reference for that vocabulary until WRIT-194 deletes it from the spec, once a consumer can declare the same types as a `schema` object instead.
 
 ### Schema layer (decided, WRIT-184)
 
-Writ's scope test changes: no longer "does this data explain how the software got made?" — that is a question for whatever is declared above writ — but **"is this git-shaped or merge-shaped?"** Anchors and git object ids are git-shaped and stay in writ's spec. Issue states, review verdicts, and the rest of the SDLC vocabulary are not git-shaped — they are ordinary schema-declared data — and go.
+Writ's scope test changes: no longer "does this data explain how the software got made?" — that is a question for whatever is declared above writ — but **"is this git-shaped or merge-shaped?"** Anchors and git object ids are git-shaped and stay in writ's spec, as value types in WRIT-185's closed catalogue. Issue states, review verdicts, and the rest of the SDLC vocabulary are not git-shaped — they are ordinary schema-declared data — and go.
 
 A schema needs two orthogonal axes to describe a field, and writ settles both:
 
@@ -42,7 +42,7 @@ A schema needs two orthogonal axes to describe a field, and writ settles both:
 
 `schema` is the one object type writ hard-codes (§Object types above) because a schema has to exist before anything else can be typed; every other type a repository uses is data written by a `schema` object, folded like any other object (WRIT-186). Schema evolution needs no migration planner: field rules are already keyed by `(op_type, op_version, field)`, so changing a field's merge strategy is a version bump, not an edit — old ops keep folding under old rules, and the fold already carries fixtures for mixed versions. There is no destructive schema change to plan for.
 
-The schema DSL declares **types, value types, merge strategies, and relations. Nothing else.** No computed fields, no hooks or triggers, no expressions, no permissions, no logic in defaults, no imports or inheritance. AGENTS.md calls framework-building a bug; this fence is written down now, while the DSL is still small, rather than after something has grown past it.
+The schema DSL declares **types, value types, merge strategies, and relations. Nothing else.** A relation is an `object-ref` value type (WRIT-185) that points at another object's id — not a separate grammar bolted onto the DSL; parsing it is WRIT-187's job, the same as any other field. Writ has no join engine and no reference resolution: what an `object-ref` points at is the consumer's problem to resolve, exactly as a qualified `<repo-id>#<object-id>` reference is today (§Object homing, WRIT-180). No computed fields, no hooks or triggers, no expressions, no permissions, no logic in defaults, no imports or inheritance. AGENTS.md calls framework-building a bug; this fence is written down now, while the DSL is still small, rather than after something has grown past it.
 
 There is no `.writ/` config directory. `writ.schema` is a working-tree source form, Prisma-style — a convenience for authoring and reading a schema — but the log stays the source of truth: a schema is folded from `schema` ops like everything else, and `writ.schema` is a view onto that state, not a second store of it. This is what preserves WRIT-110's settings-as-ops design: settings are still data in the log, now typed by a schema instead of hard-coded.
 
@@ -88,7 +88,7 @@ Alongside the machines sits one small shared component: **writer identity** — 
 
 ## Public API shape
 
-Schema-shaped, never git-shaped — callers see no SHAs or refspecs unless they ask:
+Schema-shaped, never git-shaped — callers see no SHAs or refspecs unless they ask. This is WRIT-192's target surface, not what ships today: the engine still exports the typed per-type services (`Store.Reviews`, `.Issues`, `.Comments`, `.Documents`, `.Labels`, `.WorkflowStates`, `.Settings`, plus `.Drafts`, `.ReadState`, `.Query`), per `api/engine.txt`. WRIT-192 replaces that surface with the generic shape below:
 
 ```go
 store, err := writ.Open(path, opts...)    // any git dir: clone, bare, worktree; fully offline

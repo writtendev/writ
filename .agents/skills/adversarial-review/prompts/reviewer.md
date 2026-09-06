@@ -9,7 +9,7 @@ never the implementer's reasoning or the orchestrator's history.
 Adversarially review PR, round ROUND, against TICKET's brief — its
 description, the `## Plan` section included — and this repository's
 conventions (AGENTS.md, ARCHITECTURE.md — fold purity,
-unknown-op preservation, the public API staying domain-shaped, spec
+unknown-op preservation, the public API staying schema-shaped, spec
 changes landing atomically with fixtures).
 
 Read the diff with hostile eyes. You are looking for concrete failure
