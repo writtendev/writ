@@ -51,7 +51,7 @@
         }
       ],
       "state": {
-        "add": [
+        "assignees": [
           "user:i̇",
           "user:josé",
           "user:ss",
@@ -72,13 +72,6 @@
             ],
             "value": "Updated under the precomposed spelling"
           }
-        ],
-        "remove": [
-          "user:i̇",
-          "user:josé",
-          "user:ss",
-          "user:à",
-          "user:𐁁̀"
         ],
         "revision": [
           {

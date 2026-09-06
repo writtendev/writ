@@ -4,6 +4,13 @@
       "object_id": "r-ci",
       "review": {
         "title": "CI Status Races Review",
+        "approvals": [
+          {
+            "subject": "a@b.c",
+            "revision": "deadbeef",
+            "verdict": "approve"
+          }
+        ],
         "ci_statuses": [
           {
             "revision": "1111111111111111111111111111111111111111",
@@ -24,6 +31,11 @@
             "started_at": "2026-01-01T00:02:30Z",
             "completed_at": "2026-01-01T00:02:55Z",
             "external_id": "103"
+          },
+          {
+            "revision": "a@b.c",
+            "name": "deadbeef",
+            "state": "success"
           }
         ]
       }

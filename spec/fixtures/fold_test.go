@@ -228,17 +228,18 @@ func runFoldFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 		var writRules []writ.Rule
 		for _, r := range rules {
 			writRules = append(writRules, writ.Rule{
-				OpType:    r.OpType,
-				OpVersion: r.OpVersion,
-				Field:     r.Field,
-				Target:    r.Target,
-				Strategy:  r.Strategy,
-				Key:       r.Key,
-				Lattice:   r.Lattice,
-				ValueType: r.ValueType,
-				Enum:      r.Enum,
-				MaxLength: r.MaxLength,
-				KeyTypes:  r.KeyTypes,
+				OpType:     r.OpType,
+				OpVersion:  r.OpVersion,
+				Field:      r.Field,
+				Target:     r.Target,
+				Strategy:   r.Strategy,
+				Key:        r.Key,
+				Lattice:    r.Lattice,
+				ValueType:  r.ValueType,
+				Enum:       r.Enum,
+				MaxLength:  r.MaxLength,
+				KeyTypes:   r.KeyTypes,
+				ObjectType: r.ObjectType,
 			})
 		}
 		engineRes, err := writ.Fold(codecOps, writRules)

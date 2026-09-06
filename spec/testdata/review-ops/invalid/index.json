@@ -116,6 +116,11 @@
     "reason": "remove array in label body must contain at least 1 item"
   },
   {
+    "file": "label-malformed-remove-whitespace.json",
+    "rejects": "schema",
+    "reason": "remove is object-ref like add; a value containing whitespace is not a conforming reference"
+  },
+  {
     "file": "link-missing-target.json",
     "rejects": "schema",
     "reason": "link op body is missing required target"

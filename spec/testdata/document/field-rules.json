@@ -56,6 +56,7 @@
     "op_type": "label",
     "op_version": 1,
     "field": "add",
+    "target": "labels",
     "strategy": "set-observed-remove",
     "value_type": "string"
   },
@@ -63,6 +64,7 @@
     "op_type": "label",
     "op_version": 1,
     "field": "remove",
+    "target": "labels",
     "strategy": "set-observed-remove",
     "value_type": "string"
   }

@@ -647,12 +647,17 @@ func uninterpretable(op MergeOp, rules []FieldRule) bool {
 }
 
 // opMatchesRule reports whether rule r governs op. An empty OpType or a zero
-// OpVersion on the rule, or a zero OpVersion on the op, matches anything.
+// OpVersion on the rule, or a zero OpVersion on the op, matches anything; the
+// same holds for ObjectType (spec/fold.md §5), read straight off op with no
+// clock, I/O or ambient state involved.
 func opMatchesRule(op MergeOp, r FieldRule) bool {
 	if r.OpType != "" && r.OpType != op.OpType {
 		return false
 	}
 	if r.OpVersion != 0 && op.OpVersion != 0 && r.OpVersion != op.OpVersion {
+		return false
+	}
+	if r.ObjectType != "" && op.ObjectType != "" && r.ObjectType != op.ObjectType {
 		return false
 	}
 	return true

@@ -2,6 +2,7 @@ package schemasrc_test
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -197,6 +198,120 @@ type ticket {
 	f := mustParse(t, src)
 	if _, err := schemasrc.Compile(f, "sch-acme"); err != nil {
 		t.Fatalf("Compile: %v", err)
+	}
+}
+
+// TestCompileCrossOpTypeTargetReuseWithDifferentValueTypeIsRejected pins
+// WRIT-198's widened collision check: two fields sharing a target (here the
+// default, the field name) across different op_types must agree on
+// value_type, not just strategy. Before the widening, "owner" on create
+// (person-ref) and "owner" on assign (object-ref), both lww, compiled
+// silently — exactly the shape of WRIT-198's five colliding review/issue
+// targets, which all agreed on strategy and disagreed only on value_type.
+func TestCompileCrossOpTypeTargetReuseWithDifferentValueTypeIsRejected(t *testing.T) {
+	src := `namespace acme
+
+type widget {
+  op create 1 {
+    owner  person-ref  lww
+  }
+
+  op assign 1 {
+    owner  object-ref  lww
+  }
+}
+`
+	f := mustParse(t, src)
+	_, err := schemasrc.Compile(f, "sch-acme")
+	if err == nil {
+		t.Fatal("expected an error for two op_types sharing a target but disagreeing on value_type")
+	}
+	if !strings.Contains(err.Error(), `reuses target "owner"`) {
+		t.Errorf("unexpected error: %v", err)
+	}
+	var se *schemasrc.SyntaxError
+	if !errors.As(err, &se) {
+		t.Fatalf("expected a *schemasrc.SyntaxError, got %T: %v", err, err)
+	}
+	if se.Line == 0 || se.Col == 0 {
+		t.Errorf("expected a line and column on the collision error, got %+v", se)
+	}
+}
+
+// TestCompileVersionBumpValueTypeOnlyIsAccepted is the positive control for
+// TestCompileCrossOpTypeTargetReuseWithDifferentValueTypeIsRejected: an
+// op_version bump of the same (op_type, field) may freely change value_type
+// under the shared default target (spec/schema-ops.md §8, spec/fold.md §5) —
+// the carve-out the cross-op_type case above does not extend to.
+func TestCompileVersionBumpValueTypeOnlyIsAccepted(t *testing.T) {
+	src := `namespace acme
+
+type ticket {
+  op create 1 {
+    priority  string  lww
+  }
+
+  op create 2 {
+    priority  int  lww
+  }
+}
+`
+	f := mustParse(t, src)
+	if _, err := schemasrc.Compile(f, "sch-acme"); err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+}
+
+// TestCompileTargetCollisionIsOrderIndependent pins spec.CheckTargetCollision
+// as a set-level rule (spec/fold.md §5), not one that only compares a
+// candidate against the most recently bound rule for its target. Both
+// schemas below declare the same three fields sharing the default target
+// "f" — a version bump from string to int on one op_type (permitted, no
+// strategy change), plus an unrelated op_type also declaring "f" as int,
+// which disagrees with the *first* version (string) even though it agrees
+// with the *second* (int). Renaming the first op_type from "alpha" to
+// "zeta" changes nothing about what the schema declares — only where
+// fieldKeyLess (which sorts fields by op_type name) places the version
+// bump relative to the unrelated op_type — and must not change whether the
+// schema is accepted. Checking a candidate only against the last-bound
+// rule for a target lets the version-bump carve-out rebind "f" to int
+// before "beta" is checked, so "beta" agreeing with the rebound value
+// alone let this compile; comparing against every bound rule for the
+// target catches the disagreement with "alpha"/"zeta" 1 regardless of
+// which op_type sorts where.
+func TestCompileTargetCollisionIsOrderIndependent(t *testing.T) {
+	const template = `namespace acme
+
+type widget {
+  op %s 1 {
+    f  string  lww
+  }
+
+  op %s 2 {
+    f  int  lww
+  }
+
+  op beta 1 {
+    f  int  lww
+  }
+}
+`
+	for _, opType := range []string{"alpha", "zeta"} {
+		t.Run(opType, func(t *testing.T) {
+			src := fmt.Sprintf(template, opType, opType)
+			f := mustParse(t, src)
+			_, err := schemasrc.Compile(f, "sch-acme")
+			if err == nil {
+				t.Fatalf("expected an error: %q's version 1 (string) disagrees with beta's (int) even though %s's version 2 (also int) does not", opType, opType)
+			}
+			if !strings.Contains(err.Error(), `reuses target "f"`) {
+				t.Errorf("unexpected error: %v", err)
+			}
+			var se *schemasrc.SyntaxError
+			if !errors.As(err, &se) {
+				t.Fatalf("expected a *schemasrc.SyntaxError, got %T: %v", err, err)
+			}
+		})
 	}
 }
 

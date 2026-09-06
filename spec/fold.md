@@ -209,6 +209,47 @@ Field merge rules are declared in machine-readable tables (`field-rules.json`, c
 - `max_length` (integer, code points): Optional; only on `value_type` `string` or `text`.
 - `key_types` (object: key column → value type): Only on `keyed-lww`; must cover exactly the columns `key` declares.
 
+**Rule matching is scoped by object type.** A rule matches an operation only
+when their `op_type` and `op_version` agree (an empty `op_type` on the rule,
+or a zero `op_version` on either side, matches anything, as already
+described above) and, in addition, only when their object types agree. An
+empty object type on either side matches anything, the same convention
+`op_version` already uses, so this changes nothing for a rule table folded
+against a single known object type. A rule's object type is not a new
+`field-rules.json` attribute: it is derived from the vocabulary directory a
+rule table is declared in (or, for a rule resolved from the log,
+`spec/schema-ops.md`'s `define-field` body's own `type`), so the wire shape
+of a `field-rules.json` entry and of a `define-field` op body are both
+unchanged by this. Scoping exists so that a body field with a common name —
+`label`'s `add`, say — declared for one object type never matches an
+operation of another that happens to define an identically named field with
+a different merge strategy, without every vocabulary having to declare a
+distinct `target` defensively against every other vocabulary that exists.
+
+**Rules sharing a `target` within one object type MUST agree on every
+merge attribute.** Two rules whose `TargetKey()` (`target`, or `field` if
+undeclared) is equal MUST agree on `strategy`, `value_type`, `key`,
+`key_types`, `enum`, `max_length` and `lattice` — with one exception: two
+rules that share both `op_type` and `field`, differing only by `op_version`
+(a version bump), MAY freely change `value_type`, `enum`, `max_length`,
+`key`, or `key_types` under the same target, as already stated above, and
+MUST declare a distinct `target` only if the bump also changes `strategy`.
+`lattice` is not on that freely-changeable list: unlike those five, it is
+consulted by the strategy at fold time — the `lattice` accumulator reads it
+to order its semilattice — so two rules that share a target without being a
+version bump of one another must agree on it too, exactly as they must on
+`value_type`, `key`, `key_types`, `enum` and `max_length`. This is what
+stops two body fields that merely happen to share a name — such as
+one OR-set's `add` side and an unrelated OR-set's `add` side, declared
+under different `op_type`s with no `target` of their own — from silently
+sharing one accumulator: a rule table with such a case MUST target each
+OR-set explicitly (`spec/review-ops.md`'s `assignees` and `labels` are the
+worked example: `assign`'s `add`/`remove` share `target: "assignees"`,
+`label`'s share `target: "labels"`, so the two OR-sets land in separate
+state keys instead of one shared `add`/`remove` pair). A rule table that
+violates this agreement rule is non-conforming, exactly as one that reuses
+a target across a `strategy` change already was.
+
 **Normalization is intrinsic to `person-ref`.** `spec/value-types.md` §Normalization defines the rule: where a rule's `value_type` (or, for a key component, `key_types` entry) is `person-ref`, the field normalizes per `spec/identifiers.md` automatically. It is not a separate declarative attribute a rule table author repeats field by field, and it is not dispatched by inspecting operation types or field names (such as checking for `op_type == "assign"` or `field == "resolved_by"`) — accumulators remain vocabulary-blind, driven exclusively by the rule's `value_type`/`key_types`.
 
 ### Unified empty-value contract

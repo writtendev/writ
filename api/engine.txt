@@ -1587,6 +1587,7 @@ type Rule struct {
 	Enum []string `json:"enum,omitempty"`
 	MaxLength int64 `json:"max_length,omitempty"`
 	KeyTypes map[string]string `json:"key_types,omitempty"`
+	ObjectType string `json:"object_type,omitempty"`
 	Deprecated bool `json:"deprecated,omitempty"`
 }
 func (Rule) TargetKey() string

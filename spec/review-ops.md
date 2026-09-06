@@ -122,7 +122,7 @@ The review family defines nine operation types for `op_version: 1`:
 | `assign` | `{"add"?: [person-id], "remove"?: [person-id]}` | Add or remove review assignees (requested reviewers). |
 | `approval` | `{"revision": oid, "verdict": enum, "subject"?: person-id, "message"?: string}` | Review vote (`approve`, `request-changes`, `none`). |
 | `ci-status` | `{"revision": oid, "name": string, "state": enum, "url"?: string, "description"?: string, "started_at"?: timestamp, "completed_at"?: timestamp, "external_id"?: string}` | CI check result on a revision head. |
-| `label` | `{"add"?: [reference], "remove"?: [string]}` | Add or remove review labels (referencing label object IDs, FC-16). |
+| `label` | `{"add"?: [reference], "remove"?: [reference]}` | Add or remove review labels (referencing label object IDs, FC-16). |
 | `link` | `{"target": reference, "target_type"?: string, "relation": "fixes"\|"relates"\|"none"}` | Associate or retract cross-references (e.g. closes issue). |
 
 ### 1. `create`
@@ -390,7 +390,9 @@ Adds or removes labels on the review. In v1, label operations reference collabor
 ```
 
 - `add` (array of label references, optional): Label object identifiers or references to attach to the review.
-- `remove` (array of non-empty strings, optional): Label object identifiers or references to remove, matching the stored value byte-exactly.
+- `remove` (array of label references, optional): Label object identifiers or references to remove. `object-ref` is an opaque pointer with no resolution (`spec/value-types.md`), so a `remove` entry matches the stored value byte-exactly.
+
+`add` and `remove` are the two sides of one `set-observed-remove` OR-set, so both carry the same value type (`object-ref`, per `spec/identifiers.md#reference`).
 
 At least one of `add` or `remove` MUST be present and contain at least one item.
 An empty `{}` body or empty arrays (`"add": []`) are invalid.
@@ -447,13 +449,13 @@ treated as unknown data, preserved in the DAG, and ignored during fold.
 | `set-status` | `status` | `lww` | Last writer wins |
 | `set-status` | `merge_commit` | `lww` | Last writer wins |
 | `set-status` | `reason` | `lww` | Last writer wins |
-| `assign` | `add` | `set-observed-remove` | Add-wins OR-set over normalized person identifiers (`spec/identifiers.md`) |
-| `assign` | `remove` | `set-observed-remove` | Add-wins OR-set over normalized person identifiers (`spec/identifiers.md`) |
+| `assign` | `add` | `set-observed-remove` | Add-wins OR-set over normalized person identifiers (`spec/identifiers.md`); maps to state key `assignees` |
+| `assign` | `remove` | `set-observed-remove` | Add-wins OR-set over normalized person identifiers (`spec/identifiers.md`); maps to state key `assignees` |
 | `approval` | `revision` | `keyed-lww` | Scoped by key `[subject, revision]` over effective subject (omitted/empty subject defaults to `email:` + op commit author's email, normalized per `spec/identifiers.md`) |
 | `approval` | `verdict` | `keyed-lww` | Scoped by key `[subject, revision]` over effective subject; `"none"` retracts verdict |
 | `approval` | `subject` | `keyed-lww` | Scoped by key `[subject, revision]` over effective subject |
 | `approval` | `message` | `keyed-lww` | Scoped by key `[subject, revision]` over effective subject |
-| `ci-status` | `revision` | `keyed-lww` | Scoped by key `[revision, name]` |
+| `ci-status` | `revision` | `keyed-lww` | Scoped by key `[revision, name]`; maps to state key `ci_revision` (WRIT-198: `approval.revision` and `ci-status.revision` share the body field name `revision` but are keyed on different tuples, so `ci-status.revision` targets its own state key) |
 | `ci-status` | `name` | `keyed-lww` | Scoped by key `[revision, name]` |
 | `ci-status` | `state` | `keyed-lww` | Scoped by key `[revision, name]` |
 | `ci-status` | `url` | `keyed-lww` | Scoped by key `[revision, name]` |
@@ -461,8 +463,8 @@ treated as unknown data, preserved in the DAG, and ignored during fold.
 | `ci-status` | `started_at` | `keyed-lww` | Scoped by key `[revision, name]` |
 | `ci-status` | `completed_at` | `keyed-lww` | Scoped by key `[revision, name]` |
 | `ci-status` | `external_id` | `keyed-lww` | Scoped by key `[revision, name]` |
-| `label` | `add` | `set-observed-remove` | Add-wins OR-set over label strings |
-| `label` | `remove` | `set-observed-remove` | Add-wins OR-set over label strings |
+| `label` | `add` | `set-observed-remove` | Add-wins OR-set over label references (`object-ref`); maps to state key `labels` |
+| `label` | `remove` | `set-observed-remove` | Add-wins OR-set over label references (`object-ref`); maps to state key `labels` |
 | `link` | `target` | `keyed-lww` | Scoped by key `[target]` |
 | `link` | `target_type` | `keyed-lww` | Scoped by key `[target]` |
 | `link` | `relation` | `keyed-lww` | Scoped by key `[target]`; `"none"` retracts link |

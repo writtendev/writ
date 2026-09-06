@@ -72,6 +72,7 @@
     "op_type": "assign",
     "op_version": 1,
     "field": "add",
+    "target": "assignees",
     "strategy": "set-observed-remove",
     "value_type": "person-ref"
   },
@@ -79,6 +80,7 @@
     "op_type": "assign",
     "op_version": 1,
     "field": "remove",
+    "target": "assignees",
     "strategy": "set-observed-remove",
     "value_type": "person-ref"
   },
@@ -151,6 +153,7 @@
     "op_type": "ci-status",
     "op_version": 1,
     "field": "revision",
+    "target": "ci_revision",
     "strategy": "keyed-lww",
     "key": [
       "revision",
@@ -281,6 +284,7 @@
     "op_type": "label",
     "op_version": 1,
     "field": "add",
+    "target": "labels",
     "strategy": "set-observed-remove",
     "value_type": "object-ref"
   },
@@ -288,8 +292,9 @@
     "op_type": "label",
     "op_version": 1,
     "field": "remove",
+    "target": "labels",
     "strategy": "set-observed-remove",
-    "value_type": "string"
+    "value_type": "object-ref"
   },
   {
     "op_type": "link",

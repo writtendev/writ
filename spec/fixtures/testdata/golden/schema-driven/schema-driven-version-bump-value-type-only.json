@@ -1,0 +1,51 @@
+{
+  "schemas": [
+    {
+      "object_id": "sch-acme",
+      "schema": {
+        "object_id": "sch-acme",
+        "namespace": "acme",
+        "types": [
+          {
+            "type": "gadget",
+            "fields": [
+              {
+                "field": "mode",
+                "op_type": "configure",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              },
+              {
+                "field": "mode",
+                "op_type": "configure",
+                "op_version": 2,
+                "value_type": "int",
+                "strategy": "lww"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "objects": [
+    {
+      "object_id": "gadget-1",
+      "object_type": "gadget",
+      "total_order": [
+        {
+          "commit": "bd2d4a3b86ce89c5ef1a9049636fce427414be50",
+          "t_star": 1767225840
+        },
+        {
+          "commit": "710df59314185a05523c3f55083c41f824a9f41e",
+          "t_star": 1767225900
+        }
+      ],
+      "state": {
+        "mode": 7
+      }
+    }
+  ]
+}

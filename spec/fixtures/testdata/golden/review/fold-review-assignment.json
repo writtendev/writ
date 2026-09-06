@@ -8,6 +8,10 @@
           "user:alice",
           "user:charlie",
           "user:david"
+        ],
+        "labels": [
+          "bug",
+          "priority/high"
         ]
       }
     }

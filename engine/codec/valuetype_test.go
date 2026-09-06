@@ -25,11 +25,20 @@ var (
 // vocabularySchemaFiles and forgotten here, makes validateValueTypes silently
 // no-op for every op of that vocabulary, with nothing failing.
 //
-// Both directions are checked: every object type the producer validates
+// Three directions are checked: every object type the producer validates
 // against a vocabulary schema must also have a fieldRuleVocabularies entry
-// (the first-direction hole), and every fieldRuleVocabularies value must name
-// a directory spec.FieldRules() actually produced rules for — not a typo'd
-// directory name that quietly indexes nothing (the second-direction hole).
+// (the first-direction hole), every fieldRuleVocabularies value must name a
+// directory spec.FieldRules() actually produced rules for — not a typo'd
+// directory name that quietly indexes nothing (the second-direction hole) —
+// and every directory spec.FieldRules() actually produced rules for must be
+// reachable from some fieldRuleVocabularies entry (the third-direction
+// hole): a new field-rules.json directory that spec.VocabularyObjectTypes
+// has no mapping for. spec.FieldRules() itself now fails closed on that last
+// case rather than deriving an empty ObjectType (spec/fieldrules.go), so in
+// practice the t.Fatalf below already catches it; this loop pins the
+// invariant on fieldRuleVocabularies directly too, so a bug in
+// invertVocabularyObjectTypes's derivation — not just a gap in the source
+// map — fails here by name as well.
 func TestFieldRuleVocabulariesIsExhaustive(t *testing.T) {
 	rules, err := spec.FieldRules()
 	if err != nil {
@@ -48,6 +57,16 @@ func TestFieldRuleVocabulariesIsExhaustive(t *testing.T) {
 	for objectType, dir := range codec.FieldRuleVocabularies {
 		if !knownDirs[dir] {
 			t.Errorf("fieldRuleVocabularies[%q] = %q, but spec.FieldRules() has no rules from a testdata/%s/field-rules.json directory — value-type validation for %q silently no-ops", objectType, dir, dir, objectType)
+		}
+	}
+
+	reachable := make(map[string]bool)
+	for _, dir := range codec.FieldRuleVocabularies {
+		reachable[dir] = true
+	}
+	for dir := range knownDirs {
+		if !reachable[dir] {
+			t.Errorf("testdata/%s/field-rules.json produced rules, but no fieldRuleVocabularies entry maps any object type to directory %q — add one to spec.vocabularyObjectTypes, or its rules bleed across object types unscoped", dir, dir)
 		}
 	}
 }

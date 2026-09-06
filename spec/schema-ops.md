@@ -502,7 +502,9 @@ which one is "first" — so a version bump:
   same either way, because these attributes are not consulted by the
   strategy at fold time (`spec/value-types.md` §Producer-side and
   reader-tolerant: nothing on the read path calls the value-type
-  validator).
+  validator). `lattice` is deliberately absent from this list: the
+  `lattice` accumulator reads it to order its semilattice, so it *is*
+  consulted at fold time.
 - **MUST declare a distinct `target`** when it changes `strategy`: reusing
   a target across a strategy change is order-dependent, which is exactly
   what two conforming implementations disagreeing over rule-slice order
@@ -514,6 +516,24 @@ which one is "first" — so a version bump:
 The old and new strategy consequently land under different state keys.
 `testdata/fold/merge/schema-version-bump-same-target.json` and
 `schema-version-bump-new-target.json` pin both halves of this rule.
+
+The "MAY freely change" bullet is bounded to exactly this case — the same
+`op_type` and `field`, differing only by `op_version` — and no wider. Two
+rules that share a `target` (declared, or defaulted from `field`) without
+being a version bump of one another — two different `op_type`s, or two
+different `field`s, that happen to reuse the same target — MUST agree on
+`value_type`, `key`, `key_types`, `enum`, `max_length` and `lattice` too,
+not only on `strategy` (`spec/fold.md` §5). Two OR-set halves that merely
+happen to share a body field name (`add`, `remove`) but mean different
+logical state — one op type's assignee set and an unrelated op type's
+label set, say — are exactly the shape this catches: both would agree on
+`strategy` (`set-observed-remove`) while disagreeing on `value_type`, so a
+table that lets them collide on an undeclared shared target is
+non-conforming and MUST target each one explicitly instead
+(`spec/review-ops.md`'s `assignees`/`labels` split is the worked example).
+The resolver enforces this alongside the strategy-only case above, and so
+does `engine/schemasrc`'s compiler for a `writ.schema` source file before it
+ever reaches the log.
 
 ---
 

@@ -20,6 +20,16 @@ type Rule struct {
 	Enum      []string          `json:"enum,omitempty"`
 	MaxLength int64             `json:"max_length,omitempty"`
 	KeyTypes  map[string]string `json:"key_types,omitempty"`
+	// ObjectType scopes the rule to one object type (spec/fold.md §5): empty
+	// on either the rule or the op matches anything. It is left empty on
+	// every hand-written Go rule table (ReviewRules, IssueRules, etc.)
+	// rather than set to the table's own type: those tables are already
+	// selected per object type by their callers and the typed reducers, so
+	// an empty ObjectType changes nothing for them, and WRIT-194 deletes the
+	// tables outright — setting it on every literal there would be
+	// throwaway work. Only log-sourced rules (RulesFromSchemas) and rules
+	// built from spec.FieldRules() carry it.
+	ObjectType string `json:"object_type,omitempty"`
 	// Deprecated is carried through from a schema-declared field's
 	// deprecate-field state (spec/schema-ops.md §4.6, §5): it is metadata
 	// for a producer or UI to read, discouraging new writes. It never
@@ -57,17 +67,18 @@ func internalRules(rules []Rule) []fold.Rule {
 	out := make([]fold.Rule, len(rules))
 	for i, r := range rules {
 		out[i] = fold.Rule{
-			OpType:    r.OpType,
-			OpVersion: r.OpVersion,
-			Field:     r.Field,
-			Target:    r.Target,
-			Strategy:  r.Strategy,
-			Key:       r.Key,
-			Lattice:   r.Lattice,
-			ValueType: r.ValueType,
-			Enum:      r.Enum,
-			MaxLength: r.MaxLength,
-			KeyTypes:  r.KeyTypes,
+			OpType:     r.OpType,
+			OpVersion:  r.OpVersion,
+			Field:      r.Field,
+			Target:     r.Target,
+			Strategy:   r.Strategy,
+			Key:        r.Key,
+			Lattice:    r.Lattice,
+			ValueType:  r.ValueType,
+			Enum:       r.Enum,
+			MaxLength:  r.MaxLength,
+			KeyTypes:   r.KeyTypes,
+			ObjectType: r.ObjectType,
 		}
 	}
 	return out

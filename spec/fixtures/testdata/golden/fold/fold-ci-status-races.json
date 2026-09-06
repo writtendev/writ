@@ -28,6 +28,16 @@
           "commit": "6b22a209415a72e130b1bc361237f536daad8ccd",
           "label": "alice-ci-success",
           "t_star": 1767225780
+        },
+        {
+          "commit": "54080e31116af883096baf968acfdb8e27a5aedb",
+          "label": "alice-approval-crossing",
+          "t_star": 1767225840
+        },
+        {
+          "commit": "d0d5306f41862585ed0cf2f46312741f00000b34",
+          "label": "alice-ci-crossing",
+          "t_star": 1767225900
         }
       ],
       "state": {
@@ -45,6 +55,29 @@
               "ci/test"
             ],
             "value": "All unit tests passed"
+          }
+        ],
+        "ci_revision": [
+          {
+            "key": [
+              "1111111111111111111111111111111111111111",
+              "ci/lint"
+            ],
+            "value": "1111111111111111111111111111111111111111"
+          },
+          {
+            "key": [
+              "1111111111111111111111111111111111111111",
+              "ci/test"
+            ],
+            "value": "1111111111111111111111111111111111111111"
+          },
+          {
+            "key": [
+              "a@b.c",
+              "deadbeef"
+            ],
+            "value": "a@b.c"
           }
         ],
         "completed_at": [
@@ -93,22 +126,22 @@
               "ci/test"
             ],
             "value": "ci/test"
+          },
+          {
+            "key": [
+              "a@b.c",
+              "deadbeef"
+            ],
+            "value": "deadbeef"
           }
         ],
         "revision": [
           {
             "key": [
-              "1111111111111111111111111111111111111111",
-              "ci/lint"
+              "a@b.c",
+              "deadbeef"
             ],
-            "value": "1111111111111111111111111111111111111111"
-          },
-          {
-            "key": [
-              "1111111111111111111111111111111111111111",
-              "ci/test"
-            ],
-            "value": "1111111111111111111111111111111111111111"
+            "value": "deadbeef"
           }
         ],
         "started_at": [
@@ -141,6 +174,22 @@
               "ci/test"
             ],
             "value": "success"
+          },
+          {
+            "key": [
+              "a@b.c",
+              "deadbeef"
+            ],
+            "value": "success"
+          }
+        ],
+        "subject": [
+          {
+            "key": [
+              "a@b.c",
+              "deadbeef"
+            ],
+            "value": "a@b.c"
           }
         ],
         "title": "CI Status Races Review",
@@ -158,6 +207,15 @@
               "ci/test"
             ],
             "value": "https://ci.example.com/builds/101-retry"
+          }
+        ],
+        "verdict": [
+          {
+            "key": [
+              "a@b.c",
+              "deadbeef"
+            ],
+            "value": "approve"
           }
         ]
       }

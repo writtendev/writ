@@ -41,7 +41,7 @@
         }
       ],
       "state": {
-        "add": [
+        "assignees": [
           "email:charlie@example.com",
           "email:david@example.com"
         ],
@@ -59,10 +59,6 @@
             ],
             "value": "Updated verdict under normalized subject"
           }
-        ],
-        "remove": [
-          "email:charlie@example.com",
-          "email:david@example.com"
         ],
         "revision": [
           {

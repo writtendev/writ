@@ -2,7 +2,7 @@
   "refs": [
     {
       "name": "refs/writ/0123456789abcdef/review",
-      "commit": "c7b7bb226b8befaafba79ffc49c66786e07dc525"
+      "commit": "e2a89b872433a07fea31bf9cfd4b7907afa6c8a6"
     },
     {
       "name": "refs/writ/fedcba9876543210/review",
@@ -43,6 +43,28 @@
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:03:00Z",
           "message": "writ: assign review/r-assign\n",
+          "signed": true
+        },
+        {
+          "sha": "c100e9e78633023ad4eb8805fb798dbc2cde0310",
+          "tree": "f49da453b1f6e96115d2e9c03e60fe865ff3bbaa",
+          "parents": [
+            "c7b7bb226b8befaafba79ffc49c66786e07dc525"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:04:00Z",
+          "message": "writ: label review/r-assign\n",
+          "signed": true
+        },
+        {
+          "sha": "e2a89b872433a07fea31bf9cfd4b7907afa6c8a6",
+          "tree": "dfaa5bea803c4b02fd1b3758eb375867c7f0be66",
+          "parents": [
+            "c100e9e78633023ad4eb8805fb798dbc2cde0310"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:05:00Z",
+          "message": "writ: label review/r-assign\n",
           "signed": true
         }
       ]

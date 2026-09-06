@@ -243,7 +243,7 @@ func assertDocumentFoldAgreement(t *testing.T, doc writ.Document, state writ.Obj
 	}
 
 	var expectedLabels []string
-	switch v := state.State["add"].(type) {
+	switch v := state.State["labels"].(type) {
 	case []string:
 		expectedLabels = append(expectedLabels, v...)
 	case []any:

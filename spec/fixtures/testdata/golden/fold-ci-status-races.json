@@ -2,7 +2,7 @@
   "refs": [
     {
       "name": "refs/writ/0123456789abcdef/review",
-      "commit": "6b22a209415a72e130b1bc361237f536daad8ccd"
+      "commit": "d0d5306f41862585ed0cf2f46312741f00000b34"
     },
     {
       "name": "refs/writ/fedcba9876543210/review",
@@ -42,6 +42,28 @@
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:03:00Z",
+          "message": "writ: ci-status review/r-ci\n",
+          "signed": true
+        },
+        {
+          "sha": "54080e31116af883096baf968acfdb8e27a5aedb",
+          "tree": "7d198f429441babfef6fca65c3e42e30045367bd",
+          "parents": [
+            "6b22a209415a72e130b1bc361237f536daad8ccd"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:04:00Z",
+          "message": "writ: approval review/r-ci\n",
+          "signed": true
+        },
+        {
+          "sha": "d0d5306f41862585ed0cf2f46312741f00000b34",
+          "tree": "5f3e7fa78392164ee6d32ce0c3e10fa6b0983d50",
+          "parents": [
+            "54080e31116af883096baf968acfdb8e27a5aedb"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:05:00Z",
           "message": "writ: ci-status review/r-ci\n",
           "signed": true
         }

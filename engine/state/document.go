@@ -18,8 +18,8 @@ func DocumentRules() []Rule {
 		{OpType: "link", OpVersion: 1, Field: "target", Strategy: "keyed-lww", Key: []string{"target"}, ValueType: "object-ref", KeyTypes: linkKeyTypes},
 		{OpType: "link", OpVersion: 1, Field: "target_type", Strategy: "keyed-lww", Key: []string{"target"}, ValueType: "string", KeyTypes: linkKeyTypes},
 		{OpType: "link", OpVersion: 1, Field: "relation", Strategy: "keyed-lww", Key: []string{"target"}, ValueType: "string", KeyTypes: linkKeyTypes},
-		{OpType: "label", OpVersion: 1, Field: "add", Strategy: "set-observed-remove", ValueType: "string"},
-		{OpType: "label", OpVersion: 1, Field: "remove", Strategy: "set-observed-remove", ValueType: "string"},
+		{OpType: "label", OpVersion: 1, Field: "add", Target: "labels", Strategy: "set-observed-remove", ValueType: "string"},
+		{OpType: "label", OpVersion: 1, Field: "remove", Target: "labels", Strategy: "set-observed-remove", ValueType: "string"},
 	}
 }
 
