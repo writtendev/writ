@@ -1,0 +1,131 @@
+name: schema-driven-namespace-collision
+description: >
+  Two schema objects declare the same namespace but bind two DIFFERENT
+  object_types. A weaker, mostly cosmetic case (spec/schema-ops.md §6):
+  reported alongside an object_type collision when both occur, but on its
+  own it withholds nothing. Both widget-a and widget-b get their rules
+  installed and fold normally despite the namespace collision being
+  reported. (pins: reader)
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: alice-create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: sch-alice
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "shared-namespace"
+            expect: accept
+
+          - id: alice-define-type
+            parents: [alice-create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: sch-alice
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "widget-a"
+            expect: accept
+
+          - id: alice-define-field
+            parents: [alice-define-type]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: sch-alice
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget-a"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+  - name: refs/writ/fedcba9876543210/schema
+    history:
+      - commits:
+          - id: bob-create
+            author: bob
+            timestamp: 2026-01-01T00:00:30Z
+            op:
+              object_id: sch-bob
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "shared-namespace"
+            expect: accept
+
+          - id: bob-define-type
+            parents: [bob-create]
+            author: bob
+            timestamp: 2026-01-01T00:01:30Z
+            op:
+              object_id: sch-bob
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "widget-b"
+            expect: accept
+
+          - id: bob-define-field
+            parents: [bob-define-type]
+            author: bob
+            timestamp: 2026-01-01T00:02:30Z
+            op:
+              object_id: sch-bob
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget-b"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/widget-a
+    history:
+      - commits:
+          - id: widget-a-create
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: widget-a-1
+              object_type: widget-a
+              op_type: create
+              op_version: 1
+              body:
+                title: "Widget A"
+            expect: accept
+
+  - name: refs/writ/fedcba9876543210/widget-b
+    history:
+      - commits:
+          - id: widget-b-create
+            author: bob
+            timestamp: 2026-01-01T00:03:30Z
+            op:
+              object_id: widget-b-1
+              object_type: widget-b
+              op_type: create
+              op_version: 1
+              body:
+                title: "Widget B"
+            expect: accept

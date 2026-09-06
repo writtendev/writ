@@ -1,0 +1,107 @@
+{
+  "refs": [
+    {
+      "name": "refs/writ/0123456789abcdef/schema",
+      "commit": "dfbf24d337a59814079b518a2f0074877a8dea71"
+    },
+    {
+      "name": "refs/writ/fedcba9876543210/schema",
+      "commit": "d73564527fdfe4aaeb49e4a8d9a723832dbd580a"
+    },
+    {
+      "name": "refs/writ/0123456789abcdef/gadget",
+      "commit": "95a637ce4411091b17c256515a19861285b8210f"
+    }
+  ],
+  "generations": [
+    {
+      "ref": "refs/writ/0123456789abcdef/schema",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "f27a9907fbaecfa542b3a9d84b0242f887f91fb0",
+          "tree": "ba1ed2431a5a1d8b626583722a39d649413f40c8",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "message": "writ: create schema/sch-alice\n",
+          "signed": true
+        },
+        {
+          "sha": "4d0e50eaf4b1e6ea6a0410afe6022d04871a2a69",
+          "tree": "a0cd5fdda5bc2625f2210f2ef56cd29fb43c64a3",
+          "parents": [
+            "f27a9907fbaecfa542b3a9d84b0242f887f91fb0"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:01:00Z",
+          "message": "writ: define-type schema/sch-alice\n",
+          "signed": true
+        },
+        {
+          "sha": "dfbf24d337a59814079b518a2f0074877a8dea71",
+          "tree": "8f15c71bb1513b43942ca74cb7b448b72912ddf2",
+          "parents": [
+            "4d0e50eaf4b1e6ea6a0410afe6022d04871a2a69"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:02:00Z",
+          "message": "writ: define-field schema/sch-alice\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/fedcba9876543210/schema",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "4e0a6b805562fbe78512f357b3e3c73b014ef2ae",
+          "tree": "3b4b112a2edbc8c417c797aba4167d4d19badb3a",
+          "parents": [],
+          "author": "Bob Example \u003cbob@example.test\u003e",
+          "timestamp": "2026-01-01T00:00:30Z",
+          "message": "writ: create schema/sch-bob\n",
+          "signed": true
+        },
+        {
+          "sha": "7a50970940b1569c1a7b80ef618f075bbcd24461",
+          "tree": "f31651cfe9379fdc5880027c20a6edcfc20dde44",
+          "parents": [
+            "4e0a6b805562fbe78512f357b3e3c73b014ef2ae"
+          ],
+          "author": "Bob Example \u003cbob@example.test\u003e",
+          "timestamp": "2026-01-01T00:01:30Z",
+          "message": "writ: define-type schema/sch-bob\n",
+          "signed": true
+        },
+        {
+          "sha": "d73564527fdfe4aaeb49e4a8d9a723832dbd580a",
+          "tree": "e9eefedfd282fc74a81340f7e7932a05a5c577f9",
+          "parents": [
+            "7a50970940b1569c1a7b80ef618f075bbcd24461"
+          ],
+          "author": "Bob Example \u003cbob@example.test\u003e",
+          "timestamp": "2026-01-01T00:02:30Z",
+          "message": "writ: define-field schema/sch-bob\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/gadget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "95a637ce4411091b17c256515a19861285b8210f",
+          "tree": "709284f42de7af6191626d2100ae1d0fce161f5d",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:03:00Z",
+          "message": "writ: create gadget/gadget-1\n",
+          "signed": true
+        }
+      ]
+    }
+  ]
+}

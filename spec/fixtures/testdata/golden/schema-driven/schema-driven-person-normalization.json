@@ -1,0 +1,167 @@
+{
+  "schemas": [
+    {
+      "object_id": "sch-acme",
+      "schema": {
+        "object_id": "sch-acme",
+        "namespace": "acme",
+        "types": [
+          {
+            "type": "person-vocab",
+            "fields": [
+              {
+                "field": "add",
+                "op_type": "assign",
+                "op_version": 1,
+                "value_type": "person-ref",
+                "strategy": "set-observed-remove"
+              },
+              {
+                "field": "remove",
+                "op_type": "assign",
+                "op_version": 1,
+                "value_type": "person-ref",
+                "strategy": "set-observed-remove"
+              },
+              {
+                "field": "owner_once",
+                "op_type": "claim",
+                "op_version": 1,
+                "value_type": "person-ref",
+                "strategy": "create-once"
+              },
+              {
+                "field": "endorsers",
+                "op_type": "endorse",
+                "op_version": 1,
+                "value_type": "person-ref",
+                "strategy": "set-union"
+              },
+              {
+                "field": "note",
+                "op_type": "endorse-key",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "keyed-lww",
+                "key": [
+                  "voter"
+                ],
+                "key_types": {
+                  "voter": "person-ref"
+                }
+              },
+              {
+                "field": "owner_list",
+                "op_type": "log",
+                "op_version": 1,
+                "value_type": "person-ref",
+                "strategy": "append"
+              },
+              {
+                "field": "owner_multi",
+                "op_type": "record",
+                "op_version": 1,
+                "value_type": "person-ref",
+                "strategy": "multi-value"
+              },
+              {
+                "field": "owner_lww",
+                "op_type": "set",
+                "op_version": 1,
+                "value_type": "person-ref",
+                "strategy": "lww"
+              },
+              {
+                "field": "voter",
+                "op_type": "vote",
+                "op_version": 1,
+                "value_type": "person-ref",
+                "strategy": "keyed-lww",
+                "key": [
+                  "topic"
+                ],
+                "key_types": {
+                  "topic": "string"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "objects": [
+    {
+      "object_id": "pv-1",
+      "object_type": "person-vocab",
+      "total_order": [
+        {
+          "commit": "29f7538c471ad68b23b472b95c313e77cbef59ed",
+          "t_star": 1767226260
+        },
+        {
+          "commit": "a8dc7b06ea33b0c77ca99d42046ed7bdea6ea805",
+          "t_star": 1767226320
+        },
+        {
+          "commit": "1a7c2f40775cf2a8fe0f90e8c5a3ba85550f6363",
+          "t_star": 1767226380
+        },
+        {
+          "commit": "0515d0efba11ed0cc29224839546bccbcdb8364c",
+          "t_star": 1767226440
+        },
+        {
+          "commit": "d1bd2b6c910ad46eab77a587ebcef2158c75135f",
+          "t_star": 1767226500
+        },
+        {
+          "commit": "7029f006aae8a5da08a61bebcb7d4b99a89b6ac0",
+          "t_star": 1767226560
+        },
+        {
+          "commit": "d89b55105a629744ada5172ad91851ebc8cf086c",
+          "t_star": 1767226620
+        },
+        {
+          "commit": "719da78d1c48bd7d6a419ef1f892b04695ab8cf6",
+          "t_star": 1767226680
+        }
+      ],
+      "state": {
+        "add": [
+          "email:heidi@example.com"
+        ],
+        "endorsers": [
+          "email:frank@example.com",
+          "email:grace@example.com"
+        ],
+        "note": [
+          {
+            "key": [
+              "email:judy@example.com"
+            ],
+            "value": "left a note"
+          }
+        ],
+        "owner_list": [
+          "EMAIL:Dave@EXAMPLE.COM"
+        ],
+        "owner_lww": "email:alice@example.com",
+        "owner_multi": "email:carol@example.com",
+        "owner_once": "email:bob@example.com",
+        "remove": [
+          "email:heidi@example.com"
+        ],
+        "voter": [
+          {
+            "key": [
+              "roadmap"
+            ],
+            "value": "email:ivan@example.com"
+          }
+        ]
+      }
+    }
+  ]
+}

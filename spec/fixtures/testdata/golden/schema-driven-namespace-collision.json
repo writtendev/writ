@@ -1,0 +1,126 @@
+{
+  "refs": [
+    {
+      "name": "refs/writ/0123456789abcdef/schema",
+      "commit": "9dd8211d060b0a308c2ec5fbec9c2d09494d89b8"
+    },
+    {
+      "name": "refs/writ/fedcba9876543210/schema",
+      "commit": "f60432c30c89a9d9175b6475e38996ee17f7f1fc"
+    },
+    {
+      "name": "refs/writ/0123456789abcdef/widget-a",
+      "commit": "36b1050693d5fc17ee17e05f3629f3ca5c655d46"
+    },
+    {
+      "name": "refs/writ/fedcba9876543210/widget-b",
+      "commit": "590ec2915de51643b44d643f99d6b5155fce1031"
+    }
+  ],
+  "generations": [
+    {
+      "ref": "refs/writ/0123456789abcdef/schema",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "0a3550b90bbc2629aba8c1cbfea55cd47bfc5304",
+          "tree": "4c49b49abf86b72ed56dffe7779847e14777d5c6",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "message": "writ: create schema/sch-alice\n",
+          "signed": true
+        },
+        {
+          "sha": "55c17e4755cce588403824a05bf3b125bc68d489",
+          "tree": "e475a02c1426ea8faa7086b14a2c699fb3e52d13",
+          "parents": [
+            "0a3550b90bbc2629aba8c1cbfea55cd47bfc5304"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:01:00Z",
+          "message": "writ: define-type schema/sch-alice\n",
+          "signed": true
+        },
+        {
+          "sha": "9dd8211d060b0a308c2ec5fbec9c2d09494d89b8",
+          "tree": "9984e036101621457afa41e65318c71867e33377",
+          "parents": [
+            "55c17e4755cce588403824a05bf3b125bc68d489"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:02:00Z",
+          "message": "writ: define-field schema/sch-alice\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/fedcba9876543210/schema",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "5858591cb60871f34345d0cc932136f855ed43d9",
+          "tree": "e4ef4ddfdebe364380e93a48bfd2a57a34ee494a",
+          "parents": [],
+          "author": "Bob Example \u003cbob@example.test\u003e",
+          "timestamp": "2026-01-01T00:00:30Z",
+          "message": "writ: create schema/sch-bob\n",
+          "signed": true
+        },
+        {
+          "sha": "d77be8de2a2e154b370fdb95c4f1913dbb3bee9c",
+          "tree": "7f3d5e971ef73749495c367b3ca07365257fe79c",
+          "parents": [
+            "5858591cb60871f34345d0cc932136f855ed43d9"
+          ],
+          "author": "Bob Example \u003cbob@example.test\u003e",
+          "timestamp": "2026-01-01T00:01:30Z",
+          "message": "writ: define-type schema/sch-bob\n",
+          "signed": true
+        },
+        {
+          "sha": "f60432c30c89a9d9175b6475e38996ee17f7f1fc",
+          "tree": "eebc667a9d593918cac875e944139654c02af90d",
+          "parents": [
+            "d77be8de2a2e154b370fdb95c4f1913dbb3bee9c"
+          ],
+          "author": "Bob Example \u003cbob@example.test\u003e",
+          "timestamp": "2026-01-01T00:02:30Z",
+          "message": "writ: define-field schema/sch-bob\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/widget-a",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "36b1050693d5fc17ee17e05f3629f3ca5c655d46",
+          "tree": "234d4d9640665b3a0342c615b1537896f1570e98",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:03:00Z",
+          "message": "writ: create widget-a/widget-a-1\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/fedcba9876543210/widget-b",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "590ec2915de51643b44d643f99d6b5155fce1031",
+          "tree": "d65ce66162f53c012c08fb474ce76b11906d89bd",
+          "parents": [],
+          "author": "Bob Example \u003cbob@example.test\u003e",
+          "timestamp": "2026-01-01T00:03:30Z",
+          "message": "writ: create widget-b/widget-b-1\n",
+          "signed": true
+        }
+      ]
+    }
+  ]
+}

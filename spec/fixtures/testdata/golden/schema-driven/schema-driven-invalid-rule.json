@@ -1,0 +1,146 @@
+{
+  "schemas": [
+    {
+      "object_id": "sch-acme",
+      "schema": {
+        "object_id": "sch-acme",
+        "namespace": "acme",
+        "types": [
+          {
+            "type": "gadget",
+            "fields": [
+              {
+                "field": "title",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              },
+              {
+                "field": "kind",
+                "op_type": "set-kind",
+                "op_version": 1,
+                "value_type": "enum",
+                "strategy": "lww"
+              },
+              {
+                "field": "note",
+                "op_type": "set-note",
+                "op_version": 1,
+                "value_type": "bool",
+                "max_length": 10,
+                "strategy": "lww"
+              },
+              {
+                "field": "pair",
+                "op_type": "set-pair",
+                "op_version": 1,
+                "strategy": "keyed-lww",
+                "key": [
+                  "a",
+                  "b"
+                ],
+                "key_types": {
+                  "a": "string"
+                }
+              },
+              {
+                "field": "status",
+                "op_type": "set-status",
+                "op_version": 1,
+                "strategy": "bogus"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "conflicts": [
+    {
+      "object_type": "gadget",
+      "object_ids": [
+        "sch-acme"
+      ],
+      "reason": "field rule (set-kind, 1, kind) is invalid and was not installed: rule for (set-kind, kind) declares value_type enum but no enum values"
+    },
+    {
+      "object_type": "gadget",
+      "object_ids": [
+        "sch-acme"
+      ],
+      "reason": "field rule (set-note, 1, note) is invalid and was not installed: rule for (set-note, note) declares max_length on value_type \"bool\"; only string and text take one"
+    },
+    {
+      "object_type": "gadget",
+      "object_ids": [
+        "sch-acme"
+      ],
+      "reason": "field rule (set-pair, 1, pair) is invalid and was not installed: rule for (set-pair, pair) declares key_types covering 1 column(s), want exactly the 2 in key [a b]"
+    },
+    {
+      "object_type": "gadget",
+      "object_ids": [
+        "sch-acme"
+      ],
+      "reason": "field rule (set-status, 1, status) is invalid and was not installed: rule for (set-status, status) has unknown strategy \"bogus\""
+    }
+  ],
+  "objects": [
+    {
+      "object_id": "gadget-1",
+      "object_type": "gadget",
+      "total_order": [
+        {
+          "commit": "9dec5741ff1335028b902f08b7ac102ca99faa42",
+          "t_star": 1767226020
+        },
+        {
+          "commit": "c6fe45762d9c1e9ae7601bfd060ab80d46b22cf8",
+          "t_star": 1767226080
+        },
+        {
+          "commit": "c822e13c19182c6607a53fa27af16ded08248145",
+          "t_star": 1767226140
+        },
+        {
+          "commit": "84eb452fb4b70cf3f34e2e4d393f5a552630ceea",
+          "t_star": 1767226200
+        },
+        {
+          "commit": "862b7e88e1d18b905741cfbe402fd340f368c0e6",
+          "t_star": 1767226260
+        }
+      ],
+      "state": {
+        "title": "Widget"
+      },
+      "unknown_ops": [
+        {
+          "commit": "c6fe45762d9c1e9ae7601bfd060ab80d46b22cf8",
+          "object_type": "gadget",
+          "op_type": "set-status",
+          "op_version": 1
+        },
+        {
+          "commit": "c822e13c19182c6607a53fa27af16ded08248145",
+          "object_type": "gadget",
+          "op_type": "set-kind",
+          "op_version": 1
+        },
+        {
+          "commit": "84eb452fb4b70cf3f34e2e4d393f5a552630ceea",
+          "object_type": "gadget",
+          "op_type": "set-note",
+          "op_version": 1
+        },
+        {
+          "commit": "862b7e88e1d18b905741cfbe402fd340f368c0e6",
+          "object_type": "gadget",
+          "op_type": "set-pair",
+          "op_version": 1
+        }
+      ]
+    }
+  ]
+}

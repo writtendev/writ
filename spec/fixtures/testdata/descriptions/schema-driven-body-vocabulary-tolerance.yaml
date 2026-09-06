@@ -1,0 +1,107 @@
+name: schema-driven-body-vocabulary-tolerance
+description: >
+  The schema-parametric restatement of envelope-body-vocabulary-tolerance.yaml,
+  whose current point -- a body a producer would refuse, a reader must
+  accept -- depends on the review-ops vocabulary WRIT-194 deletes. Here the
+  schema declares an enum-typed field and a person-ref field; a conforming
+  producer would refuse a verdict outside the declared enum and an empty
+  person identifier (spec/op-envelope.md producer validation rule 3, now
+  value_type-driven), but nothing on the read path calls the value-type
+  validator (spec/value-types.md §Producer-side and reader-tolerant): the
+  fold accepts both ops and folds them, because ruleAccepts only checks
+  shape (any non-null JSON value round-trips through lww), never semantic
+  value_type conformance. (pins: reader)
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: define-type
+            parents: [create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "gadget"
+            expect: accept
+
+          - id: define-field-verdict
+            parents: [define-type]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "approve"
+                op_version: "1"
+                field: "verdict"
+                value_type: "enum"
+                enum: ["approve", "block"]
+                strategy: "lww"
+            expect: accept
+
+          - id: define-field-owner
+            parents: [define-field-verdict]
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "set-owner"
+                op_version: "1"
+                field: "owner"
+                value_type: "person-ref"
+                strategy: "lww"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/gadget
+    history:
+      - commits:
+          - id: approve-out-of-enum
+            author: alice
+            timestamp: 2026-01-01T00:04:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: approve
+              op_version: 1
+              body:
+                verdict: "bogus"
+            expect: accept
+
+          - id: set-owner-empty
+            parents: [approve-out-of-enum]
+            author: alice
+            timestamp: 2026-01-01T00:05:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: set-owner
+              op_version: 1
+              body:
+                owner: ""
+            expect: accept

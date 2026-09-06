@@ -1,0 +1,36 @@
+{
+  "refs": [
+    {
+      "name": "refs/writ/0123456789abcdef/gadget",
+      "commit": "155ca576b31eafe255b4f163f84ca833a0d57831"
+    }
+  ],
+  "generations": [
+    {
+      "ref": "refs/writ/0123456789abcdef/gadget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "ebd8d148971517f8103785fa926eeae7a6ebf9d9",
+          "tree": "709284f42de7af6191626d2100ae1d0fce161f5d",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "message": "writ: create gadget/gadget-1\n",
+          "signed": true
+        },
+        {
+          "sha": "155ca576b31eafe255b4f163f84ca833a0d57831",
+          "tree": "5b19f80a956c85a60dd7a309e67e6a7b0da5947e",
+          "parents": [
+            "ebd8d148971517f8103785fa926eeae7a6ebf9d9"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:01:00Z",
+          "message": "writ: update gadget/gadget-1\n",
+          "signed": true
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,84 @@
+{
+  "schemas": [
+    {
+      "object_id": "sch-alice",
+      "schema": {
+        "object_id": "sch-alice",
+        "namespace": "shared-namespace",
+        "types": [
+          {
+            "type": "widget-a",
+            "fields": [
+              {
+                "field": "title",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "object_id": "sch-bob",
+      "schema": {
+        "object_id": "sch-bob",
+        "namespace": "shared-namespace",
+        "types": [
+          {
+            "type": "widget-b",
+            "fields": [
+              {
+                "field": "title",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "conflicts": [
+    {
+      "namespace": "shared-namespace",
+      "object_ids": [
+        "sch-alice",
+        "sch-bob"
+      ],
+      "reason": "namespace \"shared-namespace\" is declared by more than one schema object"
+    }
+  ],
+  "objects": [
+    {
+      "object_id": "widget-a-1",
+      "object_type": "widget-a",
+      "total_order": [
+        {
+          "commit": "36b1050693d5fc17ee17e05f3629f3ca5c655d46",
+          "t_star": 1767225780
+        }
+      ],
+      "state": {
+        "title": "Widget A"
+      }
+    },
+    {
+      "object_id": "widget-b-1",
+      "object_type": "widget-b",
+      "total_order": [
+        {
+          "commit": "590ec2915de51643b44d643f99d6b5155fce1031",
+          "t_star": 1767225810
+        }
+      ],
+      "state": {
+        "title": "Widget B"
+      }
+    }
+  ]
+}

@@ -1,0 +1,117 @@
+name: schema-driven-object-type-collision
+description: >
+  Two schema objects, authored by two different writers, both bind the same
+  bare object_type "gadget" (spec/schema-ops.md §2, §6). This is the
+  load-bearing collision: no winner is picked, no rules install for
+  "gadget" at all, and its ops fall through the absent-schema path to
+  UnknownOp exactly as if no schema had ever declared it — even though two
+  schemas nominally describe it. RulesFromSchemas reports the conflict.
+  (pins: reader)
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: alice-create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: sch-alice
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "alice-vocab"
+            expect: accept
+
+          - id: alice-define-type
+            parents: [alice-create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: sch-alice
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "gadget"
+            expect: accept
+
+          - id: alice-define-field
+            parents: [alice-define-type]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: sch-alice
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+  - name: refs/writ/fedcba9876543210/schema
+    history:
+      - commits:
+          - id: bob-create
+            author: bob
+            timestamp: 2026-01-01T00:00:30Z
+            op:
+              object_id: sch-bob
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "bob-vocab"
+            expect: accept
+
+          - id: bob-define-type
+            parents: [bob-create]
+            author: bob
+            timestamp: 2026-01-01T00:01:30Z
+            op:
+              object_id: sch-bob
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "gadget"
+            expect: accept
+
+          - id: bob-define-field
+            parents: [bob-define-type]
+            author: bob
+            timestamp: 2026-01-01T00:02:30Z
+            op:
+              object_id: sch-bob
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/gadget
+    history:
+      - commits:
+          - id: gadget-create
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: create
+              op_version: 1
+              body:
+                title: "Widget"
+            expect: accept
