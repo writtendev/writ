@@ -1,0 +1,34 @@
+{
+  "name": "schema-version-bump-same-target",
+  "description": "A define-field version bump that only changes value_type (not strategy) needs no distinct target and folds correctly today (spec/schema-ops.md §Evolution, Correction 1): op_version 1 and op_version 2 of widget-op both declare field 'value' as lww, so both land in the same accumulator regardless of which rule a caller's slice lists first, because the strategy the accumulator runs is identical either way. v2's later write simply overwrites v1's under ordinary last-writer-wins.",
+  "object_id": "obj-1",
+  "fields": {
+    "v1_value": { "strategy": "lww", "op_type": "widget-op", "op_version": 1, "field": "value", "value_type": "string" },
+    "v2_value": { "strategy": "lww", "op_type": "widget-op", "op_version": 2, "field": "value", "value_type": "enum", "enum": ["draft", "approved"] }
+  },
+  "ops": [
+    {
+      "id": "op-v1",
+      "parents": [],
+      "time": 100,
+      "object_id": "obj-1",
+      "object_type": "widget",
+      "op_type": "widget-op",
+      "op_version": 1,
+      "body": { "value": "draft" }
+    },
+    {
+      "id": "op-v2",
+      "parents": ["op-v1"],
+      "time": 200,
+      "object_id": "obj-1",
+      "object_type": "widget",
+      "op_type": "widget-op",
+      "op_version": 2,
+      "body": { "value": "approved" }
+    }
+  ],
+  "expected_state": {
+    "value": "approved"
+  }
+}

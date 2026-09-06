@@ -71,13 +71,23 @@ default merge behaviors for undeclared fields"). This is not a compatibility
 shim tolerating an old form — every rule table here is new — it is the
 existing idiom applied to the second axis.
 
-Exactly one rule across the ten shipped `field-rules.json` tables is
-untyped: `comments`' `create.subject`, a two-field record
-(`{object_type, object_id}`, `schemas/comment.schema.json` `$defs/subject`)
-folded whole under `create-once`. No catalogue entry expresses a record, and
-adding one would be the scope growth WRIT-184 decision 6 forbids.
-`TestExactlyOneRuleIsUntyped` binds this: adding a second untyped rule
-anywhere fails it by name, so the exception cannot quietly spread.
+Exactly five rules across the eleven shipped `field-rules.json` tables are
+untyped, and each is named so the exception cannot quietly spread:
+
+- `comments`' `create.subject`, a two-field record (`{object_type,
+  object_id}`, `schemas/comment.schema.json` `$defs/subject`) folded whole
+  under `create-once`.
+- `schema-ops`' `define-field.enum`, `.key`, `.key_types`, and `.lattice`
+  (`spec/schema-ops.md`): each holds an array or an object — the shape of a
+  *rule table's own* `enum`, `key`, `key_types`, or `lattice` attribute
+  (`spec/fold.md` §5) — not a scalar or a register the closed catalogue was
+  built to type. `define-field.max_length` is not among them: it is a
+  plain integer and types as `int` like any other.
+
+No catalogue entry expresses a record, an array, or an object, and adding
+one would be the scope growth WRIT-184 decision 6 forbids.
+`TestUntypedRulesAreNamed` binds this: adding an untyped rule anywhere not
+in this named set fails it by name.
 
 ## Orthogonality
 

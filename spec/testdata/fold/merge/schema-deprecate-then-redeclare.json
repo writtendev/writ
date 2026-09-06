@@ -1,0 +1,45 @@
+{
+  "name": "schema-deprecate-then-redeclare",
+  "description": "deprecate-field writes deprecated:true into the same key a define-field register is scoped by (spec/schema-ops.md §Evolution), which is what makes it tombstone-style without needing the tombstone strategy: the tombstone strategy is per-object, and this is a per-key register like any other keyed-lww field. A later define-field redeclaring the same (type, op_type, op_version, field) key changes field_strategy but never touches field_deprecated on its own, so the field stays deprecated until an explicit write says otherwise.",
+  "object_id": "obj-schema-1",
+  "fields": {
+    "field_strategy": { "strategy": "keyed-lww", "op_type": "define-field", "field": "strategy", "key": ["type", "op_type", "op_version", "field"], "target": "field_strategy" },
+    "field_deprecated": { "strategy": "keyed-lww", "op_type": "deprecate-field", "field": "deprecated", "key": ["type", "op_type", "op_version", "field"], "target": "field_deprecated", "value_type": "bool" }
+  },
+  "ops": [
+    {
+      "id": "op-define-v1",
+      "parents": [],
+      "time": 100,
+      "object_id": "obj-schema-1",
+      "object_type": "schema",
+      "op_type": "define-field",
+      "op_version": 1,
+      "body": { "type": "standup", "op_type": "create", "op_version": "1", "field": "summary", "strategy": "lww" }
+    },
+    {
+      "id": "op-deprecate",
+      "parents": ["op-define-v1"],
+      "time": 200,
+      "object_id": "obj-schema-1",
+      "object_type": "schema",
+      "op_type": "deprecate-field",
+      "op_version": 1,
+      "body": { "type": "standup", "op_type": "create", "op_version": "1", "field": "summary", "deprecated": true }
+    },
+    {
+      "id": "op-redeclare",
+      "parents": ["op-deprecate"],
+      "time": 300,
+      "object_id": "obj-schema-1",
+      "object_type": "schema",
+      "op_type": "define-field",
+      "op_version": 1,
+      "body": { "type": "standup", "op_type": "create", "op_version": "1", "field": "summary", "strategy": "append" }
+    }
+  ],
+  "expected_state": {
+    "field_strategy": [{ "key": ["standup", "create", "1", "summary"], "value": "append" }],
+    "field_deprecated": [{ "key": ["standup", "create", "1", "summary"], "value": true }]
+  }
+}

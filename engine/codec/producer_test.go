@@ -122,6 +122,7 @@ var knownCreateBodies = map[string]string{
 	"document":       `{"title":"Initial"}`,
 	"section":        `{"body":"Initial","document_id":"0123456789abcdef0123456789abcdef","position":"V"}`,
 	"settings":       `{"name":"Initial"}`,
+	"schema":         `{"namespace":"acme"}`,
 }
 
 // TestBuildCommitAcceptsUnknownFieldsInEveryVocabulary asserts the producer
@@ -244,6 +245,7 @@ var producerTypos = map[string]string{
 	"document":       "creat",
 	"section":        "mov",
 	"settings":       "st",
+	"schema":         "creat",
 }
 
 // TestBuildCommitRefusesOpTypesItDoesNotDefine pins producer rule 4

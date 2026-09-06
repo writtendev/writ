@@ -48,30 +48,51 @@ func TestValueTypeCountMatchesProse(t *testing.T) {
 	}
 }
 
-// TestExactlyOneRuleIsUntyped asserts spec/value-types.md §0.4's exception:
-// value_type is optional, and across all ten field-rules.json tables exactly
-// one rule legitimately omits it — comment.create.subject, a two-field record
-// (schemas/comment.schema.json $defs/subject) no catalogue entry expresses.
-// Naming it here is what keeps the exception from quietly spreading: adding a
-// second untyped rule anywhere fails this test by name.
-func TestExactlyOneRuleIsUntyped(t *testing.T) {
+// untypedRulesAllowed is spec/value-types.md §0.4's named exception list:
+// every rule across all field-rules.json tables that legitimately omits
+// value_type, because no catalogue entry expresses what it holds (a
+// record, or a rule table's own array/object-shaped attribute) rather than
+// a scalar or a typed register. Naming them here is what keeps the
+// exception from quietly spreading: an untyped rule anywhere not in this
+// set fails TestUntypedRulesAreNamed by name.
+var untypedRulesAllowed = map[string]bool{
+	"comments.create.subject":           true,
+	"schema-ops.define-field.enum":      true,
+	"schema-ops.define-field.key":       true,
+	"schema-ops.define-field.key_types": true,
+	"schema-ops.define-field.lattice":   true,
+}
+
+// TestUntypedRulesAreNamed asserts spec/value-types.md §0.4's exception:
+// value_type is optional, and exactly the rules in untypedRulesAllowed
+// legitimately omit it.
+func TestUntypedRulesAreNamed(t *testing.T) {
 	rules, err := spec.FieldRules()
 	if err != nil {
 		t.Fatalf("spec.FieldRules failed: %v", err)
 	}
 
+	seen := make(map[string]bool)
 	var untyped []string
 	for _, r := range rules {
 		if r.ValueType == "" {
-			untyped = append(untyped, r.Vocabulary+"."+r.OpType+"."+r.Field)
+			name := r.Vocabulary + "." + r.OpType + "." + r.Field
+			untyped = append(untyped, name)
+			seen[name] = true
+			if !untypedRulesAllowed[name] {
+				t.Errorf("rule %q is untyped but is not in the named exception list", name)
+			}
 		}
 	}
 
-	if len(untyped) != 1 {
-		t.Fatalf("expected exactly one untyped rule across all field-rules.json tables, got %d: %v", len(untyped), untyped)
+	for name := range untypedRulesAllowed {
+		if !seen[name] {
+			t.Errorf("named exception %q is no longer untyped (or no longer exists); update untypedRulesAllowed deliberately", name)
+		}
 	}
-	if want := "comments.create.subject"; untyped[0] != want {
-		t.Errorf("the one untyped rule is %q, want %q", untyped[0], want)
+
+	if len(untyped) != len(untypedRulesAllowed) {
+		t.Errorf("expected exactly %d untyped rules, got %d: %v", len(untypedRulesAllowed), len(untyped), untyped)
 	}
 }
 

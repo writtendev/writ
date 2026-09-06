@@ -1,0 +1,35 @@
+{
+  "name": "schema-version-bump-new-target",
+  "description": "A define-field version bump that changes strategy MUST declare a distinct target (spec/schema-ops.md §Evolution, Correction 1): op_version 1 of widget-op declares field 'value' as lww; op_version 2 redeclares 'value' as set-union under target 'value_v2' instead of reusing 'value'. Without the distinct target, Fold groups both versions' rules by target key alone and instantiates one accumulator from whichever rule a caller's slice lists first — order-dependent, which is exactly what the target remedy avoids. With it, v1's register and v2's register are two independent state keys and neither strategy ever sees the other version's writes.",
+  "object_id": "obj-1",
+  "fields": {
+    "v1_value": { "strategy": "lww", "op_type": "widget-op", "op_version": 1, "field": "value", "value_type": "string" },
+    "v2_value": { "strategy": "set-union", "op_type": "widget-op", "op_version": 2, "field": "value", "target": "value_v2", "value_type": "string" }
+  },
+  "ops": [
+    {
+      "id": "op-v1",
+      "parents": [],
+      "time": 100,
+      "object_id": "obj-1",
+      "object_type": "widget",
+      "op_type": "widget-op",
+      "op_version": 1,
+      "body": { "value": "legacy-status" }
+    },
+    {
+      "id": "op-v2",
+      "parents": ["op-v1"],
+      "time": 200,
+      "object_id": "obj-1",
+      "object_type": "widget",
+      "op_type": "widget-op",
+      "op_version": 2,
+      "body": { "value": ["tag-a", "tag-b"] }
+    }
+  ],
+  "expected_state": {
+    "value": "legacy-status",
+    "value_v2": ["tag-a", "tag-b"]
+  }
+}

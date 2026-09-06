@@ -1,0 +1,69 @@
+{
+  "name": "schema-bootstrap-whole-object",
+  "description": "Folding a whole schema object (spec/schema-ops.md §Bootstrap): create's create-once namespace and lww description, a define-type's keyed-lww registers scoped by [type], a define-field's keyed-lww registers scoped by [type, op_type, op_version, field], and a define-op's keyed-lww registers scoped by [type, op_type, op_version]. Every register folds through the closed strategy catalogue exactly as any other collaborative object's fields do; schema needs no new strategy.",
+  "object_id": "obj-schema-1",
+  "fields": {
+    "namespace": { "strategy": "create-once", "op_type": "create", "value_type": "string" },
+    "create_description": { "strategy": "lww", "op_type": "create", "field": "description", "value_type": "string" },
+    "type_name": { "strategy": "keyed-lww", "op_type": "define-type", "field": "type", "key": ["type"], "target": "type_name" },
+    "type_description": { "strategy": "keyed-lww", "op_type": "define-type", "field": "description", "key": ["type"], "target": "type_description" },
+    "field_name": { "strategy": "keyed-lww", "op_type": "define-field", "field": "field", "key": ["type", "op_type", "op_version", "field"], "target": "field_name" },
+    "field_value_type": { "strategy": "keyed-lww", "op_type": "define-field", "field": "value_type", "key": ["type", "op_type", "op_version", "field"], "target": "field_value_type" },
+    "field_strategy": { "strategy": "keyed-lww", "op_type": "define-field", "field": "strategy", "key": ["type", "op_type", "op_version", "field"], "target": "field_strategy" },
+    "op_name": { "strategy": "keyed-lww", "op_type": "define-op", "field": "op_type", "key": ["type", "op_type", "op_version"], "target": "op_name" },
+    "op_description": { "strategy": "keyed-lww", "op_type": "define-op", "field": "description", "key": ["type", "op_type", "op_version"], "target": "op_description" }
+  },
+  "ops": [
+    {
+      "id": "op-create",
+      "parents": [],
+      "time": 100,
+      "object_id": "obj-schema-1",
+      "object_type": "schema",
+      "op_type": "create",
+      "op_version": 1,
+      "body": { "namespace": "acme", "description": "Acme schema" }
+    },
+    {
+      "id": "op-define-type",
+      "parents": ["op-create"],
+      "time": 200,
+      "object_id": "obj-schema-1",
+      "object_type": "schema",
+      "op_type": "define-type",
+      "op_version": 1,
+      "body": { "type": "standup", "description": "Daily standup" }
+    },
+    {
+      "id": "op-define-field",
+      "parents": ["op-define-type"],
+      "time": 300,
+      "object_id": "obj-schema-1",
+      "object_type": "schema",
+      "op_type": "define-field",
+      "op_version": 1,
+      "body": { "type": "standup", "op_type": "create", "op_version": "1", "field": "summary", "value_type": "string", "strategy": "lww" }
+    },
+    {
+      "id": "op-define-op",
+      "parents": ["op-define-field"],
+      "time": 400,
+      "object_id": "obj-schema-1",
+      "object_type": "schema",
+      "op_type": "define-op",
+      "op_version": 1,
+      "body": { "type": "standup", "op_type": "create", "op_version": "1", "description": "Create a standup" }
+    }
+  ],
+  "expected_state": {
+    "namespace": "acme",
+    "description": "Acme schema",
+    "type_name": [{ "key": ["standup"], "value": "standup" }],
+    "type_description": [{ "key": ["standup"], "value": "Daily standup" }],
+    "field_name": [{ "key": ["standup", "create", "1", "summary"], "value": "summary" }],
+    "field_value_type": [{ "key": ["standup", "create", "1", "summary"], "value": "string" }],
+    "field_strategy": [{ "key": ["standup", "create", "1", "summary"], "value": "lww" }],
+    "op_name": [{ "key": ["standup", "create", "1"], "value": "create" }],
+    "op_description": [{ "key": ["standup", "create", "1"], "value": "Create a standup" }]
+  }
+}
