@@ -5,10 +5,12 @@
 package wire
 
 import (
+	"encoding/json"
 	"errors"
 	"time"
 
 	"github.com/writtendev/writ/engine"
+	"github.com/writtendev/writ/engine/codec"
 	"github.com/writtendev/writ/engine/resolve"
 	"github.com/writtendev/writ/engine/state"
 )
@@ -18,12 +20,12 @@ const CurrentSchemaVersion = 1
 
 // Envelope kinds for plumbing commands.
 const (
-	KindReviewList   = "review.list"
-	KindReviewStatus = "review.status"
-	KindIssueList    = "issue.list"
-	KindIssueStatus  = "issue.status"
-	KindIssueLabel   = "issue.label"
-	KindIssueLabels  = "issue.label"
+	KindReviewList    = "review.list"
+	KindReviewStatus  = "review.status"
+	KindIssueList     = "issue.list"
+	KindIssueStatus   = "issue.status"
+	KindIssueLabel    = "issue.label"
+	KindIssueLabels   = "issue.label"
 	KindSyncStatus    = "sync.status"
 	KindSyncResult    = "sync.result"
 	KindCommentEdit   = "comment.edit"
@@ -37,6 +39,8 @@ const (
 	KindDocLink       = "doc.link"
 	KindDocSection    = "doc.section"
 	KindSettings      = "settings"
+	KindSchemaPlan    = "schema.plan"
+	KindSchemaApply   = "schema.apply"
 )
 
 // Envelope wraps all machine-readable output in a single versioned container.
@@ -889,3 +893,71 @@ func FromSettingsResult(res writ.SettingsResult) SettingsWire {
 	}
 }
 
+// SchemaOpEntry is one op `writ schema plan`/`apply` would append (or did),
+// in the same op vocabulary spec/schema-ops.md defines. Body is the
+// envelope body verbatim — the normative wire form is the honest answer to
+// "which ops would be appended", stable in a way a re-modelled shape would
+// not be.
+type SchemaOpEntry struct {
+	OpType string          `json:"op_type"`
+	Body   json.RawMessage `json:"body"`
+}
+
+// FromSchemaEnvelopes converts a compiled op sequence into wire entries,
+// preserving order. Collections are always non-nil so they serialize as `[]`.
+func FromSchemaEnvelopes(envs []codec.Envelope) []SchemaOpEntry {
+	out := make([]SchemaOpEntry, len(envs))
+	for i, e := range envs {
+		out[i] = SchemaOpEntry{OpType: e.OpType, Body: json.RawMessage(e.Body)}
+	}
+	return out
+}
+
+// SchemaConflict is a load-bearing collision between schema objects
+// (spec/schema-ops.md §Conflicts), reported by `plan` whether or not the
+// working-tree file caused it — it is the only surface that shows them.
+type SchemaConflict struct {
+	ObjectType string   `json:"object_type,omitempty"`
+	Namespace  string   `json:"namespace,omitempty"`
+	ObjectIDs  []string `json:"object_ids"`
+	Reason     string   `json:"reason"`
+}
+
+// FromSchemaConflicts converts domain SchemaConflicts to wire form.
+// Collections are always non-nil so they serialize as `[]`.
+func FromSchemaConflicts(conflicts []writ.SchemaConflict) []SchemaConflict {
+	out := make([]SchemaConflict, len(conflicts))
+	for i, c := range conflicts {
+		ids := c.ObjectIDs
+		if ids == nil {
+			ids = []string{}
+		}
+		out[i] = SchemaConflict{ObjectType: c.ObjectType, Namespace: c.Namespace, ObjectIDs: ids, Reason: c.Reason}
+	}
+	return out
+}
+
+// SchemaPlan is the `schema.plan` JSON payload: the target schema object
+// `writ schema apply` would write to, whether it would be minted fresh, and
+// the ops that would be appended to bring it in line with the working-tree
+// writ.schema file.
+type SchemaPlan struct {
+	ObjectID      string           `json:"object_id"`
+	Namespace     string           `json:"namespace"`
+	Created       bool             `json:"created"`
+	UpToDate      bool             `json:"up_to_date"`
+	Ops           []SchemaOpEntry  `json:"ops"`
+	CurrentSource string           `json:"current_source"`
+	PlannedSource string           `json:"planned_source"`
+	Conflicts     []SchemaConflict `json:"conflicts"`
+}
+
+// SchemaApply is the `schema.apply` JSON payload: the target schema object
+// written to, and the ops actually appended.
+type SchemaApply struct {
+	ObjectID    string          `json:"object_id"`
+	Namespace   string          `json:"namespace"`
+	Created     bool            `json:"created"`
+	OpsAppended int             `json:"ops_appended"`
+	Ops         []SchemaOpEntry `json:"ops"`
+}

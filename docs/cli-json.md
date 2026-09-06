@@ -21,7 +21,7 @@ All plumbing commands emit a single top-level JSON document on `stdout` adhering
 | Field | Type | Description |
 |---|---|---|
 | `schema_version` | integer | Envelope schema version (currently `1`). Bumps only on breaking changes. |
-| `kind` | string | Discriminator for the payload schema (e.g. `review.list`, `review.status`, `issue.list`, `issue.status`, `issue.label`, `label.list`, `sync.status`, `sync.result`, `comment.edit`, `comment.delete`). |
+| `kind` | string | Discriminator for the payload schema (e.g. `review.list`, `review.status`, `issue.list`, `issue.status`, `issue.label`, `label.list`, `sync.status`, `sync.result`, `comment.edit`, `comment.delete`, `schema.plan`, `schema.apply`). |
 | `data` | object or array | Verb-specific payload structure. |
 
 ---
@@ -498,6 +498,108 @@ Lists labels across the workspace.
       "updated_at": "2026-01-01T00:00:00Z"
     }
   ]
+}
+```
+
+---
+
+### `writ schema plan --json`
+
+Parses `writ.schema`, folds the schema objects already in the repository, and reports the ops applying the file would append. Appends no ops.
+
+- **Envelope `kind`**: `"schema.plan"`
+- **`data` Type**: `SchemaPlan` object
+
+#### `SchemaPlan` Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `object_id` | string | 32-character lowercase hex identifier for the target schema object — reused from a namespace match, or freshly minted (see `created`). |
+| `namespace` | string | The file's `namespace` declaration. |
+| `created` | boolean | `true` iff the repository has no schema object with this namespace yet, so applying would mint a fresh object id. |
+| `up_to_date` | boolean | `true` iff `ops` is empty: the file already matches the folded log state. |
+| `ops` | array | The ops `apply` would append, in the order it would append them. Empty array (`[]`), never `null`, when `up_to_date`. |
+| `ops[].op_type` | string | One of `create`, `define-type`, `define-op`, `define-field`, `deprecate-type`, `deprecate-field` (`spec/schema-ops.md` §4). |
+| `ops[].body` | object | The op's normative wire body, verbatim — the same shape a conforming implementation of `spec/schema-ops.md` would sign and append. |
+| `current_source` | string | `writ.schema` source text rendered from the log's own folded state for the target object. Empty string when `created` is `true` — there is nothing in the log yet to render. |
+| `planned_source` | string | `writ.schema` source text rendered from the state applying the file would produce. |
+| `conflicts` | array | Repository-wide `SchemaConflict` entries `RulesFromSchemas` already finds, whether or not this file caused them — this is the only surface that shows them. Empty array (`[]`) when there are none. |
+| `conflicts[].object_type` | string | Set for an `object_type` collision between two schema objects; omitted for a namespace-only collision. |
+| `conflicts[].namespace` | string | Set for a namespace collision, and echoed on an `object_type` collision when known. |
+| `conflicts[].object_ids` | array | The schema object ids involved. |
+| `conflicts[].reason` | string | Human-readable explanation. |
+
+A refused plan (an invalid file, or an edit that would remove a declaration) exits `1` and writes plain-text diagnostics to `stderr`; no `SchemaPlan` JSON is emitted.
+
+#### Example Output
+
+```json
+{
+  "schema_version": 1,
+  "kind": "schema.plan",
+  "data": {
+    "object_id": "0123456789abcdef0123456789abcdef",
+    "namespace": "acme",
+    "created": true,
+    "up_to_date": false,
+    "ops": [
+      {
+        "op_type": "create",
+        "body": { "namespace": "acme", "description": "Acme's vocabulary" }
+      },
+      {
+        "op_type": "define-type",
+        "body": { "type": "standup", "description": "A daily standup update" }
+      }
+    ],
+    "current_source": "",
+    "planned_source": "namespace acme\ndescription \"Acme's vocabulary\"\n\ntype standup {\n  description \"A daily standup update\"\n}\n",
+    "conflicts": []
+  }
+}
+```
+
+---
+
+### `writ schema apply --json`
+
+Runs the same computation as `writ schema plan`, then signs and appends the resulting ops.
+
+- **Envelope `kind`**: `"schema.apply"`
+- **`data` Type**: `SchemaApply` object
+
+#### `SchemaApply` Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `object_id` | string | The schema object written to. |
+| `namespace` | string | The file's `namespace` declaration. |
+| `created` | boolean | `true` iff this apply minted a fresh object id. |
+| `ops_appended` | integer | Count of ops actually appended. `0` when the file already matched the log. |
+| `ops` | array | The ops appended, same shape as `SchemaPlan.ops`. Empty array (`[]`) when nothing was appended. |
+
+#### Example Output
+
+```json
+{
+  "schema_version": 1,
+  "kind": "schema.apply",
+  "data": {
+    "object_id": "0123456789abcdef0123456789abcdef",
+    "namespace": "acme",
+    "created": true,
+    "ops_appended": 2,
+    "ops": [
+      {
+        "op_type": "create",
+        "body": { "namespace": "acme", "description": "Acme's vocabulary" }
+      },
+      {
+        "op_type": "define-type",
+        "body": { "type": "standup", "description": "A daily standup update" }
+      }
+    ]
+  }
 }
 ```
 

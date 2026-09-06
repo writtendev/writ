@@ -42,6 +42,8 @@ slug: "cli"
 - [`writ label edit`](#writ-label-edit)
 - [`writ settings get`](#writ-settings-get)
 - [`writ settings set`](#writ-settings-set)
+- [`writ schema plan`](#writ-schema-plan)
+- [`writ schema apply`](#writ-schema-apply)
 - [`writ sync`](#writ-sync)
 - [`writ version`](#writ-version)
 - [`writ completion`](#writ-completion)
@@ -1000,6 +1002,58 @@ Update one or more repository configuration settings. Untouched settings and unk
 writ settings set --name "Writ" --identifier WRIT
 writ settings set --estimate-scale t-shirt --timezone America/New_York
 writ settings set --cycles-enabled=true --cycle-duration 3
+```
+
+### `writ schema plan`
+
+Show the ops writ.schema would append
+
+#### Synopsis
+
+```console
+Usage: writ schema plan [-C <dir>] [--json]
+```
+
+#### Description
+
+Parse writ.schema, fold the schema objects in the repository, and print the ops applying the file would append. Appends no ops.
+
+#### Flags
+
+- `-C string`: Run as if writ was started in <dir>
+- `-json`: Output machine-readable JSON
+
+#### Examples
+
+```bash
+writ schema plan
+writ schema plan --json
+```
+
+### `writ schema apply`
+
+Sign and append the ops writ.schema declares
+
+#### Synopsis
+
+```console
+Usage: writ schema apply [-C <dir>] [--json]
+```
+
+#### Description
+
+Run the same computation as `writ schema plan`, then sign and append the resulting ops.
+
+#### Flags
+
+- `-C string`: Run as if writ was started in <dir>
+- `-json`: Output machine-readable JSON
+
+#### Examples
+
+```bash
+writ schema apply
+writ schema apply --json
 ```
 
 ### `writ sync`

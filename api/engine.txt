@@ -71,6 +71,7 @@ func ProjectRules() []Rule
 func ResolveGitDir(path string) (GitDirInfo, error)
 func ReviewRules() []Rule
 func RulesFromSchemas(schemas []state.Schema) (map[string][]Rule, []SchemaConflict)
+func SchemaFromEnvelopes(envs []codec.Envelope) (Schema, error)
 func SchemaRules() []Rule
 func SectionRules() []Rule
 func SettingsRules() []Rule
@@ -431,6 +432,7 @@ type Store struct {
 	Settings *SettingsService
 	// unexported fields
 }
+func (*Store) ApplySchema(ctx context.Context, envs []codec.Envelope) error
 func (*Store) Close() error
 func (*Store) Rebuild(ctx context.Context) (RefreshStats, error)
 func (*Store) Ref(objectID string) string

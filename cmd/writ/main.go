@@ -69,6 +69,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runLabel(ctx, defaultDir, args[1:], stdout, stderr)
 	case "settings":
 		return runSettings(ctx, defaultDir, args[1:], stdout, stderr)
+	case "schema":
+		return runSchema(ctx, defaultDir, args[1:], stdout, stderr)
 	case "sync":
 		return runSync(ctx, defaultDir, args[1:], stdout, stderr)
 	case "version":
@@ -87,4 +89,3 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 }
-

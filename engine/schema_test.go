@@ -11,6 +11,7 @@ import (
 	"github.com/writtendev/writ/engine/codec"
 	"github.com/writtendev/writ/engine/dag"
 	"github.com/writtendev/writ/engine/identity"
+	"github.com/writtendev/writ/engine/schemasrc"
 	"github.com/writtendev/writ/engine/state"
 	"github.com/writtendev/writ/spec"
 )
@@ -388,5 +389,185 @@ func TestStoreSchemaFoldsEveryLoggedSchemaObject(t *testing.T) {
 	}
 	if schemas[1].Namespace != "beta" {
 		t.Errorf("schemas[1].Namespace = %q, want beta", schemas[1].Namespace)
+	}
+}
+
+// compileTestSchema parses and compiles a small writ.schema source into an
+// envelope sequence under objectID, failing the test on any error.
+func compileTestSchema(t *testing.T, objectID, src string) []codec.Envelope {
+	t.Helper()
+	f, err := schemasrc.Parse("writ.schema", []byte(src))
+	if err != nil {
+		t.Fatalf("schemasrc.Parse failed: %v", err)
+	}
+	envs, err := schemasrc.Compile(f, objectID)
+	if err != nil {
+		t.Fatalf("schemasrc.Compile failed: %v", err)
+	}
+	return envs
+}
+
+const testSchemaSrc = `namespace acme
+description "Acme's vocabulary"
+
+type standup {
+  description "A daily standup update"
+
+  op create 1 {
+    title  string(200)  lww
+  }
+}
+`
+
+func TestApplySchema_RejectsNonSchemaObjectType(t *testing.T) {
+	dir, _ := setupConfiguredRepo(t)
+	store, err := writ.Open(dir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("writ.Open failed: %v", err)
+	}
+	defer store.Close()
+
+	env := codec.Envelope{ObjectID: "sch-a", ObjectType: "review", OpType: "create", OpVersion: 1, Body: []byte(`{}`)}
+	if err := store.ApplySchema(context.Background(), []codec.Envelope{env}); err == nil {
+		t.Fatal("expected error for non-schema object_type, got nil")
+	}
+}
+
+func TestApplySchema_RejectsWrongOpVersion(t *testing.T) {
+	dir, _ := setupConfiguredRepo(t)
+	store, err := writ.Open(dir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("writ.Open failed: %v", err)
+	}
+	defer store.Close()
+
+	env := codec.Envelope{ObjectID: "sch-a", ObjectType: "schema", OpType: "create", OpVersion: 2, Body: []byte(`{"namespace":"acme"}`)}
+	if err := store.ApplySchema(context.Background(), []codec.Envelope{env}); err == nil {
+		t.Fatal("expected error for op_version != 1, got nil")
+	}
+}
+
+func TestApplySchema_RejectsMixedObjectIDs(t *testing.T) {
+	dir, _ := setupConfiguredRepo(t)
+	store, err := writ.Open(dir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("writ.Open failed: %v", err)
+	}
+	defer store.Close()
+
+	envs := []codec.Envelope{
+		{ObjectID: "sch-a", ObjectType: "schema", OpType: "create", OpVersion: 1, Body: []byte(`{"namespace":"acme"}`)},
+		{ObjectID: "sch-b", ObjectType: "schema", OpType: "define-type", OpVersion: 1, Body: []byte(`{"type":"standup"}`)},
+	}
+	if err := store.ApplySchema(context.Background(), envs); err == nil {
+		t.Fatal("expected error for mixed object ids, got nil")
+	}
+}
+
+func TestApplySchema_EmptyEnvsNoop(t *testing.T) {
+	dir, _ := setupConfiguredRepo(t)
+	store, err := writ.Open(dir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("writ.Open failed: %v", err)
+	}
+	defer store.Close()
+
+	if err := store.ApplySchema(context.Background(), nil); err != nil {
+		t.Fatalf("ApplySchema with no envelopes should be a no-op, got: %v", err)
+	}
+	schemas, err := store.Schema(context.Background())
+	if err != nil {
+		t.Fatalf("Store.Schema failed: %v", err)
+	}
+	if len(schemas) != 0 {
+		t.Fatalf("expected no schema objects, got %+v", schemas)
+	}
+}
+
+// TestApplySchema_AppendsAndFolds proves ApplySchema's appended ops fold to
+// exactly what schemasrc.Compile declared, and that SchemaFromEnvelopes'
+// in-memory fold of the same compiled sequence agrees with Store.Schema's
+// fold of what actually landed in the DAG — the property `writ schema plan`
+// depends on to render a post-apply preview without appending anything.
+func TestApplySchema_AppendsAndFolds(t *testing.T) {
+	dir, _ := setupConfiguredRepo(t)
+	store, err := writ.Open(dir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("writ.Open failed: %v", err)
+	}
+	defer store.Close()
+
+	envs := compileTestSchema(t, "sch-acme", testSchemaSrc)
+
+	ctx := context.Background()
+	if err := store.ApplySchema(ctx, envs); err != nil {
+		t.Fatalf("ApplySchema failed: %v", err)
+	}
+
+	schemas, err := store.Schema(ctx)
+	if err != nil {
+		t.Fatalf("Store.Schema failed: %v", err)
+	}
+	if len(schemas) != 1 {
+		t.Fatalf("expected 1 schema object, got %d: %+v", len(schemas), schemas)
+	}
+	logSchema := schemas[0]
+	if logSchema.Namespace != "acme" {
+		t.Errorf("Namespace = %q, want acme", logSchema.Namespace)
+	}
+	if len(logSchema.Types) != 1 || logSchema.Types[0].Name != "standup" {
+		t.Fatalf("Types = %+v, want [standup]", logSchema.Types)
+	}
+
+	memSchema, err := writ.SchemaFromEnvelopes(envs)
+	if err != nil {
+		t.Fatalf("SchemaFromEnvelopes failed: %v", err)
+	}
+	// ObjectID is the only field that would legitimately differ if
+	// SchemaFromEnvelopes derived it independently; it doesn't (both come
+	// from the same envelopes), so a straight comparison is exact.
+	if !reflect.DeepEqual(logSchema, memSchema) {
+		t.Fatalf("SchemaFromEnvelopes disagrees with the log's own fold:\nlog: %+v\nmem: %+v", logSchema, memSchema)
+	}
+}
+
+// TestApplySchema_SecondApplyOfSameSequenceAppendsNoNewOps is the engine-level
+// half of the CLI's central idempotence test (WRIT-191): re-appending an
+// already-applied delta is exactly the "empty delta" case cmd/writ's `plan`
+// is responsible for computing, but ApplySchema itself has no notion of
+// delta — it appends whatever it is given. This pins the other half: an
+// empty delta (as `plan` would compute for an up-to-date file) really is a
+// no-op at the engine layer, leaving the object's ops, and hence its fold,
+// unchanged.
+func TestApplySchema_SecondApplyOfSameSequenceAppendsNoNewOps(t *testing.T) {
+	dir, _ := setupConfiguredRepo(t)
+	store, err := writ.Open(dir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("writ.Open failed: %v", err)
+	}
+	defer store.Close()
+
+	envs := compileTestSchema(t, "sch-acme", testSchemaSrc)
+	ctx := context.Background()
+	if err := store.ApplySchema(ctx, envs); err != nil {
+		t.Fatalf("first ApplySchema failed: %v", err)
+	}
+
+	before, err := store.Schema(ctx)
+	if err != nil {
+		t.Fatalf("Store.Schema failed: %v", err)
+	}
+
+	// An empty delta: nothing here for `plan` to append a second time.
+	if err := store.ApplySchema(ctx, nil); err != nil {
+		t.Fatalf("second ApplySchema (empty delta) failed: %v", err)
+	}
+
+	after, err := store.Schema(ctx)
+	if err != nil {
+		t.Fatalf("Store.Schema failed: %v", err)
+	}
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("schema state changed after a no-op apply:\nbefore: %+v\nafter: %+v", before, after)
 	}
 }
