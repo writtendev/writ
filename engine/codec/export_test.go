@@ -16,6 +16,16 @@ var VocabularyOpTypes = vocabularyOpTypes
 // VocabularyOpVersion is the op version the producer writes.
 const VocabularyOpVersion = vocabularyOpVersion
 
+// VocabularySchemaFiles is the producer's vocabulary-schema registry, keyed by
+// object type. Exported so TestFieldRuleVocabulariesIsExhaustive can check
+// fieldRuleVocabularies against the same key set without a second, drifting
+// copy of it.
+var VocabularySchemaFiles = vocabularySchemaFiles
+
+// FieldRuleVocabularies is fieldRuleVocabularies, exported for
+// TestFieldRuleVocabulariesIsExhaustive.
+var FieldRuleVocabularies = fieldRuleVocabularies
+
 // ValidateAgainstVocabularySchema validates payload bytes against the
 // vocabulary schema registered for objectType and nothing else — no producer
 // rule is applied. It is what a third-party reader validating an op against a

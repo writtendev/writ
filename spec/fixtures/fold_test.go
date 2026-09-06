@@ -178,7 +178,7 @@ func runFoldFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 					Name:  cop.Author.Name,
 					Email: cop.Author.Email,
 				},
-				Body:      body,
+				Body: body,
 			})
 		}
 
@@ -227,14 +227,6 @@ func runFoldFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 		// Cross-check: public writ.Fold produces byte-identical canonical state and total order
 		var writRules []writ.Rule
 		for _, r := range rules {
-			var norm *writ.NormalizeRule
-			if r.Normalize != nil {
-				norm = &writ.NormalizeRule{
-					Value: r.Normalize.Value,
-					Items: r.Normalize.Items,
-					Key:   r.Normalize.Key,
-				}
-			}
 			writRules = append(writRules, writ.Rule{
 				OpType:    r.OpType,
 				OpVersion: r.OpVersion,
@@ -243,7 +235,10 @@ func runFoldFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 				Strategy:  r.Strategy,
 				Key:       r.Key,
 				Lattice:   r.Lattice,
-				Normalize: norm,
+				ValueType: r.ValueType,
+				Enum:      r.Enum,
+				MaxLength: r.MaxLength,
+				KeyTypes:  r.KeyTypes,
 			})
 		}
 		engineRes, err := writ.Fold(codecOps, writRules)
@@ -606,4 +601,3 @@ func assertCommentFoldAgreement(t *testing.T, comment writ.Comment, genericState
 		}
 	}
 }
-

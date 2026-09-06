@@ -26,7 +26,7 @@ func TestLWWNormalizationVocabularyBlind(t *testing.T) {
 				OpVersion: 1,
 				Field:     "custom_actor",
 				Strategy:  "lww",
-				Normalize: &fold.NormalizeRule{Value: "person"},
+				ValueType: "person-ref",
 			},
 			input:     "email:Alice@Example.COM",
 			wantValue: "email:alice@example.com",
@@ -49,7 +49,7 @@ func TestLWWNormalizationVocabularyBlind(t *testing.T) {
 				OpVersion: 1,
 				Field:     "assignee",
 				Strategy:  "lww",
-				Normalize: &fold.NormalizeRule{Value: "person"},
+				ValueType: "person-ref",
 			},
 			input:     "Alice@Example.COM",
 			wantValue: "alice@example.com",
@@ -95,7 +95,7 @@ func TestSetObservedRemoveNormalizationVocabularyBlind(t *testing.T) {
 		OpVersion: 1,
 		Field:     "members",
 		Strategy:  "set-observed-remove",
-		Normalize: &fold.NormalizeRule{Items: "person"},
+		ValueType: "person-ref",
 	}
 	accWithNorm, err := fold.NewAccumulator(ruleWithNorm, dummyOracle{})
 	if err != nil {
@@ -149,7 +149,7 @@ func TestSetUnionNormalizationVocabularyBlind(t *testing.T) {
 		OpVersion: 1,
 		Field:     "authors",
 		Strategy:  "set-union",
-		Normalize: &fold.NormalizeRule{Items: "person"},
+		ValueType: "person-ref",
 	}
 	accWithNorm, err := fold.NewAccumulator(ruleWithNorm, dummyOracle{})
 	if err != nil {
@@ -201,9 +201,10 @@ func TestKeyedLWWNormalizationVocabularyBlind(t *testing.T) {
 		Field:     "voter",
 		Strategy:  "keyed-lww",
 		Key:       []string{"voter", "topic"},
-		Normalize: &fold.NormalizeRule{
-			Value: "person",
-			Key:   []string{"voter"},
+		ValueType: "person-ref",
+		KeyTypes: map[string]string{
+			"voter": "person-ref",
+			"topic": "string",
 		},
 	}
 	accWithNorm, err := fold.NewAccumulator(ruleWithNorm, dummyOracle{})

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://writ.dev/spec/field-rules.schema.json",
   "title": "Writ field merge rule declarations (v1)",
-  "description": "Declarative field merge rule declarations: strategies, keys, lattices, and normalization attributes per (op_type, field) tuple. Normative text: spec/fold.md. additionalProperties is deliberately never false: unknown fields are preserved and ignored.",
+  "description": "Declarative field merge rule declarations: strategies, keys, lattices, and value types per (op_type, field) tuple. Normative text: spec/fold.md (merge strategies) and spec/value-types.md (value types). additionalProperties is deliberately never false: unknown fields are preserved and ignored.",
   "type": "array",
   "items": {
     "$ref": "#/$defs/field-rule"
@@ -41,7 +41,8 @@
             "append",
             "tombstone",
             "lattice",
-            "keyed-lww"
+            "keyed-lww",
+            "multi-value"
           ],
           "description": "Closed catalogue merge strategy from spec/fold.md."
         },
@@ -63,8 +64,43 @@
           "minItems": 1,
           "description": "Ordered elements of the semilattice for lattice strategy."
         },
-        "normalize": {
-          "$ref": "#/$defs/normalize-rule"
+        "value_type": {
+          "type": "string",
+          "enum": [
+            "string",
+            "text",
+            "int",
+            "number",
+            "bool",
+            "timestamp",
+            "enum",
+            "person-ref",
+            "object-ref",
+            "git-oid",
+            "position",
+            "anchor"
+          ],
+          "description": "Closed catalogue value type from spec/value-types.md, for the strategy's register or element. Optional: a rule declaring none is untyped (spec/value-types.md), the same no-implicit-behavior idiom spec/fold.md §5 states for an undeclared strategy."
+        },
+        "enum": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "The value list for value_type \"enum\". Required iff value_type is \"enum\", forbidden otherwise."
+        },
+        "max_length": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum length in Unicode code points, for value_type \"string\" or \"text\" only."
+        },
+        "key_types": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Key column name to value type, for strategy \"keyed-lww\" only. Must cover exactly the columns key declares."
         }
       },
       "required": [
@@ -73,34 +109,6 @@
         "field",
         "strategy"
       ]
-    },
-    "normalize-rule": {
-      "type": "object",
-      "properties": {
-        "value": {
-          "type": "string",
-          "enum": [
-            "person"
-          ],
-          "description": "Normalization algorithm applied to scalar values."
-        },
-        "items": {
-          "type": "string",
-          "enum": [
-            "person"
-          ],
-          "description": "Normalization algorithm applied to collection elements/items."
-        },
-        "key": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "minItems": 1,
-          "description": "Key components normalized per algorithm (e.g. as person)."
-        }
-      }
     }
   }
 }

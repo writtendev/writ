@@ -3,54 +3,63 @@
     "op_type": "create",
     "op_version": 1,
     "field": "document_id",
-    "strategy": "create-once"
+    "strategy": "create-once",
+    "value_type": "object-ref"
   },
   {
     "op_type": "create",
     "op_version": 1,
     "field": "position",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "position"
   },
   {
     "op_type": "create",
     "op_version": 1,
     "field": "title",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "string"
   },
   {
     "op_type": "create",
     "op_version": 1,
     "field": "body",
-    "strategy": "multi-value"
+    "strategy": "multi-value",
+    "value_type": "text"
   },
   {
     "op_type": "edit",
     "op_version": 1,
     "field": "body",
-    "strategy": "multi-value"
+    "strategy": "multi-value",
+    "value_type": "text"
   },
   {
     "op_type": "move",
     "op_version": 1,
     "field": "position",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "position"
   },
   {
     "op_type": "update",
     "op_version": 1,
     "field": "title",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "string"
   },
   {
     "op_type": "update",
     "op_version": 1,
     "field": "position",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "position"
   },
   {
     "op_type": "delete",
     "op_version": 1,
     "field": "deleted",
-    "strategy": "tombstone"
+    "strategy": "tombstone",
+    "value_type": "bool"
   }
 ]

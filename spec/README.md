@@ -24,6 +24,7 @@ disagree, the fixtures win and the prose gets fixed.
 | `fold.md` | Normative | Fold semantics: the input model, causality-monotone effective time `t*`, the deterministic total order, concurrency rules, the closed per-field merge strategy catalogue, tombstones, and state serialization |
 | `identifiers.md` | Normative | Globally unique object IDs, repo designators, cross-repo references, and person identifiers |
 | `ordering.md` | Normative | Fractional indexing & shared ordering primitive: byte-comparable base-62 strings, canonical form, boundary generation, and op-id tiebreak |
+| `value-types.md` | Normative | The closed value-type catalogue (v1): a schema's second, orthogonal axis alongside `fold.md`'s merge strategies — encoding, validation, and normalization per type |
 | `review-ops.md` | Normative | The review family operation vocabulary (v1): review creation, revisions, status transitions, assignments, approvals, and CI statuses |
 | `comments.md` | Normative | Comment op vocabulary (v1): object model, create/edit/delete ops, threading, anchor reference, GitHub shapes |
 | `issue-ops.md` | Normative | The issue family operation vocabulary (v1): issue creation, metadata updates, state transitions, assignments, labels, and cross-references (Appendix B: Linear schema mapping) |
@@ -33,6 +34,7 @@ disagree, the fixtures win and the prose gets fixed.
 | `schemas/anchor.schema.json` | Normative | JSON Schema (draft 2020-12) for the anchor object |
 | `schemas/identifiers.schema.json` | Normative | JSON Schema (draft 2020-12) for identifiers and references |
 | `schemas/ordering.schema.json` | Normative | JSON Schema (draft 2020-12) for the fractional index position key |
+| `schemas/value-types.schema.json` | Normative | JSON Schema (draft 2020-12) for the closed value-type catalogue, one `$defs` entry per type |
 | `schemas/review-ops.schema.json` | Normative | JSON Schema (draft 2020-12) for the review operations family |
 | `schemas/comment.schema.json` | Normative | JSON Schema (draft 2020-12) for comment op payloads |
 | `schemas/issue-ops.schema.json` | Normative | JSON Schema (draft 2020-12) for the issue operations family |
@@ -48,6 +50,7 @@ disagree, the fixtures win and the prose gets fixed.
 | `testdata/anchors/valid/`, `testdata/anchors/invalid/` | Normative | Anchor instances; `invalid/index.json` records each expected rejection and whether the schema or an invariant catches it |
 | `testdata/anchors/github/` | Informative | GitHub-position conversion vectors, illustrating a mapping whose enforcement lives in the bridge rather than here |
 | `testdata/fold/order/`, `testdata/fold/merge/` | Normative | Fold test vectors: deterministic total order test vectors and merge strategy vectors |
+| `testdata/value-types/valid/`, `testdata/value-types/invalid/` | Normative | A valid and invalid instance per catalogue value type; `invalid/index.json` records each expected rejection |
 | `testdata/references/valid/`, `testdata/references/invalid/` | Normative | Reference instances; `invalid/index.json` records each expected rejection |
 | `testdata/review-ops/valid/`, `testdata/review-ops/invalid/` | Normative | Review operation payload instances; `invalid/index.json` records each expected rejection |
 | `testdata/review-ops/field-rules.json` | Normative | Field-by-field fold merge strategy declarations for the review op vocabulary |
@@ -86,6 +89,7 @@ spec/
 ├── fold.md                 — normative: fold semantics, total order, and merge strategy catalogue
 ├── identifiers.md          — normative: globally unique object IDs, references & person identifiers
 ├── ordering.md             — normative: fractional indexing & shared ordering primitive
+├── value-types.md          — normative: the closed value-type catalogue (v1)
 ├── review-ops.md           — normative: review family operation vocabulary (v1)
 ├── comments.md             — normative: comment op vocabulary (v1)
 ├── issue-ops.md            — normative: issue family operation vocabulary (v1), Linear mapping (Appendix B)
@@ -99,6 +103,7 @@ spec/
 │   ├── anchor.schema.json  — draft 2020-12 schema for the anchor object
 │   ├── identifiers.schema.json — draft 2020-12 schema for identifiers & references
 │   ├── ordering.schema.json — draft 2020-12 schema for the fractional index position key
+│   ├── value-types.schema.json — draft 2020-12 schema for the closed value-type catalogue
 │   ├── review-ops.schema.json  — draft 2020-12 schema for review operations
 │   ├── comment.schema.json — draft 2020-12 schema for comment op payloads
 │   ├── issue-ops.schema.json — draft 2020-12 schema for issue operations
@@ -119,6 +124,9 @@ spec/
 │   ├── fold/
 │   │   ├── order/          — deterministic total order vectors
 │   │   └── merge/          — per-field merge strategy and interleaving vectors
+│   ├── value-types/
+│   │   ├── valid/          — a valid instance per catalogue value type
+│   │   └── invalid/        — a rejected instance per catalogue value type (+ index.json)
 │   ├── references/
 │   │   ├── valid/          — reference vectors that must validate
 │   │   └── invalid/        — invalid references & index.json of expected rejections

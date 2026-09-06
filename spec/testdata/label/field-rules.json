@@ -3,36 +3,42 @@
     "op_type": "create",
     "op_version": 1,
     "field": "name",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "string"
   },
   {
     "op_type": "create",
     "op_version": 1,
     "field": "color",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "string"
   },
   {
     "op_type": "create",
     "op_version": 1,
     "field": "description",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "string"
   },
   {
     "op_type": "update",
     "op_version": 1,
     "field": "name",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "string"
   },
   {
     "op_type": "update",
     "op_version": 1,
     "field": "color",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "string"
   },
   {
     "op_type": "update",
     "op_version": 1,
     "field": "description",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "string"
   }
 ]

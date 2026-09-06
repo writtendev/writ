@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	s "github.com/writtendev/writ/engine/state"
 	"github.com/writtendev/writ/engine/codec"
 	"github.com/writtendev/writ/engine/codec/canonicaljson"
+	s "github.com/writtendev/writ/engine/state"
 	"github.com/writtendev/writ/spec"
 )
 
@@ -21,14 +21,6 @@ func TestReviewRulesDriftGuard(t *testing.T) {
 	var expectedRules []s.Rule
 	for _, r := range allRules {
 		if r.Vocabulary == "review-ops" {
-			var norm *s.NormalizeRule
-			if r.Normalize != nil {
-				norm = &s.NormalizeRule{
-					Value: r.Normalize.Value,
-					Items: r.Normalize.Items,
-					Key:   r.Normalize.Key,
-				}
-			}
 			expectedRules = append(expectedRules, s.Rule{
 				OpType:    r.OpType,
 				OpVersion: r.OpVersion,
@@ -37,7 +29,10 @@ func TestReviewRulesDriftGuard(t *testing.T) {
 				Strategy:  r.Strategy,
 				Key:       r.Key,
 				Lattice:   r.Lattice,
-				Normalize: norm,
+				ValueType: r.ValueType,
+				Enum:      r.Enum,
+				MaxLength: r.MaxLength,
+				KeyTypes:  r.KeyTypes,
 			})
 		}
 	}
@@ -992,7 +987,6 @@ func TestFoldReviewPersonNormalization(t *testing.T) {
 	}
 }
 
-
 // TestFoldReviewOrSetBodyShapes pins the typed reducer against the generic
 // fold on the OR-set body shapes spec/fold.md §5.4 declares for the flat shape,
 // which is the one review `label` and `assign` operations actually use.
@@ -1176,19 +1170,11 @@ func TestFoldReviewMixedFlatAndNestedShapes(t *testing.T) {
 				Name:  o.Author.Name,
 				Email: o.Author.Email,
 			},
-			Body:      bm,
+			Body: bm,
 		})
 	}
 	var fieldRules []spec.FieldRule
 	for _, r := range s.ReviewRules() {
-		var norm *spec.NormalizeRule
-		if r.Normalize != nil {
-			norm = &spec.NormalizeRule{
-				Value: r.Normalize.Value,
-				Items: r.Normalize.Items,
-				Key:   r.Normalize.Key,
-			}
-		}
 		fieldRules = append(fieldRules, spec.FieldRule{
 			OpType:    r.OpType,
 			OpVersion: r.OpVersion,
@@ -1197,7 +1183,10 @@ func TestFoldReviewMixedFlatAndNestedShapes(t *testing.T) {
 			Strategy:  r.Strategy,
 			Key:       r.Key,
 			Lattice:   r.Lattice,
-			Normalize: norm,
+			ValueType: r.ValueType,
+			Enum:      r.Enum,
+			MaxLength: r.MaxLength,
+			KeyTypes:  r.KeyTypes,
 		})
 	}
 	refRes, err := spec.Fold(mergeOps, fieldRules)
@@ -1425,14 +1414,6 @@ func TestFoldReviewApprovalAndCIStatusKeyAgreement(t *testing.T) {
 
 	var fieldRules []spec.FieldRule
 	for _, r := range s.ReviewRules() {
-		var norm *spec.NormalizeRule
-		if r.Normalize != nil {
-			norm = &spec.NormalizeRule{
-				Value: r.Normalize.Value,
-				Items: r.Normalize.Items,
-				Key:   r.Normalize.Key,
-			}
-		}
 		fieldRules = append(fieldRules, spec.FieldRule{
 			OpType:    r.OpType,
 			OpVersion: r.OpVersion,
@@ -1441,7 +1422,10 @@ func TestFoldReviewApprovalAndCIStatusKeyAgreement(t *testing.T) {
 			Strategy:  r.Strategy,
 			Key:       r.Key,
 			Lattice:   r.Lattice,
-			Normalize: norm,
+			ValueType: r.ValueType,
+			Enum:      r.Enum,
+			MaxLength: r.MaxLength,
+			KeyTypes:  r.KeyTypes,
 		})
 	}
 
@@ -1611,14 +1595,6 @@ func TestFoldReviewDescriptionNoCollisionWithCIStatus(t *testing.T) {
 
 	var fieldRules []spec.FieldRule
 	for _, r := range s.ReviewRules() {
-		var norm *spec.NormalizeRule
-		if r.Normalize != nil {
-			norm = &spec.NormalizeRule{
-				Value: r.Normalize.Value,
-				Items: r.Normalize.Items,
-				Key:   r.Normalize.Key,
-			}
-		}
 		fieldRules = append(fieldRules, spec.FieldRule{
 			OpType:    r.OpType,
 			OpVersion: r.OpVersion,
@@ -1627,7 +1603,10 @@ func TestFoldReviewDescriptionNoCollisionWithCIStatus(t *testing.T) {
 			Strategy:  r.Strategy,
 			Key:       r.Key,
 			Lattice:   r.Lattice,
-			Normalize: norm,
+			ValueType: r.ValueType,
+			Enum:      r.Enum,
+			MaxLength: r.MaxLength,
+			KeyTypes:  r.KeyTypes,
 		})
 	}
 
@@ -1667,5 +1646,3 @@ func TestFoldReviewDescriptionNoCollisionWithCIStatus(t *testing.T) {
 			string(engineJSON), string(specJSON))
 	}
 }
-
-

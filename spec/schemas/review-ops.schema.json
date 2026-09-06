@@ -181,8 +181,7 @@
   },
   "$defs": {
     "oid": {
-      "type": "string",
-      "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+      "$ref": "https://writ.dev/spec/value-types.schema.json#/$defs/git-oid"
     },
     "timestamp": {
       "type": "string",

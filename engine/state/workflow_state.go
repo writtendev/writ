@@ -102,15 +102,15 @@ func FoldWorkflowState(ops []codec.Op) (WorkflowState, error) {
 // WorkflowStateRules returns the built-in field merge rules for the workflow-state vocabulary (v1).
 func WorkflowStateRules() []Rule {
 	return []Rule{
-		{OpType: "create", OpVersion: 1, Field: "name", Strategy: "lww"},
-		{OpType: "create", OpVersion: 1, Field: "type", Strategy: "lww"},
-		{OpType: "create", OpVersion: 1, Field: "position", Strategy: "lww"},
-		{OpType: "create", OpVersion: 1, Field: "color", Strategy: "lww"},
-		{OpType: "create", OpVersion: 1, Field: "description", Strategy: "lww"},
-		{OpType: "update", OpVersion: 1, Field: "name", Strategy: "lww"},
-		{OpType: "update", OpVersion: 1, Field: "type", Strategy: "lww"},
-		{OpType: "update", OpVersion: 1, Field: "position", Strategy: "lww"},
-		{OpType: "update", OpVersion: 1, Field: "color", Strategy: "lww"},
-		{OpType: "update", OpVersion: 1, Field: "description", Strategy: "lww"},
+		{OpType: "create", OpVersion: 1, Field: "name", Strategy: "lww", ValueType: "string"},
+		{OpType: "create", OpVersion: 1, Field: "type", Strategy: "lww", ValueType: "enum", Enum: []string{"backlog", "unstarted", "started", "completed", "canceled"}},
+		{OpType: "create", OpVersion: 1, Field: "position", Strategy: "lww", ValueType: "position"},
+		{OpType: "create", OpVersion: 1, Field: "color", Strategy: "lww", ValueType: "string"},
+		{OpType: "create", OpVersion: 1, Field: "description", Strategy: "lww", ValueType: "string"},
+		{OpType: "update", OpVersion: 1, Field: "name", Strategy: "lww", ValueType: "string"},
+		{OpType: "update", OpVersion: 1, Field: "type", Strategy: "lww", ValueType: "enum", Enum: []string{"backlog", "unstarted", "started", "completed", "canceled"}},
+		{OpType: "update", OpVersion: 1, Field: "position", Strategy: "lww", ValueType: "position"},
+		{OpType: "update", OpVersion: 1, Field: "color", Strategy: "lww", ValueType: "string"},
+		{OpType: "update", OpVersion: 1, Field: "description", Strategy: "lww", ValueType: "string"},
 	}
 }

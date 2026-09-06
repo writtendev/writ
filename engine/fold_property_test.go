@@ -40,7 +40,7 @@ var interestingStrings = []string{
 	"user:octocat",
 	"user:  OctoCat  ",
 	// NFC vs NFD unicode pair for "café"
-	"\u0063\u0061\u0066\u00e9",     // NFC
+	"\u0063\u0061\u0066\u00e9",       // NFC
 	"\u0063\u0061\u0066\u00e5\u0301", // NFD
 	// Cherokee fixed-points
 	"\u13a0",
@@ -103,14 +103,6 @@ func toSpecOps(ops []codec.Op) []spec.MergeOp {
 func toSpecRules(rules []writ.Rule) []spec.FieldRule {
 	specRules := make([]spec.FieldRule, 0, len(rules))
 	for _, r := range rules {
-		var norm *spec.NormalizeRule
-		if r.Normalize != nil {
-			norm = &spec.NormalizeRule{
-				Value: r.Normalize.Value,
-				Items: r.Normalize.Items,
-				Key:   r.Normalize.Key,
-			}
-		}
 		specRules = append(specRules, spec.FieldRule{
 			OpType:    r.OpType,
 			OpVersion: r.OpVersion,
@@ -119,7 +111,10 @@ func toSpecRules(rules []writ.Rule) []spec.FieldRule {
 			Strategy:  r.Strategy,
 			Key:       r.Key,
 			Lattice:   r.Lattice,
-			Normalize: norm,
+			ValueType: r.ValueType,
+			Enum:      r.Enum,
+			MaxLength: r.MaxLength,
+			KeyTypes:  r.KeyTypes,
 		})
 	}
 	return specRules
@@ -292,13 +287,13 @@ func toStateUnknownOps(uops []writ.UnknownOp) []state.UnknownOp {
 func commentRules() []writ.Rule {
 	return []writ.Rule{
 		{OpType: "create", OpVersion: 1, Field: "subject", Strategy: "create-once"},
-		{OpType: "create", OpVersion: 1, Field: "text", Strategy: "lww"},
-		{OpType: "create", OpVersion: 1, Field: "in_reply_to", Strategy: "create-once"},
-		{OpType: "create", OpVersion: 1, Field: "anchor", Strategy: "create-once"},
-		{OpType: "edit", OpVersion: 1, Field: "text", Strategy: "lww"},
-		{OpType: "delete", OpVersion: 1, Field: "deleted", Strategy: "tombstone"},
-		{OpType: "resolve", OpVersion: 1, Field: "resolved", Strategy: "lww"},
-		{OpType: "resolve", OpVersion: 1, Field: "resolved_by", Strategy: "lww", Normalize: &writ.NormalizeRule{Value: "person"}},
+		{OpType: "create", OpVersion: 1, Field: "text", Strategy: "lww", ValueType: "text"},
+		{OpType: "create", OpVersion: 1, Field: "in_reply_to", Strategy: "create-once", ValueType: "string"},
+		{OpType: "create", OpVersion: 1, Field: "anchor", Strategy: "create-once", ValueType: "anchor"},
+		{OpType: "edit", OpVersion: 1, Field: "text", Strategy: "lww", ValueType: "text"},
+		{OpType: "delete", OpVersion: 1, Field: "deleted", Strategy: "tombstone", ValueType: "bool"},
+		{OpType: "resolve", OpVersion: 1, Field: "resolved", Strategy: "lww", ValueType: "bool"},
+		{OpType: "resolve", OpVersion: 1, Field: "resolved_by", Strategy: "lww", ValueType: "person-ref"},
 	}
 }
 

@@ -1,0 +1,10 @@
+{
+  "value_type": "anchor",
+  "value": {
+    "version": 1,
+    "old": {
+      "commit": "1111111111111111111111111111111111111111",
+      "path": "main.go"
+    }
+  }
+}

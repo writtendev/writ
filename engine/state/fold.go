@@ -7,23 +7,19 @@ import (
 	"github.com/writtendev/writ/engine/internal/fold"
 )
 
-// NormalizeRule specifies normalization attributes for an (op_type, field) merge rule.
-type NormalizeRule struct {
-	Value string   `json:"value,omitempty"`
-	Items string   `json:"items,omitempty"`
-	Key   []string `json:"key,omitempty"`
-}
-
-// Rule specifies the merge strategy and parameters for an (op_type, op_version, field) tuple.
+// Rule specifies the merge strategy and value type for an (op_type, op_version, field) tuple.
 type Rule struct {
-	OpType    string         `json:"op_type,omitempty"`
-	OpVersion int64          `json:"op_version,omitempty"`
-	Field     string         `json:"field"`
-	Target    string         `json:"target,omitempty"`
-	Strategy  string         `json:"strategy"`
-	Key       []string       `json:"key,omitempty"`
-	Lattice   []string       `json:"lattice,omitempty"`
-	Normalize *NormalizeRule `json:"normalize,omitempty"`
+	OpType    string            `json:"op_type,omitempty"`
+	OpVersion int64             `json:"op_version,omitempty"`
+	Field     string            `json:"field"`
+	Target    string            `json:"target,omitempty"`
+	Strategy  string            `json:"strategy"`
+	Key       []string          `json:"key,omitempty"`
+	Lattice   []string          `json:"lattice,omitempty"`
+	ValueType string            `json:"value_type,omitempty"`
+	Enum      []string          `json:"enum,omitempty"`
+	MaxLength int64             `json:"max_length,omitempty"`
+	KeyTypes  map[string]string `json:"key_types,omitempty"`
 }
 
 // TargetKey returns Target if non-empty, otherwise Field.
@@ -52,14 +48,6 @@ var (
 func internalRules(rules []Rule) []fold.Rule {
 	out := make([]fold.Rule, len(rules))
 	for i, r := range rules {
-		var norm *fold.NormalizeRule
-		if r.Normalize != nil {
-			norm = &fold.NormalizeRule{
-				Value: r.Normalize.Value,
-				Items: r.Normalize.Items,
-				Key:   r.Normalize.Key,
-			}
-		}
 		out[i] = fold.Rule{
 			OpType:    r.OpType,
 			OpVersion: r.OpVersion,
@@ -68,7 +56,10 @@ func internalRules(rules []Rule) []fold.Rule {
 			Strategy:  r.Strategy,
 			Key:       r.Key,
 			Lattice:   r.Lattice,
-			Normalize: norm,
+			ValueType: r.ValueType,
+			Enum:      r.Enum,
+			MaxLength: r.MaxLength,
+			KeyTypes:  r.KeyTypes,
 		}
 	}
 	return out

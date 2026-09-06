@@ -9,45 +9,49 @@
     "op_type": "create",
     "op_version": 1,
     "field": "text",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "text"
   },
   {
     "op_type": "create",
     "op_version": 1,
     "field": "in_reply_to",
-    "strategy": "create-once"
+    "strategy": "create-once",
+    "value_type": "string"
   },
   {
     "op_type": "create",
     "op_version": 1,
     "field": "anchor",
-    "strategy": "create-once"
+    "strategy": "create-once",
+    "value_type": "anchor"
   },
   {
     "op_type": "edit",
     "op_version": 1,
     "field": "text",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "text"
   },
   {
     "op_type": "delete",
     "op_version": 1,
     "field": "deleted",
-    "strategy": "tombstone"
+    "strategy": "tombstone",
+    "value_type": "bool"
   },
   {
     "op_type": "resolve",
     "op_version": 1,
     "field": "resolved",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "bool"
   },
   {
     "op_type": "resolve",
     "op_version": 1,
     "field": "resolved_by",
     "strategy": "lww",
-    "normalize": {
-      "value": "person"
-    }
+    "value_type": "person-ref"
   }
 ]

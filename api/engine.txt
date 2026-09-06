@@ -283,8 +283,6 @@ type NewWorkflowState struct {
 	Description string `json:"description,omitempty"`
 }
 
-type NormalizeRule = state.NormalizeRule
-
 type ObjectChange = projection.ObjectChange
 
 type ObjectFilter = projection.ObjectFilter
@@ -1416,12 +1414,6 @@ type Link struct {
 	Relation string `json:"relation"`
 }
 
-type NormalizeRule struct {
-	Value string `json:"value,omitempty"`
-	Items string `json:"items,omitempty"`
-	Key []string `json:"key,omitempty"`
-}
-
 type ObjectState struct {
 	ObjectID string `json:"object_id"`
 	ObjectType string `json:"object_type,omitempty"`
@@ -1472,7 +1464,10 @@ type Rule struct {
 	Strategy string `json:"strategy"`
 	Key []string `json:"key,omitempty"`
 	Lattice []string `json:"lattice,omitempty"`
-	Normalize *NormalizeRule `json:"normalize,omitempty"`
+	ValueType string `json:"value_type,omitempty"`
+	Enum []string `json:"enum,omitempty"`
+	MaxLength int64 `json:"max_length,omitempty"`
+	KeyTypes map[string]string `json:"key_types,omitempty"`
 }
 func (Rule) TargetKey() string
 

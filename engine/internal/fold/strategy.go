@@ -6,7 +6,7 @@ import (
 	"sort"
 
 	"github.com/writtendev/writ/engine/codec"
-	"github.com/writtendev/writ/engine/internal/person"
+	"github.com/writtendev/writ/engine/internal/value"
 )
 
 // Accumulator defines the interface for state reducers in the closed strategy catalogue.
@@ -59,8 +59,8 @@ func (a *lwwAccumulator) Apply(rule Rule, op codec.Op, body map[string]any, _ ma
 		// Empty scalar contract (spec/fold.md §5.1): empty strings (including
 		// person identifiers that normalize to empty) are preserved in the
 		// generic fold map as deliberate scalar writes.
-		if s, ok := val.(string); ok && rule.Normalize != nil && rule.Normalize.Value == "person" {
-			val = person.NormalizePerson(s)
+		if s, ok := val.(string); ok && rule.NormalizesValue() {
+			val = value.Normalize(rule.ValueType, s)
 		}
 		a.val = val
 		a.hasVal = true
@@ -68,7 +68,7 @@ func (a *lwwAccumulator) Apply(rule Rule, op codec.Op, body map[string]any, _ ma
 	return nil
 }
 
-func (a *lwwAccumulator) HasValue() bool { return a.hasVal }
+func (a *lwwAccumulator) HasValue() bool       { return a.hasVal }
 func (a *lwwAccumulator) Result() (any, error) { return a.val, nil }
 
 // 2. Create-Once
@@ -95,7 +95,7 @@ func (a *createOnceAccumulator) Apply(rule Rule, _ codec.Op, body map[string]any
 	return nil
 }
 
-func (a *createOnceAccumulator) HasValue() bool { return a.hasVal }
+func (a *createOnceAccumulator) HasValue() bool       { return a.hasVal }
 func (a *createOnceAccumulator) Result() (any, error) { return a.val, nil }
 
 // 3. Set-Union
@@ -119,8 +119,8 @@ func (a *setUnionAccumulator) Apply(rule Rule, _ codec.Op, body map[string]any, 
 	}
 	a.hasSet = true
 	normalizeItem := func(it string) string {
-		if rule.Normalize != nil && rule.Normalize.Items == "person" {
-			return person.NormalizePerson(it)
+		if rule.NormalizesItems() {
+			return value.Normalize(rule.ValueType, it)
 		}
 		return it
 	}
@@ -220,8 +220,8 @@ func (a *setObservedRemoveAccumulator) Apply(rule Rule, op codec.Op, body map[st
 	// is taken verbatim. Items that are empty after normalization are dropped
 	// from both sides of the OR-set, whatever the op type (spec/fold.md §5.4).
 	normalizeItem := func(it string) string {
-		if rule.Normalize != nil && rule.Normalize.Items == "person" {
-			return person.NormalizePerson(it)
+		if rule.NormalizesItems() {
+			return value.Normalize(rule.ValueType, it)
 		}
 		return it
 	}
@@ -397,7 +397,7 @@ func (a *latticeAccumulator) Apply(rule Rule, _ codec.Op, body map[string]any, _
 	return nil
 }
 
-func (a *latticeAccumulator) HasValue() bool { return a.hasLattice }
+func (a *latticeAccumulator) HasValue() bool       { return a.hasLattice }
 func (a *latticeAccumulator) Result() (any, error) { return a.currentVal, nil }
 
 // 8. Keyed-LWW
@@ -423,26 +423,20 @@ func newKeyedLWWAccumulator(rule Rule, _ ReachOracle) (Accumulator, error) {
 }
 
 func (a *keyedLWWAccumulator) Apply(rule Rule, op codec.Op, body map[string]any, _ map[string]json.RawMessage) error {
-	normVal := rule.Normalize != nil && rule.Normalize.Value == "person"
-	normKeys := make(map[string]bool)
-	if rule.Normalize != nil {
-		for _, k := range rule.Normalize.Key {
-			normKeys[k] = true
-		}
-	}
+	normVal := rule.NormalizesValue()
 
 	val, ok := body[rule.Field]
 	if !ok {
 		if rule.Field == "subject" && op.OpType == "approval" && op.Author.Email != "" {
-			val = person.NormalizePerson("email:" + op.Author.Email)
+			val = value.Normalize("person-ref", "email:"+op.Author.Email)
 		} else {
 			return nil
 		}
 	} else if normVal {
 		if s, isStr := val.(string); isStr {
-			norm := person.NormalizePerson(s)
+			norm := value.Normalize(rule.ValueType, s)
 			if norm == "" && rule.Field == "subject" && op.OpType == "approval" && op.Author.Email != "" {
-				norm = person.NormalizePerson("email:" + op.Author.Email)
+				norm = value.Normalize("person-ref", "email:"+op.Author.Email)
 			}
 			val = norm
 		}
@@ -456,11 +450,11 @@ func (a *keyedLWWAccumulator) Apply(rule Rule, op codec.Op, body map[string]any,
 		// An absent one contributes the empty component, except for approval
 		// subject which falls back to the commit author's email.
 		vStr, _ := body[kf].(string)
-		if normKeys[kf] {
-			vStr = person.NormalizePerson(vStr)
+		if rule.NormalizesKey(kf) {
+			vStr = value.Normalize(rule.KeyTypes[kf], vStr)
 		}
 		if vStr == "" && kf == "subject" && op.OpType == "approval" && op.Author.Email != "" {
-			vStr = person.NormalizePerson("email:" + op.Author.Email)
+			vStr = value.Normalize("person-ref", "email:"+op.Author.Email)
 		}
 		key = append(key, vStr)
 	}
@@ -569,4 +563,3 @@ func (a *multiValueAccumulator) Result() (any, error) {
 	}
 	return res, nil
 }
-

@@ -518,14 +518,6 @@ func TestForwardCompatFC5(t *testing.T) {
 			// 2. Engine fold assertion
 			var writRules []writ.Rule
 			for _, r := range rules {
-				var norm *writ.NormalizeRule
-				if r.Normalize != nil {
-					norm = &writ.NormalizeRule{
-						Value: r.Normalize.Value,
-						Items: r.Normalize.Items,
-						Key:   r.Normalize.Key,
-					}
-				}
 				writRules = append(writRules, writ.Rule{
 					OpType:    r.OpType,
 					OpVersion: r.OpVersion,
@@ -533,7 +525,10 @@ func TestForwardCompatFC5(t *testing.T) {
 					Strategy:  r.Strategy,
 					Key:       r.Key,
 					Lattice:   r.Lattice,
-					Normalize: norm,
+					ValueType: r.ValueType,
+					Enum:      r.Enum,
+					MaxLength: r.MaxLength,
+					KeyTypes:  r.KeyTypes,
 				})
 			}
 			bodyJSON, err := json.Marshal(env.Body)

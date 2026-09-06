@@ -38,7 +38,7 @@ Writ's scope test changes: no longer "does this data explain how the software go
 A schema needs two orthogonal axes to describe a field, and writ settles both:
 
 - **Merge strategies are closed and already correct.** The nine-strategy catalogue in `spec/fold.md` §5 ships as-is; nothing here adds a strategy. In particular, no counter joins the catalogue — no field needs one, and it is the one CRDT that cannot be derived from the DAG's total order. Fractional indexing, the case a counter might tempt someone to reach for, is already solved as an LWW scalar (`spec/ordering.md`, `engine/order`), not a list CRDT.
-- **Value types are a second, orthogonal axis.** A merge strategy alone is not a schema: `title: lww` says how concurrent writes to `title` reconcile, not that `title` is a string. Value types close that gap (WRIT-185).
+- **Value types are a second, orthogonal axis.** A merge strategy alone is not a schema: `title: lww` says how concurrent writes to `title` reconcile, not that `title` is a string. Value types close that gap: a closed catalogue of 12, orthogonal to the strategy catalogue, specified in `spec/value-types.md` (WRIT-185).
 
 `schema` is the one object type writ hard-codes (§Object types above) because a schema has to exist before anything else can be typed; every other type a repository uses is data written by a `schema` object, folded like any other object (WRIT-186). Schema evolution needs no migration planner: field rules are already keyed by `(op_type, op_version, field)`, so changing a field's merge strategy is a version bump, not an edit — old ops keep folding under old rules, and the fold already carries fixtures for mixed versions. There is no destructive schema change to plan for.
 

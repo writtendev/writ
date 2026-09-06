@@ -194,9 +194,9 @@ NOT invent default merge behaviors for undeclared fields.
 Counters are deliberately omitted from this catalogue; adding a counter
 strategy requires a spec amendment.
 
-### Declarative rule tables and normalization attributes
+### Declarative rule tables and value types
 
-Field merge rules are declared in machine-readable tables (`field-rules.json`, conforming to `schemas/field-rules.schema.json`). Each entry defines the merge behavior for an `(op_type, op_version, field)` tuple:
+Field merge rules are declared in machine-readable tables (`field-rules.json`, conforming to `schemas/field-rules.schema.json`). Each entry defines the merge behavior — and, orthogonally, the value type (`spec/value-types.md`) — for an `(op_type, op_version, field)` tuple:
 - `op_type` (string): The operation type.
 - `op_version` (integer): The operation schema version.
 - `field` (string): The target field in the operation body.
@@ -204,12 +204,12 @@ Field merge rules are declared in machine-readable tables (`field-rules.json`, c
 - `strategy` (string): Exactly one strategy from the closed catalogue.
 - `key` (array of strings, required for `keyed-lww`): The ordered list of body fields forming the composite key.
 - `lattice` (array of strings, required for `lattice`): The ordered elements of the semilattice.
-- `normalize` (optional object): Declarative normalization configuration specifying the structural position and algorithm:
-  - `value`: Normalization algorithm (e.g. `"person"`) applied to scalar values (`lww`, `keyed-lww`).
-  - `items`: Normalization algorithm (e.g. `"person"`) applied to collection elements (`set-observed-remove`, `set-union`).
-  - `key`: Ordered list of key component names whose values are normalized (e.g. as person) in `keyed-lww`.
+- `value_type` (optional string): The closed catalogue entry (`spec/value-types.md`) for what the strategy's register or element holds. Optional: a rule declaring none is untyped, the same no-implicit-behavior idiom this section already states for an undeclared strategy.
+- `enum` (array of strings): Required iff `value_type == "enum"`; the value list.
+- `max_length` (integer, code points): Optional; only on `value_type` `string` or `text`.
+- `key_types` (object: key column → value type): Only on `keyed-lww`; must cover exactly the columns `key` declares.
 
-**Vocabulary-blind accumulators:** Accumulators execute normalization solely based on these rule declarations, remaining completely vocabulary-blind. A reducer MUST NOT inspect operation types or field names to dispatch normalization (such as checking for `op_type == "assign"` or `field == "resolved_by"`); all normalization is driven exclusively by the declarative `normalize` attribute in the rule table.
+**Normalization is intrinsic to `person-ref`.** `spec/value-types.md` §Normalization defines the rule: where a rule's `value_type` (or, for a key component, `key_types` entry) is `person-ref`, the field normalizes per `spec/identifiers.md` automatically. It is not a separate declarative attribute a rule table author repeats field by field, and it is not dispatched by inspecting operation types or field names (such as checking for `op_type == "assign"` or `field == "resolved_by"`) — accumulators remain vocabulary-blind, driven exclusively by the rule's `value_type`/`key_types`.
 
 ### Unified empty-value contract
 
@@ -257,7 +257,7 @@ Typed domain serializations (such as language-specific state structs) MAY omit e
   - An element $x$ is present in the folded set if and only if there exists at least one add operation $a \in S$ for $x$ such that no remove operation $r \in S$ for $x$ causally follows $a$:
     $$\text{present}(x) \iff \exists a \in S \text{ s.t. } \text{adds}(a, x) \land (\forall r \in S \text{ s.t. } \text{removes}(r, x), a \not\prec r)$$
 - **Concurrency behavior:** If an addition $a$ and removal $r$ of the same element $x$ are concurrent ($a \parallel r$), the addition wins and $x$ is present in the folded set.
-- **Empty elements are dropped:** As in `set-union` (§5.3), an element whose value, after any normalization the field declares, is the empty string MUST NOT enter either the add side or the remove side of the OR-set. This rule applies to **every** item-valued field regardless of its op type — `label` items are dropped on the same terms as `assign` items, even though only the latter are normalized before the test.
+- **Empty elements are dropped:** As in `set-union` (§5.3), an element whose value — normalized first, where the field's value type is `person-ref` — is the empty string MUST NOT enter either the add side or the remove side of the OR-set. This rule applies to **every** item-valued field regardless of its op type — `label` items are dropped on the same terms as `assign` items, even though only the latter are `person-ref` and so normalized before the test.
 - **Elements are strings.** As in `set-union` (§5.3), an element that is not a string — `null` included — makes the whole operation uninterpretable per §7.1, on the add side and the remove side alike, in all three body shapes. A side that is present and is neither a string nor an array of strings does so too, and a side whose value is `null` is such a side: an explicitly written side holding no value is a write claimed with no value in it, which is what §7.1 says `null` is. Reading it as an absent side instead would make `{"add": null}` and `{}` fold identically, which is exactly the objection §7.1 raises against skipping. A rejected remove removes nothing: an element it named stays present unless some other operation removes it.
 - **Result:** Present elements emitted in canonical sorted order. An operation whose elements are all dropped still counts as a write of the field: the field is present in the generic folded state map with the empty set as its value. Typed domain serializations MAY omit an empty collection rather than emitting it.
 
@@ -292,7 +292,7 @@ Typed domain serializations (such as language-specific state structs) MAY omit e
 - **Reduction:** As operations are consumed in total order $L$, an operation writing the field replaces the value stored at its own key $k$ and leaves every other key untouched — that is, `lww` applied independently within each key.
 - **Result:** For each key, the value written by the latest operation in $L$ bearing that key. Entries are serialized as a list of `{key, value}` records ordered by their key tuples, compared component-wise.
 - **Key components are strings.** Every declared key component an operation carries MUST be a string. One that is a number, a boolean, an object, an array or `null` makes the whole operation uninterpretable per §7.1. A key component the body omits entirely is a different case and is not rejected: it contributes the empty component, except where a domain-specific key component resolution rule applies (see below). A value the strategy stores is under the register rule below, not this one.
-- **Normalization:** Where a rule declares normalization (`normalize.value` or `normalize.key`), the normalization of `spec/identifiers.md` applies to the declared structural positions. A reducer MUST NOT normalize a person identifier for keying and then store it verbatim: where a rule declares normalization for a key component and for its value (such as `approval.subject`), the folded entry's key component and its value are the same normalized string. A non-string key component is schema-invalid and, being a key component, makes its operation uninterpretable per §7.1.
+- **Normalization:** Where the rule's `value_type` is `person-ref`, or a `key_types` entry for a key component is `person-ref`, the normalization of `spec/identifiers.md` applies to that structural position. A reducer MUST NOT normalize a person identifier for keying and then store it verbatim: where a rule's value and a key component are both `person-ref` (such as `approval.subject`), the folded entry's key component and its value are the same normalized string. A non-string key component is schema-invalid and, being a key component, makes its operation uninterpretable per §7.1.
 - **Approval subject resolution:** In `approval` operations, an omitted or empty-after-normalization `subject` defaults to the op commit author's normalized email identifier (`email:<author.email>`) rather than contributing the empty string `""`. Both the key component for `subject` and the stored value for `approval.subject` in materialized state retain this effective normalized subject.
 - **Registers hold values.** A value stored at a key is stored verbatim, so any JSON type reproduces byte-for-byte; `null` does not, and makes the operation uninterpretable per §7.1.
 - **Why this is not `lww` or a set:** Registers scoped to a key — one vote per (voter, revision), one status per (revision, check name) — need a later write under one key to leave the others alone. Plain `lww` would collapse them to a single register; a set has no notion of a value being replaced.

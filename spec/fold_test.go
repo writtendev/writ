@@ -127,7 +127,10 @@ func TestMergeVectors(t *testing.T) {
 					Strategy:  cfg.Strategy,
 					Key:       cfg.Key,
 					Lattice:   cfg.Lattice,
-					Normalize: cfg.Normalize,
+					ValueType: cfg.ValueType,
+					Enum:      cfg.Enum,
+					MaxLength: cfg.MaxLength,
+					KeyTypes:  cfg.KeyTypes,
 				})
 			}
 
@@ -182,20 +185,15 @@ func assertEngineAgrees(t *testing.T, vec spec.MergeVector, wantStateJSON []byte
 
 	var rules []writ.Rule
 	for fieldName, cfg := range vec.Fields {
-		var norm *writ.NormalizeRule
-		if cfg.Normalize != nil {
-			norm = &writ.NormalizeRule{
-				Value: cfg.Normalize.Value,
-				Items: cfg.Normalize.Items,
-				Key:   cfg.Normalize.Key,
-			}
-		}
 		rules = append(rules, writ.Rule{
 			Field:     fieldName,
 			Strategy:  cfg.Strategy,
 			Key:       cfg.Key,
 			Lattice:   cfg.Lattice,
-			Normalize: norm,
+			ValueType: cfg.ValueType,
+			Enum:      cfg.Enum,
+			MaxLength: cfg.MaxLength,
+			KeyTypes:  cfg.KeyTypes,
 		})
 	}
 

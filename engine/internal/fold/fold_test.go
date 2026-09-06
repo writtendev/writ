@@ -169,7 +169,7 @@ func TestFoldKeyedLWWMultiRuleField(t *testing.T) {
 			Field:     "revision",
 			Strategy:  "keyed-lww",
 			Key:       []string{"subject", "revision"},
-			Normalize: &fold.NormalizeRule{Key: []string{"subject"}},
+			KeyTypes:  map[string]string{"subject": "person-ref", "revision": "git-oid"},
 		},
 		{
 			OpType:    "approval",
@@ -177,7 +177,7 @@ func TestFoldKeyedLWWMultiRuleField(t *testing.T) {
 			Field:     "verdict",
 			Strategy:  "keyed-lww",
 			Key:       []string{"subject", "revision"},
-			Normalize: &fold.NormalizeRule{Key: []string{"subject"}},
+			KeyTypes:  map[string]string{"subject": "person-ref", "revision": "git-oid"},
 		},
 		{
 			OpType:    "ci-status",
@@ -266,19 +266,16 @@ func TestFoldKeyedLWWMultiRuleField(t *testing.T) {
 
 	var fieldRules []spec.FieldRule
 	for _, r := range rules {
-		var norm *spec.NormalizeRule
-		if r.Normalize != nil {
-			norm = &spec.NormalizeRule{
-				Key: r.Normalize.Key,
-			}
-		}
 		fieldRules = append(fieldRules, spec.FieldRule{
 			OpType:    r.OpType,
 			OpVersion: r.OpVersion,
 			Field:     r.Field,
 			Strategy:  r.Strategy,
 			Key:       r.Key,
-			Normalize: norm,
+			ValueType: r.ValueType,
+			Enum:      r.Enum,
+			MaxLength: r.MaxLength,
+			KeyTypes:  r.KeyTypes,
 		})
 	}
 

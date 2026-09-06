@@ -3,109 +3,120 @@
     "op_type": "create",
     "op_version": 1,
     "field": "title",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "string"
   },
   {
     "op_type": "create",
     "op_version": 1,
     "field": "description",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "string"
   },
   {
     "op_type": "create",
     "op_version": 1,
     "field": "priority",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "int"
   },
   {
     "op_type": "create",
     "op_version": 1,
     "field": "estimate",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "number"
   },
   {
     "op_type": "create",
     "op_version": 1,
     "field": "position",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "position"
   },
   {
     "op_type": "update",
     "op_version": 1,
     "field": "title",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "string"
   },
   {
     "op_type": "update",
     "op_version": 1,
     "field": "description",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "string"
   },
   {
     "op_type": "update",
     "op_version": 1,
     "field": "priority",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "int"
   },
   {
     "op_type": "update",
     "op_version": 1,
     "field": "estimate",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "number"
   },
   {
     "op_type": "update",
     "op_version": 1,
     "field": "position",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "position"
   },
   {
     "op_type": "set-state",
     "op_version": 1,
     "field": "state",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "object-ref"
   },
   {
     "op_type": "set-state",
     "op_version": 1,
     "field": "reason",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "string"
   },
   {
     "op_type": "set-state",
     "op_version": 1,
     "field": "position",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "position"
   },
   {
     "op_type": "assign",
     "op_version": 1,
     "field": "add",
     "strategy": "set-observed-remove",
-    "normalize": {
-      "items": "person"
-    }
+    "value_type": "person-ref"
   },
   {
     "op_type": "assign",
     "op_version": 1,
     "field": "remove",
     "strategy": "set-observed-remove",
-    "normalize": {
-      "items": "person"
-    }
+    "value_type": "person-ref"
   },
   {
     "op_type": "label",
     "op_version": 1,
     "field": "add",
-    "strategy": "set-observed-remove"
+    "strategy": "set-observed-remove",
+    "value_type": "object-ref"
   },
   {
     "op_type": "label",
     "op_version": 1,
     "field": "remove",
-    "strategy": "set-observed-remove"
+    "strategy": "set-observed-remove",
+    "value_type": "string"
   },
   {
     "op_type": "link",
@@ -114,7 +125,11 @@
     "strategy": "keyed-lww",
     "key": [
       "target"
-    ]
+    ],
+    "value_type": "object-ref",
+    "key_types": {
+      "target": "object-ref"
+    }
   },
   {
     "op_type": "link",
@@ -123,7 +138,11 @@
     "strategy": "keyed-lww",
     "key": [
       "target"
-    ]
+    ],
+    "value_type": "string",
+    "key_types": {
+      "target": "object-ref"
+    }
   },
   {
     "op_type": "link",
@@ -132,6 +151,15 @@
     "strategy": "keyed-lww",
     "key": [
       "target"
-    ]
+    ],
+    "value_type": "enum",
+    "enum": [
+      "fixes",
+      "relates",
+      "none"
+    ],
+    "key_types": {
+      "target": "object-ref"
+    }
   }
 ]

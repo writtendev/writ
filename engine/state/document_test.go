@@ -27,6 +27,10 @@ func TestDocumentRulesDriftGuard(t *testing.T) {
 				Strategy:  r.Strategy,
 				Key:       r.Key,
 				Lattice:   r.Lattice,
+				ValueType: r.ValueType,
+				Enum:      r.Enum,
+				MaxLength: r.MaxLength,
+				KeyTypes:  r.KeyTypes,
 			})
 		}
 	}
@@ -53,6 +57,10 @@ func TestSectionRulesDriftGuard(t *testing.T) {
 				Strategy:  r.Strategy,
 				Key:       r.Key,
 				Lattice:   r.Lattice,
+				ValueType: r.ValueType,
+				Enum:      r.Enum,
+				MaxLength: r.MaxLength,
+				KeyTypes:  r.KeyTypes,
 			})
 		}
 	}

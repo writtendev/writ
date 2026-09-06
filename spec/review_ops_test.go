@@ -40,6 +40,15 @@ func compileReviewOpsSchemas(t *testing.T) (*jsonschema.Schema, *jsonschema.Sche
 		t.Fatalf("decoding identifiers schema: %v", err)
 	}
 
+	valueTypesRaw, err := spec.FS.ReadFile("schemas/value-types.schema.json")
+	if err != nil {
+		t.Fatalf("reading value-types schema: %v", err)
+	}
+	valueTypesDoc, err := jsonschema.UnmarshalJSON(bytes.NewReader(valueTypesRaw))
+	if err != nil {
+		t.Fatalf("decoding value-types schema: %v", err)
+	}
+
 	revRaw, err := spec.FS.ReadFile("schemas/review-ops.schema.json")
 	if err != nil {
 		t.Fatalf("reading review-ops schema: %v", err)
@@ -55,6 +64,9 @@ func compileReviewOpsSchemas(t *testing.T) (*jsonschema.Schema, *jsonschema.Sche
 	}
 	if err := c.AddResource(identifiersSchemaID, identDoc); err != nil {
 		t.Fatalf("adding identifiers schema resource: %v", err)
+	}
+	if err := c.AddResource(valueTypesSchemaID, valueTypesDoc); err != nil {
+		t.Fatalf("adding value-types schema resource: %v", err)
 	}
 	if err := c.AddResource(reviewOpsSchemaID, revDoc); err != nil {
 		t.Fatalf("adding review-ops schema resource: %v", err)

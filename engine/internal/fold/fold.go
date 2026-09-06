@@ -8,23 +8,19 @@ import (
 	"github.com/writtendev/writ/engine/codec"
 )
 
-// NormalizeRule specifies normalization attributes for an (op_type, field) merge rule.
-type NormalizeRule struct {
-	Value string   `json:"value,omitempty"`
-	Items string   `json:"items,omitempty"`
-	Key   []string `json:"key,omitempty"`
-}
-
-// Rule specifies the merge strategy and parameters for an (op_type, op_version, field) tuple.
+// Rule specifies the merge strategy and value type for an (op_type, op_version, field) tuple.
 type Rule struct {
-	OpType    string         `json:"op_type,omitempty"`
-	OpVersion int64          `json:"op_version,omitempty"`
-	Field     string         `json:"field"`
-	Target    string         `json:"target,omitempty"`
-	Strategy  string         `json:"strategy"`
-	Key       []string       `json:"key,omitempty"`
-	Lattice   []string       `json:"lattice,omitempty"`
-	Normalize *NormalizeRule `json:"normalize,omitempty"`
+	OpType    string            `json:"op_type,omitempty"`
+	OpVersion int64             `json:"op_version,omitempty"`
+	Field     string            `json:"field"`
+	Target    string            `json:"target,omitempty"`
+	Strategy  string            `json:"strategy"`
+	Key       []string          `json:"key,omitempty"`
+	Lattice   []string          `json:"lattice,omitempty"`
+	ValueType string            `json:"value_type,omitempty"`
+	Enum      []string          `json:"enum,omitempty"`
+	MaxLength int64             `json:"max_length,omitempty"`
+	KeyTypes  map[string]string `json:"key_types,omitempty"`
 }
 
 // TargetKey returns Target if non-empty, otherwise Field.
@@ -33,6 +29,25 @@ func (r Rule) TargetKey() string {
 		return r.Target
 	}
 	return r.Field
+}
+
+// NormalizesKey reports whether keyCol is declared as a person-ref key column
+// (spec/value-types.md): normalization is intrinsic to the person-ref value
+// type rather than a separate rule attribute.
+func (r Rule) NormalizesKey(keyCol string) bool {
+	return r.KeyTypes[keyCol] == "person-ref"
+}
+
+// NormalizesValue reports whether the rule's scalar (or keyed-register) value
+// is a person-ref, and so is normalized per spec/identifiers.md.
+func (r Rule) NormalizesValue() bool {
+	return r.ValueType == "person-ref"
+}
+
+// NormalizesItems reports whether the rule's collection elements are
+// person-ref values, and so are normalized per spec/identifiers.md.
+func (r Rule) NormalizesItems() bool {
+	return r.ValueType == "person-ref"
 }
 
 // OpRef identifies an operation in an object's total order sequence L

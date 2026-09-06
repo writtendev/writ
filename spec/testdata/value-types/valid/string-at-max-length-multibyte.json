@@ -1,0 +1,7 @@
+{
+  "value_type": "string",
+  "value": "caf\u00e91",
+  "params": {
+    "max_length": 5
+  }
+}

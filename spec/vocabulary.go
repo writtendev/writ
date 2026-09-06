@@ -1,103 +1,84 @@
 package spec
 
 import (
-	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
 	"sync"
 )
 
-type vocabulary struct {
-	reviewStatuses     []string
-	approvalVerdicts   []string
-	ciStatusStates     []string
-	linkRelations      []string
-	projectStatuses    []string
-	workflowStateTypes []string
-	estimateScales     []string
-}
-
-func parseSchemaEnum(schemaFile string, jsonPath ...string) []string {
-	raw, err := FS.ReadFile("schemas/" + schemaFile)
+// fieldRulesOnce caches spec.FieldRules() for the vocabulary accessors below,
+// which are called repeatedly (cmd/writ flag help, shell completion,
+// validation) and must not re-walk and re-parse the embedded field-rules.json
+// corpus on every call.
+var fieldRulesOnce = sync.OnceValue(func() []FieldRule {
+	rules, err := FieldRules()
 	if err != nil {
-		panic(fmt.Errorf("spec: read schema %s: %w", schemaFile, err))
+		panic(fmt.Errorf("spec: loading field rules for vocabulary: %w", err))
 	}
-	var doc any
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		panic(fmt.Errorf("spec: unmarshal schema %s: %w", schemaFile, err))
-	}
-	curr := doc
-	for _, p := range jsonPath {
-		m, ok := curr.(map[string]any)
-		if !ok {
-			panic(fmt.Errorf("spec: schema %s: path %v not a map at %s", schemaFile, jsonPath, p))
-		}
-		curr, ok = m[p]
-		if !ok {
-			panic(fmt.Errorf("spec: schema %s: key %s not found in path %v", schemaFile, p, jsonPath))
-		}
-	}
-	enumArr, ok := curr.([]any)
-	if !ok {
-		panic(fmt.Errorf("spec: schema %s: enum at path %v is not an array", schemaFile, jsonPath))
-	}
-	res := make([]string, len(enumArr))
-	for i, item := range enumArr {
-		s, ok := item.(string)
-		if !ok {
-			panic(fmt.Errorf("spec: schema %s: enum item at %d is not a string", schemaFile, i))
-		}
-		res[i] = s
-	}
-	return res
-}
-
-var vocabOnce = sync.OnceValue(func() vocabulary {
-	return vocabulary{
-		reviewStatuses:     parseSchemaEnum("review-ops.schema.json", "$defs", "set_status_body", "properties", "status", "enum"),
-		approvalVerdicts:   parseSchemaEnum("review-ops.schema.json", "$defs", "approval_body", "properties", "verdict", "enum"),
-		ciStatusStates:     parseSchemaEnum("review-ops.schema.json", "$defs", "ci_status_body", "properties", "state", "enum"),
-		linkRelations:      parseSchemaEnum("review-ops.schema.json", "$defs", "link_body", "properties", "relation", "enum"),
-		projectStatuses:    parseSchemaEnum("project-ops.schema.json", "$defs", "set_status_body", "properties", "status", "enum"),
-		workflowStateTypes: parseSchemaEnum("workflow-state-ops.schema.json", "$defs", "state_type", "enum"),
-		estimateScales:     parseSchemaEnum("settings-ops.schema.json", "$defs", "set_body", "properties", "estimate_scale", "enum"),
-	}
+	return rules
 })
 
-// ReviewStatuses returns the accepted review status enum values defined in review-ops.schema.json.
+// EnumValues returns the declared enum member list for the rule matching
+// (vocabulary, opType, field) — the directory under spec/testdata/, the
+// op_type, and the field name a field-rules.json entry declares. It panics if
+// no such rule exists or the rule is not value_type "enum": both are
+// programming errors, the same contract parseSchemaEnum held before this
+// scraped schemas directly (WRIT-185 moved the single source of truth for
+// these vocabularies from the per-type JSON schemas to the rule tables).
+func EnumValues(vocabulary, opType, field string) []string {
+	for _, r := range fieldRulesOnce() {
+		if r.Vocabulary == vocabulary && r.OpType == opType && r.Field == field {
+			if r.ValueType != "enum" {
+				panic(fmt.Errorf("spec: rule (%s, %s, %s) is value_type %q, not enum", vocabulary, opType, field, r.ValueType))
+			}
+			return slices.Clone(r.Enum)
+		}
+	}
+	panic(fmt.Errorf("spec: no field rule (%s, %s, %s)", vocabulary, opType, field))
+}
+
+// ReviewStatuses returns the accepted review status enum values, declared on
+// review-ops's set-status.status rule.
 func ReviewStatuses() []string {
-	return slices.Clone(vocabOnce().reviewStatuses)
+	return EnumValues("review-ops", "set-status", "status")
 }
 
-// ApprovalVerdicts returns the accepted approval verdict enum values defined in review-ops.schema.json.
+// ApprovalVerdicts returns the accepted approval verdict enum values,
+// declared on review-ops's approval.verdict rule.
 func ApprovalVerdicts() []string {
-	return slices.Clone(vocabOnce().approvalVerdicts)
+	return EnumValues("review-ops", "approval", "verdict")
 }
 
-// CIStatusStates returns the accepted CI status state enum values defined in review-ops.schema.json.
+// CIStatusStates returns the accepted CI status state enum values, declared
+// on review-ops's ci-status.state rule.
 func CIStatusStates() []string {
-	return slices.Clone(vocabOnce().ciStatusStates)
+	return EnumValues("review-ops", "ci-status", "state")
 }
 
-// LinkRelations returns the accepted link relation enum values defined in review-ops.schema.json.
+// LinkRelations returns the accepted link relation enum values, declared on
+// issue-ops's link.relation rule (review-ops's agrees; document's link.relation
+// is an unconstrained string, not this enum — see spec/value-types.md).
 func LinkRelations() []string {
-	return slices.Clone(vocabOnce().linkRelations)
+	return EnumValues("issue-ops", "link", "relation")
 }
 
-// ProjectStatuses returns the accepted project status enum values defined in project-ops.schema.json.
+// ProjectStatuses returns the accepted project status enum values, declared
+// on project's set-status.status rule.
 func ProjectStatuses() []string {
-	return slices.Clone(vocabOnce().projectStatuses)
+	return EnumValues("project", "set-status", "status")
 }
 
-// WorkflowStateTypes returns the accepted workflow state type enum values defined in workflow-state-ops.schema.json.
+// WorkflowStateTypes returns the accepted workflow state type enum values,
+// declared on workflow-state's create.type rule.
 func WorkflowStateTypes() []string {
-	return slices.Clone(vocabOnce().workflowStateTypes)
+	return EnumValues("workflow-state", "create", "type")
 }
 
-// EstimateScales returns the accepted estimate scale enum values defined in settings-ops.schema.json.
+// EstimateScales returns the accepted estimate scale enum values, declared on
+// settings's set.estimate_scale rule.
 func EstimateScales() []string {
-	return slices.Clone(vocabOnce().estimateScales)
+	return EnumValues("settings", "set", "estimate_scale")
 }
 
 // FormatOptions formats a slice of enum options into a human-readable list,
@@ -156,4 +137,3 @@ func FormatIssuePriority(p int) string {
 		return "none"
 	}
 }
-
