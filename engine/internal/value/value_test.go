@@ -173,3 +173,109 @@ func TestNormalizeOnlyPersonRef(t *testing.T) {
 		}
 	}
 }
+
+// TestKnownValueTypesDriftGuard binds value.Known to its other three
+// hand-maintained appearances of the closed catalogue — spec.KnownValueTypes
+// (spec/fieldrules.go), schemas/value-types.schema.json's $defs, and
+// field-rules.schema.json's value_type enum — in the shape of
+// TestFieldRuleVocabulariesIsExhaustive (engine/codec/valuetype_test.go),
+// round 1's fix for the same class of problem. value.Known cannot import
+// spec (engine/internal/value stays person + stdlib only, so fold stays free
+// of I/O: engine/internal/fold/imports_test.go), so the binding has to live
+// here instead, in the external test package, which is free to import both.
+//
+// Without this, a 13th value type added to spec.KnownValueTypes, both
+// schemas, and value-types.md's prose count — but forgotten in value.Known
+// and Validate's switch — leaves every existing test green: a rule declaring
+// the new type passes ValidateFieldRule and the field-rules schema, but
+// validateValueTypes then hits Validate's default branch and rejects every
+// write to that field with "unknown value type", silently, at produce time.
+func TestKnownValueTypesDriftGuard(t *testing.T) {
+	schemaDefs := valueTypesSchemaDefs(t)
+	fieldRuleEnum := fieldRuleValueTypeEnum(t)
+
+	sources := map[string]map[string]bool{
+		"spec.KnownValueTypes":                      spec.KnownValueTypes,
+		"schemas/value-types.schema.json's $defs":   schemaDefs,
+		"field-rules.schema.json's value_type enum": fieldRuleEnum,
+	}
+	for name, other := range sources {
+		for vt := range value.Known {
+			if !other[vt] {
+				t.Errorf("value.Known has %q, %s does not", vt, name)
+			}
+		}
+		for vt := range other {
+			if !value.Known[vt] {
+				t.Errorf("%s has %q, value.Known does not", name, vt)
+			}
+		}
+	}
+
+	// Validate's switch must have a live case for every catalogued type, not
+	// just a Known entry: hitting the default branch is exactly the failure
+	// this guard exists to catch. nil isn't a valid instance of any type, but
+	// every real case rejects it with a type-specific message rather than
+	// falling through to "unknown value type" — so this only fails if the
+	// switch itself is missing a case.
+	for vt := range spec.KnownValueTypes {
+		err := value.Validate(vt, value.Params{}, nil)
+		if err != nil && strings.Contains(err.Error(), "unknown value type") {
+			t.Errorf("value.Validate(%q, ...) = %v; Validate's switch has no case for %q", vt, err, vt)
+		}
+	}
+}
+
+// valueTypesSchemaDefs returns the $defs names declared in
+// schemas/value-types.schema.json.
+func valueTypesSchemaDefs(t *testing.T) map[string]bool {
+	t.Helper()
+	raw, err := spec.FS.ReadFile("schemas/value-types.schema.json")
+	if err != nil {
+		t.Fatalf("reading value-types.schema.json: %v", err)
+	}
+	var doc struct {
+		Defs map[string]json.RawMessage `json:"$defs"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("decoding value-types.schema.json: %v", err)
+	}
+	names := make(map[string]bool, len(doc.Defs))
+	for name := range doc.Defs {
+		names[name] = true
+	}
+	return names
+}
+
+// fieldRuleValueTypeEnum returns the member list of
+// field-rules.schema.json's $defs/field-rule/properties/value_type enum.
+func fieldRuleValueTypeEnum(t *testing.T) map[string]bool {
+	t.Helper()
+	raw, err := spec.FS.ReadFile("schemas/field-rules.schema.json")
+	if err != nil {
+		t.Fatalf("reading field-rules.schema.json: %v", err)
+	}
+	var doc struct {
+		Defs map[string]struct {
+			Properties map[string]struct {
+				Enum []string `json:"enum"`
+			} `json:"properties"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("decoding field-rules.schema.json: %v", err)
+	}
+	fieldRule, ok := doc.Defs["field-rule"]
+	if !ok {
+		t.Fatal("field-rules.schema.json has no $defs/field-rule")
+	}
+	prop, ok := fieldRule.Properties["value_type"]
+	if !ok {
+		t.Fatal("field-rules.schema.json's $defs/field-rule has no value_type property")
+	}
+	names := make(map[string]bool, len(prop.Enum))
+	for _, name := range prop.Enum {
+		names[name] = true
+	}
+	return names
+}
