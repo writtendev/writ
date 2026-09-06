@@ -18,6 +18,7 @@ import (
 	"github.com/writtendev/writ/engine/codec"
 	"github.com/writtendev/writ/engine/dag"
 	"github.com/writtendev/writ/engine/identity"
+	"github.com/writtendev/writ/engine/schemasrc"
 	"github.com/writtendev/writ/engine/sync"
 )
 
@@ -928,6 +929,85 @@ func TestInit_BareRepository(t *testing.T) {
 	writerID := getGitConfigAll(t, bareDir, "writ.writerId")
 	if len(writerID) != 1 || len(writerID[0]) != 16 {
 		t.Errorf("bare repo writerId not minted: %v", writerID)
+	}
+
+	// A bare repository has no working tree to put writ.schema in
+	// (WRIT-191 correction 4): the starter file is a working-tree source
+	// form and gates on one existing.
+	if _, err := os.Stat(filepath.Join(bareDir, "writ.schema")); !os.IsNotExist(err) {
+		t.Errorf("expected no writ.schema in a bare repository, stat err = %v", err)
+	}
+}
+
+// TestInit_WritesStarterSchemaFile pins WRIT-191's `writ init` starter file:
+// written once, for a work tree, never overwritten, and round-trips its own
+// tooling (parses, formats identically, compiles to exactly one create op).
+func TestInit_WritesStarterSchemaFile(t *testing.T) {
+	env := setupTestCLIEnv(t)
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"init", "-C", env.repoDir}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run init exited with %d; stderr: %s", code, stderr.String())
+	}
+
+	path := filepath.Join(env.repoDir, "writ.schema")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading starter writ.schema: %v", err)
+	}
+
+	// setupTestCLIEnv names the work tree "repo", which is already a legal
+	// namespace, so the derivation should reproduce it verbatim.
+	if want := "namespace repo\n"; string(content) != want {
+		t.Errorf("starter writ.schema = %q, want %q", string(content), want)
+	}
+	if !strings.Contains(stdout.String(), "Wrote starter") {
+		t.Errorf("expected stdout to report the starter file was written, got: %s", stdout.String())
+	}
+
+	f, err := schemasrc.Parse("writ.schema", content)
+	if err != nil {
+		t.Fatalf("schemasrc.Parse(starter file) failed: %v", err)
+	}
+	formatted, err := schemasrc.Format("writ.schema", content)
+	if err != nil {
+		t.Fatalf("schemasrc.Format(starter file) failed: %v", err)
+	}
+	if !bytes.Equal(formatted, content) {
+		t.Errorf("schemasrc.Format is not byte-identical to the starter file:\nformatted: %q\noriginal:  %q", formatted, content)
+	}
+	envs, err := schemasrc.Compile(f, "sch-test")
+	if err != nil {
+		t.Fatalf("schemasrc.Compile(starter file) failed: %v", err)
+	}
+	if len(envs) != 1 || envs[0].OpType != "create" {
+		t.Fatalf("expected exactly one create op from the starter file, got %d ops: %+v", len(envs), envs)
+	}
+
+	// Running init again must never overwrite an existing writ.schema, no
+	// matter its content.
+	customContent := []byte("namespace mycustom\n")
+	if err := os.WriteFile(path, customContent, 0o644); err != nil {
+		t.Fatalf("writing custom writ.schema: %v", err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run(context.Background(), []string{"init", "-C", env.repoDir}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("second run init exited with %d; stderr: %s", code, stderr.String())
+	}
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading writ.schema after second init: %v", err)
+	}
+	if !bytes.Equal(after, customContent) {
+		t.Errorf("writ init overwrote an existing writ.schema: got %q, want unchanged %q", after, customContent)
+	}
+	if !strings.Contains(stdout.String(), "already exists") {
+		t.Errorf("expected stdout to report the existing file was left alone, got: %s", stdout.String())
 	}
 }
 

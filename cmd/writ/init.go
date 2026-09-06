@@ -6,12 +6,15 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/engine/dag"
 	"github.com/writtendev/writ/engine/identity"
+	"github.com/writtendev/writ/engine/schemasrc"
 	"github.com/writtendev/writ/engine/sync"
 	"github.com/writtendev/writ/internal/gitdir"
 )
@@ -291,5 +294,75 @@ func runInit(ctx context.Context, defaultDir string, args []string, stdout, stde
 		_ = initStore.WorkflowStates.SeedDefaults(ctx)
 	}
 
+	// 8. Write a starter writ.schema, working-tree repositories only. A
+	// bare repository has no working tree to put a source file in
+	// (gitInfo.WorkTree is "" for one — resolved in step 2, not repoRoot
+	// itself, which the earlier `--is-bare-repository` branch already set
+	// to the git dir); an existing writ.schema is never overwritten, no
+	// matter its content.
+	if gitInfo.WorkTree != "" {
+		if err := writeStarterSchemaFile(gitInfo.WorkTree, stdout, stderr); err != nil {
+			fmt.Fprintf(stderr, "writ init: writ.schema: %v\n", err)
+		}
+	}
+
 	return 0
+}
+
+// writeStarterSchemaFile writes a namespace-only writ.schema at the work
+// tree root when one is not already there. Writ declares no types of its
+// own (spec/schema-source.md; AGENTS.md), so the starter file is a
+// namespace line and nothing else — no types, no vocabulary — and never
+// overwrites a file that already exists.
+func writeStarterSchemaFile(workTree string, stdout, stderr io.Writer) error {
+	path := filepath.Join(workTree, schemaSourceFileName)
+	if _, err := os.Stat(path); err == nil {
+		fmt.Fprintf(stdout, "writ.schema already exists; leaving it unchanged\n")
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	content := "namespace " + deriveStarterNamespace(workTree) + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Wrote starter %s\n", path)
+	return nil
+}
+
+// starterNamespacePlaceholder is used when nothing legal survives deriving
+// a namespace from the work tree's directory name (spec/schema-source.md
+// §3: a namespace is ^[a-z][a-z0-9-]*$). It names no downstream product —
+// it is a placeholder, not a vocabulary (AGENTS.md).
+const starterNamespacePlaceholder = "repo"
+
+// deriveStarterNamespace turns the work tree's directory name into a legal
+// writ.schema namespace: lowercased, anything outside [a-z0-9-] replaced
+// with '-', trimmed of leading digits/hyphens (a namespace must start with
+// a letter) and trailing hyphens, and capped at the grammar's 64-character
+// limit. Falls back to a fixed placeholder when nothing legal survives.
+func deriveStarterNamespace(workTree string) string {
+	base := strings.ToLower(filepath.Base(workTree))
+
+	var b strings.Builder
+	for _, r := range base {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('-')
+		}
+	}
+	s := strings.Trim(b.String(), "-")
+	s = strings.TrimLeft(s, "0123456789-")
+	s = strings.TrimRight(s, "-")
+
+	if len(s) > 64 {
+		s = strings.TrimRight(s[:64], "-")
+	}
+
+	if s == "" || schemasrc.IsKeyword(s) {
+		return starterNamespacePlaceholder
+	}
+	return s
 }

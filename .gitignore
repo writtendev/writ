@@ -60,3 +60,10 @@ tmp/
 .agents/skills/
 .claude/worktrees/
 .claude/settings.local.json
+
+# writ.schema (spec/schema-source.md): a working-tree source file `writ
+# init` writes for any repository that doesn't have one yet. Writ declares
+# no types of its own — checking one in here would name a downstream
+# product, which nothing in this repository does (AGENTS.md) — so this
+# repo's own `writ init` run leaves no untracked file behind.
+/writ.schema

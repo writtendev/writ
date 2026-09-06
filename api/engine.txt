@@ -71,6 +71,7 @@ func ProjectRules() []Rule
 func ResolveGitDir(path string) (GitDirInfo, error)
 func ReviewRules() []Rule
 func RulesFromSchemas(schemas []state.Schema) (map[string][]Rule, []SchemaConflict)
+func SchemaFromEnvelopes(envs []codec.Envelope) (Schema, error)
 func SchemaRules() []Rule
 func SectionRules() []Rule
 func SettingsRules() []Rule
@@ -431,11 +432,13 @@ type Store struct {
 	Settings *SettingsService
 	// unexported fields
 }
+func (*Store) ApplySchema(ctx context.Context, envs []codec.Envelope) error
 func (*Store) Close() error
 func (*Store) Rebuild(ctx context.Context) (RefreshStats, error)
 func (*Store) Ref(objectID string) string
 func (*Store) Refresh(ctx context.Context) (RefreshStats, error)
 func (*Store) Schema(ctx context.Context) ([]state.Schema, error)
+func (*Store) SchemaAfterApply(ctx context.Context, objectID string, delta []codec.Envelope) (Schema, error)
 func (*Store) Sync(ctx context.Context, remote string) (SyncResult, error)
 func (*Store) SyncStatus(ctx context.Context, remote string) (SyncStatus, error)
 func (*Store) Watch(ctx context.Context) <-chan Event
@@ -1316,6 +1319,7 @@ const ValueTypeScalar ValueTypeKind
 
 func Compile(f *File, objectID string) ([]codec.Envelope, error)
 func Format(name string, src []byte) ([]byte, error)
+func IsKeyword(s string) bool
 func Parse(name string, src []byte) (*File, error)
 func Render(s state.Schema) ([]byte, error)
 

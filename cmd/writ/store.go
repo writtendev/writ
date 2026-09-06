@@ -30,11 +30,11 @@ func (e notFoundError) Unwrap() error {
 	return writ.ErrNotFound
 }
 
-func openStore(dir string) (*writ.Store, error) {
+func openStore(dir string, opts ...writ.Option) (*writ.Store, error) {
 	if dir == "" {
 		dir = "."
 	}
-	return writ.Open(dir)
+	return writ.Open(dir, opts...)
 }
 
 func renderErr(w io.Writer, err error) int {
@@ -289,4 +289,3 @@ func resolveSectionID(ctx context.Context, store *writ.Store, prefix string) (st
 
 	return matches[0], nil
 }
-
