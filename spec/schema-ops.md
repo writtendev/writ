@@ -121,6 +121,39 @@ the version of this `define-field`/`define-op` op itself — as a **decimal
 string** (`"op_version": "1"`), matched by a `key_types` entry of `string`
 wherever it appears in a key.
 
+**This canonical form is checked at fold time, not only by the payload
+schema.** `spec/schemas/schema-ops.schema.json`'s `op_version_string`
+pattern (`^[1-9][0-9]*$`) rejects a non-canonical `op_version` — a leading
+zero, a non-digit character, or an empty string — before a conforming
+producer ever writes one (`spec/testdata/schema-ops/invalid/define-field-op-version-leading-zero.json`
+pins the rejection). That check is producer-side, and a non-conforming
+peer's ref can still carry `"op_version": "01"` regardless of it. **A
+`define-op`, `define-field`, or `deprecate-field` op whose `op_version`
+body field is not this canonical decimal encoding is uninterpretable, and a
+conforming fold MUST report it through `UnknownOps` rather than fold it
+in.** Without this check, two declarations differing only in a
+non-canonical `op_version` encoding — `"1"` and `"01"`, both denoting the
+same integer — would resolve to the same declaration key once compared
+numerically and collapse onto one, and which of the two survived would
+depend on input order rather than on the ops themselves: the fold is
+required to be pure and deterministic (`spec/fold.md`), and this
+particular nondeterminism is hostile-writer-controllable, since any peer
+can push the colliding ref. The check runs independently of, and in
+addition to, the payload schema — a reader has no producer step to lean on
+and cannot assume the log it reads was ever validated.
+
+This quarantine belongs to the schema object's own typed materialization,
+one layer above the generic `keyed-lww` strategy `spec/fold.md` §7.1
+defines: that strategy's own uninterpretability rule ("key components are
+strings") is satisfied by any string, canonical or not, so
+`spec/testdata/fold/merge/`'s vectors — which drive the generic `Fold(ops,
+rules)` over already-resolved `FieldRule`s and compare key components as
+opaque strings — cannot exercise a check that depends on interpreting one
+key component's *numeric* value, and this rule has no representation in
+that corpus. `engine/state/schema_test.go`'s
+`TestFoldSchemaNonCanonicalOpVersionQuarantined` and
+`TestFoldSchemaDeterministicAcrossManyRuns` are its regression net.
+
 ### 3.2. Distinct `target` per op type
 
 `define-field` and `define-op` bodies both carry `type`, `op_type`, and
@@ -527,4 +560,11 @@ can be installed. A rule that fails is dropped and reported as a conflict
 - `spec/testdata/fold/merge/schema-*.json` — fold vectors: a bootstrap
   fold of a whole schema object, a `deprecate-field`/redeclare
   interleaving, concurrent `define-field` ops on one keyed-lww key, and the
-  two `target`-remedy vectors from §8.
+  two `target`-remedy vectors from §8. These drive the generic `Fold(ops,
+  rules)` over already-resolved `FieldRule`s, so they cannot pin §3.1's
+  fold-time `op_version` canonicalization quarantine (that check depends on
+  interpreting a key component's numeric value, one layer above what the
+  generic `keyed-lww` strategy's own uninterpretability rule requires); see
+  §3.1 for why and `engine/state/schema_test.go`'s
+  `TestFoldSchemaNonCanonicalOpVersionQuarantined` and
+  `TestFoldSchemaDeterministicAcrossManyRuns` for its regression net.
