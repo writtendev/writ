@@ -1,0 +1,32 @@
+{
+  "objects": [
+    {
+      "object_id": "sch-acme",
+      "schema": {
+        "object_id": "sch-acme",
+        "namespace": "acme",
+        "description": "Acme schema",
+        "types": [
+          {
+            "type": "widget",
+            "description": "A widget"
+          }
+        ],
+        "unknown_ops": [
+          {
+            "commit": "746fa8a0d13663133286aa38dd6970a1fce24316",
+            "object_type": "schema",
+            "op_type": "reticulate-splines",
+            "op_version": 1
+          },
+          {
+            "commit": "b34ac641d63f9414986a03d8c03225bf219cffe9",
+            "object_type": "schema",
+            "op_type": "define-field",
+            "op_version": 2
+          }
+        ]
+      }
+    }
+  ]
+}

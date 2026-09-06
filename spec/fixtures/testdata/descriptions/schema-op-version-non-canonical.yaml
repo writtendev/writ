@@ -1,0 +1,189 @@
+name: schema-op-version-non-canonical
+description: >
+  The inherited WRIT-186 obligation (spec/schema-ops.md §3.1): a define-op,
+  define-field, or deprecate-field op whose op_version body field is not the
+  canonical decimal string (^[1-9][0-9]*$) MUST be quarantined into
+  UnknownOps at fold time rather than folded in under a key that would
+  collapse onto a canonically-encoded declaration. Alice writes canonical
+  declarations for all three affected op types on one chain; Bob, on his own
+  chain, writes an otherwise identical declaration for each with a
+  non-canonical op_version ("01", a leading zero) and a different
+  value_type/description, plus two more siblings covering an empty
+  op_version and a non-digit one ("1a"). Every one of Bob's five ops must be
+  quarantined; none of Bob's field/op declarations may reach Schema.Types
+  (pins: reader — the producer half of this rule is already pinned by
+  spec/testdata/schema-ops/invalid/define-field-op-version-leading-zero.json).
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: alice-create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: alice-define-field-canonical
+            parents: [alice-create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "create"
+                op_version: "1"
+                field: "value"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: alice-define-op-canonical
+            parents: [alice-define-field-canonical]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-op
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "create"
+                op_version: "1"
+                description: "Create a widget"
+            expect: accept
+
+          - id: alice-define-field-status
+            parents: [alice-define-op-canonical]
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "update"
+                op_version: "1"
+                field: "status"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: alice-deprecate-field-canonical
+            parents: [alice-define-field-status]
+            author: alice
+            timestamp: 2026-01-01T00:04:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: deprecate-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "update"
+                op_version: "1"
+                field: "status"
+                deprecated: true
+            expect: accept
+
+  - name: refs/writ/fedcba9876543210/schema
+    history:
+      - commits:
+          - id: bob-define-field-leading-zero
+            author: bob
+            timestamp: 2026-01-01T01:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "create"
+                op_version: "01"
+                field: "value"
+                value_type: "int"
+                strategy: "lww"
+            expect: accept
+
+          - id: bob-define-op-leading-zero
+            parents: [bob-define-field-leading-zero]
+            author: bob
+            timestamp: 2026-01-01T01:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-op
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "create"
+                op_version: "01"
+                description: "Bogus create (non-canonical op_version)"
+            expect: accept
+
+          - id: bob-deprecate-field-leading-zero
+            parents: [bob-define-op-leading-zero]
+            author: bob
+            timestamp: 2026-01-01T01:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: deprecate-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "update"
+                op_version: "01"
+                field: "status"
+                deprecated: true
+            expect: accept
+
+          - id: bob-define-field-empty
+            parents: [bob-deprecate-field-leading-zero]
+            author: bob
+            timestamp: 2026-01-01T01:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "create"
+                op_version: ""
+                field: "extra"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: bob-define-field-non-digit
+            parents: [bob-define-field-empty]
+            author: bob
+            timestamp: 2026-01-01T01:04:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "create"
+                op_version: "1a"
+                field: "extra2"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept

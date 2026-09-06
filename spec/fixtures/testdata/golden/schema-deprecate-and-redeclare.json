@@ -1,0 +1,58 @@
+{
+  "refs": [
+    {
+      "name": "refs/writ/0123456789abcdef/schema",
+      "commit": "091e3ea0a26cb09cb56081a6cdd5180d98e5d3cb"
+    }
+  ],
+  "generations": [
+    {
+      "ref": "refs/writ/0123456789abcdef/schema",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "a5d9b44532a36476cbc5bf9fd70842f8eff5c594",
+          "tree": "2601775727c841f53a2960e4169e9a4a216f66d2",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "message": "writ: create schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "43878551b21d1769827c0a8932fe1451dbe30ea9",
+          "tree": "8c32ef4b3868d1dabce96f69cf1af5b0e4031c8b",
+          "parents": [
+            "a5d9b44532a36476cbc5bf9fd70842f8eff5c594"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:01:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "3d75abc4e784528a951f5d2219ace085e7db2449",
+          "tree": "15d24b9fdd3e646009242564dc8f63e1516d2c7c",
+          "parents": [
+            "43878551b21d1769827c0a8932fe1451dbe30ea9"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:02:00Z",
+          "message": "writ: deprecate-field schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "091e3ea0a26cb09cb56081a6cdd5180d98e5d3cb",
+          "tree": "68cb785ff80c966306eb7f24d767794e634b0793",
+          "parents": [
+            "3d75abc4e784528a951f5d2219ace085e7db2449"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:03:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        }
+      ]
+    }
+  ]
+}

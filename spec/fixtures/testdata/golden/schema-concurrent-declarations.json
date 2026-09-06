@@ -1,0 +1,55 @@
+{
+  "refs": [
+    {
+      "name": "refs/writ/0123456789abcdef/schema",
+      "commit": "4d6ce34ebdbc2352cc1ff6ba39a89b29ad85890e"
+    },
+    {
+      "name": "refs/writ/fedcba9876543210/schema",
+      "commit": "67b88bf880d0ffa13d489da8583c6a116e7766d3"
+    }
+  ],
+  "generations": [
+    {
+      "ref": "refs/writ/0123456789abcdef/schema",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "e757135a7ea39025ef0c9e671178087fde6ca133",
+          "tree": "be8cafb278e4d4cf625e04c9078116c568ad3b42",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "message": "writ: create schema/sch-race\n",
+          "signed": true
+        },
+        {
+          "sha": "4d6ce34ebdbc2352cc1ff6ba39a89b29ad85890e",
+          "tree": "06ee0046b6f2336f018434517b37525e57a5c821",
+          "parents": [
+            "e757135a7ea39025ef0c9e671178087fde6ca133"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:02:00Z",
+          "message": "writ: define-field schema/sch-race\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/fedcba9876543210/schema",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "67b88bf880d0ffa13d489da8583c6a116e7766d3",
+          "tree": "a5d68bf2df71338778bb3de768ab0ae30887af7b",
+          "parents": [],
+          "author": "Bob Example \u003cbob@example.test\u003e",
+          "timestamp": "2026-01-01T00:01:00Z",
+          "message": "writ: define-field schema/sch-race\n",
+          "signed": true
+        }
+      ]
+    }
+  ]
+}

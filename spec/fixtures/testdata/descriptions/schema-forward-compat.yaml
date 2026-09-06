@@ -1,0 +1,73 @@
+name: schema-forward-compat
+description: >
+  Forward compatibility for the schema object type itself (spec/schema-ops.md
+  §10), which currently has no fixture behind it: an unknown body field on a
+  known op (preserved and ignored, contributes its known fields normally), an
+  unknown op_type at a supported op_version (quarantined into UnknownOps),
+  and a future op_version on an otherwise well-formed known op_type
+  (quarantined into UnknownOps regardless of op_type, per FoldSchema's
+  object_type/op_version gate).
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+                description: "Acme schema"
+                experimental_flag: true
+            expect: accept
+
+          - id: define-type
+            parents: [create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "widget"
+                description: "A widget"
+                icon: "wrench"
+            expect: accept
+
+          - id: future-op-type
+            parents: [define-type]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: reticulate-splines
+              op_version: 1
+              body:
+                whatever: true
+            expect: accept
+
+          - id: future-op-version
+            parents: [future-op-type]
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 2
+              body:
+                type: "widget"
+                op_type: "create"
+                op_version: "1"
+                field: "future_field"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept

@@ -1,0 +1,58 @@
+{
+  "refs": [
+    {
+      "name": "refs/writ/0123456789abcdef/schema",
+      "commit": "b34ac641d63f9414986a03d8c03225bf219cffe9"
+    }
+  ],
+  "generations": [
+    {
+      "ref": "refs/writ/0123456789abcdef/schema",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "be96ce1aef3856276d7778a5766e5bf5df3c16a3",
+          "tree": "b800216038b6bde917a58ec79388bf285634b9c3",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "message": "writ: create schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "dd723bb136c8db8f35d2a01983cc5bce18a5dff2",
+          "tree": "8081e0b3299b30b0b030074a4633374a55fd9aee",
+          "parents": [
+            "be96ce1aef3856276d7778a5766e5bf5df3c16a3"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:01:00Z",
+          "message": "writ: define-type schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "746fa8a0d13663133286aa38dd6970a1fce24316",
+          "tree": "eddd842001daaf39a9b6401add1c92e2d9cea488",
+          "parents": [
+            "dd723bb136c8db8f35d2a01983cc5bce18a5dff2"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:02:00Z",
+          "message": "writ: reticulate-splines schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "b34ac641d63f9414986a03d8c03225bf219cffe9",
+          "tree": "c4e8196104789bdac42055438f47c3f5024dc42c",
+          "parents": [
+            "746fa8a0d13663133286aa38dd6970a1fce24316"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:03:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        }
+      ]
+    }
+  ]
+}

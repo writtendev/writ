@@ -69,6 +69,7 @@ disagree, the fixtures win and the prose gets fixed.
 | `testdata/schema-ops/valid/`, `testdata/schema-ops/invalid/` | Normative | Schema operation payload instances; `invalid/index.json` records each expected rejection (schema, invariant, or canonicalization) |
 | `testdata/schema-ops/field-rules.json` | Normative | The bootstrap field merge rules for the schema vocabulary itself — the one rule table that never comes from the log |
 | `testdata/resolution/` | Normative | Resolution test vectors (`cases/*.json`) and outcome index (`index.json`) |
+| `fixtures/testdata/golden/schema/` | Normative | Signed-fixture golden family driving the typed `writ.FoldSchema` reducer directly (`spec/fixtures/schema_test.go`): bootstrap, the §3.1 non-canonical `op_version` quarantine, multi-writer concurrent declarations, deprecate/redeclare, and schema-level forward compatibility |
 | `spec.go` | Informative | Go embedding of `schemas/` and `testdata/` so every consumer reads the one committed copy |
 | `foldvectors.go` | Informative | Go loader and structural validation for fold ordering and merge test vectors |
 | `resolutionvectors.go` | Informative | Go loader and structural validation for resolution test cases |
@@ -182,6 +183,7 @@ spec/
     ├── manifest.go         — manifest data model (SHAs, trees, parents, refs)
     ├── op.go               — OpDesc to canonical payload & commit message derivation
     ├── orphananchors_test.go — orphan-anchors fixture family registration & resolution test
+    ├── schema_test.go      — schema fixture family registration & typed FoldSchema golden test
     ├── sign.go             — ed25519 SSH commit signing
     ├── tamper.go           — post-signing commit tampering engine
     ├── tree.go             — git tree object generation with file modes
