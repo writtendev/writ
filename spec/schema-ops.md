@@ -336,6 +336,18 @@ which is what makes them tombstone-style without needing the `tombstone`
 strategy (that strategy is per-object, not per-key). `create` is
 `create-once` for `namespace`, `lww` for `description`.
 
+`deprecated: true` marks a declaration as discouraged for *new* writes; it
+is not a removal, and it must never stop already-signed ops from folding.
+A deprecated field's rule stays installed and active for every object of
+the type it governs: `engine/schema.go`'s resolver carries `deprecated`
+through onto the resolved rule as data — for a producer or UI to read, or
+to warn against writing more of — and never withholds installing the rule
+because of it. Nothing about deprecating a field changes what an op
+written under it folds to, before or after the deprecation (§7 step 3,
+§8). This is the same "nothing is ever removed" guarantee stated for the
+op vocabulary above, made explicit at the resolver boundary where it would
+otherwise be easy to read `deprecated` as a filter.
+
 | `op_type` | Field | Merge Strategy | Key |
 | --- | --- | --- | --- |
 | `create` | `namespace` | `create-once` | — |
@@ -400,7 +412,9 @@ object type whose rules never come from the log.
    built-in table (`state.SchemaRules`) — the only rules that exist for
    `schema`, and the only object type that never consults the log.
 3. Materialize `spec.FieldRule`-shaped rules from the folded `field_*`
-   registers of every non-deprecated field declaration.
+   registers of every field declaration, deprecated or not: `deprecated`
+   is carried onto the resolved rule as data, not a filter. A rule is
+   never withheld for being deprecated (§5, §8).
 4. Validate each candidate rule through `spec.ValidateFieldRule`. A rule
    that fails is dropped and reported, never handed to the fold driver
    (§9).

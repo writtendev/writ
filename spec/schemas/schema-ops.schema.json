@@ -287,7 +287,7 @@
         },
         "max_length": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 1
         },
         "strategy": {
           "$ref": "#/$defs/strategy"

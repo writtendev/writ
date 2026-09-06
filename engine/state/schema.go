@@ -159,6 +159,29 @@ func FoldSchema(ops []codec.Op) (Schema, error) {
 			continue
 		}
 
+		// define-op, define-field, and deprecate-field carry op_version as a
+		// keyed-lww key component, encoded as a decimal string
+		// (spec/schemas/schema-ops.schema.json's op_version_string pattern
+		// ^[1-9][0-9]*$: no leading zero). That pattern is producer-side —
+		// the fold path never validates payloads against the JSON schema —
+		// so a non-conforming peer's ref can still carry "01" alongside a
+		// conforming "1". toInt64 would map both to the same int64, and two
+		// declarations that are supposed to be distinct would collapse into
+		// one indistinguishable-by-sort pair (WRIT-186 round-1 finding 1:
+		// this is what made FoldSchema non-deterministic). Quarantine the
+		// op instead of silently coercing it.
+		if op.OpType == "define-op" || op.OpType == "define-field" || op.OpType == "deprecate-field" {
+			if !canonicalOpVersion(stringField(body, "op_version")) {
+				unknownOps = append(unknownOps, UnknownOp{
+					Commit:     op.ID,
+					ObjectType: op.ObjectType,
+					OpType:     op.OpType,
+					OpVersion:  op.OpVersion,
+				})
+				continue
+			}
+		}
+
 		switch op.OpType {
 		case "create":
 			if !namespaceSet {
@@ -257,41 +280,61 @@ func FoldSchema(ops []codec.Op) (Schema, error) {
 
 	sch.UnknownOps = unknownOps
 
-	fieldsByType := make(map[string][]SchemaField)
+	// Keys, not the SchemaField/SchemaOp values built from them, are what get
+	// sorted: a schemaFieldKey/schemaOpKey carries op_version as the raw
+	// canonical decimal string, and sorting on that (via compareOpVersion)
+	// is genuinely total for any two distinct keys sharing a type — two
+	// declarations differing only in op_version compare unequal because
+	// their strings differ, unlike sorting the already-int64-converted
+	// SchemaField/SchemaOp, where distinct canonical strings of unbounded
+	// length could in principle convert to the same int64 (WRIT-186 round-1
+	// finding 1). Building the struct only after the order is fixed makes
+	// sort.Slice's instability moot: a comparator that never ties needs no
+	// stable sort and leaves no room for map-iteration order to leak
+	// through.
+	fieldKeysByType := make(map[string][]schemaFieldKey)
 	for key := range fieldNames {
-		f := SchemaField{
-			Name:       key.field,
-			OpType:     key.opType,
-			OpVersion:  toInt64(key.opVersion),
-			ValueType:  fieldValueType[key],
-			Enum:       fieldEnum[key],
-			MaxLength:  fieldMaxLength[key],
-			Strategy:   fieldStrategy[key],
-			Key:        fieldKeyCols[key],
-			KeyTypes:   fieldKeyTypes[key],
-			Lattice:    fieldLattice[key],
-			Target:     fieldTarget[key],
-			Deprecated: fieldDeprecated[key],
-		}
-		fieldsByType[key.typ] = append(fieldsByType[key.typ], f)
+		fieldKeysByType[key.typ] = append(fieldKeysByType[key.typ], key)
 	}
-	for typ := range fieldsByType {
-		fs := fieldsByType[typ]
-		sort.Slice(fs, func(i, j int) bool { return fieldLess(fs[i], fs[j]) })
+	fieldsByType := make(map[string][]SchemaField)
+	for typ, keys := range fieldKeysByType {
+		sort.Slice(keys, func(i, j int) bool { return fieldKeyLess(keys[i], keys[j]) })
+		fs := make([]SchemaField, 0, len(keys))
+		for _, key := range keys {
+			fs = append(fs, SchemaField{
+				Name:       key.field,
+				OpType:     key.opType,
+				OpVersion:  toInt64(key.opVersion),
+				ValueType:  fieldValueType[key],
+				Enum:       fieldEnum[key],
+				MaxLength:  fieldMaxLength[key],
+				Strategy:   fieldStrategy[key],
+				Key:        fieldKeyCols[key],
+				KeyTypes:   fieldKeyTypes[key],
+				Lattice:    fieldLattice[key],
+				Target:     fieldTarget[key],
+				Deprecated: fieldDeprecated[key],
+			})
+		}
+		fieldsByType[typ] = fs
 	}
 
-	opsByType := make(map[string][]SchemaOp)
+	opKeysByType := make(map[string][]schemaOpKey)
 	for key := range opNames {
-		o := SchemaOp{
-			OpType:      key.opType,
-			OpVersion:   toInt64(key.opVersion),
-			Description: opDescriptions[key],
-		}
-		opsByType[key.typ] = append(opsByType[key.typ], o)
+		opKeysByType[key.typ] = append(opKeysByType[key.typ], key)
 	}
-	for typ := range opsByType {
-		os := opsByType[typ]
-		sort.Slice(os, func(i, j int) bool { return opLess(os[i], os[j]) })
+	opsByType := make(map[string][]SchemaOp)
+	for typ, keys := range opKeysByType {
+		sort.Slice(keys, func(i, j int) bool { return opKeyLess(keys[i], keys[j]) })
+		os := make([]SchemaOp, 0, len(keys))
+		for _, key := range keys {
+			os = append(os, SchemaOp{
+				OpType:      key.opType,
+				OpVersion:   toInt64(key.opVersion),
+				Description: opDescriptions[key],
+			})
+		}
+		opsByType[typ] = os
 	}
 
 	// A type surfaces in Schema.Types once it is named by a define-type op,
@@ -453,19 +496,71 @@ func parseDecimal(s string) (int64, bool) {
 	return n, true
 }
 
-func fieldLess(a, b SchemaField) bool {
-	if a.OpType != b.OpType {
-		return a.OpType < b.OpType
+// canonicalOpVersion reports whether s is op_version's canonical decimal
+// encoding (spec/schemas/schema-ops.schema.json's op_version_string
+// pattern ^[1-9][0-9]*$): digits only, no leading zero, non-empty. A
+// conforming producer never writes anything else, but the fold path does
+// not consult the JSON schema — that validation is producer-side — so a
+// non-conforming peer's ref can still carry "01", "" or "1a"; FoldSchema
+// quarantines any define-op/define-field/deprecate-field op whose
+// op_version fails this check rather than folding it in under a key that
+// collides with a canonically-encoded one.
+func canonicalOpVersion(s string) bool {
+	if _, ok := parseDecimal(s); !ok {
+		return false
 	}
-	if a.OpVersion != b.OpVersion {
-		return a.OpVersion < b.OpVersion
-	}
-	return a.Name < b.Name
+	return s[0] != '0'
 }
 
-func opLess(a, b SchemaOp) bool {
-	if a.OpType != b.OpType {
-		return a.OpType < b.OpType
+// compareOpVersion orders two canonical op_version decimal strings (no
+// leading zero, no bound on digit count beyond the schema's maxLength: 16)
+// by numeric value without converting either to int64 first: a shorter
+// canonical decimal string is always numerically smaller regardless of
+// digit content, and two same-length canonical strings compare correctly
+// byte-for-byte. This is total for any two distinct canonical strings and
+// never overflows, unlike comparing toInt64 conversions of arbitrarily
+// long digit strings.
+func compareOpVersion(a, b string) int {
+	if len(a) != len(b) {
+		if len(a) < len(b) {
+			return -1
+		}
+		return 1
 	}
-	return a.OpVersion < b.OpVersion
+	switch {
+	case a < b:
+		return -1
+	case a > b:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// fieldKeyLess orders schemaFieldKeys within one type. Unlike ordering the
+// already-built SchemaField values (whose OpVersion is an int64 conversion
+// that two distinct canonical op_version strings could in principle both
+// produce for an oversized digit string), this compares the key's raw
+// components directly, so two distinct keys — guaranteed to differ in at
+// least field, opType, or opVersion, since fieldNames is keyed by exactly
+// this struct — always compare unequal. That totality is what makes
+// sort.Slice deterministic here regardless of the map-iteration order the
+// keys arrive in (WRIT-186 round-1 finding 1).
+func fieldKeyLess(a, b schemaFieldKey) bool {
+	if a.opType != b.opType {
+		return a.opType < b.opType
+	}
+	if c := compareOpVersion(a.opVersion, b.opVersion); c != 0 {
+		return c < 0
+	}
+	return a.field < b.field
+}
+
+// opKeyLess orders schemaOpKeys within one type, on the same total-ordering
+// basis as fieldKeyLess.
+func opKeyLess(a, b schemaOpKey) bool {
+	if a.opType != b.opType {
+		return a.opType < b.opType
+	}
+	return compareOpVersion(a.opVersion, b.opVersion) < 0
 }

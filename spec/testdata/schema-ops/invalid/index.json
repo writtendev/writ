@@ -40,6 +40,11 @@
     "reason": "op_version '01' has a leading zero, violating the decimal-string pattern"
   },
   {
+    "file": "define-field-max-length-zero.json",
+    "rejects": "schema",
+    "reason": "max_length is 0, below the minimum of 1 (field-rules.schema.json's max_length shares this bound, and ValidateFieldRule's != 0 gate would otherwise read a 0 as 'no limit declared' rather than reject it)"
+  },
+  {
     "file": "define-op-missing-op-version.json",
     "rejects": "schema",
     "reason": "define-op op body is missing required op_version"

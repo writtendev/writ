@@ -184,21 +184,25 @@ func RulesFromSchemas(schemas []state.Schema) (map[string][]Rule, []SchemaConfli
 			targetStrategy := make(map[string]string)
 			var typeRules []Rule
 			for _, f := range t.Fields {
-				if f.Deprecated {
-					continue
-				}
+				// deprecated:true is metadata discouraging new writes, not a
+				// removal (spec/schema-ops.md §5, §8): the rule stays
+				// installed and active for folding so ops already signed
+				// under it keep folding to the same state, with Deprecated
+				// carried onto the resolved Rule for a producer or UI to
+				// read.
 				r := Rule{
-					OpType:    f.OpType,
-					OpVersion: f.OpVersion,
-					Field:     f.Name,
-					Target:    f.Target,
-					Strategy:  f.Strategy,
-					Key:       f.Key,
-					Lattice:   f.Lattice,
-					ValueType: f.ValueType,
-					Enum:      f.Enum,
-					MaxLength: f.MaxLength,
-					KeyTypes:  f.KeyTypes,
+					OpType:     f.OpType,
+					OpVersion:  f.OpVersion,
+					Field:      f.Name,
+					Target:     f.Target,
+					Strategy:   f.Strategy,
+					Key:        f.Key,
+					Lattice:    f.Lattice,
+					ValueType:  f.ValueType,
+					Enum:       f.Enum,
+					MaxLength:  f.MaxLength,
+					KeyTypes:   f.KeyTypes,
+					Deprecated: f.Deprecated,
 				}
 
 				sr := spec.FieldRule{

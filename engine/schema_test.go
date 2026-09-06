@@ -88,6 +88,26 @@ func TestRulesFromSchemas_ObjectTypeCollisionInstallsNoRules(t *testing.T) {
 	if !reflect.DeepEqual(gotIDs, wantIDs) {
 		t.Errorf("conflict ObjectIDs = %v, want %v", gotIDs, wantIDs)
 	}
+
+	// §7.1 / FC-1 / FC-12: withholding rules for a contested object_type
+	// must never surface as a fold error for the ops that type's own data
+	// writes. Fold(dataOps, rules["standup"]) — rules["standup"] absent,
+	// same as an unresolvable object_type — must return a nil error with
+	// every op quarantined as unknown, exactly the absent-schema path.
+	dataOp := codec.Op{
+		Envelope: codec.Envelope{
+			ObjectID: "obj-1", ObjectType: "standup", OpType: "create", OpVersion: 1,
+			Body: json.RawMessage(`{"summary":"hello"}`),
+		},
+		ID: "op-1",
+	}
+	objState, err := writ.Fold([]codec.Op{dataOp}, rules["standup"])
+	if err != nil {
+		t.Fatalf("Fold on the contested object_type must not error, got: %v", err)
+	}
+	if len(objState.UnknownOps) != 1 || objState.UnknownOps[0].Commit != "op-1" {
+		t.Fatalf("expected op-1 to fall through to UnknownOps, got %+v", objState)
+	}
 }
 
 func TestRulesFromSchemas_NamespaceCollisionDoesNotWithholdRulesAlone(t *testing.T) {
@@ -150,30 +170,105 @@ func TestRulesFromSchemas_InvalidRuleDroppedNotInstalled(t *testing.T) {
 			{Name: "standup", Fields: []state.SchemaField{
 				mkField("standup", "create", 1, "summary", ""),        // strategy:"" - invalid
 				mkField("standup", "create", 1, "notes", "keyed-lww"), // keyed-lww with no key - invalid
+				mkField("standup", "create", 1, "owner", "bogus"),     // strategy:"bogus" - not in the catalogue at all
 			}},
 		},
 	}
 
 	rules, conflicts := writ.RulesFromSchemas([]state.Schema{a})
 	if got := rules["standup"]; len(got) != 0 {
-		t.Fatalf("expected both invalid rules dropped, got %+v", got)
+		t.Fatalf("expected all three invalid rules dropped, got %+v", got)
 	}
-	if len(conflicts) != 2 {
-		t.Fatalf("expected 2 reported invalid-rule conflicts, got %+v", conflicts)
+	if len(conflicts) != 3 {
+		t.Fatalf("expected 3 reported invalid-rule conflicts, got %+v", conflicts)
+	}
+
+	// §9's security boundary: none of these ever reach Fold as a rule, so
+	// the consuming object's own data ops must not hard-error — they fall
+	// through to UnknownOps exactly as if no rule existed at all. This is
+	// the assertion the plan's §3 acceptance criteria named and round-1
+	// found missing: no test ever called Fold with the resolved rules.
+	dataOp := codec.Op{
+		Envelope: codec.Envelope{
+			ObjectID: "obj-1", ObjectType: "standup", OpType: "create", OpVersion: 1,
+			Body: json.RawMessage(`{"summary":"hello","notes":"hi","owner":"alice"}`),
+		},
+		ID: "op-1",
+	}
+	objState, err := writ.Fold([]codec.Op{dataOp}, rules["standup"])
+	if err != nil {
+		t.Fatalf("Fold must never see an unknown-strategy rule, got error: %v", err)
+	}
+	if len(objState.UnknownOps) != 1 || objState.UnknownOps[0].Commit != "op-1" {
+		t.Fatalf("expected op-1 to fall through to UnknownOps, got %+v", objState)
 	}
 }
 
-func TestRulesFromSchemas_DeprecatedFieldExcluded(t *testing.T) {
-	f := mkField("standup", "create", 1, "summary", "lww")
-	f.Deprecated = true
+// TestRulesFromSchemas_DeprecatedFieldStaysActiveForFolding proves the
+// round-1 fix for finding 2: deprecated:true is metadata discouraging new
+// writes, not a removal (spec/schema-ops.md §5, §8; AGENTS.md "old clients
+// must not destroy new clients' data"). Deprecating a field must not make
+// already-signed data written under it vanish from folded state, and must
+// not reclassify the ops that wrote it as UnknownOps.
+func TestRulesFromSchemas_DeprecatedFieldStaysActiveForFolding(t *testing.T) {
+	active := mkField("standup", "create", 1, "summary", "lww")
 	a := state.Schema{
 		ObjectID: "sch-a",
-		Types:    []state.SchemaType{{Name: "standup", Fields: []state.SchemaField{f}}},
+		Types:    []state.SchemaType{{Name: "standup", Fields: []state.SchemaField{active}}},
+	}
+	deprecated := active
+	deprecated.Deprecated = true
+	b := state.Schema{
+		ObjectID: "sch-a",
+		Types:    []state.SchemaType{{Name: "standup", Fields: []state.SchemaField{deprecated}}},
 	}
 
-	rules, _ := writ.RulesFromSchemas([]state.Schema{a})
-	if got := rules["standup"]; len(got) != 0 {
-		t.Fatalf("expected a deprecated field to install no rule, got %+v", got)
+	rulesBefore, conflictsBefore := writ.RulesFromSchemas([]state.Schema{a})
+	rulesAfter, conflictsAfter := writ.RulesFromSchemas([]state.Schema{b})
+
+	if len(conflictsBefore) != 0 || len(conflictsAfter) != 0 {
+		t.Fatalf("expected no conflicts either way, got before=%+v after=%+v", conflictsBefore, conflictsAfter)
+	}
+
+	got := rulesAfter["standup"]
+	if len(got) != 1 {
+		t.Fatalf("expected the deprecated field's rule still installed, got %+v", got)
+	}
+	if !got[0].Deprecated {
+		t.Errorf("expected Deprecated carried through onto the resolved Rule, got %+v", got[0])
+	}
+
+	// The data op that wrote "summary" yesterday must fold to the same
+	// state today, whether or not the field has since been deprecated —
+	// and it must not fall into UnknownOps in either case.
+	dataOp := codec.Op{
+		Envelope: codec.Envelope{
+			ObjectID: "obj-1", ObjectType: "standup", OpType: "create", OpVersion: 1,
+			Body: json.RawMessage(`{"summary":"important"}`),
+		},
+		ID: "op-1",
+	}
+
+	stateBefore, err := writ.Fold([]codec.Op{dataOp}, rulesBefore["standup"])
+	if err != nil {
+		t.Fatalf("Fold before deprecation failed: %v", err)
+	}
+	if len(stateBefore.UnknownOps) != 0 {
+		t.Fatalf("expected op-1 known before deprecation, got unknown_ops=%+v", stateBefore.UnknownOps)
+	}
+	if stateBefore.State["summary"] != "important" {
+		t.Fatalf("expected summary=%q before deprecation, got %+v", "important", stateBefore.State)
+	}
+
+	stateAfter, err := writ.Fold([]codec.Op{dataOp}, rulesAfter["standup"])
+	if err != nil {
+		t.Fatalf("Fold after deprecation failed: %v", err)
+	}
+	if len(stateAfter.UnknownOps) != 0 {
+		t.Fatalf("deprecate-field must not reclassify op-1 as unknown, got unknown_ops=%+v", stateAfter.UnknownOps)
+	}
+	if !reflect.DeepEqual(stateBefore.State, stateAfter.State) {
+		t.Fatalf("deprecation changed the folded state: before=%+v after=%+v", stateBefore.State, stateAfter.State)
 	}
 }
 

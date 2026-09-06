@@ -232,6 +232,126 @@ func TestFoldSchemaBogusStrategyDoesNotErrorTheFold(t *testing.T) {
 	}
 }
 
+func TestFoldSchemaNonCanonicalOpVersionQuarantined(t *testing.T) {
+	// op_version "01" has a leading zero: not the canonical decimal string
+	// spec/schemas/schema-ops.schema.json's op_version_string pattern
+	// requires. The fold path does not consult that JSON schema (it is
+	// producer-side), so a non-conforming peer's ref can still carry it;
+	// FoldSchema must quarantine the op rather than fold it in under a key
+	// that toInt64 would collapse onto a conforming "1" (WRIT-186 round-1
+	// finding 1).
+	now := time.Unix(100, 0).UTC()
+	op := codec.Op{
+		Envelope: codec.Envelope{
+			ObjectID: "sch-1", ObjectType: "schema", OpType: "define-field", OpVersion: 1,
+			Body: mustSchemaBody(t, map[string]any{
+				"type": "widget", "op_type": "wop", "op_version": "01",
+				"field": "value", "strategy": "set-union",
+			}),
+		},
+		ID:     "op-a",
+		Author: codec.Identity{When: now},
+	}
+
+	sch, err := state.FoldSchema([]codec.Op{op})
+	if err != nil {
+		t.Fatalf("FoldSchema failed: %v", err)
+	}
+	if len(sch.Types) != 0 {
+		t.Fatalf("expected no type installed from a non-canonical op_version, got %+v", sch.Types)
+	}
+	if len(sch.UnknownOps) != 1 || sch.UnknownOps[0].Commit != "op-a" {
+		t.Fatalf("expected op-a quarantined as unknown, got %+v", sch.UnknownOps)
+	}
+}
+
+// TestFoldSchemaDeterministicAcrossManyRuns reproduces the round-1 review's
+// own check: two define-field declarations for one (type, op_type) that
+// differ only in op_version ("1" vs "01") must never both survive into
+// Schema.Types, and folding the same op set many times must always produce
+// byte-identical output — Go map iteration order must never leak into the
+// result. Distinct from TestFoldSchemaNonCanonicalOpVersionQuarantined,
+// this vector also carries several conforming, canonical declarations so
+// the sort itself — not just the quarantine — is exercised under repeated
+// runs.
+func TestFoldSchemaDeterministicAcrossManyRuns(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	mk := func(id, opType, opVersion, field, strategy string) codec.Op {
+		return codec.Op{
+			Envelope: codec.Envelope{
+				ObjectID: "sch-1", ObjectType: "schema", OpType: "define-field", OpVersion: 1,
+				Body: mustSchemaBody(t, map[string]any{
+					"type": "widget", "op_type": opType, "op_version": opVersion,
+					"field": field, "strategy": strategy,
+				}),
+			},
+			ID:     id,
+			Author: codec.Identity{When: now},
+		}
+	}
+
+	ops := []codec.Op{
+		mk("op-lww", "wop", "1", "value", "lww"),
+		mk("op-non-canonical", "wop", "01", "value", "set-union"),
+		mk("op-b", "wop", "1", "alpha", "lww"),
+		mk("op-c", "wop", "2", "value", "lww"),
+		mk("op-d", "zop", "1", "value", "lww"),
+	}
+
+	first, err := state.FoldSchema(ops)
+	if err != nil {
+		t.Fatalf("FoldSchema failed: %v", err)
+	}
+	firstJSON, err := json.Marshal(first)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	distinct := map[string]int{}
+	for i := 0; i < 500; i++ {
+		got, err := state.FoldSchema(ops)
+		if err != nil {
+			t.Fatalf("run %d: FoldSchema failed: %v", i, err)
+		}
+		gotJSON, err := json.Marshal(got)
+		if err != nil {
+			t.Fatalf("run %d: marshal: %v", i, err)
+		}
+		distinct[string(gotJSON)]++
+	}
+	if len(distinct) != 1 {
+		t.Fatalf("expected exactly 1 distinct fold output over 500 runs, got %d: %v", len(distinct), distinct)
+	}
+	if _, ok := distinct[string(firstJSON)]; !ok {
+		t.Fatalf("the 500-run outputs disagree with the first run")
+	}
+
+	// The non-canonical declaration must never have survived into state:
+	// only wop/1/value (lww), wop/1/alpha (lww), wop/2/value (lww), and
+	// zop/1/value (lww) do.
+	if len(first.Types) != 1 {
+		t.Fatalf("expected 1 type, got %+v", first.Types)
+	}
+	typ := first.Types[0]
+	if len(typ.Fields) != 4 {
+		t.Fatalf("expected 4 surviving fields, got %+v", typ.Fields)
+	}
+	for _, f := range typ.Fields {
+		if f.OpType == "wop" && f.OpVersion == 1 && f.Name == "value" && f.Strategy != "lww" {
+			t.Fatalf("non-canonical op_version %q leaked a set-union rule into state: %+v", "01", f)
+		}
+	}
+	var sawUnknown bool
+	for _, uo := range first.UnknownOps {
+		if uo.Commit == "op-non-canonical" {
+			sawUnknown = true
+		}
+	}
+	if !sawUnknown {
+		t.Fatalf("expected op-non-canonical quarantined, got unknown_ops=%+v", first.UnknownOps)
+	}
+}
+
 func TestSchemaRulesValid(t *testing.T) {
 	rules := state.SchemaRules()
 	if len(rules) == 0 {
