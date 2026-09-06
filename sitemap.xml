@@ -48,6 +48,8 @@
   </url><url>
     <loc>/spec/review-ops/</loc>
   </url><url>
+    <loc>/spec/schema-ops/</loc>
+  </url><url>
     <loc>/spec/settings-ops/</loc>
   </url><url>
     <loc>/spec/signing/</loc>
