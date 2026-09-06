@@ -161,6 +161,13 @@ operation carrying it. Nothing on the read path calls the value-type
 validator: `engine/internal/value` is a producer-side guard, exactly as
 `engine/internal/person.Check` already is.
 
+For a type a repository's own `schema` object declares (WRIT-188,
+`spec/op-envelope.md`'s producer precedence tier 2), the `value_type` a
+field's value is checked against comes from that schema object — the
+folded `field_value_type` register a `define-field` op wrote — not from a
+per-vocabulary JSON schema in `spec/schemas/`: there is no such file for a
+consumer-declared type, and there never will be.
+
 ## Length units
 
 Every length bound in writ — `person-id`'s, `reference`'s, an anchor line's,

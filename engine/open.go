@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/writtendev/writ/engine/codec"
 	"github.com/writtendev/writ/engine/dag"
 	"github.com/writtendev/writ/engine/identity"
@@ -138,8 +139,29 @@ func Open(path string, opts ...Option) (*Store, error) {
 		}
 	}
 
-	// Open DAG store
-	var dagOpts []dag.Option
+	// Open DAG store. The producer-vocabularies resolver and the chain
+	// observer both close over s, which dagStore has to be constructed
+	// before: forward-declare it so the closures capture the variable, not
+	// a snapshot of a nil value — by the time Append ever calls either,
+	// s below has long since been assigned.
+	var s *Store
+	dagOpts := []dag.Option{
+		dag.WithProducerVocabularies(func() (codec.Vocabularies, error) {
+			if s == nil {
+				return nil, nil
+			}
+			return s.vocabularies(context.Background())
+		}),
+		// Rolls the vocabularies cache's fingerprint forward after a local
+		// append instead of leaving every append to look like an
+		// invalidating change (Store.noteAppend, Store.vocabularies).
+		dag.WithChainObserver(func(objectType string, newTip plumbing.Hash) {
+			if s == nil {
+				return
+			}
+			s.noteAppend(objectType, newTip)
+		}),
+	}
 	if hasSigner {
 		dagOpts = append(dagOpts, dag.WithSigner(signer))
 	}
@@ -174,7 +196,7 @@ func Open(path string, opts ...Option) (*Store, error) {
 	// Load repo ID
 	localRepoID, _ := identity.LoadRepoID(context.Background(), repoDir)
 
-	s := &Store{
+	s = &Store{
 		gitInfo:     gitInfo,
 		storer:      storer,
 		dagStore:    dagStore,

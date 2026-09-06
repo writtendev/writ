@@ -45,7 +45,7 @@ func TestBuildCommit(t *testing.T) {
 	}
 
 	parents := []string{"parent1", "parent2"}
-	commit, err := codec.BuildCommit(env, author, parents)
+	commit, err := codec.BuildCommit(env, author, parents, nil)
 	if err != nil {
 		t.Fatalf("BuildCommit failed: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestValidateBody(t *testing.T) {
 			OpVersion:  1,
 			Body:       json.RawMessage(`{"title":"Add feature"}`),
 		}
-		if err := codec.ValidateBody(env); err != nil {
+		if err := codec.ValidateBody(env, nil); err != nil {
 			t.Errorf("ValidateBody failed on valid review op: %v", err)
 		}
 	})
@@ -216,7 +216,7 @@ func TestValidateBody(t *testing.T) {
 			OpVersion:  1,
 			Body:       json.RawMessage(`{"description":"Missing title"}`),
 		}
-		if err := codec.ValidateBody(env); err == nil {
+		if err := codec.ValidateBody(env, nil); err == nil {
 			t.Errorf("ValidateBody accepted invalid review op body missing title")
 		}
 	})
@@ -229,7 +229,7 @@ func TestValidateBody(t *testing.T) {
 			OpVersion:  1,
 			Body:       json.RawMessage(`{"subject":{"object_type":"review","object_id":"r-1"},"text":"Looks good"}`),
 		}
-		if err := codec.ValidateBody(env); err != nil {
+		if err := codec.ValidateBody(env, nil); err != nil {
 			t.Errorf("ValidateBody failed on valid comment op: %v", err)
 		}
 	})
@@ -242,12 +242,17 @@ func TestValidateBody(t *testing.T) {
 			OpVersion:  1,
 			Body:       json.RawMessage(`{"text":"Missing subject"}`),
 		}
-		if err := codec.ValidateBody(env); err == nil {
+		if err := codec.ValidateBody(env, nil); err == nil {
 			t.Errorf("ValidateBody accepted invalid comment op body missing subject")
 		}
 	})
 
-	t.Run("unknown object type returns nil", func(t *testing.T) {
+	// Tier 5 (spec/op-envelope.md §Producer validation): with nil
+	// vocabularies (the log declares nothing) and no embedded vocabulary
+	// for this object type, ValidateBody now refuses rather than passing
+	// it through — the inversion TestBuildCommitRefusesUndeclaredObjectTypes
+	// pins for BuildCommit.
+	t.Run("undeclared object type is refused", func(t *testing.T) {
 		env := codec.Envelope{
 			ObjectID:   "unknown-1",
 			ObjectType: "custom_type",
@@ -255,8 +260,8 @@ func TestValidateBody(t *testing.T) {
 			OpVersion:  1,
 			Body:       json.RawMessage(`{"any":"field"}`),
 		}
-		if err := codec.ValidateBody(env); err != nil {
-			t.Errorf("ValidateBody failed on unknown object type: %v", err)
+		if err := codec.ValidateBody(env, nil); err == nil {
+			t.Errorf("ValidateBody accepted an object_type declared by no schema and embedded by no vocabulary")
 		}
 	})
 }
@@ -285,7 +290,7 @@ func TestWriteCommitRoundTrip(t *testing.T) {
 		Body:       json.RawMessage(`{"title":"Initial"}`),
 	}
 
-	c, err := codec.BuildCommit(env, author, []string{})
+	c, err := codec.BuildCommit(env, author, []string{}, nil)
 	if err != nil {
 		t.Fatalf("BuildCommit failed: %v", err)
 	}

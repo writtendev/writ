@@ -55,6 +55,31 @@ func (s *Store) Append(ctx context.Context, env codec.Envelope, causalParents []
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Resolve the producer vocabularies once per Append, not once per
+	// BuildCommit: BuildCommit runs inside the CAS loop below, up to
+	// maxCASRetries times on one contended append, and a hook re-resolved
+	// there would repeat the same log walk on every attempt
+	// (BenchmarkAppendResolvesVocabulariesOnce pins this).
+	//
+	// Never for a "schema" op: spec/schema-ops.md §7's bootstrap exception
+	// means object_type "schema" always validates against the engine's
+	// built-in table, never the log (codec.validateProducerOp's
+	// unconditional top-level check does not even consult vocabularies for
+	// it), so resolving them here would only make schema bootstrap depend
+	// on a log walk it has no use for — exactly the coupling the ruling
+	// that carved out tier 4 (a permanent write outage is the failure mode
+	// to avoid) would not tolerate for tier 1 either: a schema object that
+	// fails to resolve must never block writing the very "schema" ops that
+	// could fix it.
+	var vocabularies codec.Vocabularies
+	if s.resolveVocabularies != nil && env.ObjectType != "schema" {
+		var err error
+		vocabularies, err = s.resolveVocabularies()
+		if err != nil {
+			return nil, fmt.Errorf("dag: resolve producer vocabularies: %w", err)
+		}
+	}
+
 	refName := LocalRefName(s.identity.WriterID, env.ObjectType)
 
 	// 3. CAS loop
@@ -80,7 +105,7 @@ func (s *Store) Append(ctx context.Context, env codec.Envelope, causalParents []
 			When:  s.now(),
 		}
 
-		commit, err := codec.BuildCommit(env, author, parents)
+		commit, err := codec.BuildCommit(env, author, parents, vocabularies)
 		if err != nil {
 			return nil, fmt.Errorf("dag: build commit: %w", err)
 		}
@@ -93,6 +118,9 @@ func (s *Store) Append(ctx context.Context, env codec.Envelope, causalParents []
 		newRef := plumbing.NewHashReference(refName, commitHash)
 		err = s.storer.CheckAndSetReference(newRef, oldRef)
 		if err == nil {
+			if s.chainObserver != nil {
+				s.chainObserver(env.ObjectType, commitHash)
+			}
 			return &codec.Op{
 				Envelope:  env,
 				ID:        commitHash.String(),

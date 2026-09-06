@@ -621,7 +621,7 @@ func TestCommentsResolvePersonIDBoundAppliesAfterNFC(t *testing.T) {
 			continue
 		}
 		resolveOps++
-		if err := codec.ValidateBody(op.Envelope); err != nil {
+		if err := codec.ValidateBody(op.Envelope, nil); err != nil {
 			t.Errorf("the accepted identifier produced an op the comment schema rejects: %v", err)
 		}
 	}
@@ -743,7 +743,7 @@ func TestCommentsResolvePersonIDBoundCountsCodePoints(t *testing.T) {
 			continue
 		}
 		resolveOps++
-		if err := codec.ValidateBody(op.Envelope); err != nil {
+		if err := codec.ValidateBody(op.Envelope, nil); err != nil {
 			t.Errorf("the accepted 320-code-point identifier produced an op the comment schema rejects: %v", err)
 		}
 	}

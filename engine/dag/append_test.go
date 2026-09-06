@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/storage"
 	"github.com/writtendev/writ/engine/codec"
 	"github.com/writtendev/writ/engine/dag"
 	"github.com/writtendev/writ/engine/identity"
@@ -394,5 +396,119 @@ func TestAppend_InvalidObjectType(t *testing.T) {
 	_, err = store.Append(context.Background(), env, nil)
 	if err == nil {
 		t.Fatalf("expected error on invalid object type")
+	}
+}
+
+// flakyStorer wraps a real storage.Storer and fails the first failCASCount
+// calls to CheckAndSetReference with storage.ErrReferenceHasChanged before
+// delegating to the real one — a deterministic way to force Append's CAS
+// loop to retry a known number of times without a genuine concurrent
+// writer.
+type flakyStorer struct {
+	storage.Storer
+	failCASCount int
+	casAttempts  int32
+}
+
+func (f *flakyStorer) CheckAndSetReference(new, old *plumbing.Reference) error {
+	n := atomic.AddInt32(&f.casAttempts, 1)
+	if int(n) <= f.failCASCount {
+		return storage.ErrReferenceHasChanged
+	}
+	return f.Storer.CheckAndSetReference(new, old)
+}
+
+// TestAppendResolvesVocabulariesOnceDespiteCASRetries pins the WRIT-188
+// requirement that dag.WithProducerVocabularies's resolver is called once
+// per Append call, not once per BuildCommit — BuildCommit runs inside
+// Append's CAS retry loop (append.go), so a hook invoked at the call site
+// would re-resolve on every contended attempt. flakyStorer forces the loop
+// to retry a fixed number of times deterministically; the resolver must
+// still have been called exactly once by the time Append returns.
+func TestAppendResolvesVocabulariesOnceDespiteCASRetries(t *testing.T) {
+	_, repo := initTestRepo(t)
+	flaky := &flakyStorer{Storer: repo.Storer, failCASCount: 3}
+	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
+
+	var resolveCalls int32
+	resolve := func() (codec.Vocabularies, error) {
+		atomic.AddInt32(&resolveCalls, 1)
+		return nil, nil
+	}
+
+	store, err := dag.OpenStorage(flaky, ident, dag.WithProducerVocabularies(resolve))
+	if err != nil {
+		t.Fatalf("OpenStorage failed: %v", err)
+	}
+
+	env := codec.Envelope{
+		ObjectID:   "rev-1",
+		ObjectType: "review",
+		OpType:     "create",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"title":"Initial"}`),
+	}
+
+	if _, err := store.Append(context.Background(), env, nil); err != nil {
+		t.Fatalf("Append failed: %v", err)
+	}
+
+	if flaky.casAttempts <= int32(flaky.failCASCount) {
+		t.Fatalf("expected more than %d CAS attempts to prove retries happened, got %d", flaky.failCASCount, flaky.casAttempts)
+	}
+	if resolveCalls != 1 {
+		t.Fatalf("resolver called %d times across %d CAS attempts, want exactly 1", resolveCalls, flaky.casAttempts)
+	}
+}
+
+// TestAppendOfSchemaObjectTypeNeverConsultsTheResolver pins
+// spec/schema-ops.md §7's bootstrap exception at the one place that could
+// silently reintroduce a dependency on it: object_type "schema" always
+// validates against the engine's built-in table, never the log, so
+// Append must never even call the producer-vocabularies resolver for a
+// "schema" envelope — a resolver that fails must not be able to block
+// writing the very "schema" ops that could fix whatever made it fail
+// (the ruling that carved out tier 4 specifically to avoid a *permanent*
+// write outage would not tolerate that coupling for tier 1 either).
+//
+// The control case proves the assertion is not vacuous: the identical
+// failing resolver, wired to the identical store, does block a
+// non-"schema" append — so a regression that started calling the
+// resolver for "schema" too would fail this test, not silently pass it
+// because the resolver happens to always return nil.
+func TestAppendOfSchemaObjectTypeNeverConsultsTheResolver(t *testing.T) {
+	_, repo := initTestRepo(t)
+	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
+
+	wantErr := errors.New("log schema resolution failed")
+	resolve := func() (codec.Vocabularies, error) {
+		return nil, wantErr
+	}
+
+	store, err := dag.OpenStorage(repo.Storer, ident, dag.WithProducerVocabularies(resolve))
+	if err != nil {
+		t.Fatalf("OpenStorage failed: %v", err)
+	}
+
+	schemaEnv := codec.Envelope{
+		ObjectID:   "sch-1",
+		ObjectType: "schema",
+		OpType:     "create",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"namespace":"acme"}`),
+	}
+	if _, err := store.Append(context.Background(), schemaEnv, nil); err != nil {
+		t.Fatalf("Append of a \"schema\" op must not depend on the log-sourced resolver, got: %v", err)
+	}
+
+	reviewEnv := codec.Envelope{
+		ObjectID:   "rev-1",
+		ObjectType: "review",
+		OpType:     "create",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"title":"Initial"}`),
+	}
+	if _, err := store.Append(context.Background(), reviewEnv, nil); !errors.Is(err, wantErr) {
+		t.Fatalf("expected the same failing resolver to block a non-\"schema\" append (control case), got: %v", err)
 	}
 }

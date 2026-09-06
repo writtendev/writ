@@ -75,6 +75,7 @@ func SchemaFromEnvelopes(envs []codec.Envelope) (Schema, error)
 func SchemaRules() []Rule
 func SectionRules() []Rule
 func SettingsRules() []Rule
+func VocabulariesFromSchemas(schemas []state.Schema) (codec.Vocabularies, []SchemaConflict)
 func WithCacheDir(dir string) Option
 func WithGitBinary(gitBin string) Option
 func WithSigner(signer Signer) Option
@@ -526,7 +527,7 @@ const RejectNonCanonicalPayload RejectReason = "non-canonical-payload"
 const RejectOpJSONSubdirectory RejectReason = "op-json-subdirectory"
 const RejectSchemaViolation RejectReason = "schema-violation"
 
-func BuildCommit(env Envelope, author Identity, parents []string) (*Commit, error)
+func BuildCommit(env Envelope, author Identity, parents []string, vocabularies Vocabularies) (*Commit, error)
 func DecodeCommit(commit Commit) (Op, error)
 func DecodePayload(raw []byte) (Envelope, error)
 func EncodePayload(env Envelope) ([]byte, error)
@@ -536,7 +537,7 @@ func Message(env Envelope) string
 func NewSigner(key identity.SigningKey) (Signer, error)
 func SignCommit(ctx context.Context, s Signer, c *Commit) error
 func ToGitCommit(c Commit) (*object.Commit, error)
-func ValidateBody(env Envelope) error
+func ValidateBody(env Envelope, vocabularies Vocabularies) error
 func ValidateEnvelope(raw []byte) error
 func Verify(c Commit, ts TrustStore) Verification
 func WriteCommit(ctx context.Context, s storage.Storer, commit *Commit, signer Signer) (plumbing.Hash, error)
@@ -584,6 +585,11 @@ type Op struct {
 	Committer Identity `json:"committer"`
 	Message string `json:"message"`
 	Signature string `json:"signature,omitempty"`
+}
+
+type OpVersionKey struct {
+	OpType string
+	OpVersion int64
 }
 
 type Profile struct {
@@ -634,6 +640,16 @@ type Verification struct {
 }
 
 type VerificationOutcome string
+
+type Vocabularies map[string]Vocabulary
+
+type Vocabulary struct {
+	Declared bool
+	Contested bool
+	SchemaObjectID string
+	OpTypes map[OpVersionKey]bool
+	Fields map[OpVersionKey][]spec.FieldRule
+}
 
 package canonicaljson // github.com/writtendev/writ/engine/codec/canonicaljson
 
@@ -700,7 +716,9 @@ func OpenStorage(s storage.Storer, ident identity.Identity, opts ...Option) (*St
 func Order(ops []codec.Op) ([]codec.Op, error)
 func ParseChainRef(ref string) (ChainRef, error)
 func RemoteRefName(remote string, writerID identity.WriterID, objectType string) plumbing.ReferenceName
+func WithChainObserver(observe func(objectType string, newTip plumbing.Hash)) Option
 func WithNow(now func() time.Time) Option
+func WithProducerVocabularies(resolve func() (codec.Vocabularies, error)) Option
 func WithSigner(signer Signer) Option
 
 type ChainRef struct {

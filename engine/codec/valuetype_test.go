@@ -201,7 +201,7 @@ func TestBuildCommitRejectsValueTypeViolations(t *testing.T) {
 				OpVersion:  1,
 				Body:       withField(t, tc.base, tc.field, tc.invalid),
 			}
-			_, err := codec.BuildCommit(env, testAuthor(), nil)
+			_, err := codec.BuildCommit(env, testAuthor(), nil, nil)
 			if err == nil {
 				t.Fatalf("BuildCommit accepted a %s value violating its declared value_type", tc.name)
 			}
@@ -231,7 +231,7 @@ func TestBuildCommitAcceptsConformingValueTypeVectors(t *testing.T) {
 				OpVersion:  1,
 				Body:       withField(t, tc.base, tc.field, tc.valid),
 			}
-			if _, err := codec.BuildCommit(env, testAuthor(), nil); err != nil {
+			if _, err := codec.BuildCommit(env, testAuthor(), nil, nil); err != nil {
 				t.Fatalf("BuildCommit rejected a %s value conforming to its declared value_type: %v", tc.name, err)
 			}
 		})

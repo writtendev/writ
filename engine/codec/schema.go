@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 
@@ -205,26 +206,87 @@ func ValidateEnvelope(raw []byte) error {
 	return nil
 }
 
-// ValidateBody checks an envelope against the vocabulary registered for its
-// object type: its op_type and op_version are ones this build defines (rule 4)
-// and its payload satisfies the vocabulary schema (rule 3), both from
-// spec/op-envelope.md §Producer validation. BuildCommit calls it, so no op writ
+// OpVersionKey identifies one (op_type, op_version) pair within a single
+// object type's vocabulary — the log-sourced analogue of fieldRuleKey,
+// keyed by object type instead of vocabulary directory because a
+// consumer-declared type has no field-rules.json directory.
+type OpVersionKey struct {
+	OpType    string
+	OpVersion int64
+}
+
+// Vocabulary is one object type's producer-facing declaration, resolved
+// from the schema objects folded from a repo's log
+// (writ.VocabulariesFromSchemas). It is what the generic validator checks
+// tier 2 of spec/op-envelope.md's five-tier producer precedence against,
+// in place of the embedded per-vocabulary JSON Schema + vocabularyOpTypes
+// pair tier 3 uses.
+//
+// Declared and Contested are never both true: a bare object_type bound by
+// two or more schema objects installs no rules at all
+// (spec/schema-ops.md §6), and RulesFromSchemas/VocabulariesFromSchemas
+// share the collision pass that decides which one applies.
+type Vocabulary struct {
+	// Declared is true for an object_type at least one schema object
+	// binds, uncontested. A type declared with no fields at all
+	// (define-type or define-op alone, no define-field) is still
+	// Declared: OpTypes/Fields are simply sparse, not the type's whole
+	// entry absent.
+	Declared bool
+	// Contested is true for an object_type two or more schema objects
+	// bind: the ruling's carve-out (spec/op-envelope.md §Producer
+	// validation) permits the write unvalidated rather than refusing it.
+	Contested bool
+	// SchemaObjectID is the ObjectID of the schema object that declared
+	// this type, set whenever Declared is true, so a rejection can name
+	// which schema is responsible (spec/op-envelope.md §Producer
+	// validation) rather than naming only the object_type.
+	SchemaObjectID string
+	// OpTypes is the set of (op_type, op_version) pairs rule 4 accepts:
+	// named by a define-op, or by any define-field
+	// (spec/schema-ops.md §4.2's generosity — "a type need not be
+	// declared by define-type before a define-field or define-op names
+	// it" — extends to op_type itself).
+	OpTypes map[OpVersionKey]bool
+	// Fields indexes every validated field rule declared for the type by
+	// (op_type, op_version), regardless of whether it carries a
+	// value_type: rule 3 refuses a body key with no declared rule at all
+	// — there is no per-vocabulary JSON Schema bounding "known fields"
+	// for a log-declared type the way there is for an embedded one — and
+	// separately validates value_type on the rules that declare one.
+	Fields map[OpVersionKey][]spec.FieldRule
+}
+
+// Vocabularies maps object type to its resolved Vocabulary. It is the
+// log-sourced input BuildCommit and ValidateBody take alongside the
+// engine's built-in bootstrap table for "schema" and the still-embedded
+// SDLC vocabularies (spec/op-envelope.md §Producer validation).
+//
+// A nil Vocabularies is legal and means "the log declares nothing" — what
+// a bare dag.Store, or engine/scenario's test runner, can honestly know
+// without resolving anything. Looking up any key in a nil map yields the
+// zero Vocabulary and ok == false, so it falls through to tier 3 (the
+// embedded fallback) or tier 5 (refusal) exactly as an object type simply
+// absent from a non-nil Vocabularies would.
+type Vocabularies map[string]Vocabulary
+
+// ValidateBody checks an envelope against the vocabulary that applies to
+// its object type under the five-tier precedence validateProducerOp
+// implements (spec/op-envelope.md §Producer validation): its op_type and
+// op_version are ones that tier defines (rule 4) and its payload satisfies
+// that tier's field rules (rule 3). BuildCommit calls it, so no op writ
 // appends is signed without passing through here.
 //
-// An object type with no registered vocabulary passes. That is forward
-// compatibility, not a hole: a type this implementation has never heard of is
-// something a reader must tolerate (spec/forward-compatibility.md) and
-// something writ's own producer never emits — every type it does emit is in
-// vocabularySchemaFiles, which is tested exhaustive over spec/schemas/.
+// vocabularies is the log-sourced declarations resolved once per Append
+// (engine/dag's WithProducerVocabularies); nil means the log declares
+// nothing, which still lets tier 3 (the embedded fallback) or tier 5
+// (refusal) apply.
 //
 // The rules bind producers only. Nothing on the read path calls this: an op
 // fetched from the log with an op type writ does not define is projected and
 // preserved, never refused (spec/op-envelope.md, and see
 // TestEncodePayloadDoesNotValidateBody).
-func ValidateBody(env Envelope) error {
-	if _, ok := schemasOnce().vocab[env.ObjectType]; !ok {
-		return nil
-	}
+func ValidateBody(env Envelope, vocabularies Vocabularies) error {
 	raw := env.Raw
 	if len(raw) == 0 {
 		var err error
@@ -233,12 +295,67 @@ func ValidateBody(env Envelope) error {
 			return err
 		}
 	}
-	return validateProducerOp(env, raw)
+	return validateProducerOp(env, raw, vocabularies)
 }
 
 // validateProducerOp validates an envelope whose payload bytes are already
-// encoded, so the append path does not canonicalize the same envelope twice.
-func validateProducerOp(env Envelope, raw []byte) error {
+// encoded, so the append path does not canonicalize the same envelope
+// twice. It implements the five-tier precedence from spec/op-envelope.md
+// §Producer validation, exactly one tier of which ever applies to a given
+// op:
+//
+//  1. object_type == "schema" -> the engine's built-in bootstrap table,
+//     always, never the log (spec/schema-ops.md §7). This function does
+//     not even consult vocabularies for "schema" — the bootstrap
+//     exception is unconditional, and RulesFromSchemas/
+//     VocabulariesFromSchemas both refuse to let a log schema redefine
+//     it regardless.
+//  2. Otherwise, vocabularies declares (and does not contest) object_type
+//     -> the log-sourced declaration, and only it.
+//  3. Otherwise, this build still embeds a vocabulary for object_type ->
+//     today's path, unchanged; deleted outright by WRIT-194.
+//  4. Otherwise, object_type is contested (vocabularies has an entry with
+//     Contested set) -> permit the write, unvalidated; deleted outright
+//     by WRIT-199.
+//  5. Otherwise -> refuse, naming object_type.
+func validateProducerOp(env Envelope, raw []byte, vocabularies Vocabularies) error {
+	if env.ObjectType == "schema" {
+		return validateAgainstEmbedded(env, raw)
+	}
+
+	// Indexing a nil or non-matching map yields the zero Vocabulary, whose
+	// Declared and Contested are both false — the same "nothing resolved"
+	// state tiers 3 and 5 already fall through on, so there is no separate
+	// "found" bit to track. Declared and Contested are never both true
+	// (see Vocabulary's doc comment), so checking each in turn is
+	// exhaustive.
+	voc := vocabularies[env.ObjectType]
+	if voc.Declared {
+		return validateAgainstLogVocabulary(env, raw, voc)
+	}
+	if _, embedded := schemasOnce().vocab[env.ObjectType]; embedded {
+		return validateAgainstEmbedded(env, raw)
+	}
+	if voc.Contested {
+		// Tier 4: the ruling's carve-out (spec/op-envelope.md §Producer
+		// validation). Nothing to check here: rules 1 and 2 of the
+		// envelope schema and canonical-encoding check already ran in
+		// BuildCommit before this was ever reached, and no conforming
+		// reader will interpret these ops until the contest resolves
+		// (WRIT-199) — but a permanent write outage is the alternative,
+		// and that trade is not this function's call to make.
+		return nil
+	}
+	return fmt.Errorf("codec: object_type %q is not declared by any schema in the log, and this build embeds no vocabulary for it: spec/op-envelope.md §Producer validation rule 3/4", env.ObjectType)
+}
+
+// validateAgainstEmbedded is tiers 1 and 3: the object type is validated
+// against writ's own built-in tables (vocabularySchemaFiles,
+// vocabularyOpTypes, fieldRuleVocabularies) exactly as every producer
+// check did before this ticket. Untouched so WRIT-194 can delete the
+// tier-3 call site (and, eventually, these tables) without touching this
+// function's body.
+func validateAgainstEmbedded(env Envelope, raw []byte) error {
 	sch, ok := schemasOnce().vocab[env.ObjectType]
 	if !ok {
 		return nil
@@ -250,6 +367,31 @@ func validateProducerOp(env Envelope, raw []byte) error {
 		return err
 	}
 	return validateValueTypes(env, raw)
+}
+
+// validateAgainstLogVocabulary is tier 2: rule 4 (op_type/op_version
+// declared) and rule 3 (every body field declared, and value-typed ones
+// valid) checked against a log-sourced Vocabulary rather than an embedded
+// JSON Schema. There is no per-vocabulary schema bounding "known fields"
+// for a consumer-declared type, so — unlike validateValueTypes below — an
+// undeclared field is itself a rejection, not a silent skip.
+func validateAgainstLogVocabulary(env Envelope, raw []byte, voc Vocabulary) error {
+	key := OpVersionKey{OpType: env.OpType, OpVersion: env.OpVersion}
+	if !voc.OpTypes[key] {
+		return fmt.Errorf("codec: op_type %q at op_version %d is not declared by schema object %q for object_type %q: spec/op-envelope.md §Producer validation rule 4",
+			env.OpType, env.OpVersion, voc.SchemaObjectID, env.ObjectType)
+	}
+
+	var decoded struct {
+		Body map[string]any `json:"body"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return &RejectError{Reason: RejectSchemaViolation, Err: err}
+	}
+	if err := validateFieldsAgainstRules(voc.Fields[key], decoded.Body, true); err != nil {
+		return fmt.Errorf("schema object %q: %w", voc.SchemaObjectID, err)
+	}
+	return nil
 }
 
 // validateValueTypes is the second half of producer rule 3
@@ -278,10 +420,44 @@ func validateValueTypes(env Envelope, raw []byte) error {
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return &RejectError{Reason: RejectSchemaViolation, Err: err}
 	}
+	return validateFieldsAgainstRules(rules, decoded.Body, false)
+}
 
+// validateFieldsAgainstRules checks a decoded op body's fields against a
+// declared field-rule set for one (op_type, op_version). A field whose
+// rule declares a value_type must hold a value conforming to it
+// (spec/value-types.md); a field with no declared rule at all is skipped
+// when strict is false (the embedded tier, where a per-vocabulary JSON
+// Schema already bounds which fields are known and validateValueTypes'
+// rules are only the value-typed subset) and rejected when strict is true
+// (the log-sourced tier, where nothing else bounds "known fields" —
+// validateAgainstLogVocabulary's rules are every declared field).
+func validateFieldsAgainstRules(rules []spec.FieldRule, body map[string]any, strict bool) error {
+	byField := make(map[string]spec.FieldRule, len(rules))
 	for _, r := range rules {
-		val, present := decoded.Body[r.Field]
-		if !present || val == nil {
+		byField[r.Field] = r
+	}
+
+	// Sorted rather than ranged directly: body is a JSON-decoded map, whose
+	// Go iteration order is randomized, and two conforming implementations
+	// (or two runs of the same one) must report the same field first when
+	// more than one is invalid.
+	fields := make([]string, 0, len(body))
+	for field := range body {
+		fields = append(fields, field)
+	}
+	sort.Strings(fields)
+
+	for _, field := range fields {
+		val := body[field]
+		r, ok := byField[field]
+		if !ok {
+			if strict {
+				return &RejectError{Reason: RejectSchemaViolation, Err: fmt.Errorf("field %q has no declared rule in the schema", field)}
+			}
+			continue
+		}
+		if val == nil || r.ValueType == "" {
 			continue
 		}
 		params := value.Params{Enum: r.Enum, MaxLength: r.MaxLength}
@@ -293,14 +469,14 @@ func validateValueTypes(env Envelope, raw []byte) error {
 			if items, ok := val.([]any); ok {
 				for _, item := range items {
 					if err := value.Validate(r.ValueType, params, item); err != nil {
-						return &RejectError{Reason: RejectSchemaViolation, Err: fmt.Errorf("field %q: %w", r.Field, err)}
+						return &RejectError{Reason: RejectSchemaViolation, Err: fmt.Errorf("field %q: %w", field, err)}
 					}
 				}
 				continue
 			}
 		}
 		if err := value.Validate(r.ValueType, params, val); err != nil {
-			return &RejectError{Reason: RejectSchemaViolation, Err: fmt.Errorf("field %q: %w", r.Field, err)}
+			return &RejectError{Reason: RejectSchemaViolation, Err: fmt.Errorf("field %q: %w", field, err)}
 		}
 	}
 	return nil

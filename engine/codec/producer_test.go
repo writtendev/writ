@@ -92,7 +92,7 @@ func TestBuildCommitRejectsSchemaInvalidBody(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := codec.BuildCommit(tc.env, testAuthor(), nil)
+			_, err := codec.BuildCommit(tc.env, testAuthor(), nil, nil)
 			if err == nil {
 				t.Fatal("BuildCommit accepted a schema-invalid body")
 			}
@@ -152,25 +152,39 @@ func TestBuildCommitAcceptsUnknownFieldsInEveryVocabulary(t *testing.T) {
 				OpType:     opType,
 				OpVersion:  1,
 				Body:       json.RawMessage(withUnknown),
-			}, testAuthor(), nil); err != nil {
+			}, testAuthor(), nil, nil); err != nil {
 				t.Fatalf("BuildCommit rejected an unknown field a producer must still write: %v", err)
 			}
 		})
 	}
 }
 
-// TestBuildCommitAcceptsForeignObjectTypes asserts the registry miss is not a
-// rejection: an object type this build has never heard of must still build,
-// because a reader has to tolerate it and writ's own producer never emits one.
-func TestBuildCommitAcceptsForeignObjectTypes(t *testing.T) {
+// TestBuildCommitRefusesUndeclaredObjectTypes inverts what this test used to
+// pin (TestBuildCommitAcceptsForeignObjectTypes, pre-WRIT-188): an object
+// type nothing in the log declares and this build embeds no vocabulary for
+// is now a producer error (spec/op-envelope.md §Producer validation, tier
+// 5), not a silent pass.
+//
+// The old rationale — "a reader has to tolerate it and writ's own producer
+// never emits one" — rested on writ's producer only ever emitting its own
+// ten embedded types. WRIT-188 makes the producer write consumer-declared
+// types too, and rules 3/4 ("the op_type and op_version are ones the
+// producer itself defines") stop being satisfiable for a type nothing
+// declares at all: an op of a truly foreign object type is exactly the
+// un-withdrawable mistake those rules exist to prevent, so it is refused
+// rather than let through. This is deliberately scoped to the *genuine*
+// absence case — a *contested* object type (two schema objects binding one
+// bare type) is a different tier and stays writable
+// (TestContestedObjectTypeStaysWritable in engine/schema_test.go).
+func TestBuildCommitRefusesUndeclaredObjectTypes(t *testing.T) {
 	if _, err := codec.BuildCommit(codec.Envelope{
 		ObjectID:   "w-1",
 		ObjectType: "widget",
 		OpType:     "sprocket",
 		OpVersion:  7,
 		Body:       json.RawMessage(`{"anything":[1,2,3]}`),
-	}, testAuthor(), nil); err != nil {
-		t.Fatalf("BuildCommit rejected an object type it has never heard of: %v", err)
+	}, testAuthor(), nil, nil); err == nil {
+		t.Fatal("BuildCommit accepted an object_type declared by no schema and embedded by no vocabulary")
 	}
 }
 
@@ -305,7 +319,7 @@ func TestBuildCommitRefusesOpTypesItDoesNotDefine(t *testing.T) {
 		}
 		for _, tc := range cases {
 			t.Run(objectType+"/"+tc.name, func(t *testing.T) {
-				if _, err := codec.BuildCommit(tc.env, testAuthor(), nil); err == nil {
+				if _, err := codec.BuildCommit(tc.env, testAuthor(), nil, nil); err == nil {
 					t.Fatalf("BuildCommit signed an op writ cannot interpret: object_type %q, op_type %q, op_version %d",
 						tc.env.ObjectType, tc.env.OpType, tc.env.OpVersion)
 				}
@@ -441,7 +455,7 @@ func TestEncodePayloadDoesNotValidateBody(t *testing.T) {
 			if _, err := codec.EncodePayload(tc.env); err != nil {
 				t.Fatalf("EncodePayload rejected an op it must still re-encode: %v", err)
 			}
-			if _, err := codec.BuildCommit(tc.env, testAuthor(), nil); err == nil {
+			if _, err := codec.BuildCommit(tc.env, testAuthor(), nil, nil); err == nil {
 				t.Fatal("BuildCommit accepted the same op EncodePayload re-encodes")
 			}
 		})
@@ -465,7 +479,7 @@ func TestEveryShippedVocabularyIsValidated(t *testing.T) {
 			OpType:     "create",
 			OpVersion:  1,
 			Body:       json.RawMessage(`{}`),
-		})
+		}, nil)
 		if err == nil {
 			t.Errorf("object type %q has a vocabulary schema in spec/schemas/%s, but the codec validates ops of that type against nothing — register it in vocabularySchemaFiles",
 				objectType, file)
@@ -576,7 +590,48 @@ func BenchmarkProducerPath(b *testing.B) {
 		withRaw.Raw = raw
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			if err := codec.ValidateBody(withRaw); err != nil {
+			if err := codec.ValidateBody(withRaw, nil); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	// ValidateBody/LogSourced is tier 2 (spec/op-envelope.md §Producer
+	// validation): the same envelope validated against a log-sourced
+	// codec.Vocabularies (a resolved schema object's declaration) instead
+	// of nil, which falls through to tier 3's embedded JSON Schema. The
+	// resolution itself (writ.VocabulariesFromSchemas, which walks the
+	// log) is not part of what this measures — engine/schema_bench_test.go's
+	// BenchmarkVocabulariesCache covers that cost — this is purely
+	// validateAgainstLogVocabulary's per-op cost once a Vocabularies value
+	// is already in hand, exactly as dag.Store.Append pays it on every
+	// append after Append's own once-per-call resolve.
+	b.Run("ValidateBody/LogSourced", func(b *testing.B) {
+		raw, err := codec.EncodePayload(env)
+		if err != nil {
+			b.Fatal(err)
+		}
+		withRaw := env
+		withRaw.Raw = raw
+
+		key := codec.OpVersionKey{OpType: env.OpType, OpVersion: env.OpVersion}
+		vocabularies := codec.Vocabularies{
+			env.ObjectType: {
+				Declared:       true,
+				SchemaObjectID: "sch-bench",
+				OpTypes:        map[codec.OpVersionKey]bool{key: true},
+				Fields: map[codec.OpVersionKey][]spec.FieldRule{
+					key: {
+						{OpType: env.OpType, OpVersion: env.OpVersion, Field: "title", Strategy: "lww", ValueType: "string", ObjectType: env.ObjectType},
+						{OpType: env.OpType, OpVersion: env.OpVersion, Field: "description", Strategy: "lww", ValueType: "string", ObjectType: env.ObjectType},
+					},
+				},
+			},
+		}
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			if err := codec.ValidateBody(withRaw, vocabularies); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -584,7 +639,7 @@ func BenchmarkProducerPath(b *testing.B) {
 
 	b.Run("BuildCommit", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			if _, err := codec.BuildCommit(env, author, nil); err != nil {
+			if _, err := codec.BuildCommit(env, author, nil, nil); err != nil {
 				b.Fatal(err)
 			}
 		}

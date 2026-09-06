@@ -50,12 +50,6 @@ carries its own namespace. Namespace is a property of the schema object
   are separate work. Tests and fixtures construct `codec.Op` values
   directly, exactly as `engine/state`'s own tests do for every other
   vocabulary.
-- **No producer validation wired to the log.** Producer-side validation
-  driving off a schema declared in the log (so that a producer refuses to
-  write an op a repository's own schema does not recognize) is separate
-  work. This document's schema is validated the same way every other
-  vocabulary's is: against `spec/schemas/schema-ops.schema.json` and the
-  fold's rule-validation gate (§7).
 - **No projection tables.** Schema ops land in the projection's existing
   `unknown_ops` bucket via `materialize.go`'s `default:` branch, exactly
   like any object type with no materializer. `Store.Schema` (below) folds
@@ -421,7 +415,7 @@ kinds of conflict can arise, and neither is picked a winner:
 1. **`object_type` collision** (§2): two schema objects both bind the
    same bare `object_type`. Withholding rules for the contested type is
    the whole remedy — no new fold rule, no new mechanism. The ops of that
-   `object_type` fall through the absent-schema path (§8) to `UnknownOp`,
+   `object_type` fall through the absent-schema path (§7.1) to `UnknownOp`,
    exactly as if no schema had ever declared it. `schema` itself cannot be
    redefined this way: a `define-type` naming `schema` from within the log
    is always a conflict, never installed, because `schema` is the engine's
@@ -576,6 +570,53 @@ can be installed. A rule that fails is dropped and reported as a conflict
 
 ---
 
+## 11. Producer Validation
+
+`spec/op-envelope.md` §Producer validation's rules 3 and 4 resolve
+"the schema object governing `object_type`" through a five-tier
+precedence; this section states what that means for the resolver this
+document already specifies (§7's bootstrap, §6's collision pass) rather
+than restating the precedence itself (WRIT-188).
+
+- **The same resolved rules drive the write path.** §7 already resolves
+  every folded `schema` object into a per-`object_type` rule index for
+  reading; the producer path (`spec/op-envelope.md` rule 3/4) is driven
+  from the same resolution — not a second, independently derived one —
+  so the two can never disagree about what a repository's schema
+  declares. A repository whose log narrowly declares a type this engine
+  also embeds a vocabulary for (`issue`, say) has that narrower
+  declaration bind its own producer exclusively (`spec/op-envelope.md`
+  tier 2 outranks tier 3): a field the embedded vocabulary would accept
+  but the log schema does not declare is refused, loudly, naming the
+  schema object responsible. That is intended, not a bug to route around
+  — a caller-visible shape sourced from an engine-embedded table rather
+  than the schema actually in the log is exactly what this project's own
+  house rules call a finding.
+- **A contested `object_type` withholds reads but not writes.** §6
+  withholds fold rules for a contested type; nothing about that requires
+  withholding the write. The producer permits an op of a contested type
+  unvalidated (`spec/op-envelope.md`'s tier 4) precisely because refusing
+  it would be a *permanent* write outage — a contested `object_type` is
+  contested forever, since nothing is ever removed from the log — while a
+  reader degrading to `UnknownOp` is not: it is exactly the same
+  degradation an object with no schema at all already gets (§7.1), fully
+  recoverable the moment the contest itself is. The asymmetry is the
+  point, not an oversight: a producer can retract nothing it has already
+  signed, so the fence is on the side where a mistake is undoable.
+- **Declarations are grammar-gated like field rules.** §9's rule
+  validation gate — every candidate rule passed through
+  `spec.ValidateFieldRule` before it reaches `Fold` — checks a great deal
+  about a `define-field` rule, but not the `op_type` grammar itself
+  (`ValidateFieldRule` only checks it is non-empty). A schema-declared
+  `op_type` failing `spec/op-envelope.md`'s envelope grammar
+  (`^[a-z][a-z0-9-]*$`, at most 64 characters) could never be written
+  through the ordinary envelope path regardless, so this is not a new
+  security boundary — it buys a clearer rejection and a rule index that
+  is never keyed by an unwritable `op_type`, and it applies to a
+  `define-op` declaration exactly as it does to `define-field`'s.
+
+---
+
 ## Conformance Data
 
 - `spec/schemas/schema-ops.schema.json` — the payload schema.
@@ -603,3 +644,6 @@ can be installed. A rule that fails is dropped and reported as a conflict
   types, a concurrent multi-writer `define-field` race, a
   `deprecate-field`/redeclare interleaving, and unknown `op_type` /
   future `op_version` on the `schema` object type itself (§10).
+- `spec/testdata/producer/` (WRIT-188) — §11's producer/reader paired
+  verdicts over ops governed by a schema resolved from the log: see
+  `spec/op-envelope.md` §Conformance data for the full description.

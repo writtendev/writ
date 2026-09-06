@@ -84,6 +84,21 @@ type Store struct {
 	closed      bool
 	subscribers []*subscriber
 	mu          sync.Mutex
+
+	// vocabMu guards vocabCache/vocabChains/vocabFingerprint, the memoised
+	// resolution of VocabulariesFromSchemas behind a dag.Chains fingerprint
+	// (see Store.vocabularies and Store.noteAppend). Separate from mu:
+	// resolving vocabularies must not contend with Refresh/Rebuild's
+	// projection lock.
+	vocabMu    sync.Mutex
+	vocabCache codec.Vocabularies
+	// vocabChains is the exact dag.Chains snapshot vocabCache was resolved
+	// against, kept (not just its fingerprint string) so Store.noteAppend
+	// can patch the one entry a local non-"schema" append just moved and
+	// recompute the fingerprint from it, instead of paying for a fresh
+	// Chains call plus a full Schema/Enumerate re-resolve on every append.
+	vocabChains      map[string]dag.DiscoveredChain
+	vocabFingerprint string
 }
 
 // Close closes the underlying projection database and releases associated resources.
