@@ -17,7 +17,7 @@
     "op_version": 1,
     "field": "in_reply_to",
     "strategy": "create-once",
-    "value_type": "object-ref"
+    "value_type": "string"
   },
   {
     "op_type": "create",

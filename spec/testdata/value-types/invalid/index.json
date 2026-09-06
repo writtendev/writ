@@ -34,5 +34,8 @@
   },
   "timestamp-not-rfc3339.json": {
     "reason": "missing the time-of-day component RFC 3339 date-time requires"
+  },
+  "text-not-string.json": {
+    "reason": "text value must be a JSON string, not the number 42"
   }
 }

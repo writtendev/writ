@@ -115,17 +115,32 @@ func TestInvalidValueTypeVectors(t *testing.T) {
 }
 
 // TestValueTypeCoversWholeCatalogue guards that every value type in the
-// closed catalogue has at least one valid vector, the same coverage
-// discipline spec/fold_test.go's TestMergeCoverage applies to strategies.
+// closed catalogue has at least one valid vector AND at least one invalid
+// vector, the same coverage discipline spec/fold_test.go's TestMergeCoverage
+// applies to strategies. Both sides are enforced because spec/value-types.md
+// and spec/README.md both normatively claim "a valid and invalid instance per
+// catalogue type" — a claim only true if this test checks the invalid side
+// too, not just the valid one.
 func TestValueTypeCoversWholeCatalogue(t *testing.T) {
-	covered := make(map[string]bool)
+	validCovered := make(map[string]bool)
 	for _, name := range readDirNames(t, "testdata/value-types/valid") {
 		v := loadVector(t, "testdata/value-types/valid/"+name)
-		covered[v.ValueType] = true
+		validCovered[v.ValueType] = true
+	}
+	invalidCovered := make(map[string]bool)
+	for _, name := range readDirNames(t, "testdata/value-types/invalid") {
+		if name == "index.json" {
+			continue
+		}
+		v := loadVector(t, "testdata/value-types/invalid/"+name)
+		invalidCovered[v.ValueType] = true
 	}
 	for vt := range value.Known {
-		if !covered[vt] {
+		if !validCovered[vt] {
 			t.Errorf("value type %q has no valid vector under testdata/value-types/valid", vt)
+		}
+		if !invalidCovered[vt] {
+			t.Errorf("value type %q has no invalid vector under testdata/value-types/invalid", vt)
 		}
 	}
 }

@@ -108,6 +108,14 @@ value:
    non-`enum` `value_type`.
 5. `max_length` declared on a `value_type` other than `string`/`text`.
 
+The same field name is not bound to the same `value_type` across vocabularies.
+`link.relation` is `enum` (`[fixes, relates, none]`) in `review` and `issue`,
+but `string` — unconstrained — in `document`: `document`'s underlying schema
+field carries no `enum` constraint, and typing it `enum` here would be a
+producer-behaviour change this ticket must not make. This is a known
+inconsistency, not an oversight; `WRIT-194` resolves it when the SDLC
+vocabulary is deleted from the spec.
+
 ## Normalization is intrinsic to `person-ref`
 
 `normalize` is not a rule attribute. Where a rule's `value_type` is

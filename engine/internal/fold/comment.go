@@ -11,7 +11,7 @@ import (
 var CommentRules = []Rule{
 	{OpType: "create", OpVersion: 1, Field: "subject", Strategy: "create-once"},
 	{OpType: "create", OpVersion: 1, Field: "text", Strategy: "lww", ValueType: "text"},
-	{OpType: "create", OpVersion: 1, Field: "in_reply_to", Strategy: "create-once", ValueType: "object-ref"},
+	{OpType: "create", OpVersion: 1, Field: "in_reply_to", Strategy: "create-once", ValueType: "string"},
 	{OpType: "create", OpVersion: 1, Field: "anchor", Strategy: "create-once", ValueType: "anchor"},
 	{OpType: "edit", OpVersion: 1, Field: "text", Strategy: "lww", ValueType: "text"},
 	{OpType: "delete", OpVersion: 1, Field: "deleted", Strategy: "tombstone", ValueType: "bool"},
