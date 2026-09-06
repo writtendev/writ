@@ -1,0 +1,37 @@
+name: schema-driven-absent-schema
+description: >
+  No schema object declares object_type "gadget" anywhere in the repo. Per
+  spec/schema-ops.md §7.1, this is not a fold error: every op on the gadget
+  object is marked known=false and reported through UnknownOps, no
+  accumulators run, and Fold returns a nil error — the existing
+  forward-compatibility mechanism (FC-1, FC-12), reused rather than
+  reinvented for an object_type no schema (yet) defines. (pins: reader)
+
+refs:
+  - name: refs/writ/0123456789abcdef/gadget
+    history:
+      - commits:
+          - id: create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: create
+              op_version: 1
+              body:
+                title: "Widget"
+            expect: accept
+
+          - id: update
+            parents: [create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: update
+              op_version: 1
+              body:
+                title: "Widget v2"
+            expect: accept

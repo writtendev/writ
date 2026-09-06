@@ -1,0 +1,90 @@
+name: schema-driven-uninterpretable
+description: >
+  Its foil to schema-driven-absent-schema: a schema DOES declare object_type
+  "gadget" here, but one op carries a value its declared strategy cannot
+  consume. Both populations land in the same UnknownOps channel
+  (spec/schema-ops.md §7.1, Correction 5), but the causes are distinct: this
+  op is known and uninterpretable, not unknown. The set-union field "tags"
+  requires a string or an array of strings; this op writes a bare number.
+  (pins: reader)
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: define-type
+            parents: [create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "gadget"
+            expect: accept
+
+          - id: define-field-title
+            parents: [define-type]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: define-field-tags
+            parents: [define-field-title]
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "create"
+                op_version: "1"
+                field: "tags"
+                value_type: "string"
+                strategy: "set-union"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/gadget
+    history:
+      - commits:
+          - id: gadget-create
+            author: alice
+            timestamp: 2026-01-01T00:04:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: create
+              op_version: 1
+              body:
+                title: "Widget"
+                tags: 42
+            expect: accept

@@ -153,12 +153,13 @@ key component's *numeric* value, and this rule has no representation in
 that corpus. That gap is about this specific corpus, not about fixtures
 generally: `spec/fixtures/`'s signed-fixture golden families drive typed
 reducers directly — `spec/fixtures/settings_test.go`'s family drives
-`writ.FoldSettings` and golden-pins its output byte-for-byte — and a
-`schema` family built the same way could pin this exactly. `schema` does
-not yet have one; WRIT-190 is where that family lands. Until then,
-`engine/state/schema_test.go`'s
-`TestFoldSchemaNonCanonicalOpVersionQuarantined` and
-`TestFoldSchemaDeterministicAcrossManyRuns` are its regression net.
+`writ.FoldSettings` and golden-pins its output byte-for-byte — and the
+`schema` family (`spec/fixtures/schema_test.go`) is built the same way and
+pins this exactly: `schema-op-version-non-canonical.yaml` carries a
+non-canonical `op_version` at all three affected op types, and its golden
+(`spec/fixtures/testdata/golden/schema/schema-op-version-non-canonical.json`)
+records the surviving canonical declarations alongside every quarantined op
+in `unknown_ops`.
 
 ### 3.2. Distinct `target` per op type
 
@@ -571,10 +572,14 @@ can be installed. A rule that fails is dropped and reported as a conflict
   fold-time `op_version` canonicalization quarantine (that check depends on
   interpreting a key component's numeric value, one layer above what the
   generic `keyed-lww` strategy's own uninterpretability rule requires); see
-  §3.1 for why. A signed-fixture golden family under `spec/fixtures/` —
-  driving the typed `writ.FoldSchema` reducer the way
-  `spec/fixtures/settings_test.go` drives `writ.FoldSettings` — could pin
-  it exactly; `schema` has no such family yet, and WRIT-190 is where one
-  lands. Until then, `engine/state/schema_test.go`'s
-  `TestFoldSchemaNonCanonicalOpVersionQuarantined` and
-  `TestFoldSchemaDeterministicAcrossManyRuns` are its regression net.
+  §3.1 for why. The signed-fixture golden family under `spec/fixtures/`
+  (below) drives the typed `writ.FoldSchema` reducer the way
+  `spec/fixtures/settings_test.go` drives `writ.FoldSettings`, and pins it
+  exactly.
+- `spec/fixtures/testdata/golden/schema/` — the signed-fixture golden
+  family (`spec/fixtures/schema_test.go`, `TestSchemaFamily`) driving
+  `writ.FoldSchema` directly: a bootstrap of a whole schema object, the
+  §3.1 non-canonical `op_version` quarantine across all three affected op
+  types, a concurrent multi-writer `define-field` race, a
+  `deprecate-field`/redeclare interleaving, and unknown `op_type` /
+  future `op_version` on the `schema` object type itself (§10).

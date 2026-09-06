@@ -1,0 +1,71 @@
+name: schema-bootstrap
+description: >
+  One writer bootstraps a schema object end to end: create, define-type,
+  define-field, define-op, in sequence on a single chain. Pins the namespace
+  create-once register, the description lww register, and the
+  Schema{types[]{fields[],ops[]}} materialization (spec/schema-ops.md §4, §5).
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: alice-create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+                description: "Acme's SDLC vocabulary"
+            expect: accept
+
+          - id: alice-define-type
+            parents: [alice-create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "widget"
+                description: "A daily widget"
+            expect: accept
+
+          - id: alice-define-field
+            parents: [alice-define-type]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: alice-define-op
+            parents: [alice-define-field]
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-op
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "create"
+                op_version: "1"
+                description: "Create a widget"
+            expect: accept

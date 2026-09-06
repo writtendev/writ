@@ -1,0 +1,64 @@
+name: schema-concurrent-declarations
+description: >
+  Two writers (Alice and Bob), each on their own chain with no causal edge
+  between them, concurrently declare the same (type, op_type, op_version,
+  field) key with different strategies. The fold's total order — not
+  chain-arrival order, and not description-file order — decides which
+  declaration survives: Bob's write has an earlier effective timestamp and
+  is processed first, so Alice's later write is the one every field_* keyed
+  register resolves to. Multi-device/multi-writer case (spec/schema-ops.md
+  §5).
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: alice-create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: sch-race
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: alice-define-field
+            parents: [alice-create]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: sch-race
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "create"
+                op_version: "1"
+                field: "priority"
+                value_type: "string"
+                strategy: "set-union"
+            expect: accept
+
+  - name: refs/writ/fedcba9876543210/schema
+    history:
+      - commits:
+          - id: bob-define-field
+            author: bob
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: sch-race
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "create"
+                op_version: "1"
+                field: "priority"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept

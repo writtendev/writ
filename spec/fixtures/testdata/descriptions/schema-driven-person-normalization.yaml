@@ -1,0 +1,322 @@
+name: schema-driven-person-normalization
+description: >
+  The highest-value fixture in this corpus: one schema declares value_type
+  person-ref at every strategy position that normalizes it
+  (spec/value-types.md §Normalization) -- lww value, create-once value,
+  multi-value value, keyed-lww value, keyed-lww key column, set-union
+  items, set-observed-remove items -- and at the one legal position that
+  does not: append, which is neither a scalar nor one of the two named
+  collection strategies NormalizesItems() covers. Every op writes a
+  denormalized identifier (uppercase scheme, mixed-case value); the golden
+  pins which fields come out normalized and which come out verbatim.
+  create-once and multi-value normalizing here is a reducer fix
+  (engine/internal/fold/strategy.go): before it, an unnormalized identifier
+  under create-once would permanently beat a normalized one. tombstone and
+  lattice are excluded: person-ref typechecks with neither (spec/fieldrules.go
+  ValidateFieldRule), so they are covered by the rule-validation matrix
+  (testdata/schema-rules/matrix.json) instead of here. (pins: reader)
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: define-type
+            parents: [create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "person-vocab"
+            expect: accept
+
+          - id: define-field-lww
+            parents: [define-type]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "person-vocab"
+                op_type: "set"
+                op_version: "1"
+                field: "owner_lww"
+                value_type: "person-ref"
+                strategy: "lww"
+            expect: accept
+
+          - id: define-field-once
+            parents: [define-field-lww]
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "person-vocab"
+                op_type: "claim"
+                op_version: "1"
+                field: "owner_once"
+                value_type: "person-ref"
+                strategy: "create-once"
+            expect: accept
+
+          - id: define-field-multi
+            parents: [define-field-once]
+            author: alice
+            timestamp: 2026-01-01T00:04:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "person-vocab"
+                op_type: "record"
+                op_version: "1"
+                field: "owner_multi"
+                value_type: "person-ref"
+                strategy: "multi-value"
+            expect: accept
+
+          - id: define-field-append
+            parents: [define-field-multi]
+            author: alice
+            timestamp: 2026-01-01T00:05:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "person-vocab"
+                op_type: "log"
+                op_version: "1"
+                field: "owner_list"
+                value_type: "person-ref"
+                strategy: "append"
+            expect: accept
+
+          - id: define-field-set-union
+            parents: [define-field-append]
+            author: alice
+            timestamp: 2026-01-01T00:06:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "person-vocab"
+                op_type: "endorse"
+                op_version: "1"
+                field: "endorsers"
+                value_type: "person-ref"
+                strategy: "set-union"
+            expect: accept
+
+          - id: define-field-sor-add
+            parents: [define-field-set-union]
+            author: alice
+            timestamp: 2026-01-01T00:07:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "person-vocab"
+                op_type: "assign"
+                op_version: "1"
+                field: "add"
+                value_type: "person-ref"
+                strategy: "set-observed-remove"
+            expect: accept
+
+          - id: define-field-sor-remove
+            parents: [define-field-sor-add]
+            author: alice
+            timestamp: 2026-01-01T00:08:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "person-vocab"
+                op_type: "assign"
+                op_version: "1"
+                field: "remove"
+                value_type: "person-ref"
+                strategy: "set-observed-remove"
+            expect: accept
+
+          - id: define-field-keyed-value
+            parents: [define-field-sor-remove]
+            author: alice
+            timestamp: 2026-01-01T00:09:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "person-vocab"
+                op_type: "vote"
+                op_version: "1"
+                field: "voter"
+                value_type: "person-ref"
+                strategy: "keyed-lww"
+                key: ["topic"]
+                key_types:
+                  topic: "string"
+            expect: accept
+
+          - id: define-field-keyed-key
+            parents: [define-field-keyed-value]
+            author: alice
+            timestamp: 2026-01-01T00:10:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "person-vocab"
+                op_type: "endorse-key"
+                op_version: "1"
+                field: "note"
+                value_type: "string"
+                strategy: "keyed-lww"
+                key: ["voter"]
+                key_types:
+                  voter: "person-ref"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/person-vocab
+    history:
+      - commits:
+          - id: set-lww
+            author: alice
+            timestamp: 2026-01-01T00:11:00Z
+            op:
+              object_id: pv-1
+              object_type: person-vocab
+              op_type: set
+              op_version: 1
+              body:
+                owner_lww: "EMAIL:Alice@EXAMPLE.COM"
+            expect: accept
+
+          - id: claim-once
+            parents: [set-lww]
+            author: alice
+            timestamp: 2026-01-01T00:12:00Z
+            op:
+              object_id: pv-1
+              object_type: person-vocab
+              op_type: claim
+              op_version: 1
+              body:
+                owner_once: "EMAIL:Bob@EXAMPLE.COM"
+            expect: accept
+
+          - id: record-multi
+            parents: [claim-once]
+            author: alice
+            timestamp: 2026-01-01T00:13:00Z
+            op:
+              object_id: pv-1
+              object_type: person-vocab
+              op_type: record
+              op_version: 1
+              body:
+                owner_multi: "EMAIL:Carol@EXAMPLE.COM"
+            expect: accept
+
+          - id: log-append
+            parents: [record-multi]
+            author: alice
+            timestamp: 2026-01-01T00:14:00Z
+            op:
+              object_id: pv-1
+              object_type: person-vocab
+              op_type: log
+              op_version: 1
+              body:
+                owner_list: "EMAIL:Dave@EXAMPLE.COM"
+            expect: accept
+
+          - id: endorse-union
+            parents: [log-append]
+            author: alice
+            timestamp: 2026-01-01T00:15:00Z
+            op:
+              object_id: pv-1
+              object_type: person-vocab
+              op_type: endorse
+              op_version: 1
+              body:
+                endorsers: ["EMAIL:Frank@EXAMPLE.COM", "EMAIL:Grace@EXAMPLE.COM"]
+            expect: accept
+
+          - id: assign-add
+            parents: [endorse-union]
+            author: alice
+            timestamp: 2026-01-01T00:16:00Z
+            op:
+              object_id: pv-1
+              object_type: person-vocab
+              op_type: assign
+              op_version: 1
+              body:
+                add: ["EMAIL:Heidi@EXAMPLE.COM"]
+            expect: accept
+
+          - id: vote-keyed
+            parents: [assign-add]
+            author: alice
+            timestamp: 2026-01-01T00:17:00Z
+            op:
+              object_id: pv-1
+              object_type: person-vocab
+              op_type: vote
+              op_version: 1
+              body:
+                topic: "roadmap"
+                voter: "EMAIL:Ivan@EXAMPLE.COM"
+            expect: accept
+
+          - id: endorse-key
+            parents: [vote-keyed]
+            author: alice
+            timestamp: 2026-01-01T00:18:00Z
+            op:
+              object_id: pv-1
+              object_type: person-vocab
+              op_type: endorse-key
+              op_version: 1
+              body:
+                voter: "EMAIL:Judy@EXAMPLE.COM"
+                note: "left a note"
+            expect: accept

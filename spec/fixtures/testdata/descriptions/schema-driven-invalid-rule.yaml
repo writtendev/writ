@@ -1,0 +1,201 @@
+name: schema-driven-invalid-rule
+description: >
+  Four define-field ops that each fold cleanly into schema state (the fold
+  path performs no value-type or strategy-catalogue checking) but are then
+  dropped by spec.ValidateFieldRule and reported, never reaching
+  NewAccumulator (spec/schema-ops.md §9): an unknown strategy name, an enum
+  value_type with no enum values, max_length on a non-string/text
+  value_type, and a keyed-lww key whose key_types omits one of its own key
+  columns. A fifth, valid field (title) is declared alongside them to prove
+  the invalid ones don't disturb the valid one. Every op written under an
+  invalid rule's (op_type, field) becomes an UnknownOp on the ordinary
+  gadget object, because no rule was ever installed for it. (pins: reader)
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: define-type
+            parents: [create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "gadget"
+            expect: accept
+
+          - id: define-field-title
+            parents: [define-type]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: define-field-bogus-strategy
+            parents: [define-field-title]
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "set-status"
+                op_version: "1"
+                field: "status"
+                strategy: "bogus"
+            expect: accept
+
+          - id: define-field-enum-no-values
+            parents: [define-field-bogus-strategy]
+            author: alice
+            timestamp: 2026-01-01T00:04:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "set-kind"
+                op_version: "1"
+                field: "kind"
+                value_type: "enum"
+                strategy: "lww"
+            expect: accept
+
+          - id: define-field-max-length-on-bool
+            parents: [define-field-enum-no-values]
+            author: alice
+            timestamp: 2026-01-01T00:05:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "set-note"
+                op_version: "1"
+                field: "note"
+                value_type: "bool"
+                max_length: 10
+                strategy: "lww"
+            expect: accept
+
+          - id: define-field-key-types-mismatch
+            parents: [define-field-max-length-on-bool]
+            author: alice
+            timestamp: 2026-01-01T00:06:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "set-pair"
+                op_version: "1"
+                field: "pair"
+                strategy: "keyed-lww"
+                key: ["a", "b"]
+                key_types:
+                  a: "string"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/gadget
+    history:
+      - commits:
+          - id: gadget-create
+            author: alice
+            timestamp: 2026-01-01T00:07:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: create
+              op_version: 1
+              body:
+                title: "Widget"
+            expect: accept
+
+          - id: gadget-set-status
+            parents: [gadget-create]
+            author: alice
+            timestamp: 2026-01-01T00:08:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: set-status
+              op_version: 1
+              body:
+                status: "active"
+            expect: accept
+
+          - id: gadget-set-kind
+            parents: [gadget-set-status]
+            author: alice
+            timestamp: 2026-01-01T00:09:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: set-kind
+              op_version: 1
+              body:
+                kind: "premium"
+            expect: accept
+
+          - id: gadget-set-note
+            parents: [gadget-set-kind]
+            author: alice
+            timestamp: 2026-01-01T00:10:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: set-note
+              op_version: 1
+              body:
+                note: true
+            expect: accept
+
+          - id: gadget-set-pair
+            parents: [gadget-set-note]
+            author: alice
+            timestamp: 2026-01-01T00:11:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: set-pair
+              op_version: 1
+              body:
+                a: "x"
+                b: "y"
+            expect: accept

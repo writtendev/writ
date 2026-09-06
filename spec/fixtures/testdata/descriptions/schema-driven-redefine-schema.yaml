@@ -1,0 +1,84 @@
+name: schema-driven-redefine-schema
+description: >
+  A define-type op naming "schema" itself from within the log. Always a
+  conflict, never installed: schema is the engine's one hard-coded
+  bootstrap type (spec/schema-ops.md §1, §6), and RulesFromSchemas must not
+  let a log entry redefine it. The cheapest of the three conflict cases —
+  no second schema object, no ordinary object of type "schema" to fold,
+  just the conflict report itself. (pins: reader)
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: define-type-schema
+            parents: [create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "schema"
+                description: "An attempt to redefine the bootstrap type"
+            expect: accept
+
+          - id: define-type-gadget
+            parents: [define-type-schema]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "gadget"
+            expect: accept
+
+          - id: define-field-gadget
+            parents: [define-type-gadget]
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/gadget
+    history:
+      - commits:
+          - id: gadget-create
+            author: alice
+            timestamp: 2026-01-01T00:04:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: create
+              op_version: 1
+              body:
+                title: "Widget"
+            expect: accept

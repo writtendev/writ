@@ -1,0 +1,600 @@
+[
+  {
+    "strategy": "append",
+    "expect": "accept"
+  },
+  {
+    "strategy": "append",
+    "value_type": "anchor",
+    "expect": "accept"
+  },
+  {
+    "strategy": "append",
+    "value_type": "bool",
+    "expect": "accept"
+  },
+  {
+    "strategy": "append",
+    "value_type": "enum",
+    "expect": "accept"
+  },
+  {
+    "strategy": "append",
+    "value_type": "git-oid",
+    "expect": "accept"
+  },
+  {
+    "strategy": "append",
+    "value_type": "int",
+    "expect": "accept"
+  },
+  {
+    "strategy": "append",
+    "value_type": "number",
+    "expect": "accept"
+  },
+  {
+    "strategy": "append",
+    "value_type": "object-ref",
+    "expect": "accept"
+  },
+  {
+    "strategy": "append",
+    "value_type": "person-ref",
+    "expect": "accept"
+  },
+  {
+    "strategy": "append",
+    "value_type": "position",
+    "expect": "accept"
+  },
+  {
+    "strategy": "append",
+    "value_type": "string",
+    "expect": "accept"
+  },
+  {
+    "strategy": "append",
+    "value_type": "text",
+    "expect": "accept"
+  },
+  {
+    "strategy": "append",
+    "value_type": "timestamp",
+    "expect": "accept"
+  },
+  {
+    "strategy": "create-once",
+    "expect": "accept"
+  },
+  {
+    "strategy": "create-once",
+    "value_type": "anchor",
+    "expect": "accept"
+  },
+  {
+    "strategy": "create-once",
+    "value_type": "bool",
+    "expect": "accept"
+  },
+  {
+    "strategy": "create-once",
+    "value_type": "enum",
+    "expect": "accept"
+  },
+  {
+    "strategy": "create-once",
+    "value_type": "git-oid",
+    "expect": "accept"
+  },
+  {
+    "strategy": "create-once",
+    "value_type": "int",
+    "expect": "accept"
+  },
+  {
+    "strategy": "create-once",
+    "value_type": "number",
+    "expect": "accept"
+  },
+  {
+    "strategy": "create-once",
+    "value_type": "object-ref",
+    "expect": "accept"
+  },
+  {
+    "strategy": "create-once",
+    "value_type": "person-ref",
+    "expect": "accept"
+  },
+  {
+    "strategy": "create-once",
+    "value_type": "position",
+    "expect": "accept"
+  },
+  {
+    "strategy": "create-once",
+    "value_type": "string",
+    "expect": "accept"
+  },
+  {
+    "strategy": "create-once",
+    "value_type": "text",
+    "expect": "accept"
+  },
+  {
+    "strategy": "create-once",
+    "value_type": "timestamp",
+    "expect": "accept"
+  },
+  {
+    "strategy": "keyed-lww",
+    "expect": "accept"
+  },
+  {
+    "strategy": "keyed-lww",
+    "value_type": "anchor",
+    "expect": "accept"
+  },
+  {
+    "strategy": "keyed-lww",
+    "value_type": "bool",
+    "expect": "accept"
+  },
+  {
+    "strategy": "keyed-lww",
+    "value_type": "enum",
+    "expect": "accept"
+  },
+  {
+    "strategy": "keyed-lww",
+    "value_type": "git-oid",
+    "expect": "accept"
+  },
+  {
+    "strategy": "keyed-lww",
+    "value_type": "int",
+    "expect": "accept"
+  },
+  {
+    "strategy": "keyed-lww",
+    "value_type": "number",
+    "expect": "accept"
+  },
+  {
+    "strategy": "keyed-lww",
+    "value_type": "object-ref",
+    "expect": "accept"
+  },
+  {
+    "strategy": "keyed-lww",
+    "value_type": "person-ref",
+    "expect": "accept"
+  },
+  {
+    "strategy": "keyed-lww",
+    "value_type": "position",
+    "expect": "accept"
+  },
+  {
+    "strategy": "keyed-lww",
+    "value_type": "string",
+    "expect": "accept"
+  },
+  {
+    "strategy": "keyed-lww",
+    "value_type": "text",
+    "expect": "accept"
+  },
+  {
+    "strategy": "keyed-lww",
+    "value_type": "timestamp",
+    "expect": "accept"
+  },
+  {
+    "strategy": "lattice",
+    "expect": "accept"
+  },
+  {
+    "strategy": "lattice",
+    "value_type": "anchor",
+    "expect": "reject",
+    "reason": "rule for (test-op, value) uses lattice with value_type \"anchor\"; only enum typechecks"
+  },
+  {
+    "strategy": "lattice",
+    "value_type": "bool",
+    "expect": "reject",
+    "reason": "rule for (test-op, value) uses lattice with value_type \"bool\"; only enum typechecks"
+  },
+  {
+    "strategy": "lattice",
+    "value_type": "enum",
+    "expect": "accept"
+  },
+  {
+    "strategy": "lattice",
+    "value_type": "git-oid",
+    "expect": "reject",
+    "reason": "rule for (test-op, value) uses lattice with value_type \"git-oid\"; only enum typechecks"
+  },
+  {
+    "strategy": "lattice",
+    "value_type": "int",
+    "expect": "reject",
+    "reason": "rule for (test-op, value) uses lattice with value_type \"int\"; only enum typechecks"
+  },
+  {
+    "strategy": "lattice",
+    "value_type": "number",
+    "expect": "reject",
+    "reason": "rule for (test-op, value) uses lattice with value_type \"number\"; only enum typechecks"
+  },
+  {
+    "strategy": "lattice",
+    "value_type": "object-ref",
+    "expect": "reject",
+    "reason": "rule for (test-op, value) uses lattice with value_type \"object-ref\"; only enum typechecks"
+  },
+  {
+    "strategy": "lattice",
+    "value_type": "person-ref",
+    "expect": "reject",
+    "reason": "rule for (test-op, value) uses lattice with value_type \"person-ref\"; only enum typechecks"
+  },
+  {
+    "strategy": "lattice",
+    "value_type": "position",
+    "expect": "reject",
+    "reason": "rule for (test-op, value) uses lattice with value_type \"position\"; only enum typechecks"
+  },
+  {
+    "strategy": "lattice",
+    "value_type": "string",
+    "expect": "reject",
+    "reason": "rule for (test-op, value) uses lattice with value_type \"string\"; only enum typechecks"
+  },
+  {
+    "strategy": "lattice",
+    "value_type": "text",
+    "expect": "reject",
+    "reason": "rule for (test-op, value) uses lattice with value_type \"text\"; only enum typechecks"
+  },
+  {
+    "strategy": "lattice",
+    "value_type": "timestamp",
+    "expect": "reject",
+    "reason": "rule for (test-op, value) uses lattice with value_type \"timestamp\"; only enum typechecks"
+  },
+  {
+    "strategy": "lww",
+    "expect": "accept"
+  },
+  {
+    "strategy": "lww",
+    "value_type": "anchor",
+    "expect": "accept"
+  },
+  {
+    "strategy": "lww",
+    "value_type": "bool",
+    "expect": "accept"
+  },
+  {
+    "strategy": "lww",
+    "value_type": "enum",
+    "expect": "accept"
+  },
+  {
+    "strategy": "lww",
+    "value_type": "git-oid",
+    "expect": "accept"
+  },
+  {
+    "strategy": "lww",
+    "value_type": "int",
+    "expect": "accept"
+  },
+  {
+    "strategy": "lww",
+    "value_type": "number",
+    "expect": "accept"
+  },
+  {
+    "strategy": "lww",
+    "value_type": "object-ref",
+    "expect": "accept"
+  },
+  {
+    "strategy": "lww",
+    "value_type": "person-ref",
+    "expect": "accept"
+  },
+  {
+    "strategy": "lww",
+    "value_type": "position",
+    "expect": "accept"
+  },
+  {
+    "strategy": "lww",
+    "value_type": "string",
+    "expect": "accept"
+  },
+  {
+    "strategy": "lww",
+    "value_type": "text",
+    "expect": "accept"
+  },
+  {
+    "strategy": "lww",
+    "value_type": "timestamp",
+    "expect": "accept"
+  },
+  {
+    "strategy": "multi-value",
+    "expect": "accept"
+  },
+  {
+    "strategy": "multi-value",
+    "value_type": "anchor",
+    "expect": "accept"
+  },
+  {
+    "strategy": "multi-value",
+    "value_type": "bool",
+    "expect": "accept"
+  },
+  {
+    "strategy": "multi-value",
+    "value_type": "enum",
+    "expect": "accept"
+  },
+  {
+    "strategy": "multi-value",
+    "value_type": "git-oid",
+    "expect": "accept"
+  },
+  {
+    "strategy": "multi-value",
+    "value_type": "int",
+    "expect": "accept"
+  },
+  {
+    "strategy": "multi-value",
+    "value_type": "number",
+    "expect": "accept"
+  },
+  {
+    "strategy": "multi-value",
+    "value_type": "object-ref",
+    "expect": "accept"
+  },
+  {
+    "strategy": "multi-value",
+    "value_type": "person-ref",
+    "expect": "accept"
+  },
+  {
+    "strategy": "multi-value",
+    "value_type": "position",
+    "expect": "accept"
+  },
+  {
+    "strategy": "multi-value",
+    "value_type": "string",
+    "expect": "accept"
+  },
+  {
+    "strategy": "multi-value",
+    "value_type": "text",
+    "expect": "accept"
+  },
+  {
+    "strategy": "multi-value",
+    "value_type": "timestamp",
+    "expect": "accept"
+  },
+  {
+    "strategy": "set-observed-remove",
+    "expect": "accept"
+  },
+  {
+    "strategy": "set-observed-remove",
+    "value_type": "anchor",
+    "expect": "accept"
+  },
+  {
+    "strategy": "set-observed-remove",
+    "value_type": "bool",
+    "expect": "accept"
+  },
+  {
+    "strategy": "set-observed-remove",
+    "value_type": "enum",
+    "expect": "accept"
+  },
+  {
+    "strategy": "set-observed-remove",
+    "value_type": "git-oid",
+    "expect": "accept"
+  },
+  {
+    "strategy": "set-observed-remove",
+    "value_type": "int",
+    "expect": "accept"
+  },
+  {
+    "strategy": "set-observed-remove",
+    "value_type": "number",
+    "expect": "accept"
+  },
+  {
+    "strategy": "set-observed-remove",
+    "value_type": "object-ref",
+    "expect": "accept"
+  },
+  {
+    "strategy": "set-observed-remove",
+    "value_type": "person-ref",
+    "expect": "accept"
+  },
+  {
+    "strategy": "set-observed-remove",
+    "value_type": "position",
+    "expect": "accept"
+  },
+  {
+    "strategy": "set-observed-remove",
+    "value_type": "string",
+    "expect": "accept"
+  },
+  {
+    "strategy": "set-observed-remove",
+    "value_type": "text",
+    "expect": "accept"
+  },
+  {
+    "strategy": "set-observed-remove",
+    "value_type": "timestamp",
+    "expect": "accept"
+  },
+  {
+    "strategy": "set-union",
+    "expect": "accept"
+  },
+  {
+    "strategy": "set-union",
+    "value_type": "anchor",
+    "expect": "accept"
+  },
+  {
+    "strategy": "set-union",
+    "value_type": "bool",
+    "expect": "accept"
+  },
+  {
+    "strategy": "set-union",
+    "value_type": "enum",
+    "expect": "accept"
+  },
+  {
+    "strategy": "set-union",
+    "value_type": "git-oid",
+    "expect": "accept"
+  },
+  {
+    "strategy": "set-union",
+    "value_type": "int",
+    "expect": "accept"
+  },
+  {
+    "strategy": "set-union",
+    "value_type": "number",
+    "expect": "accept"
+  },
+  {
+    "strategy": "set-union",
+    "value_type": "object-ref",
+    "expect": "accept"
+  },
+  {
+    "strategy": "set-union",
+    "value_type": "person-ref",
+    "expect": "accept"
+  },
+  {
+    "strategy": "set-union",
+    "value_type": "position",
+    "expect": "accept"
+  },
+  {
+    "strategy": "set-union",
+    "value_type": "string",
+    "expect": "accept"
+  },
+  {
+    "strategy": "set-union",
+    "value_type": "text",
+    "expect": "accept"
+  },
+  {
+    "strategy": "set-union",
+    "value_type": "timestamp",
+    "expect": "accept"
+  },
+  {
+    "strategy": "tombstone",
+    "expect": "accept"
+  },
+  {
+    "strategy": "tombstone",
+    "value_type": "anchor",
+    "expect": "reject",
+    "reason": "rule for (test-op, value) uses tombstone with value_type \"anchor\"; only bool typechecks"
+  },
+  {
+    "strategy": "tombstone",
+    "value_type": "bool",
+    "expect": "accept"
+  },
+  {
+    "strategy": "tombstone",
+    "value_type": "enum",
+    "expect": "reject",
+    "reason": "rule for (test-op, value) uses tombstone with value_type \"enum\"; only bool typechecks"
+  },
+  {
+    "strategy": "tombstone",
+    "value_type": "git-oid",
+    "expect": "reject",
+    "reason": "rule for (test-op, value) uses tombstone with value_type \"git-oid\"; only bool typechecks"
+  },
+  {
+    "strategy": "tombstone",
+    "value_type": "int",
+    "expect": "reject",
+    "reason": "rule for (test-op, value) uses tombstone with value_type \"int\"; only bool typechecks"
+  },
+  {
+    "strategy": "tombstone",
+    "value_type": "number",
+    "expect": "reject",
+    "reason": "rule for (test-op, value) uses tombstone with value_type \"number\"; only bool typechecks"
+  },
+  {
+    "strategy": "tombstone",
+    "value_type": "object-ref",
+    "expect": "reject",
+    "reason": "rule for (test-op, value) uses tombstone with value_type \"object-ref\"; only bool typechecks"
+  },
+  {
+    "strategy": "tombstone",
+    "value_type": "person-ref",
+    "expect": "reject",
+    "reason": "rule for (test-op, value) uses tombstone with value_type \"person-ref\"; only bool typechecks"
+  },
+  {
+    "strategy": "tombstone",
+    "value_type": "position",
+    "expect": "reject",
+    "reason": "rule for (test-op, value) uses tombstone with value_type \"position\"; only bool typechecks"
+  },
+  {
+    "strategy": "tombstone",
+    "value_type": "string",
+    "expect": "reject",
+    "reason": "rule for (test-op, value) uses tombstone with value_type \"string\"; only bool typechecks"
+  },
+  {
+    "strategy": "tombstone",
+    "value_type": "text",
+    "expect": "reject",
+    "reason": "rule for (test-op, value) uses tombstone with value_type \"text\"; only bool typechecks"
+  },
+  {
+    "strategy": "tombstone",
+    "value_type": "timestamp",
+    "expect": "reject",
+    "reason": "rule for (test-op, value) uses tombstone with value_type \"timestamp\"; only bool typechecks"
+  }
+]

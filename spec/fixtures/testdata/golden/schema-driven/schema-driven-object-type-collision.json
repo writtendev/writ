@@ -1,0 +1,77 @@
+{
+  "schemas": [
+    {
+      "object_id": "sch-alice",
+      "schema": {
+        "object_id": "sch-alice",
+        "namespace": "alice-vocab",
+        "types": [
+          {
+            "type": "gadget",
+            "fields": [
+              {
+                "field": "title",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "object_id": "sch-bob",
+      "schema": {
+        "object_id": "sch-bob",
+        "namespace": "bob-vocab",
+        "types": [
+          {
+            "type": "gadget",
+            "fields": [
+              {
+                "field": "title",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "conflicts": [
+    {
+      "object_type": "gadget",
+      "object_ids": [
+        "sch-alice",
+        "sch-bob"
+      ],
+      "reason": "object_type \"gadget\" is bound by more than one schema object"
+    }
+  ],
+  "objects": [
+    {
+      "object_id": "gadget-1",
+      "object_type": "gadget",
+      "total_order": [
+        {
+          "commit": "95a637ce4411091b17c256515a19861285b8210f",
+          "t_star": 1767225780
+        }
+      ],
+      "state": {},
+      "unknown_ops": [
+        {
+          "commit": "95a637ce4411091b17c256515a19861285b8210f",
+          "object_type": "gadget",
+          "op_type": "create",
+          "op_version": 1
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,103 @@
+name: schema-driven-version-bump-reused-target
+description: >
+  Correction 3's rejected case, at the resolver level: op_version 2 of
+  "configure" redeclares field "mode" with a different strategy
+  (set-union) while REUSING v1's target (both omit target, which defaults
+  to the field name "mode" either way) — the form spec/schema-ops.md §8
+  rejects. RulesFromSchemas drops the v2 rule and reports a conflict; only
+  v1's lww rule installs. The v2-versioned op on the ordinary object then
+  matches no rule at all and becomes an UnknownOp, exactly as if that
+  version had never been declared. (pins: reader)
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: define-type
+            parents: [create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "gadget"
+            expect: accept
+
+          - id: define-field-v1
+            parents: [define-type]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "configure"
+                op_version: "1"
+                field: "mode"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: define-field-v2
+            parents: [define-field-v1]
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "configure"
+                op_version: "2"
+                field: "mode"
+                value_type: "string"
+                strategy: "set-union"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/gadget
+    history:
+      - commits:
+          - id: configure-v1
+            author: alice
+            timestamp: 2026-01-01T00:04:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: configure
+              op_version: 1
+              body:
+                mode: "legacy-status"
+            expect: accept
+
+          - id: configure-v2
+            parents: [configure-v1]
+            author: alice
+            timestamp: 2026-01-01T00:05:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: configure
+              op_version: 2
+              body:
+                mode: ["tag-a", "tag-b"]
+            expect: accept

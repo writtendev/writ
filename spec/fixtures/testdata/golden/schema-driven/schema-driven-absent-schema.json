@@ -1,0 +1,34 @@
+{
+  "schemas": null,
+  "objects": [
+    {
+      "object_id": "gadget-1",
+      "object_type": "gadget",
+      "total_order": [
+        {
+          "commit": "ebd8d148971517f8103785fa926eeae7a6ebf9d9",
+          "t_star": 1767225600
+        },
+        {
+          "commit": "155ca576b31eafe255b4f163f84ca833a0d57831",
+          "t_star": 1767225660
+        }
+      ],
+      "state": {},
+      "unknown_ops": [
+        {
+          "commit": "ebd8d148971517f8103785fa926eeae7a6ebf9d9",
+          "object_type": "gadget",
+          "op_type": "create",
+          "op_version": 1
+        },
+        {
+          "commit": "155ca576b31eafe255b4f163f84ca833a0d57831",
+          "object_type": "gadget",
+          "op_type": "update",
+          "op_version": 1
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "schemas": [
+    {
+      "object_id": "sch-acme",
+      "schema": {
+        "object_id": "sch-acme",
+        "namespace": "acme",
+        "types": [
+          {
+            "type": "gadget",
+            "fields": [
+              {
+                "field": "verdict",
+                "op_type": "approve",
+                "op_version": 1,
+                "value_type": "enum",
+                "enum": [
+                  "approve",
+                  "block"
+                ],
+                "strategy": "lww"
+              },
+              {
+                "field": "owner",
+                "op_type": "set-owner",
+                "op_version": 1,
+                "value_type": "person-ref",
+                "strategy": "lww"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "objects": [
+    {
+      "object_id": "gadget-1",
+      "object_type": "gadget",
+      "total_order": [
+        {
+          "commit": "b488700eb4defd7b616cacd400d22fdee1ebf90c",
+          "t_star": 1767225840
+        },
+        {
+          "commit": "4e66c28a46d2345f5520c1b35e1f7b66f5e9df41",
+          "t_star": 1767225900
+        }
+      ],
+      "state": {
+        "owner": "",
+        "verdict": "bogus"
+      }
+    }
+  ]
+}

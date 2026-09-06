@@ -85,9 +85,22 @@ func newCreateOnceAccumulator(rule Rule, _ ReachOracle) (Accumulator, error) {
 func (a *createOnceAccumulator) Apply(rule Rule, _ codec.Op, body map[string]any, rawBody map[string]json.RawMessage) error {
 	if !a.hasVal {
 		if raw, ok := rawBody[rule.Field]; ok && len(raw) > 0 && string(raw) != "null" {
+			// create-once is a scalar position (spec/value-types.md
+			// §Normalization), so a person-ref value normalizes here exactly
+			// as it does under lww. The raw JSON bytes are otherwise kept
+			// verbatim (byte-exact preservation for every non-normalizing
+			// value); only a normalizing string write is re-encoded.
+			if s, ok := body[rule.Field].(string); ok && rule.NormalizesValue() {
+				if norm, err := json.Marshal(value.Normalize(rule.ValueType, s)); err == nil {
+					raw = norm
+				}
+			}
 			a.val = raw
 			a.hasVal = true
 		} else if val, ok := body[rule.Field]; ok && val != nil {
+			if s, ok := val.(string); ok && rule.NormalizesValue() {
+				val = value.Normalize(rule.ValueType, s)
+			}
 			a.val = val
 			a.hasVal = true
 		}
@@ -519,6 +532,12 @@ func (a *multiValueAccumulator) Apply(rule Rule, op codec.Op, body map[string]an
 		return nil
 	}
 	if s, ok := raw.(string); ok {
+		// multi-value is a scalar position (spec/value-types.md
+		// §Normalization), so a person-ref value normalizes here exactly as
+		// it does under lww and create-once.
+		if rule.NormalizesValue() {
+			s = value.Normalize(rule.ValueType, s)
+		}
 		a.writes = append(a.writes, multiValueWrite{opID: op.ID, val: s})
 	}
 	return nil

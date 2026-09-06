@@ -1,0 +1,231 @@
+{
+  "refs": [
+    {
+      "name": "refs/writ/0123456789abcdef/schema",
+      "commit": "3858b34f0068bc623c60945d4c1c70b600051ffb"
+    },
+    {
+      "name": "refs/writ/0123456789abcdef/person-vocab",
+      "commit": "719da78d1c48bd7d6a419ef1f892b04695ab8cf6"
+    }
+  ],
+  "generations": [
+    {
+      "ref": "refs/writ/0123456789abcdef/schema",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "a5d9b44532a36476cbc5bf9fd70842f8eff5c594",
+          "tree": "2601775727c841f53a2960e4169e9a4a216f66d2",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "message": "writ: create schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "def16a42808dd8fe1925eb06f4431ae5c0da096d",
+          "tree": "49e162815e87cb83ecc397ecfd40206a71e7cb83",
+          "parents": [
+            "a5d9b44532a36476cbc5bf9fd70842f8eff5c594"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:01:00Z",
+          "message": "writ: define-type schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "dc214d0595c702b2cc57bdd194f6d7fb720d894a",
+          "tree": "8cc858fcb4874da61cffef62796e0de552e1b5db",
+          "parents": [
+            "def16a42808dd8fe1925eb06f4431ae5c0da096d"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:02:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "346780082183ea1af48ae80cb38ac41899a89467",
+          "tree": "0cb0fbad6bc03e6e928256c88c4306ee3fd5c9ed",
+          "parents": [
+            "dc214d0595c702b2cc57bdd194f6d7fb720d894a"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:03:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "322da1235edda3c49fc5fca64fce83d8aa97c522",
+          "tree": "ff1dbb7ea91bc69410ab5bdf062c8bca72718027",
+          "parents": [
+            "346780082183ea1af48ae80cb38ac41899a89467"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:04:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "2ec8b1985035839af0e606d331dd93f428e38f27",
+          "tree": "19f5f545e1d0bef2556d3162a9b28e9e64ebec77",
+          "parents": [
+            "322da1235edda3c49fc5fca64fce83d8aa97c522"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:05:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "884e7fcaac2e21b5827e823726021e7dae3bfff2",
+          "tree": "c07bf4e4048c7517e9ae1f611e3f4f503ea0a567",
+          "parents": [
+            "2ec8b1985035839af0e606d331dd93f428e38f27"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:06:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "addace90f08b6ca65780f65ebefe6ffe8999016a",
+          "tree": "b2a6517ea63f6a7e6c8ad42fccf985773209c597",
+          "parents": [
+            "884e7fcaac2e21b5827e823726021e7dae3bfff2"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:07:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "b791d8f353710c2e7102e5a1b2a4d923954d4fd0",
+          "tree": "9680137181d2336aa285dac3e545307919c8e3dc",
+          "parents": [
+            "addace90f08b6ca65780f65ebefe6ffe8999016a"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:08:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "6966ebeb1325f9041ec5fceb10e32dbfedec4ff6",
+          "tree": "aa2868e71911c06036d25a9e8a2b8c596c5f2edb",
+          "parents": [
+            "b791d8f353710c2e7102e5a1b2a4d923954d4fd0"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:09:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "3858b34f0068bc623c60945d4c1c70b600051ffb",
+          "tree": "1119ea1a9fd609add9a06d03b9f4e370edf32c7a",
+          "parents": [
+            "6966ebeb1325f9041ec5fceb10e32dbfedec4ff6"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:10:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/person-vocab",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "29f7538c471ad68b23b472b95c313e77cbef59ed",
+          "tree": "ebba7f704407f8e657296c5e06cbb4b001155a1d",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:11:00Z",
+          "message": "writ: set person-vocab/pv-1\n",
+          "signed": true
+        },
+        {
+          "sha": "a8dc7b06ea33b0c77ca99d42046ed7bdea6ea805",
+          "tree": "947c58f072ca021bb82df37ac80b88d5c0d2e647",
+          "parents": [
+            "29f7538c471ad68b23b472b95c313e77cbef59ed"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:12:00Z",
+          "message": "writ: claim person-vocab/pv-1\n",
+          "signed": true
+        },
+        {
+          "sha": "1a7c2f40775cf2a8fe0f90e8c5a3ba85550f6363",
+          "tree": "9c68826e48a85aadb288c467c5e64edb82d6391f",
+          "parents": [
+            "a8dc7b06ea33b0c77ca99d42046ed7bdea6ea805"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:13:00Z",
+          "message": "writ: record person-vocab/pv-1\n",
+          "signed": true
+        },
+        {
+          "sha": "0515d0efba11ed0cc29224839546bccbcdb8364c",
+          "tree": "119b6c144bbc0aed56eceb9f7a010fbc6bcead96",
+          "parents": [
+            "1a7c2f40775cf2a8fe0f90e8c5a3ba85550f6363"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:14:00Z",
+          "message": "writ: log person-vocab/pv-1\n",
+          "signed": true
+        },
+        {
+          "sha": "d1bd2b6c910ad46eab77a587ebcef2158c75135f",
+          "tree": "13a499c2d48f333c2383635b379b7df329be2f1a",
+          "parents": [
+            "0515d0efba11ed0cc29224839546bccbcdb8364c"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:15:00Z",
+          "message": "writ: endorse person-vocab/pv-1\n",
+          "signed": true
+        },
+        {
+          "sha": "7029f006aae8a5da08a61bebcb7d4b99a89b6ac0",
+          "tree": "2bd3bb47fc22ec747dd8a024c0decbccf7204f09",
+          "parents": [
+            "d1bd2b6c910ad46eab77a587ebcef2158c75135f"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:16:00Z",
+          "message": "writ: assign person-vocab/pv-1\n",
+          "signed": true
+        },
+        {
+          "sha": "d89b55105a629744ada5172ad91851ebc8cf086c",
+          "tree": "abf52f88c95ed868e083f05188ce88f416e58c21",
+          "parents": [
+            "7029f006aae8a5da08a61bebcb7d4b99a89b6ac0"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:17:00Z",
+          "message": "writ: vote person-vocab/pv-1\n",
+          "signed": true
+        },
+        {
+          "sha": "719da78d1c48bd7d6a419ef1f892b04695ab8cf6",
+          "tree": "8b3dc1ab0c7731b80dc80c1cb0f28b3cf6065a21",
+          "parents": [
+            "d89b55105a629744ada5172ad91851ebc8cf086c"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:18:00Z",
+          "message": "writ: endorse-key person-vocab/pv-1\n",
+          "signed": true
+        }
+      ]
+    }
+  ]
+}

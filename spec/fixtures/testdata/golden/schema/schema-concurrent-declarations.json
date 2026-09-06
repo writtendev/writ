@@ -1,0 +1,25 @@
+{
+  "objects": [
+    {
+      "object_id": "sch-race",
+      "schema": {
+        "object_id": "sch-race",
+        "namespace": "acme",
+        "types": [
+          {
+            "type": "widget",
+            "fields": [
+              {
+                "field": "priority",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "set-union"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
