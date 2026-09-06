@@ -172,15 +172,15 @@ func FoldSettings(ops []codec.Op) (Settings, error) {
 // SettingsRules returns the built-in field merge rules for the settings vocabulary (v1).
 func SettingsRules() []Rule {
 	return []Rule{
-		{OpType: "set", OpVersion: 1, Field: "name", Strategy: "lww"},
-		{OpType: "set", OpVersion: 1, Field: "identifier", Strategy: "lww"},
-		{OpType: "set", OpVersion: 1, Field: "timezone", Strategy: "lww"},
-		{OpType: "set", OpVersion: 1, Field: "estimate_scale", Strategy: "lww"},
-		{OpType: "set", OpVersion: 1, Field: "allow_zero_estimates", Strategy: "lww"},
-		{OpType: "set", OpVersion: 1, Field: "cycles_enabled", Strategy: "lww"},
-		{OpType: "set", OpVersion: 1, Field: "cycle_duration_weeks", Strategy: "lww"},
-		{OpType: "set", OpVersion: 1, Field: "cycle_start_day", Strategy: "lww"},
-		{OpType: "set", OpVersion: 1, Field: "cycle_cooldown_weeks", Strategy: "lww"},
-		{OpType: "set", OpVersion: 1, Field: "triage_enabled", Strategy: "lww"},
+		{OpType: "set", OpVersion: 1, Field: "name", Strategy: "lww", ValueType: "string"},
+		{OpType: "set", OpVersion: 1, Field: "identifier", Strategy: "lww", ValueType: "string"},
+		{OpType: "set", OpVersion: 1, Field: "timezone", Strategy: "lww", ValueType: "string"},
+		{OpType: "set", OpVersion: 1, Field: "estimate_scale", Strategy: "lww", ValueType: "enum", Enum: []string{"none", "fibonacci", "exponential", "linear", "t-shirt"}},
+		{OpType: "set", OpVersion: 1, Field: "allow_zero_estimates", Strategy: "lww", ValueType: "bool"},
+		{OpType: "set", OpVersion: 1, Field: "cycles_enabled", Strategy: "lww", ValueType: "bool"},
+		{OpType: "set", OpVersion: 1, Field: "cycle_duration_weeks", Strategy: "lww", ValueType: "int"},
+		{OpType: "set", OpVersion: 1, Field: "cycle_start_day", Strategy: "lww", ValueType: "int"},
+		{OpType: "set", OpVersion: 1, Field: "cycle_cooldown_weeks", Strategy: "lww", ValueType: "int"},
+		{OpType: "set", OpVersion: 1, Field: "triage_enabled", Strategy: "lww", ValueType: "bool"},
 	}
 }

@@ -3,48 +3,63 @@
     "op_type": "create",
     "op_version": 1,
     "field": "title",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "string"
   },
   {
     "op_type": "create",
     "op_version": 1,
     "field": "description",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "string"
   },
   {
     "op_type": "update",
     "op_version": 1,
     "field": "title",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "string"
   },
   {
     "op_type": "update",
     "op_version": 1,
     "field": "description",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "string"
   },
   {
     "op_type": "set-status",
     "op_version": 1,
     "field": "status",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "enum",
+    "enum": [
+      "planned",
+      "active",
+      "paused",
+      "completed",
+      "canceled"
+    ]
   },
   {
     "op_type": "set-status",
     "op_version": 1,
     "field": "reason",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "string"
   },
   {
     "op_type": "add-issue",
     "op_version": 1,
     "field": "issue",
-    "strategy": "set-observed-remove"
+    "strategy": "set-observed-remove",
+    "value_type": "object-ref"
   },
   {
     "op_type": "remove-issue",
     "op_version": 1,
     "field": "issue",
-    "strategy": "set-observed-remove"
+    "strategy": "set-observed-remove",
+    "value_type": "object-ref"
   }
 ]

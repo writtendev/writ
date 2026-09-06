@@ -20,14 +20,6 @@ func TestCommentRulesDriftGuard(t *testing.T) {
 	var specCommentRules []fold.Rule
 	for _, r := range allRules {
 		if r.Vocabulary == "comments" {
-			var norm *fold.NormalizeRule
-			if r.Normalize != nil {
-				norm = &fold.NormalizeRule{
-					Value: r.Normalize.Value,
-					Items: r.Normalize.Items,
-					Key:   r.Normalize.Key,
-				}
-			}
 			specCommentRules = append(specCommentRules, fold.Rule{
 				OpType:    r.OpType,
 				OpVersion: r.OpVersion,
@@ -35,7 +27,10 @@ func TestCommentRulesDriftGuard(t *testing.T) {
 				Strategy:  r.Strategy,
 				Key:       r.Key,
 				Lattice:   r.Lattice,
-				Normalize: norm,
+				ValueType: r.ValueType,
+				Enum:      r.Enum,
+				MaxLength: r.MaxLength,
+				KeyTypes:  r.KeyTypes,
 			})
 		}
 	}
@@ -356,4 +351,3 @@ func TestFoldCommentResolveWithoutResolvedBy(t *testing.T) {
 		t.Errorf("expected ResolvedBy to be empty string when resolved_by is absent, got %q", cf.ResolvedBy)
 	}
 }
-

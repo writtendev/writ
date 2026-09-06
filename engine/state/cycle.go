@@ -155,15 +155,15 @@ func FoldCycle(ops []codec.Op) (Cycle, error) {
 // CycleRules returns the built-in field merge rules for the cycle vocabulary (v1).
 func CycleRules() []Rule {
 	return []Rule{
-		{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww"},
-		{OpType: "create", OpVersion: 1, Field: "starts_at", Strategy: "lww"},
-		{OpType: "create", OpVersion: 1, Field: "ends_at", Strategy: "lww"},
-		{OpType: "create", OpVersion: 1, Field: "description", Strategy: "lww"},
-		{OpType: "update", OpVersion: 1, Field: "title", Strategy: "lww"},
-		{OpType: "update", OpVersion: 1, Field: "description", Strategy: "lww"},
-		{OpType: "set-dates", OpVersion: 1, Field: "starts_at", Strategy: "lww"},
-		{OpType: "set-dates", OpVersion: 1, Field: "ends_at", Strategy: "lww"},
-		{OpType: "add-issue", OpVersion: 1, Field: "issue", Strategy: "set-observed-remove"},
-		{OpType: "remove-issue", OpVersion: 1, Field: "issue", Strategy: "set-observed-remove"},
+		{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
+		{OpType: "create", OpVersion: 1, Field: "starts_at", Strategy: "lww", ValueType: "timestamp"},
+		{OpType: "create", OpVersion: 1, Field: "ends_at", Strategy: "lww", ValueType: "timestamp"},
+		{OpType: "create", OpVersion: 1, Field: "description", Strategy: "lww", ValueType: "string"},
+		{OpType: "update", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
+		{OpType: "update", OpVersion: 1, Field: "description", Strategy: "lww", ValueType: "string"},
+		{OpType: "set-dates", OpVersion: 1, Field: "starts_at", Strategy: "lww", ValueType: "timestamp"},
+		{OpType: "set-dates", OpVersion: 1, Field: "ends_at", Strategy: "lww", ValueType: "timestamp"},
+		{OpType: "add-issue", OpVersion: 1, Field: "issue", Strategy: "set-observed-remove", ValueType: "object-ref"},
+		{OpType: "remove-issue", OpVersion: 1, Field: "issue", Strategy: "set-observed-remove", ValueType: "object-ref"},
 	}
 }

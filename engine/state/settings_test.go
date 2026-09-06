@@ -20,14 +20,6 @@ func TestSettingsRulesDriftGuard(t *testing.T) {
 	var expectedRules []s.Rule
 	for _, r := range allRules {
 		if r.Vocabulary == "settings" {
-			var norm *s.NormalizeRule
-			if r.Normalize != nil {
-				norm = &s.NormalizeRule{
-					Value: r.Normalize.Value,
-					Items: r.Normalize.Items,
-					Key:   r.Normalize.Key,
-				}
-			}
 			expectedRules = append(expectedRules, s.Rule{
 				OpType:    r.OpType,
 				OpVersion: r.OpVersion,
@@ -35,7 +27,10 @@ func TestSettingsRulesDriftGuard(t *testing.T) {
 				Strategy:  r.Strategy,
 				Key:       r.Key,
 				Lattice:   r.Lattice,
-				Normalize: norm,
+				ValueType: r.ValueType,
+				Enum:      r.Enum,
+				MaxLength: r.MaxLength,
+				KeyTypes:  r.KeyTypes,
 			})
 		}
 	}
@@ -96,7 +91,7 @@ func TestFoldSettingsLifecycle(t *testing.T) {
 				"name": "Acme Global"
 			}`),
 		},
-		ID: "c2",
+		ID:      "c2",
 		Parents: []string{"c1"},
 		Author: codec.Identity{
 			Email: "bob@example.com",
@@ -178,7 +173,7 @@ func TestFoldSettingsUnknownKeys(t *testing.T) {
 				"identifier": "WRIT"
 			}`),
 		},
-		ID: "c2",
+		ID:      "c2",
 		Parents: []string{"c1"},
 		Author: codec.Identity{
 			Email: "bob@example.com",

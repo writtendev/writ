@@ -141,13 +141,13 @@ func FoldProject(ops []codec.Op) (Project, error) {
 // ProjectRules returns the built-in field merge rules for the project vocabulary (v1).
 func ProjectRules() []Rule {
 	return []Rule{
-		{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww"},
-		{OpType: "create", OpVersion: 1, Field: "description", Strategy: "lww"},
-		{OpType: "update", OpVersion: 1, Field: "title", Strategy: "lww"},
-		{OpType: "update", OpVersion: 1, Field: "description", Strategy: "lww"},
-		{OpType: "set-status", OpVersion: 1, Field: "status", Strategy: "lww"},
-		{OpType: "set-status", OpVersion: 1, Field: "reason", Strategy: "lww"},
-		{OpType: "add-issue", OpVersion: 1, Field: "issue", Strategy: "set-observed-remove"},
-		{OpType: "remove-issue", OpVersion: 1, Field: "issue", Strategy: "set-observed-remove"},
+		{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
+		{OpType: "create", OpVersion: 1, Field: "description", Strategy: "lww", ValueType: "string"},
+		{OpType: "update", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
+		{OpType: "update", OpVersion: 1, Field: "description", Strategy: "lww", ValueType: "string"},
+		{OpType: "set-status", OpVersion: 1, Field: "status", Strategy: "lww", ValueType: "enum", Enum: []string{"planned", "active", "paused", "completed", "canceled"}},
+		{OpType: "set-status", OpVersion: 1, Field: "reason", Strategy: "lww", ValueType: "string"},
+		{OpType: "add-issue", OpVersion: 1, Field: "issue", Strategy: "set-observed-remove", ValueType: "object-ref"},
+		{OpType: "remove-issue", OpVersion: 1, Field: "issue", Strategy: "set-observed-remove", ValueType: "object-ref"},
 	}
 }

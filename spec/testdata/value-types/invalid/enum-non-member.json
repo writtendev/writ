@@ -1,0 +1,10 @@
+{
+  "value_type": "enum",
+  "value": "archived",
+  "params": {
+    "enum": [
+      "open",
+      "closed"
+    ]
+  }
+}

@@ -3,60 +3,77 @@
     "op_type": "set",
     "op_version": 1,
     "field": "name",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "string"
   },
   {
     "op_type": "set",
     "op_version": 1,
     "field": "identifier",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "string"
   },
   {
     "op_type": "set",
     "op_version": 1,
     "field": "timezone",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "string"
   },
   {
     "op_type": "set",
     "op_version": 1,
     "field": "estimate_scale",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "enum",
+    "enum": [
+      "none",
+      "fibonacci",
+      "exponential",
+      "linear",
+      "t-shirt"
+    ]
   },
   {
     "op_type": "set",
     "op_version": 1,
     "field": "allow_zero_estimates",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "bool"
   },
   {
     "op_type": "set",
     "op_version": 1,
     "field": "cycles_enabled",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "bool"
   },
   {
     "op_type": "set",
     "op_version": 1,
     "field": "cycle_duration_weeks",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "int"
   },
   {
     "op_type": "set",
     "op_version": 1,
     "field": "cycle_start_day",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "int"
   },
   {
     "op_type": "set",
     "op_version": 1,
     "field": "cycle_cooldown_weeks",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "int"
   },
   {
     "op_type": "set",
     "op_version": 1,
     "field": "triage_enabled",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "bool"
   }
 ]

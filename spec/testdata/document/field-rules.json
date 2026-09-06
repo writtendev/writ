@@ -3,13 +3,15 @@
     "op_type": "create",
     "op_version": 1,
     "field": "title",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "string"
   },
   {
     "op_type": "update",
     "op_version": 1,
     "field": "title",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "string"
   },
   {
     "op_type": "link",
@@ -18,7 +20,11 @@
     "strategy": "keyed-lww",
     "key": [
       "target"
-    ]
+    ],
+    "value_type": "object-ref",
+    "key_types": {
+      "target": "object-ref"
+    }
   },
   {
     "op_type": "link",
@@ -27,7 +33,11 @@
     "strategy": "keyed-lww",
     "key": [
       "target"
-    ]
+    ],
+    "value_type": "string",
+    "key_types": {
+      "target": "object-ref"
+    }
   },
   {
     "op_type": "link",
@@ -36,18 +46,24 @@
     "strategy": "keyed-lww",
     "key": [
       "target"
-    ]
+    ],
+    "value_type": "string",
+    "key_types": {
+      "target": "object-ref"
+    }
   },
   {
     "op_type": "label",
     "op_version": 1,
     "field": "add",
-    "strategy": "set-observed-remove"
+    "strategy": "set-observed-remove",
+    "value_type": "string"
   },
   {
     "op_type": "label",
     "op_version": 1,
     "field": "remove",
-    "strategy": "set-observed-remove"
+    "strategy": "set-observed-remove",
+    "value_type": "string"
   }
 ]

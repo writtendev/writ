@@ -41,10 +41,13 @@ type OrderVector struct {
 // StrategyConfig specifies the merge strategy and optional parameters (e.g. lattice elements)
 // for a field in a merge vector.
 type StrategyConfig struct {
-	Strategy  string         `json:"strategy"`
-	Lattice   []string       `json:"lattice,omitempty"`
-	Key       []string       `json:"key,omitempty"`
-	Normalize *NormalizeRule `json:"normalize,omitempty"`
+	Strategy  string            `json:"strategy"`
+	Lattice   []string          `json:"lattice,omitempty"`
+	Key       []string          `json:"key,omitempty"`
+	ValueType string            `json:"value_type,omitempty"`
+	Enum      []string          `json:"enum,omitempty"`
+	MaxLength int64             `json:"max_length,omitempty"`
+	KeyTypes  map[string]string `json:"key_types,omitempty"`
 }
 
 // MergeAuthor represents the author identity on a commit carrier for an operation.

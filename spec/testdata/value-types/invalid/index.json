@@ -1,0 +1,38 @@
+{
+  "string-over-max-length.json": {
+    "reason": "value is 6 code points, over the 5-code-point max_length declared in params"
+  },
+  "int-over-bound.json": {
+    "reason": "value exceeds the +-2^53-1 bound spec/canonicalization.md sets for exact integers"
+  },
+  "int-fractional.json": {
+    "reason": "int is a JSON integer; 2.5 has a fractional component"
+  },
+  "number-over-bound.json": {
+    "reason": "value exceeds the +-2^53-1 bound spec/canonicalization.md sets, even for the unconstrained number type"
+  },
+  "enum-non-member.json": {
+    "reason": "\"archived\" is not a member of the declared enum [open closed]"
+  },
+  "person-ref-bare-colonless.json": {
+    "reason": "a bare, colonless identifier is not a person identifier: there is no implicit scheme"
+  },
+  "object-ref-uppercase-hex.json": {
+    "reason": "the qualifying repo-id prefix must be lowercase hex per spec/identifiers.md's reference grammar; an uppercase prefix before '#' does not match the optional group, and the whole value contains a '#' the unqualified branch forbids"
+  },
+  "git-oid-wrong-length.json": {
+    "reason": "39 hex characters is neither the 40 of SHA-1 nor the 64 of SHA-256"
+  },
+  "position-trailing-zero.json": {
+    "reason": "canonical form forbids a trailing '0' (spec/ordering.md)"
+  },
+  "anchor-missing-required-field.json": {
+    "reason": "old.blob is required by anchor.schema.json and is absent"
+  },
+  "bool-not-boolean.json": {
+    "reason": "bool value must be a JSON boolean, not the string \"true\""
+  },
+  "timestamp-not-rfc3339.json": {
+    "reason": "missing the time-of-day component RFC 3339 date-time requires"
+  }
+}

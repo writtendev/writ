@@ -61,6 +61,20 @@ func TestVocabularyEnumsExtractedFromSchemas(t *testing.T) {
 	}
 }
 
+// TestLinkRelationsAgreeAcrossTables pins that issue-ops and review-ops
+// declare the same link.relation enum: WRIT-185 replaced the schema-scraping
+// single source of truth with per-table rule declarations, so nothing stops
+// two tables from drifting apart the way one shared schema $defs entry could
+// not. Document's link.relation is deliberately not this enum (an
+// unconstrained string, per spec/value-types.md) and is excluded.
+func TestLinkRelationsAgreeAcrossTables(t *testing.T) {
+	issue := spec.EnumValues("issue-ops", "link", "relation")
+	review := spec.EnumValues("review-ops", "link", "relation")
+	if !reflect.DeepEqual(issue, review) {
+		t.Errorf("issue-ops link.relation = %v, review-ops link.relation = %v; want equal", issue, review)
+	}
+}
+
 func TestFormatOptions(t *testing.T) {
 	tests := []struct {
 		input []string
@@ -133,4 +147,3 @@ func TestIssuePriorityVocabulary(t *testing.T) {
 		}
 	}
 }
-

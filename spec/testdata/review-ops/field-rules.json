@@ -3,73 +3,84 @@
     "op_type": "create",
     "op_version": 1,
     "field": "title",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "string"
   },
   {
     "op_type": "create",
     "op_version": 1,
     "field": "description",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "string"
   },
   {
     "op_type": "revision",
     "op_version": 1,
     "field": "base",
-    "strategy": "append"
+    "strategy": "append",
+    "value_type": "git-oid"
   },
   {
     "op_type": "revision",
     "op_version": 1,
     "field": "head",
-    "strategy": "append"
+    "strategy": "append",
+    "value_type": "git-oid"
   },
   {
     "op_type": "update",
     "op_version": 1,
     "field": "title",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "string"
   },
   {
     "op_type": "update",
     "op_version": 1,
     "field": "description",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "string"
   },
   {
     "op_type": "set-status",
     "op_version": 1,
     "field": "status",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "enum",
+    "enum": [
+      "draft",
+      "open",
+      "closed",
+      "merged"
+    ]
   },
   {
     "op_type": "set-status",
     "op_version": 1,
     "field": "merge_commit",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "git-oid"
   },
   {
     "op_type": "set-status",
     "op_version": 1,
     "field": "reason",
-    "strategy": "lww"
+    "strategy": "lww",
+    "value_type": "string"
   },
   {
     "op_type": "assign",
     "op_version": 1,
     "field": "add",
     "strategy": "set-observed-remove",
-    "normalize": {
-      "items": "person"
-    }
+    "value_type": "person-ref"
   },
   {
     "op_type": "assign",
     "op_version": 1,
     "field": "remove",
     "strategy": "set-observed-remove",
-    "normalize": {
-      "items": "person"
-    }
+    "value_type": "person-ref"
   },
   {
     "op_type": "approval",
@@ -80,10 +91,10 @@
       "subject",
       "revision"
     ],
-    "normalize": {
-      "key": [
-        "subject"
-      ]
+    "value_type": "git-oid",
+    "key_types": {
+      "subject": "person-ref",
+      "revision": "git-oid"
     }
   },
   {
@@ -95,10 +106,15 @@
       "subject",
       "revision"
     ],
-    "normalize": {
-      "key": [
-        "subject"
-      ]
+    "value_type": "enum",
+    "enum": [
+      "approve",
+      "request-changes",
+      "none"
+    ],
+    "key_types": {
+      "subject": "person-ref",
+      "revision": "git-oid"
     }
   },
   {
@@ -110,11 +126,10 @@
       "subject",
       "revision"
     ],
-    "normalize": {
-      "value": "person",
-      "key": [
-        "subject"
-      ]
+    "value_type": "person-ref",
+    "key_types": {
+      "subject": "person-ref",
+      "revision": "git-oid"
     }
   },
   {
@@ -126,10 +141,10 @@
       "subject",
       "revision"
     ],
-    "normalize": {
-      "key": [
-        "subject"
-      ]
+    "value_type": "text",
+    "key_types": {
+      "subject": "person-ref",
+      "revision": "git-oid"
     }
   },
   {
@@ -140,7 +155,12 @@
     "key": [
       "revision",
       "name"
-    ]
+    ],
+    "value_type": "git-oid",
+    "key_types": {
+      "revision": "git-oid",
+      "name": "string"
+    }
   },
   {
     "op_type": "ci-status",
@@ -150,7 +170,12 @@
     "key": [
       "revision",
       "name"
-    ]
+    ],
+    "value_type": "string",
+    "key_types": {
+      "revision": "git-oid",
+      "name": "string"
+    }
   },
   {
     "op_type": "ci-status",
@@ -160,7 +185,21 @@
     "key": [
       "revision",
       "name"
-    ]
+    ],
+    "value_type": "enum",
+    "enum": [
+      "pending",
+      "success",
+      "failure",
+      "error",
+      "cancelled",
+      "neutral",
+      "skipped"
+    ],
+    "key_types": {
+      "revision": "git-oid",
+      "name": "string"
+    }
   },
   {
     "op_type": "ci-status",
@@ -170,7 +209,12 @@
     "key": [
       "revision",
       "name"
-    ]
+    ],
+    "value_type": "string",
+    "key_types": {
+      "revision": "git-oid",
+      "name": "string"
+    }
   },
   {
     "op_type": "ci-status",
@@ -181,7 +225,12 @@
     "key": [
       "revision",
       "name"
-    ]
+    ],
+    "value_type": "string",
+    "key_types": {
+      "revision": "git-oid",
+      "name": "string"
+    }
   },
   {
     "op_type": "ci-status",
@@ -191,7 +240,12 @@
     "key": [
       "revision",
       "name"
-    ]
+    ],
+    "value_type": "timestamp",
+    "key_types": {
+      "revision": "git-oid",
+      "name": "string"
+    }
   },
   {
     "op_type": "ci-status",
@@ -201,7 +255,12 @@
     "key": [
       "revision",
       "name"
-    ]
+    ],
+    "value_type": "timestamp",
+    "key_types": {
+      "revision": "git-oid",
+      "name": "string"
+    }
   },
   {
     "op_type": "ci-status",
@@ -211,19 +270,26 @@
     "key": [
       "revision",
       "name"
-    ]
+    ],
+    "value_type": "string",
+    "key_types": {
+      "revision": "git-oid",
+      "name": "string"
+    }
   },
   {
     "op_type": "label",
     "op_version": 1,
     "field": "add",
-    "strategy": "set-observed-remove"
+    "strategy": "set-observed-remove",
+    "value_type": "object-ref"
   },
   {
     "op_type": "label",
     "op_version": 1,
     "field": "remove",
-    "strategy": "set-observed-remove"
+    "strategy": "set-observed-remove",
+    "value_type": "string"
   },
   {
     "op_type": "link",
@@ -232,7 +298,11 @@
     "strategy": "keyed-lww",
     "key": [
       "target"
-    ]
+    ],
+    "value_type": "object-ref",
+    "key_types": {
+      "target": "object-ref"
+    }
   },
   {
     "op_type": "link",
@@ -241,7 +311,11 @@
     "strategy": "keyed-lww",
     "key": [
       "target"
-    ]
+    ],
+    "value_type": "string",
+    "key_types": {
+      "target": "object-ref"
+    }
   },
   {
     "op_type": "link",
@@ -250,6 +324,15 @@
     "strategy": "keyed-lww",
     "key": [
       "target"
-    ]
+    ],
+    "value_type": "enum",
+    "enum": [
+      "fixes",
+      "relates",
+      "none"
+    ],
+    "key_types": {
+      "target": "object-ref"
+    }
   }
 ]

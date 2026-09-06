@@ -20,14 +20,6 @@ func TestIssueRulesDriftGuard(t *testing.T) {
 	var expectedRules []writ.Rule
 	for _, r := range allRules {
 		if r.Vocabulary == "issue-ops" {
-			var norm *writ.NormalizeRule
-			if r.Normalize != nil {
-				norm = &writ.NormalizeRule{
-					Value: r.Normalize.Value,
-					Items: r.Normalize.Items,
-					Key:   r.Normalize.Key,
-				}
-			}
 			expectedRules = append(expectedRules, writ.Rule{
 				OpType:    r.OpType,
 				OpVersion: r.OpVersion,
@@ -35,7 +27,10 @@ func TestIssueRulesDriftGuard(t *testing.T) {
 				Strategy:  r.Strategy,
 				Key:       r.Key,
 				Lattice:   r.Lattice,
-				Normalize: norm,
+				ValueType: r.ValueType,
+				Enum:      r.Enum,
+				MaxLength: r.MaxLength,
+				KeyTypes:  r.KeyTypes,
 			})
 		}
 	}

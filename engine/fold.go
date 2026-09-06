@@ -5,11 +5,8 @@ import (
 	"github.com/writtendev/writ/engine/state"
 )
 
-// Rule specifies the merge strategy and parameters for an (op_type, op_version, field) tuple.
+// Rule specifies the merge strategy and value type for an (op_type, op_version, field) tuple.
 type Rule = state.Rule
-
-// NormalizeRule specifies normalization attributes for an (op_type, field) merge rule.
-type NormalizeRule = state.NormalizeRule
 
 // Sentinels re-exported from internal/fold.
 var (

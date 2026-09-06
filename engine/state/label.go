@@ -85,11 +85,11 @@ func FoldLabel(ops []codec.Op) (Label, error) {
 // LabelRules returns the built-in field merge rules for the label vocabulary (v1).
 func LabelRules() []Rule {
 	return []Rule{
-		{OpType: "create", OpVersion: 1, Field: "name", Strategy: "lww"},
-		{OpType: "create", OpVersion: 1, Field: "color", Strategy: "lww"},
-		{OpType: "create", OpVersion: 1, Field: "description", Strategy: "lww"},
-		{OpType: "update", OpVersion: 1, Field: "name", Strategy: "lww"},
-		{OpType: "update", OpVersion: 1, Field: "color", Strategy: "lww"},
-		{OpType: "update", OpVersion: 1, Field: "description", Strategy: "lww"},
+		{OpType: "create", OpVersion: 1, Field: "name", Strategy: "lww", ValueType: "string"},
+		{OpType: "create", OpVersion: 1, Field: "color", Strategy: "lww", ValueType: "string"},
+		{OpType: "create", OpVersion: 1, Field: "description", Strategy: "lww", ValueType: "string"},
+		{OpType: "update", OpVersion: 1, Field: "name", Strategy: "lww", ValueType: "string"},
+		{OpType: "update", OpVersion: 1, Field: "color", Strategy: "lww", ValueType: "string"},
+		{OpType: "update", OpVersion: 1, Field: "description", Strategy: "lww", ValueType: "string"},
 	}
 }

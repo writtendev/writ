@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://writ.dev/spec/value-types.schema.json",
+  "title": "Writ value types (v1)",
+  "description": "The closed value-type catalogue: one $defs entry per catalogue type, each the encoding rule for a bare value of that type. Normative text: spec/value-types.md. Parameterisation a rule may declare (enum's member list, max_length) is not expressed here — it is a property of the field-rules.json rule, not of the bare value's shape, and is enforced by engine/internal/value alongside these schemas. additionalProperties is deliberately never false where these defs are objects: unknown fields are preserved and ignored.",
+  "$defs": {
+    "string": {
+      "type": "string",
+      "description": "Plain string. An optional max_length on the declaring rule bounds it in Unicode code points."
+    },
+    "text": {
+      "type": "string",
+      "description": "Long-form string; the type that pairs with the multi-value merge strategy. An optional max_length on the declaring rule bounds it in Unicode code points."
+    },
+    "int": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991,
+      "description": "JSON integer, bounded to ±2^53-1 per spec/canonicalization.md."
+    },
+    "number": {
+      "type": "number",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991,
+      "description": "JSON number, bounded to ±2^53-1 per spec/canonicalization.md. Unlike int, a fractional value is legal."
+    },
+    "bool": {
+      "type": "boolean"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?(?:Z|[+-][0-9]{2}:[0-9]{2})$",
+      "description": "RFC 3339 date-time string, exactly the pattern the shipped payload timestamp fields (cycle.starts_at/ends_at, ci-status.started_at/completed_at) already use."
+    },
+    "enum": {
+      "type": "string",
+      "description": "One member of the value list the declaring rule's enum property carries. This $defs entry only constrains the JSON type; membership is enforced against the rule's own enum list, not restated here."
+    },
+    "person-ref": {
+      "$ref": "https://writ.dev/spec/identifiers.schema.json#/$defs/person-id",
+      "description": "Person identifier per spec/identifiers.md. Carries normalization intrinsically: engine/internal/value.Normalize applies person.NormalizePerson wherever a rule's value_type is person-ref."
+    },
+    "object-ref": {
+      "$ref": "https://writ.dev/spec/identifiers.schema.json#/$defs/reference",
+      "description": "Opaque pointer: <object-id> or <repo-id>#<object-id> per spec/identifiers.md. No resolution."
+    },
+    "git-oid": {
+      "type": "string",
+      "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$",
+      "description": "Hex git object id, SHA-1 (40 hex) or SHA-256 (64 hex)."
+    },
+    "position": {
+      "$ref": "https://writ.dev/spec/ordering.schema.json#/$defs/position",
+      "description": "Base-62 fractional index per spec/ordering.md."
+    },
+    "anchor": {
+      "$ref": "https://writ.dev/spec/anchor.schema.json",
+      "description": "Dual-sided content anchor per spec/anchors.md."
+    }
+  }
+}

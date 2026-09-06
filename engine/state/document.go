@@ -11,29 +11,30 @@ import (
 
 // DocumentRules returns the declared merge rules for collaborative objects of type "document".
 func DocumentRules() []Rule {
+	linkKeyTypes := map[string]string{"target": "object-ref"}
 	return []Rule{
-		{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww"},
-		{OpType: "update", OpVersion: 1, Field: "title", Strategy: "lww"},
-		{OpType: "link", OpVersion: 1, Field: "target", Strategy: "keyed-lww", Key: []string{"target"}},
-		{OpType: "link", OpVersion: 1, Field: "target_type", Strategy: "keyed-lww", Key: []string{"target"}},
-		{OpType: "link", OpVersion: 1, Field: "relation", Strategy: "keyed-lww", Key: []string{"target"}},
-		{OpType: "label", OpVersion: 1, Field: "add", Strategy: "set-observed-remove"},
-		{OpType: "label", OpVersion: 1, Field: "remove", Strategy: "set-observed-remove"},
+		{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
+		{OpType: "update", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
+		{OpType: "link", OpVersion: 1, Field: "target", Strategy: "keyed-lww", Key: []string{"target"}, ValueType: "object-ref", KeyTypes: linkKeyTypes},
+		{OpType: "link", OpVersion: 1, Field: "target_type", Strategy: "keyed-lww", Key: []string{"target"}, ValueType: "string", KeyTypes: linkKeyTypes},
+		{OpType: "link", OpVersion: 1, Field: "relation", Strategy: "keyed-lww", Key: []string{"target"}, ValueType: "string", KeyTypes: linkKeyTypes},
+		{OpType: "label", OpVersion: 1, Field: "add", Strategy: "set-observed-remove", ValueType: "string"},
+		{OpType: "label", OpVersion: 1, Field: "remove", Strategy: "set-observed-remove", ValueType: "string"},
 	}
 }
 
 // SectionRules returns the declared merge rules for collaborative objects of type "section".
 func SectionRules() []Rule {
 	return []Rule{
-		{OpType: "create", OpVersion: 1, Field: "document_id", Strategy: "create-once"},
-		{OpType: "create", OpVersion: 1, Field: "position", Strategy: "lww"},
-		{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww"},
-		{OpType: "create", OpVersion: 1, Field: "body", Strategy: "multi-value"},
-		{OpType: "edit", OpVersion: 1, Field: "body", Strategy: "multi-value"},
-		{OpType: "move", OpVersion: 1, Field: "position", Strategy: "lww"},
-		{OpType: "update", OpVersion: 1, Field: "title", Strategy: "lww"},
-		{OpType: "update", OpVersion: 1, Field: "position", Strategy: "lww"},
-		{OpType: "delete", OpVersion: 1, Field: "deleted", Strategy: "tombstone"},
+		{OpType: "create", OpVersion: 1, Field: "document_id", Strategy: "create-once", ValueType: "object-ref"},
+		{OpType: "create", OpVersion: 1, Field: "position", Strategy: "lww", ValueType: "position"},
+		{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
+		{OpType: "create", OpVersion: 1, Field: "body", Strategy: "multi-value", ValueType: "text"},
+		{OpType: "edit", OpVersion: 1, Field: "body", Strategy: "multi-value", ValueType: "text"},
+		{OpType: "move", OpVersion: 1, Field: "position", Strategy: "lww", ValueType: "position"},
+		{OpType: "update", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
+		{OpType: "update", OpVersion: 1, Field: "position", Strategy: "lww", ValueType: "position"},
+		{OpType: "delete", OpVersion: 1, Field: "deleted", Strategy: "tombstone", ValueType: "bool"},
 	}
 }
 

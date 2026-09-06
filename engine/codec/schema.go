@@ -2,12 +2,14 @@ package codec
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
 	"sync"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
+	"github.com/writtendev/writ/engine/internal/value"
 	"github.com/writtendev/writ/spec"
 )
 
@@ -25,6 +27,7 @@ var supportSchemaFiles = []string{
 	"identifiers.schema.json",
 	"anchor.schema.json",
 	"ordering.schema.json",
+	"value-types.schema.json",
 }
 
 // vocabularySchemaFiles maps an object type to the vocabulary schema that
@@ -48,6 +51,52 @@ var vocabularySchemaFiles = map[string]string{
 	"section":        "document-ops.schema.json",
 	"settings":       "settings-ops.schema.json",
 }
+
+// fieldRuleVocabularies maps an object type to the field-rules.json directory
+// (spec.FieldRule.Vocabulary) that declares its value types. It is a second,
+// separate map from vocabularySchemaFiles because the testdata/ directory
+// names don't all match the object type: "comment" ships as
+// testdata/comments/, "issue" as testdata/issue-ops/, "review" as
+// testdata/review-ops/; the rest agree.
+var fieldRuleVocabularies = map[string]string{
+	"review":         "review-ops",
+	"comment":        "comments",
+	"issue":          "issue-ops",
+	"project":        "project",
+	"cycle":          "cycle",
+	"workflow-state": "workflow-state",
+	"label":          "label",
+	"document":       "document",
+	"section":        "section",
+	"settings":       "settings",
+}
+
+// fieldRuleKey groups the value-typed rules for one (vocabulary, op_type,
+// op_version) triple, mirroring how field-rules.json entries are addressed.
+type fieldRuleKey struct {
+	vocabulary string
+	opType     string
+	opVersion  int64
+}
+
+// valueTypeRulesOnce indexes spec.FieldRules() by fieldRuleKey, keeping only
+// rules that declare a value_type: a rule with none is untyped
+// (spec/value-types.md) and has nothing for validateValueTypes to check.
+var valueTypeRulesOnce = sync.OnceValue(func() map[fieldRuleKey][]spec.FieldRule {
+	rules, err := spec.FieldRules()
+	if err != nil {
+		panic(fmt.Sprintf("codec: loading field rules: %v", err))
+	}
+	idx := make(map[fieldRuleKey][]spec.FieldRule)
+	for _, r := range rules {
+		if r.ValueType == "" {
+			continue
+		}
+		k := fieldRuleKey{vocabulary: r.Vocabulary, opType: r.OpType, opVersion: r.OpVersion}
+		idx[k] = append(idx[k], r)
+	}
+	return idx
+})
 
 // vocabularyOpTypes maps an object type to the op types this build defines for
 // it. It is the second half of the producer's registry, and it is what rule 4
@@ -197,7 +246,64 @@ func validateProducerOp(env Envelope, raw []byte) error {
 	if err := validateOpTypeAndVersion(env); err != nil {
 		return err
 	}
-	return validateAgainst(sch, raw)
+	if err := validateAgainst(sch, raw); err != nil {
+		return err
+	}
+	return validateValueTypes(env, raw)
+}
+
+// validateValueTypes is the second half of producer rule 3
+// (spec/op-envelope.md §Producer validation): once the vocabulary schema
+// passes, every field with a declared value_type (spec/value-types.md) must
+// hold a value conforming to it. A field with no declared value_type is
+// untyped and skipped, and an object type or (op_type, op_version) with no
+// value-typed rules at all is a no-op — this is additive to what the schema
+// already checks, not a replacement for it.
+//
+// Nothing on the read path calls this: ValidateBody's contract ("the rules
+// bind producers only") is unchanged.
+func validateValueTypes(env Envelope, raw []byte) error {
+	vocab, ok := fieldRuleVocabularies[env.ObjectType]
+	if !ok {
+		return nil
+	}
+	rules := valueTypeRulesOnce()[fieldRuleKey{vocabulary: vocab, opType: env.OpType, opVersion: env.OpVersion}]
+	if len(rules) == 0 {
+		return nil
+	}
+
+	var decoded struct {
+		Body map[string]any `json:"body"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return &RejectError{Reason: RejectSchemaViolation, Err: err}
+	}
+
+	for _, r := range rules {
+		val, present := decoded.Body[r.Field]
+		if !present || val == nil {
+			continue
+		}
+		params := value.Params{Enum: r.Enum, MaxLength: r.MaxLength}
+		// set-union/set-observed-remove type the elements, not the array; a
+		// bare scalar (e.g. cycle's add-issue.issue) is validated as a single
+		// element, matching the accumulators' own flexibility
+		// (engine/internal/fold/strategy.go).
+		if r.Strategy == "set-union" || r.Strategy == "set-observed-remove" {
+			if items, ok := val.([]any); ok {
+				for _, item := range items {
+					if err := value.Validate(r.ValueType, params, item); err != nil {
+						return &RejectError{Reason: RejectSchemaViolation, Err: fmt.Errorf("field %q: %w", r.Field, err)}
+					}
+				}
+				continue
+			}
+		}
+		if err := value.Validate(r.ValueType, params, val); err != nil {
+			return &RejectError{Reason: RejectSchemaViolation, Err: fmt.Errorf("field %q: %w", r.Field, err)}
+		}
+	}
+	return nil
 }
 
 // validateOpTypeAndVersion is producer rule 4: an op_type or op_version writ
