@@ -334,6 +334,28 @@ func buildSchemaPlan(ctx context.Context, store *writ.Store, dir string) (*schem
 		return nil, fmt.Errorf("writ schema: %w", err)
 	}
 
+	// resolveSchemaTarget's guards compare this file's declared types
+	// against the schema objects already in the log — every route to an
+	// append is covered for a real, second schema object. What that
+	// comparison cannot see is `schema` itself: the engine's one
+	// hard-coded bootstrap type is never a schema object in `schemas`, so
+	// no cross-object check ever runs for it, yet RulesFromSchemas refuses
+	// to let any object bind it. Rather than special-case that one type
+	// name, re-run RulesFromSchemas over the state this apply would
+	// actually produce (schemas with the target's entry replaced, or
+	// appended for a fresh mint, by planned) and refuse any conflict that
+	// substitution introduces — present conflicts this repository already
+	// has keep being reported, never refused, exactly as before; only the
+	// delta this apply would be responsible for is new.
+	if introduced := conflictsIntroducedByApply(schemas, conflicts, planned); len(introduced) > 0 {
+		msgs := make([]string, 0, len(introduced)+1)
+		msgs = append(msgs, "writ schema: refusing to apply (this would introduce a new schema conflict, permanently withholding rules for it):")
+		for _, c := range introduced {
+			msgs = append(msgs, "  - "+describeSchemaConflict(c))
+		}
+		return nil, &schemaError{msgs: msgs}
+	}
+
 	if problems := schemaRemovals(current, planned); len(problems) > 0 {
 		msgs := make([]string, 0, len(problems)+1)
 		msgs = append(msgs, "writ schema: refusing to plan (nothing is ever removed from the log):")
@@ -524,6 +546,85 @@ func newSchemaObjectID() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(b), nil
+}
+
+// conflictsIntroducedByApply computes which of RulesFromSchemas' conflicts
+// would exist only after this apply, not before: the delta between
+// running it over the schemas already in the log (schemas, and the
+// conflicts already computed from them, before) and running it again over
+// that same set with the target object's entry replaced — or, for a
+// brand-new object, appended — by planned, the state this apply would
+// actually produce. Every conflict present in both is pre-existing and
+// none of this apply's doing; every conflict only in the second run is one
+// this apply would introduce.
+//
+// This is the general form: it catches every conflict class
+// RulesFromSchemas knows about, not only the `object_type` collision
+// between two real schema objects resolveSchemaTarget's own guards already
+// refuse before buildSchemaPlan ever reaches here. The one it exists to
+// catch that nothing else does is `type schema` — the engine's one
+// hard-coded bootstrap type, never itself a schema object in `schemas`, so
+// resolveSchemaTarget's cross-object comparison has nothing to check it
+// against, but RulesFromSchemas refuses to let any object bind it and
+// would report exactly that conflict once planned's own types are folded
+// in.
+func conflictsIntroducedByApply(schemas []state.Schema, before []writ.SchemaConflict, planned state.Schema) []writ.SchemaConflict {
+	after := make([]state.Schema, 0, len(schemas)+1)
+	replaced := false
+	for _, s := range schemas {
+		if s.ObjectID == planned.ObjectID {
+			after = append(after, planned)
+			replaced = true
+			continue
+		}
+		after = append(after, s)
+	}
+	if !replaced {
+		after = append(after, planned)
+	}
+
+	_, afterConflicts := writ.RulesFromSchemas(after)
+
+	seen := make(map[string]bool, len(before))
+	for _, c := range before {
+		seen[conflictKey(c)] = true
+	}
+
+	var introduced []writ.SchemaConflict
+	for _, c := range afterConflicts {
+		if !seen[conflictKey(c)] {
+			introduced = append(introduced, c)
+		}
+	}
+	return introduced
+}
+
+// conflictKey renders a SchemaConflict as a comparable value so
+// conflictsIntroducedByApply can tell "already there" from "new" by
+// content rather than identity — RulesFromSchemas allocates a fresh
+// []SchemaConflict on every call, so no two conflicts from different
+// calls are ever the same slice element even when they describe the exact
+// same collision. ObjectIDs is sorted before joining: RulesFromSchemas
+// orders it (owner, then the colliding object) deterministically today,
+// but this key does not depend on that holding forever.
+func conflictKey(c writ.SchemaConflict) string {
+	ids := append([]string(nil), c.ObjectIDs...)
+	sort.Strings(ids)
+	return strings.Join([]string{c.ObjectType, c.Namespace, strings.Join(ids, ","), c.Reason}, "\x00")
+}
+
+// describeSchemaConflict renders one SchemaConflict as a refusal line,
+// naming whichever of object_type/namespace the conflict carries, its
+// reason, and the schema object(s) involved.
+func describeSchemaConflict(c writ.SchemaConflict) string {
+	switch {
+	case c.ObjectType != "":
+		return fmt.Sprintf("object_type %q: %s (schema object(s): %s)", c.ObjectType, c.Reason, strings.Join(c.ObjectIDs, ", "))
+	case c.Namespace != "":
+		return fmt.Sprintf("namespace %q: %s (schema object(s): %s)", c.Namespace, c.Reason, strings.Join(c.ObjectIDs, ", "))
+	default:
+		return c.Reason
+	}
 }
 
 // schemaByObjectID returns the folded state for objectID, or the zero

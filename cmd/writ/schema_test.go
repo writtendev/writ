@@ -608,6 +608,125 @@ type sprint {
 	}
 }
 
+// TestSchemaCLI_ReuseRefusesFutureBootstrapCollision is round 2's finding:
+// `plan` (and `apply`, which runs the whole of `plan`) validated only the
+// *current* log, never the state applying would produce. A writ.schema
+// declaring `type schema` — the engine's one hard-coded bootstrap type —
+// sails through resolveSchemaTarget: no schema *object* binds "schema"
+// today (the engine does, without ever appearing in the schemas list), so
+// the cross-object collision guard has nothing to compare it against.
+// RulesFromSchemas, though, refuses to let any object claim it and
+// withholds every rule for it, forever — nothing removes a type once
+// written and `deprecate-type` does not unbind it. Reusing an existing
+// schema object exercises resolveSchemaTarget's "exactly one match"
+// branch; TestSchemaCLI_CreateRefusesFutureBootstrapCollision below
+// exercises the same conflict through the "no match, mint fresh" branch,
+// so together they prove the general "conflicts the apply would
+// introduce" mechanism rather than one hard-coded `type schema` check.
+func TestSchemaCLI_ReuseRefusesFutureBootstrapCollision(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, `namespace acme
+description "Acme's vocabulary"
+
+type widget {
+  op create 1 {
+    title  string(200)  lww
+  }
+}
+`)
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply", "--json"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("initial apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	tipBefore := writSchemaRef(t, env.repoDir)
+
+	writeSchemaFile(t, env.repoDir, `namespace acme
+description "Acme's vocabulary"
+
+type widget {
+  op create 1 {
+    title  string(200)  lww
+  }
+}
+
+type schema {
+  op create 1 {
+    title  string(200)  lww
+  }
+}
+`)
+
+	stdout.Reset()
+	stderr.Reset()
+	code := run(context.Background(), []string{"-C", env.repoDir, "schema", "plan"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("expected exit 1 for a writ.schema declaring `type schema`, got %d; stdout: %s", code, stdout.String())
+	}
+	msg := stderr.String()
+	if !strings.Contains(msg, `"schema"`) || !strings.Contains(msg, "bootstrap") {
+		t.Errorf("expected the refusal to name the schema bootstrap conflict, got: %s", msg)
+	}
+
+	// A refused plan appends nothing, and apply runs the same computation,
+	// so it must refuse identically and leave the chain tip untouched.
+	stdout.Reset()
+	stderr.Reset()
+	code = run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("expected apply to also refuse with exit 1, got %d", code)
+	}
+	if tip := writSchemaRef(t, env.repoDir); tip != tipBefore {
+		t.Fatalf("a refused apply appended ops: chain tip moved %s -> %s", tipBefore, tip)
+	}
+}
+
+// TestSchemaCLI_CreateRefusesFutureBootstrapCollision is
+// TestSchemaCLI_ReuseRefusesFutureBootstrapCollision's counterpart through
+// resolveSchemaTarget's other route to an append: a brand-new object
+// (case 0, no namespace match, mint fresh) whose file declares `type
+// schema` from the very first apply. No schema object exists yet at all,
+// so there is nothing for the cross-object guard to compare against
+// either way; only re-running RulesFromSchemas over the state this apply
+// would produce catches it.
+func TestSchemaCLI_CreateRefusesFutureBootstrapCollision(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, `namespace acme
+description "Acme's vocabulary"
+
+type schema {
+  op create 1 {
+    title  string(200)  lww
+  }
+}
+`)
+
+	tipBefore := writSchemaRef(t, env.repoDir)
+	if tipBefore != "" {
+		t.Fatalf("expected no schema chain before the first apply, got tip %s", tipBefore)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"-C", env.repoDir, "schema", "plan"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("expected exit 1 for a fresh writ.schema declaring `type schema`, got %d; stdout: %s", code, stdout.String())
+	}
+	msg := stderr.String()
+	if !strings.Contains(msg, `"schema"`) || !strings.Contains(msg, "bootstrap") {
+		t.Errorf("expected the refusal to name the schema bootstrap conflict, got: %s", msg)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("expected apply to also refuse with exit 1, got %d", code)
+	}
+	if tip := writSchemaRef(t, env.repoDir); tip != tipBefore {
+		t.Fatalf("a refused apply appended ops: chain tip moved %s -> %s", tipBefore, tip)
+	}
+}
+
 func planObjectID(t *testing.T, jsonData []byte) string {
 	t.Helper()
 	var envW wire.Envelope
