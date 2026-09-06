@@ -224,6 +224,88 @@ func SchemaFromEnvelopes(envs []codec.Envelope) (Schema, error) {
 	return state.FoldSchema(ops)
 }
 
+// SchemaAfterApply folds objectID's ops already in the log (if any)
+// together with delta, a proposed sequence of envelopes to append next
+// (cmd/writ's schemaDelta output, ordinarily), and returns the schema
+// state a real ApplySchema of that same delta would actually produce — no
+// I/O, nothing written.
+//
+// This differs from SchemaFromEnvelopes, which folds a sequence as though
+// it were the object's *entire* history. state.FoldSchema's define-field
+// case merges each attribute (value_type, enum, max_length, lattice, key,
+// key_types, target) independently, overwriting a register only when a
+// later op's body actually carries that key (spec/schema-ops.md §8's
+// keyed-lww semantics) — so an attribute an earlier op set and a later
+// op's body omits survives the fold. Folding delta alone, detached from
+// the real history it would land on top of, shows only what delta itself
+// declares; it cannot show an attribute the log already holds re-surfacing
+// because delta's body doesn't mention it. A caller that needs to know the
+// schema state the log will really hold after appending delta — `writ
+// schema plan`'s conflict check is the intended caller — has to fold the
+// real history and the proposal together, which is exactly what this
+// function does.
+//
+// delta is wired onto the object's real frontier exactly as ApplySchema
+// wires a fresh append: the first envelope's synthetic op takes the
+// frontier as its parents, so it folds causally after every op already in
+// the log, and each later envelope chains off the synthetic op before it —
+// the same construction ApplySchema itself uses (and schemaFrontier
+// computes), reproduced here because this function must not write
+// anything.
+func (s *Store) SchemaAfterApply(ctx context.Context, objectID string, delta []codec.Envelope) (Schema, error) {
+	if s == nil {
+		return Schema{}, fmt.Errorf("writ: store is nil")
+	}
+
+	enumRes, err := s.dagStore.Enumerate()
+	if err != nil {
+		return Schema{}, fmt.Errorf("writ: schema after apply: enumerate: %w", err)
+	}
+	currentOps := enumRes.Ops[objectID]
+
+	if len(delta) == 0 {
+		if len(currentOps) == 0 {
+			return Schema{}, nil
+		}
+		return state.FoldSchema(currentOps)
+	}
+
+	frontier := schemaFrontier(currentOps)
+	base := time.Unix(0, 0).UTC()
+	var parent string
+	deltaOps := make([]codec.Op, len(delta))
+	for i, env := range delta {
+		if env.ObjectType != "schema" {
+			return Schema{}, fmt.Errorf("writ: schema after apply: envelope %d has object_type %q, want \"schema\"", i, env.ObjectType)
+		}
+		if env.ObjectID != objectID {
+			return Schema{}, fmt.Errorf("writ: schema after apply: envelope %d has object id %q, want %q", i, env.ObjectID, objectID)
+		}
+
+		id := fmt.Sprintf("synthetic-after-apply-%06d", i)
+		var parents []string
+		switch {
+		case i == 0:
+			parents = frontier
+		case parent != "":
+			parents = []string{parent}
+		}
+		deltaOps[i] = codec.Op{
+			Envelope: env,
+			ID:       id,
+			Parents:  parents,
+			Author:   codec.Identity{When: base.Add(time.Duration(i) * time.Second)},
+		}
+		parent = id
+	}
+
+	allOps := make([]codec.Op, 0, len(currentOps)+len(deltaOps))
+	allOps = append(allOps, currentOps...)
+	allOps = append(allOps, deltaOps...)
+
+	return state.FoldSchema(allOps)
+}
+
 // anyOpHasObjectType is a cheap discovery filter, not a fold decision:
 // FoldSchema itself quarantines any op whose object_type or op_version does
 // not match `schema`/1, exactly as every other typed reducer quarantines a

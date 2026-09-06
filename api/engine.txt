@@ -438,6 +438,7 @@ func (*Store) Rebuild(ctx context.Context) (RefreshStats, error)
 func (*Store) Ref(objectID string) string
 func (*Store) Refresh(ctx context.Context) (RefreshStats, error)
 func (*Store) Schema(ctx context.Context) ([]state.Schema, error)
+func (*Store) SchemaAfterApply(ctx context.Context, objectID string, delta []codec.Envelope) (Schema, error)
 func (*Store) Sync(ctx context.Context, remote string) (SyncResult, error)
 func (*Store) SyncStatus(ctx context.Context, remote string) (SyncStatus, error)
 func (*Store) Watch(ctx context.Context) <-chan Event

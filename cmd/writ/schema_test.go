@@ -378,6 +378,245 @@ type standup {
 	}
 }
 
+// TestSchemaCLI_RefusesAttributeNarrowing is the round-3 regression net for
+// the major finding on PR #159: state.FoldSchema's define-field case
+// overwrites a register (value_type, enum, max_length, lattice, key,
+// key_types, target) only when a later op's body actually carries that
+// key, so a define-field op that narrows one of these — the file stops
+// declaring it, but the log already holds it for that field — does not
+// clear it; it leaves the log holding both the new value and the stale
+// old one, forever, with no representable way to fix it (spec/schema-ops.md
+// has no op that clears a single attribute — WRIT-200 tracks adding one).
+// This is `schemaRemovals`'s attribute check treating that exactly like any
+// other removal: refuse, name the field and the attribute, append nothing.
+//
+// Both cases here are the two round-3 reproductions verbatim: narrowing an
+// enum field to a bare string (which also happens to leave behind a stale
+// `enum` alongside a `value_type` spec.ValidateFieldRule would reject —
+// the major finding's own silent-corruption path before this fix), and
+// narrowing a bounded string to an unbounded one (the medium finding's
+// non-convergent loop — max_length is a valid attribute to drop on its own
+// terms, so only the attribute-narrowing refusal catches it at all).
+func TestSchemaCLI_RefusesAttributeNarrowing(t *testing.T) {
+	tests := []struct {
+		name    string
+		base    string
+		edited  string
+		wantMsg string
+	}{
+		{
+			name: "enum narrowed to string",
+			base: `namespace acme
+
+type standup {
+  op create 1 {
+    state  enum(open, done)  lww
+  }
+}
+`,
+			edited: `namespace acme
+
+type standup {
+  op create 1 {
+    state  string  lww
+  }
+}
+`,
+			wantMsg: `attribute "enum" was removed`,
+		},
+		{
+			name: "bounded string narrowed to unbounded",
+			base: `namespace acme
+
+type standup {
+  op create 1 {
+    title  string(200)  lww
+  }
+}
+`,
+			edited: `namespace acme
+
+type standup {
+  op create 1 {
+    title  string  lww
+  }
+}
+`,
+			wantMsg: `attribute "max_length" was removed`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := initTestRepo(t)
+			writeSchemaFile(t, env.repoDir, tt.base)
+
+			var stdout, stderr bytes.Buffer
+			if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+				t.Fatalf("initial apply failed with %d; stderr: %s", code, stderr.String())
+			}
+			tipBefore := writSchemaRef(t, env.repoDir)
+
+			writeSchemaFile(t, env.repoDir, tt.edited)
+
+			stdout.Reset()
+			stderr.Reset()
+			code := run(context.Background(), []string{"-C", env.repoDir, "schema", "plan"}, &stdout, &stderr)
+			if code != 1 {
+				t.Fatalf("expected plan to refuse with exit 1, got %d; stdout: %s stderr: %s", code, stdout.String(), stderr.String())
+			}
+			if !strings.Contains(stderr.String(), tt.wantMsg) {
+				t.Errorf("expected refusal message to mention %q, got: %s", tt.wantMsg, stderr.String())
+			}
+			if tip := writSchemaRef(t, env.repoDir); tip != tipBefore {
+				t.Fatalf("a refused plan must never append anything, but the chain tip moved %s -> %s", tipBefore, tip)
+			}
+
+			// apply runs the same computation; it must refuse identically,
+			// and the writer's chain tip must not move — the medium finding
+			// was exactly an apply that printed success while silently
+			// re-appending the same op, so this checks the tip, never the
+			// exit code or stdout text alone.
+			stdout.Reset()
+			stderr.Reset()
+			code = run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr)
+			if code != 1 {
+				t.Fatalf("expected apply to also refuse with exit 1, got %d; stdout: %s stderr: %s", code, stdout.String(), stderr.String())
+			}
+			if tip := writSchemaRef(t, env.repoDir); tip != tipBefore {
+				t.Fatalf("a refused apply appended ops: chain tip moved %s -> %s", tipBefore, tip)
+			}
+		})
+	}
+}
+
+// TestSchemaCLI_ApplyConvergesAfterEdit is the round-3 regression net for
+// the medium finding's general shape, not only its specific (now-refused)
+// reproduction: after any successful apply — including one that appends a
+// real delta on top of history the object already has — plan must report
+// up_to_date and a second apply must append nothing. The medium finding
+// was precisely a apply that printed "Appended 1 op(s)" at exit 0 on every
+// run while the log never actually converged, so this asserts the
+// writer's chain tip across two applies rather than trusting the printed
+// op count or exit code.
+func TestSchemaCLI_ApplyConvergesAfterEdit(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, `namespace acme
+
+type standup {
+  op create 1 {
+    title  string(200)  lww
+  }
+}
+`)
+
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("initial apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	// A legitimate edit that adds a field: a real delta, not a narrowing,
+	// so this must succeed and append ops.
+	edited := `namespace acme
+
+type standup {
+  op create 1 {
+    title  string(200)  lww
+    body   text         multi-value
+  }
+}
+`
+	writeSchemaFile(t, env.repoDir, edited)
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("second apply (adding a field) failed with %d; stderr: %s", code, stderr.String())
+	}
+	tipAfterEdit := writSchemaRef(t, env.repoDir)
+
+	stdout.Reset()
+	stderr.Reset()
+	code := run(context.Background(), []string{"-C", env.repoDir, "schema", "plan", "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("plan after the edit landed failed with %d; stderr: %s", code, stderr.String())
+	}
+	var envW wire.Envelope
+	if err := json.Unmarshal(stdout.Bytes(), &envW); err != nil {
+		t.Fatalf("unmarshal plan envelope: %v", err)
+	}
+	planData, _ := json.Marshal(envW.Data)
+	var plan wire.SchemaPlan
+	if err := json.Unmarshal(planData, &plan); err != nil {
+		t.Fatalf("unmarshal SchemaPlan: %v", err)
+	}
+	if !plan.UpToDate || len(plan.Ops) != 0 {
+		t.Fatalf("expected up_to_date with zero ops once the edit has landed; got up_to_date=%v ops=%+v", plan.UpToDate, plan.Ops)
+	}
+
+	// Re-apply the same (unedited) file: must be a no-op, verified against
+	// the chain tip, not the printed op count.
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("re-apply of the unedited file failed with %d; stderr: %s", code, stderr.String())
+	}
+	tipAfterReapply := writSchemaRef(t, env.repoDir)
+	if tipAfterReapply != tipAfterEdit {
+		t.Fatalf("apply did not converge: chain tip moved on a no-op re-apply %s -> %s", tipAfterEdit, tipAfterReapply)
+	}
+}
+
+// TestSchemaCLI_NarrowingRefusalHoldsAcrossRepeatedApplies is the medium
+// finding's own reproduction, verified exactly the way round 3 verified it:
+// running `writ schema apply` three times in a row on a file that narrows
+// title's max_length and checking the writer's chain tip after each,
+// instead of trusting any single run's exit code or printed text. Before
+// this fix, each of the three runs printed "Appended 1 op(s)" at exit 0
+// and moved the chain tip every time — a define-field op that never
+// actually narrows the log's folded max_length, so `plan` never reached
+// up_to_date and the loop never converged. After this fix, the narrowing
+// is refused at exit 1 on every run and the tip never moves at all —
+// converged, just not by landing anything.
+func TestSchemaCLI_NarrowingRefusalHoldsAcrossRepeatedApplies(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, `namespace acme
+
+type standup {
+  op create 1 {
+    title  string(200)  lww
+  }
+}
+`)
+
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("initial apply failed with %d; stderr: %s", code, stderr.String())
+	}
+	tipBefore := writSchemaRef(t, env.repoDir)
+
+	writeSchemaFile(t, env.repoDir, `namespace acme
+
+type standup {
+  op create 1 {
+    title  string  lww
+  }
+}
+`)
+
+	for i := 1; i <= 3; i++ {
+		stdout.Reset()
+		stderr.Reset()
+		code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr)
+		if code != 1 {
+			t.Fatalf("apply #%d: expected exit 1 (a narrowing max_length can never converge, so it must be refused, not applied), got %d; stdout: %s stderr: %s", i, code, stdout.String(), stderr.String())
+		}
+		if tip := writSchemaRef(t, env.repoDir); tip != tipBefore {
+			t.Fatalf("apply #%d moved the chain tip on a refusal: %s -> %s", i, tipBefore, tip)
+		}
+	}
+}
+
 // TestSchemaCLI_NamespaceChangeIsRefused exercises the namespace-change
 // refusal itself (resolveSchemaTarget's case-0, single-contested-owner
 // branch), distinctly from the cross-object collision case

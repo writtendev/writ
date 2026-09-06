@@ -334,6 +334,49 @@ func buildSchemaPlan(ctx context.Context, store *writ.Store, dir string) (*schem
 		return nil, fmt.Errorf("writ schema: %w", err)
 	}
 
+	delta, err := schemaDelta(current, compiled)
+	if err != nil {
+		return nil, fmt.Errorf("writ schema: %w", err)
+	}
+
+	// schemaRemovals runs first, ahead of conflictsIntroducedByApply: an
+	// attribute narrowing is always also an instance of the divergence
+	// conflictsIntroducedByApply exists to catch (see SchemaAfterApply's
+	// doc comment), but schemaRemovals names the actual field and
+	// attribute and states the remedy, which is more useful to a caller
+	// than the field-rule-validation symptom conflictsIntroducedByApply
+	// would otherwise report for the same edit.
+	problems, err := schemaRemovals(current, planned, compiled)
+	if err != nil {
+		return nil, fmt.Errorf("writ schema: %w", err)
+	}
+	if len(problems) > 0 {
+		msgs := make([]string, 0, len(problems)+1)
+		msgs = append(msgs, "writ schema: refusing to plan (nothing is ever removed from the log):")
+		for _, p := range problems {
+			msgs = append(msgs, "  - "+p)
+		}
+		return nil, &schemaError{msgs: msgs}
+	}
+
+	// conflictsIntroducedByApply has to check the schema state a real
+	// apply of delta would actually leave the log holding, not the state
+	// folding the file alone produces (planned, above): those two
+	// coincide for any change RulesFromSchemas would accept, but a
+	// define-field op that narrows an attribute the log already carries
+	// for that field is where they diverge — planned shows the file's own
+	// narrowed declaration, while the log, after a real apply, would still
+	// hold the old attribute alongside it. schemaRemovals, above, already
+	// refuses every narrowing before an apply could ever reach the log
+	// with it, but conflictsIntroducedByApply still has to see the honest
+	// state to be correct in general, for every conflict class
+	// RulesFromSchemas knows about, not only the one divergence class
+	// schemaRemovals happens to also catch.
+	honestPlanned, err := store.SchemaAfterApply(ctx, objectID, delta)
+	if err != nil {
+		return nil, fmt.Errorf("writ schema: %w", err)
+	}
+
 	// resolveSchemaTarget's guards compare this file's declared types
 	// against the schema objects already in the log — every route to an
 	// append is covered for a real, second schema object. What that
@@ -343,31 +386,17 @@ func buildSchemaPlan(ctx context.Context, store *writ.Store, dir string) (*schem
 	// to let any object bind it. Rather than special-case that one type
 	// name, re-run RulesFromSchemas over the state this apply would
 	// actually produce (schemas with the target's entry replaced, or
-	// appended for a fresh mint, by planned) and refuse any conflict that
-	// substitution introduces — present conflicts this repository already
-	// has keep being reported, never refused, exactly as before; only the
-	// delta this apply would be responsible for is new.
-	if introduced := conflictsIntroducedByApply(schemas, conflicts, planned); len(introduced) > 0 {
+	// appended for a fresh mint, by honestPlanned) and refuse any conflict
+	// that substitution introduces — present conflicts this repository
+	// already has keep being reported, never refused, exactly as before;
+	// only the delta this apply would be responsible for is new.
+	if introduced := conflictsIntroducedByApply(schemas, conflicts, honestPlanned); len(introduced) > 0 {
 		msgs := make([]string, 0, len(introduced)+1)
 		msgs = append(msgs, "writ schema: refusing to apply (this would introduce a new schema conflict, permanently withholding rules for it):")
 		for _, c := range introduced {
 			msgs = append(msgs, "  - "+describeSchemaConflict(c))
 		}
 		return nil, &schemaError{msgs: msgs}
-	}
-
-	if problems := schemaRemovals(current, planned); len(problems) > 0 {
-		msgs := make([]string, 0, len(problems)+1)
-		msgs = append(msgs, "writ schema: refusing to plan (nothing is ever removed from the log):")
-		for _, p := range problems {
-			msgs = append(msgs, "  - "+p)
-		}
-		return nil, &schemaError{msgs: msgs}
-	}
-
-	delta, err := schemaDelta(current, compiled)
-	if err != nil {
-		return nil, fmt.Errorf("writ schema: %w", err)
 	}
 
 	// A brand-new target has no rendering of its own yet — current is the
@@ -667,14 +696,98 @@ func findSchemaField(t state.SchemaType, opType string, opVersion int64, field s
 	return state.SchemaField{}, false
 }
 
+// schemaFieldAttributeKeys lists the define-field body keys
+// state.FoldSchema treats as independent keyed-lww registers
+// (engine/state/schema.go): each is overwritten only when a later op's
+// body actually carries that key, so a new define-field op whose body
+// omits one does not clear the log's existing value — it leaves the log
+// holding an attribute the file no longer declares, forever. There is no
+// op that clears one of these (spec/schema-ops.md has no vocabulary for
+// it — WRIT-200 tracks adding one), so narrowing any of them is a removal
+// in every sense schemaRemovals already refuses others for.
+var schemaFieldAttributeKeys = []string{"value_type", "enum", "max_length", "lattice", "key", "key_types", "target"}
+
+// schemaFieldHasAttribute reports whether current's folded state carries a
+// non-zero value for one of schemaFieldAttributeKeys.
+func schemaFieldHasAttribute(f state.SchemaField, attr string) bool {
+	switch attr {
+	case "value_type":
+		return f.ValueType != ""
+	case "enum":
+		return len(f.Enum) > 0
+	case "max_length":
+		return f.MaxLength != 0
+	case "lattice":
+		return len(f.Lattice) > 0
+	case "key":
+		return len(f.Key) > 0
+	case "key_types":
+		return len(f.KeyTypes) > 0
+	case "target":
+		return f.Target != ""
+	default:
+		return false
+	}
+}
+
+// compiledFieldBody finds the one define-field envelope compiled emits for
+// (typ, opType, opVersion, field) — schemasrc.Compile emits exactly one,
+// carrying every attribute the file currently declares for it, whenever
+// the file still declares the field at all — and returns its body decoded
+// as raw key presence, so a caller can tell "declared with this key
+// absent" from "declared with this key present but zero-valued", which
+// schemaDefineFieldBody's typed decode (used for delta comparison
+// elsewhere) cannot: a Go zero value and an absent JSON key are the same
+// struct value once unmarshaled.
+func compiledFieldBody(compiled []codec.Envelope, typ, opType string, opVersion int64, field string) (map[string]json.RawMessage, bool, error) {
+	for _, env := range compiled {
+		if env.OpType != "define-field" {
+			continue
+		}
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(env.Body, &raw); err != nil {
+			return nil, false, fmt.Errorf("define-field body: %w", err)
+		}
+		if rawFieldString(raw, "type") != typ || rawFieldString(raw, "op_type") != opType || rawFieldString(raw, "field") != field {
+			continue
+		}
+		verStr := rawFieldString(raw, "op_version")
+		ver, err := strconv.ParseInt(verStr, 10, 64)
+		if err != nil {
+			return nil, false, fmt.Errorf("define-field op_version %q: %w", verStr, err)
+		}
+		if ver != opVersion {
+			continue
+		}
+		return raw, true, nil
+	}
+	return nil, false, nil
+}
+
+// rawFieldString reads one string-valued key out of a raw decoded JSON
+// object, or "" if it is absent or not a string.
+func rawFieldString(raw map[string]json.RawMessage, key string) string {
+	var s string
+	if err := json.Unmarshal(raw[key], &s); err != nil {
+		return ""
+	}
+	return s
+}
+
 // schemaRemovals compares current (folded from the log) against planned
 // (folded from the file's own full compiled sequence, per
-// SchemaFromEnvelopes) and reports every declaration the file would remove:
-// a missing type, op, or field; a description present in the log but
-// absent from the file; or a deprecation the file would silently clear.
-// None of these are representable in the log — nothing is ever removed,
-// and no op clears `deprecated` — so each is refused rather than silently
-// compiled into a no-op or a tombstone the caller didn't ask for.
+// SchemaFromEnvelopes) and compiled (schemasrc.Compile's raw envelopes for
+// the same file) and reports every declaration, and now every field
+// attribute, the file would remove: a missing type, op, or field; a
+// description present in the log but absent from the file; a deprecation
+// the file would silently clear; or one of schemaFieldAttributeKeys the
+// log's folded state carries for a field the file still declares, whose
+// compiled define-field body no longer carries that key. None of these are
+// representable in the log — nothing is ever removed, no op clears
+// `deprecated`, and no op clears a single attribute — so each is refused
+// rather than silently compiled into a no-op, a tombstone, or (the
+// attribute case) a define-field op that folds against the log's real
+// history to a state the file itself no longer describes.
 //
 // A namespace change is refused earlier, by resolveSchemaTarget, and never
 // reaches here: current and planned are only ever compared once a target
@@ -683,10 +796,11 @@ func findSchemaField(t state.SchemaType, opType string, opVersion int64, field s
 // namespace match) — resolveSchemaTarget refuses every other outcome
 // before buildSchemaPlan folds current or planned at all.
 //
-// Comparison is always compiled declarations (planned) against folded
-// state (current), never source text — comments, spacing, and declaration
-// order in the file have no bearing on this check, by construction.
-func schemaRemovals(current, planned state.Schema) []string {
+// Comparison is always compiled declarations (planned, compiled) against
+// folded state (current), never source text — comments, spacing, and
+// declaration order in the file have no bearing on this check, by
+// construction.
+func schemaRemovals(current, planned state.Schema, compiled []codec.Envelope) ([]string, error) {
 	var problems []string
 
 	if current.Description != "" && planned.Description == "" {
@@ -726,10 +840,35 @@ func schemaRemovals(current, planned state.Schema) []string {
 			if cf.Deprecated && !pf.Deprecated {
 				problems = append(problems, fmt.Sprintf("field %q on op %s version %d of type %q was un-deprecated; no op can clear a deprecation once written", cf.Name, cf.OpType, cf.OpVersion, ct.Name))
 			}
+
+			body, found, err := compiledFieldBody(compiled, ct.Name, cf.OpType, cf.OpVersion, cf.Name)
+			if err != nil {
+				return nil, err
+			}
+			if !found {
+				// The field is still declared (pf, above, was found), so
+				// compiled must carry a define-field envelope for it —
+				// schemasrc.Compile emits exactly one per currently
+				// declared field. Not finding one here means compiled and
+				// planned disagree about what the file declares, which
+				// would be a schemasrc.Compile bug, not a narrowing;
+				// nothing to refuse.
+				continue
+			}
+			for _, attr := range schemaFieldAttributeKeys {
+				if !schemaFieldHasAttribute(cf, attr) {
+					continue
+				}
+				if _, present := body[attr]; !present {
+					problems = append(problems, fmt.Sprintf(
+						"field %q on op %s version %d of type %q: attribute %q was removed; nothing is ever removed from the log — declare a new op_version with a distinct target instead (spec/schema-ops.md §8)",
+						cf.Name, cf.OpType, cf.OpVersion, ct.Name, attr))
+				}
+			}
 		}
 	}
 
-	return problems
+	return problems, nil
 }
 
 // Typed op bodies, matching spec/schema-ops.md §4 exactly, for reading
