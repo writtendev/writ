@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"sort"
 	"strconv"
 	"testing"
 	"time"
@@ -121,23 +122,25 @@ func TestMergeVectors(t *testing.T) {
 	for _, vec := range vectors {
 		t.Run(vec.Name, func(t *testing.T) {
 			var rules []spec.FieldRule
-			for fieldName, cfg := range vec.Fields {
+			for _, fieldName := range sortedFieldNames(vec.Fields) {
+				cfg := vec.Fields[fieldName]
 				field := cfg.Field
 				if field == "" {
 					field = fieldName
 				}
 				rules = append(rules, spec.FieldRule{
-					OpType:    cfg.OpType,
-					OpVersion: cfg.OpVersion,
-					Field:     field,
-					Target:    cfg.Target,
-					Strategy:  cfg.Strategy,
-					Key:       cfg.Key,
-					Lattice:   cfg.Lattice,
-					ValueType: cfg.ValueType,
-					Enum:      cfg.Enum,
-					MaxLength: cfg.MaxLength,
-					KeyTypes:  cfg.KeyTypes,
+					OpType:     cfg.OpType,
+					OpVersion:  cfg.OpVersion,
+					Field:      field,
+					Target:     cfg.Target,
+					Strategy:   cfg.Strategy,
+					Key:        cfg.Key,
+					Lattice:    cfg.Lattice,
+					ValueType:  cfg.ValueType,
+					Enum:       cfg.Enum,
+					MaxLength:  cfg.MaxLength,
+					KeyTypes:   cfg.KeyTypes,
+					ObjectType: cfg.ObjectType,
 				})
 			}
 
@@ -185,29 +188,48 @@ func TestMergeVectors(t *testing.T) {
 	}
 }
 
+// sortedFieldNames returns fields's keys in a fixed, deterministic order.
+// vec.Fields is a Go map, whose iteration order Go deliberately randomizes
+// per range statement; a vector whose rules collide on Target (the
+// object-type scoping vectors, spec/fold.md §5) must produce the same
+// accumulator-building order — and, for engine.Fold's break-after-first-match
+// dispatch, the same *choice* of rule — on every run and in both the
+// reference and engine rule-building loops, not whichever order the map
+// hashed to this time.
+func sortedFieldNames(fields map[string]spec.StrategyConfig) []string {
+	names := make([]string, 0, len(fields))
+	for name := range fields {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 // assertEngineAgrees drives a merge vector through writ.Fold and requires
 // byte-identical state and the same quarantined ops as the reference fold.
 func assertEngineAgrees(t *testing.T, vec spec.MergeVector, wantStateJSON []byte, wantUnknown []spec.UnknownOp) {
 	t.Helper()
 
 	var rules []writ.Rule
-	for fieldName, cfg := range vec.Fields {
+	for _, fieldName := range sortedFieldNames(vec.Fields) {
+		cfg := vec.Fields[fieldName]
 		field := cfg.Field
 		if field == "" {
 			field = fieldName
 		}
 		rules = append(rules, writ.Rule{
-			OpType:    cfg.OpType,
-			OpVersion: cfg.OpVersion,
-			Field:     field,
-			Target:    cfg.Target,
-			Strategy:  cfg.Strategy,
-			Key:       cfg.Key,
-			Lattice:   cfg.Lattice,
-			ValueType: cfg.ValueType,
-			Enum:      cfg.Enum,
-			MaxLength: cfg.MaxLength,
-			KeyTypes:  cfg.KeyTypes,
+			OpType:     cfg.OpType,
+			OpVersion:  cfg.OpVersion,
+			Field:      field,
+			Target:     cfg.Target,
+			Strategy:   cfg.Strategy,
+			Key:        cfg.Key,
+			Lattice:    cfg.Lattice,
+			ValueType:  cfg.ValueType,
+			Enum:       cfg.Enum,
+			MaxLength:  cfg.MaxLength,
+			KeyTypes:   cfg.KeyTypes,
+			ObjectType: cfg.ObjectType,
 		})
 	}
 

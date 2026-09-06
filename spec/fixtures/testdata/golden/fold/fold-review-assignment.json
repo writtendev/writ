@@ -23,18 +23,27 @@
           "commit": "c7b7bb226b8befaafba79ffc49c66786e07dc525",
           "label": "alice-reassign",
           "t_star": 1767225780
+        },
+        {
+          "commit": "c100e9e78633023ad4eb8805fb798dbc2cde0310",
+          "label": "alice-label-initial",
+          "t_star": 1767225840
+        },
+        {
+          "commit": "e2a89b872433a07fea31bf9cfd4b7907afa6c8a6",
+          "label": "alice-label-update",
+          "t_star": 1767225900
         }
       ],
       "state": {
-        "add": [
+        "assignees": [
           "user:alice",
           "user:charlie",
           "user:david"
         ],
-        "remove": [
-          "user:alice",
-          "user:charlie",
-          "user:david"
+        "labels": [
+          "bug",
+          "priority/high"
         ],
         "title": "Review Assignment Test"
       }

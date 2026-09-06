@@ -24,6 +24,7 @@ func TestIssueRulesDriftGuard(t *testing.T) {
 				OpType:    r.OpType,
 				OpVersion: r.OpVersion,
 				Field:     r.Field,
+				Target:    r.Target,
 				Strategy:  r.Strategy,
 				Key:       r.Key,
 				Lattice:   r.Lattice,
@@ -737,8 +738,8 @@ func TestFoldIssueOrSetBodyShapes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fold: %v", err)
 	}
-	if !reflect.DeepEqual(generic.State["add"], want) {
-		t.Errorf("generic add = %v, want %v", generic.State["add"], want)
+	if !reflect.DeepEqual(generic.State["labels"], want) {
+		t.Errorf("generic labels = %v, want %v", generic.State["labels"], want)
 	}
 }
 
@@ -781,8 +782,8 @@ func TestFoldIssueNestedShapeAtFlatField(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fold: %v", err)
 	}
-	if !reflect.DeepEqual(generic.State["add"], want) {
-		t.Errorf("generic add = %v, want %v", generic.State["add"], want)
+	if !reflect.DeepEqual(generic.State["labels"], want) {
+		t.Errorf("generic labels = %v, want %v", generic.State["labels"], want)
 	}
 }
 
@@ -825,10 +826,82 @@ func TestFoldIssueMixedFlatAndNestedShapes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fold: %v", err)
 	}
-	if !reflect.DeepEqual(generic.State["add"], want) {
-		t.Errorf("generic add = %v, want %v", generic.State["add"], want)
+	if !reflect.DeepEqual(generic.State["labels"], want) {
+		t.Errorf("generic labels = %v, want %v", generic.State["labels"], want)
 	}
-	if !reflect.DeepEqual(generic.State["remove"], want) {
-		t.Errorf("generic remove = %v, want %v", generic.State["remove"], want)
+}
+
+// TestFoldIssueGenericMatchesTypedWithOverlappingAssigneeAndLabel is
+// WRIT-198's behavioural regression test, the issue counterpart to
+// engine/state/review_test.go's
+// TestFoldReviewGenericMatchesTypedWithOverlappingAssigneeAndLabel. Before
+// the fix, assign.{add,remove} and label.{add,remove} declared no target,
+// so both pairs fell back to the shared body field names "add"/"remove":
+// the generic fold merged an issue's assignees and labels into one set. An
+// assignee and a label sharing the identical underlying string is exactly
+// the case a shared, undiscriminating target cannot represent.
+func TestFoldIssueGenericMatchesTypedWithOverlappingAssigneeAndLabel(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	const shared = "shared-item"
+
+	ops := []codec.Op{
+		{
+			ID: "op-create",
+			Envelope: codec.Envelope{
+				ObjectID:   "iss-overlap",
+				ObjectType: "issue",
+				OpType:     "create",
+				OpVersion:  1,
+				Body:       json.RawMessage(`{"title":"Overlap Test"}`),
+			},
+			Author: codec.Identity{When: now},
+		},
+		{
+			ID:      "op-assign",
+			Parents: []string{"op-create"},
+			Envelope: codec.Envelope{
+				ObjectID:   "iss-overlap",
+				ObjectType: "issue",
+				OpType:     "assign",
+				OpVersion:  1,
+				Body:       json.RawMessage(`{"add":["` + shared + `"]}`),
+			},
+			Author: codec.Identity{When: now.Add(time.Minute)},
+		},
+		{
+			ID:      "op-label",
+			Parents: []string{"op-assign"},
+			Envelope: codec.Envelope{
+				ObjectID:   "iss-overlap",
+				ObjectType: "issue",
+				OpType:     "label",
+				OpVersion:  1,
+				Body:       json.RawMessage(`{"add":["` + shared + `"]}`),
+			},
+			Author: codec.Identity{When: now.Add(2 * time.Minute)},
+		},
+	}
+
+	typed, err := s.FoldIssue(ops)
+	if err != nil {
+		t.Fatalf("FoldIssue: %v", err)
+	}
+	wantSet := []string{shared}
+	if !reflect.DeepEqual(typed.Assignees, wantSet) {
+		t.Fatalf("typed Assignees = %v, want %v", typed.Assignees, wantSet)
+	}
+	if !reflect.DeepEqual(typed.Labels, wantSet) {
+		t.Fatalf("typed Labels = %v, want %v", typed.Labels, wantSet)
+	}
+
+	generic, err := s.Fold(ops, s.IssueRules())
+	if err != nil {
+		t.Fatalf("Fold: %v", err)
+	}
+	if !reflect.DeepEqual(generic.State["assignees"], wantSet) {
+		t.Errorf("generic assignees = %v, want %v", generic.State["assignees"], wantSet)
+	}
+	if !reflect.DeepEqual(generic.State["labels"], wantSet) {
+		t.Errorf("generic labels = %v, want %v", generic.State["labels"], wantSet)
 	}
 }

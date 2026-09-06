@@ -171,7 +171,12 @@ Establishes a cross-reference link keyed by `target`:
 ```
 
 #### `label`
-Adds or removes labels using Add-Wins OR-Set semantics:
+Adds or removes labels using Add-Wins OR-Set semantics. `add` and `remove`
+both target the generic fold state key `labels` (`spec/fold.md` §5): an
+undeclared target would let `document`'s `label.add`/`label.remove` share a
+bare `add`/`remove` state key with any other vocabulary that also leaves
+its own `label` (or unrelated) OR-set untargeted, so both sides declare
+`target: "labels"` explicitly.
 ```json
 {
   "object_id": "0123456789abcdef0123456789abcdef",

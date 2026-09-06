@@ -1,0 +1,111 @@
+name: schema-driven-cross-op-type-value-type-collision
+description: >
+  WRIT-198's widened target-collision standard (spec/fold.md §5,
+  spec/schema-ops.md §8), at the resolver level: two different op_types,
+  "configure" and "reset", both declare field "mode" with no explicit
+  target, so both default to target "mode" (spec.FieldRule.TargetKey).
+  Both use strategy lww — the narrow, pre-WRIT-198 check compared only
+  Strategy and would have installed both — but they disagree on
+  value_type (string vs int), which is not the permitted op_version-bump
+  carve-out because "configure" and "reset" are different op_types.
+  RulesFromSchemas installs "configure"'s rule (declared first) and drops
+  "reset"'s, reporting a SchemaConflict; a "reset" op on the ordinary
+  object then matches no rule and becomes an UnknownOp. This is the
+  fixture spec.CheckTargetCollision's TestCheckTargetCollision Go table
+  pins at the function level and engine/schemasrc/compile_test.go's
+  TestCompileCrossOpTypeTargetReuseWithDifferentValueTypeIsRejected pins
+  at the compiler level; nothing previously pinned it at the log-resolved
+  RulesFromSchemas level a schema-driven fold actually walks. (pins: reader)
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: define-type
+            parents: [create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "gadget"
+            expect: accept
+
+          - id: define-field-configure
+            parents: [define-type]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "configure"
+                op_version: "1"
+                field: "mode"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: define-field-reset
+            parents: [define-field-configure]
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "reset"
+                op_version: "1"
+                field: "mode"
+                value_type: "int"
+                strategy: "lww"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/gadget
+    history:
+      - commits:
+          - id: configure-1
+            author: alice
+            timestamp: 2026-01-01T00:04:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: configure
+              op_version: 1
+              body:
+                mode: "legacy-status"
+            expect: accept
+
+          - id: reset-1
+            parents: [configure-1]
+            author: alice
+            timestamp: 2026-01-01T00:05:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: reset
+              op_version: 1
+              body:
+                mode: 42
+            expect: accept

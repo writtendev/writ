@@ -199,7 +199,7 @@ func compileType(fileName, objectID string, t *Type) ([]codec.Envelope, error) {
 	}
 
 	sort.Slice(fieldOrder, func(i, j int) bool { return fieldKeyLess(fieldOrder[i], fieldOrder[j]) })
-	targetStrategy := make(map[string]string) // TargetKey() -> strategy already bound to it
+	targetBindings := make(map[string][]spec.FieldRule) // TargetKey() -> every rule already bound to it
 	for _, k := range fieldOrder {
 		cf := fields[k]
 		body, err := fieldBody(t.Name, k, cf.field)
@@ -210,7 +210,7 @@ func compileType(fileName, objectID string, t *Type) ([]codec.Envelope, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := checkTargetCollision(fileName, cf, rule, targetStrategy); err != nil {
+		if err := checkTargetCollision(fileName, cf, rule, targetBindings); err != nil {
 			return nil, err
 		}
 		env, err := envelope(objectID, "define-field", body)
@@ -347,31 +347,27 @@ func validateFieldBody(fileName string, cf *compiledField, body map[string]any) 
 
 // checkTargetCollision rejects a define-field whose rule reuses a target
 // (spec.FieldRule.TargetKey: the declared target, or the field name if
-// undeclared) already bound to a different strategy by an earlier field in
-// the same type — the exact collision engine/schema.go's RulesFromSchemas
+// undeclared) already bound by an earlier field in the same type but
+// disagreeing on a merge attribute spec.CheckTargetCollision holds shared
+// targets to — the exact collision engine/schema.go's RulesFromSchemas
 // detects at resolve time by dropping the rule and recording a
 // SchemaConflict nobody on the `apply` path is obliged to inspect
-// (spec/schema-ops.md §8, `fold.md` §5's order-dependent-target rule).
+// (spec/schema-ops.md §8, `fold.md` §5's shared-target agreement rule).
 // compileType already holds the whole type when this runs, so — contrary
 // to what an earlier draft of spec/schema-source.md §7 claimed — there is
 // no missing information that would force this check to wait for the
-// resolver; targetStrategy accumulates across the type's fields in the
+// resolver; targetBindings accumulates across the type's fields in the
 // same canonical (op_type, op_version, field) order Compile emits them in,
 // so the reported collision always names the second-declared field, the
-// one whose version bump silently changed strategy without a new target.
-func checkTargetCollision(fileName string, cf *compiledField, rule spec.FieldRule, targetStrategy map[string]string) error {
-	targetKey := rule.TargetKey()
-	prior, bound := targetStrategy[targetKey]
-	if !bound {
-		targetStrategy[targetKey] = rule.Strategy
-		return nil
+// one whose version bump silently changed strategy (or, now, another merge
+// attribute outside the permitted version-bump carve-out) without a new
+// target.
+func checkTargetCollision(fileName string, cf *compiledField, rule spec.FieldRule, targetBindings map[string][]spec.FieldRule) error {
+	if err := spec.CheckTargetCollision(targetBindings, rule); err != nil {
+		return &SyntaxError{File: fileName, Line: cf.pos.Line, Col: cf.pos.Col, Msg: err.Error()}
 	}
-	if prior == rule.Strategy {
-		return nil
-	}
-	return &SyntaxError{File: fileName, Line: cf.pos.Line, Col: cf.pos.Col, Msg: fmt.Sprintf(
-		"field rule (%s, %d, %s) reuses target %q already bound to strategy %q with a different strategy %q; a version bump that changes strategy must declare a distinct target",
-		cf.key.opType, cf.key.opVersion, cf.key.field, targetKey, prior, rule.Strategy)}
+	targetBindings[rule.TargetKey()] = append(targetBindings[rule.TargetKey()], rule)
+	return nil
 }
 
 // envelope builds one schema-ops v1 codec.Envelope from a body map,

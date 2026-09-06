@@ -21,6 +21,16 @@ type Rule struct {
 	Enum      []string          `json:"enum,omitempty"`
 	MaxLength int64             `json:"max_length,omitempty"`
 	KeyTypes  map[string]string `json:"key_types,omitempty"`
+	// ObjectType scopes the rule to one object type (spec/fold.md §5): empty
+	// on either the rule or the op matches anything, mirroring OpVersion's
+	// treatment in opMatchesRule. It is left empty on every hand-written Go
+	// rule table (ReviewRules, IssueRules, etc.) rather than set to the
+	// table's own type: those tables are already selected per object type by
+	// their callers and the typed reducers, so an empty ObjectType changes
+	// nothing for them, and WRIT-194 deletes the tables outright — setting it
+	// on every literal there would be throwaway work. Only log-sourced rules
+	// (RulesFromSchemas) and rules built from spec.FieldRules() carry it.
+	ObjectType string `json:"object_type,omitempty"`
 }
 
 // TargetKey returns Target if non-empty, otherwise Field.
@@ -80,12 +90,20 @@ type ObjectState struct {
 	UnknownOps []UnknownOp    `json:"unknown_ops,omitempty"`
 }
 
-// opMatchesRule returns true if op matches the rule's op_type and op_version filters.
+// opMatchesRule returns true if op matches the rule's op_type, op_version and
+// object_type filters. object_type is read straight off op (spec/fold.md §5):
+// no clock, no I/O, no ambient state, and — unlike determineObjectType below,
+// which infers a whole op set's object type from create-op precedence for
+// ObjectState.ObjectType — this never resolves anything beyond the single op
+// in front of it.
 func opMatchesRule(op codec.Op, r Rule) bool {
 	if r.OpType != "" && r.OpType != op.OpType {
 		return false
 	}
 	if r.OpVersion != 0 && op.OpVersion != 0 && r.OpVersion != op.OpVersion {
+		return false
+	}
+	if r.ObjectType != "" && op.ObjectType != "" && r.ObjectType != op.ObjectType {
 		return false
 	}
 	return true

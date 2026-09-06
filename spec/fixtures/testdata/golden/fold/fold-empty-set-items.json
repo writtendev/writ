@@ -31,17 +31,13 @@
         }
       ],
       "state": {
-        "add": [
-          "  ",
-          "area/fold",
-          "email:alice@example.test",
-          "priority/high"
+        "assignees": [
+          "email:alice@example.test"
         ],
         "description": "Empty elements must not enter set-valued folds",
-        "remove": [
+        "labels": [
           "  ",
           "area/fold",
-          "email:alice@example.test",
           "priority/high"
         ],
         "title": "Empty Set Items Test"
@@ -63,9 +59,8 @@
         }
       ],
       "state": {
-        "add": [],
         "description": "Every set element is empty and every one is dropped",
-        "remove": [],
+        "labels": [],
         "title": "Empty Items Only"
       }
     }

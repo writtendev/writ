@@ -412,7 +412,7 @@ func RulesFromSchemas(schemas []state.Schema) (map[string][]Rule, []SchemaConfli
 				continue
 			}
 
-			targetStrategy := make(map[string]string)
+			targetBindings := make(map[string][]spec.FieldRule)
 			var typeRules []Rule
 			for _, f := range t.Fields {
 				// deprecated:true is metadata discouraging new writes, not a
@@ -434,6 +434,7 @@ func RulesFromSchemas(schemas []state.Schema) (map[string][]Rule, []SchemaConfli
 					MaxLength:  f.MaxLength,
 					KeyTypes:   f.KeyTypes,
 					Deprecated: f.Deprecated,
+					ObjectType: t.Name,
 				}
 
 				sr := spec.FieldRule{
@@ -450,21 +451,15 @@ func RulesFromSchemas(schemas []state.Schema) (map[string][]Rule, []SchemaConfli
 					continue
 				}
 
-				targetKey := r.TargetKey()
-				if prior, ok := targetStrategy[targetKey]; ok {
-					if prior != r.Strategy {
-						conflicts = append(conflicts, SchemaConflict{
-							ObjectType: t.Name,
-							ObjectIDs:  []string{sch.ObjectID},
-							Reason: fmt.Sprintf(
-								"field rule (%s, %d, %s) reuses target %q already bound to strategy %q with a different strategy %q; a version bump that changes strategy must declare a distinct target",
-								r.OpType, r.OpVersion, r.Field, targetKey, prior, r.Strategy),
-						})
-						continue
-					}
-				} else {
-					targetStrategy[targetKey] = r.Strategy
+				if err := spec.CheckTargetCollision(targetBindings, sr); err != nil {
+					conflicts = append(conflicts, SchemaConflict{
+						ObjectType: t.Name,
+						ObjectIDs:  []string{sch.ObjectID},
+						Reason:     err.Error(),
+					})
+					continue
 				}
+				targetBindings[sr.TargetKey()] = append(targetBindings[sr.TargetKey()], sr)
 
 				typeRules = append(typeRules, r)
 			}

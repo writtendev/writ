@@ -324,6 +324,55 @@ func TestRulesFromSchemas_VersionBumpNewStrategyDistinctTargetOK(t *testing.T) {
 	}
 }
 
+// TestRulesFromSchemas_CrossOpTypeTargetReuseWithDifferentValueTypeRejected
+// pins WRIT-198's widened collision check: two fields sharing a target (here
+// the default, the field name) across different op_types must agree on
+// value_type too, not just strategy. Before the widening this was accepted
+// silently — the exact shape of WRIT-198's five colliding review/issue
+// targets, all of which agreed on strategy and disagreed on value_type.
+func TestRulesFromSchemas_CrossOpTypeTargetReuseWithDifferentValueTypeRejected(t *testing.T) {
+	v1 := mkField("widget", "create", 1, "owner", "lww")
+	v1.ValueType = "person-ref"
+	v2 := mkField("widget", "assign", 1, "owner", "lww")
+	v2.ValueType = "object-ref"
+	a := state.Schema{
+		ObjectID: "sch-a",
+		Types:    []state.SchemaType{{Name: "widget", Fields: []state.SchemaField{v1, v2}}},
+	}
+	rules, conflicts := writ.RulesFromSchemas([]state.Schema{a})
+	got := rules["widget"]
+	if len(got) != 1 || got[0].OpType != "create" {
+		t.Fatalf("expected only the create rule installed, got %+v", got)
+	}
+	if len(conflicts) != 1 {
+		t.Fatalf("expected 1 conflict reporting the rejected assign rule (same strategy, different value_type, cross op_type), got %+v", conflicts)
+	}
+}
+
+// TestRulesFromSchemas_VersionBumpValueTypeOnlyOK is the positive control:
+// an op_version bump of the same (op_type, field) may freely change
+// value_type under the shared default target, exactly as
+// spec/schema-ops.md §8 and spec/fold.md §5 permit — the carve-out
+// TestRulesFromSchemas_CrossOpTypeTargetReuseWithDifferentValueTypeRejected
+// does not extend to.
+func TestRulesFromSchemas_VersionBumpValueTypeOnlyOK(t *testing.T) {
+	v1 := mkField("widget", "widget-op", 1, "value", "lww")
+	v1.ValueType = "string"
+	v2 := mkField("widget", "widget-op", 2, "value", "lww")
+	v2.ValueType = "int"
+	a := state.Schema{
+		ObjectID: "sch-a",
+		Types:    []state.SchemaType{{Name: "widget", Fields: []state.SchemaField{v1, v2}}},
+	}
+	rules, conflicts := writ.RulesFromSchemas([]state.Schema{a})
+	if len(conflicts) != 0 {
+		t.Fatalf("expected no conflicts for a version bump changing only value_type, got %+v", conflicts)
+	}
+	if got := rules["widget"]; len(got) != 2 {
+		t.Fatalf("expected both version-1 and version-2 rules installed, got %+v", got)
+	}
+}
+
 // TestStoreSchemaFoldsEveryLoggedSchemaObject exercises Store.Schema
 // end-to-end: ops are appended directly (there is no write path for schema
 // ops in this ticket, spec/schema-ops.md §1.2), and Store.Schema is proven

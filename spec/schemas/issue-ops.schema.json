@@ -271,8 +271,7 @@
         "remove": {
           "type": "array",
           "items": {
-            "type": "string",
-            "minLength": 1
+            "$ref": "https://writ.dev/spec/identifiers.schema.json#/$defs/reference"
           },
           "minItems": 1
         }

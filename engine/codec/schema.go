@@ -54,23 +54,20 @@ var vocabularySchemaFiles = map[string]string{
 }
 
 // fieldRuleVocabularies maps an object type to the field-rules.json directory
-// (spec.FieldRule.Vocabulary) that declares its value types. It is a second,
-// separate map from vocabularySchemaFiles because the testdata/ directory
-// names don't all match the object type: "comment" ships as
-// testdata/comments/, "issue" as testdata/issue-ops/, "review" as
-// testdata/review-ops/; the rest agree.
-var fieldRuleVocabularies = map[string]string{
-	"review":         "review-ops",
-	"comment":        "comments",
-	"issue":          "issue-ops",
-	"project":        "project",
-	"cycle":          "cycle",
-	"workflow-state": "workflow-state",
-	"label":          "label",
-	"document":       "document",
-	"section":        "section",
-	"settings":       "settings",
-	"schema":         "schema-ops",
+// (spec.FieldRule.Vocabulary) that declares its value types. It is the
+// inverse of spec.VocabularyObjectTypes() (directory -> object type), derived
+// from it rather than kept as a second, independently hand-maintained copy
+// that could drift: "comment" ships as testdata/comments/, "issue" as
+// testdata/issue-ops/, "review" as testdata/review-ops/; the rest agree.
+var fieldRuleVocabularies = invertVocabularyObjectTypes()
+
+func invertVocabularyObjectTypes() map[string]string {
+	byDir := spec.VocabularyObjectTypes()
+	out := make(map[string]string, len(byDir))
+	for dir, objectType := range byDir {
+		out[objectType] = dir
+	}
+	return out
 }
 
 // fieldRuleKey groups the value-typed rules for one (vocabulary, op_type,

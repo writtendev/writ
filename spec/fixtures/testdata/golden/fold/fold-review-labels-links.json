@@ -41,12 +41,12 @@
         }
       ],
       "state": {
-        "add": [
+        "description": "Testing review labels and cross references",
+        "labels": [
           "area/engine",
           "needs-docs",
           "priority/high"
         ],
-        "description": "Testing review labels and cross references",
         "relation": [
           {
             "key": [
@@ -60,11 +60,6 @@
             ],
             "value": "relates"
           }
-        ],
-        "remove": [
-          "area/engine",
-          "needs-docs",
-          "priority/high"
         ],
         "target": [
           {

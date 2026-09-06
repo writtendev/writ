@@ -1,0 +1,106 @@
+name: schema-driven-version-bump-value-type-only
+description: >
+  The permitted half of WRIT-198's widened target-collision standard
+  (spec/fold.md §5, spec/schema-ops.md §8), at the resolver level: op_version
+  2 of "configure" redeclares field "mode" with the same strategy (lww) and
+  the same target (both default to "mode"), but a different value_type
+  (string -> int). An op_version bump of the same (op_type, field) MAY
+  freely change value_type, key, key_types, enum and max_length as long as
+  strategy is unchanged — the carve-out engine/schemasrc/compile_test.go's
+  TestCompileVersionBumpValueTypeOnlyIsAccepted pins at the compiler level.
+  RulesFromSchemas installs both versions with no conflict: v1 ops keep
+  folding as strings, v2 ops fold as ints, and the shared "mode" target
+  holds whichever wrote last. (pins: reader)
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: define-type
+            parents: [create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "gadget"
+            expect: accept
+
+          - id: define-field-v1
+            parents: [define-type]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "configure"
+                op_version: "1"
+                field: "mode"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: define-field-v2
+            parents: [define-field-v1]
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "configure"
+                op_version: "2"
+                field: "mode"
+                value_type: "int"
+                strategy: "lww"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/gadget
+    history:
+      - commits:
+          - id: configure-v1
+            author: alice
+            timestamp: 2026-01-01T00:04:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: configure
+              op_version: 1
+              body:
+                mode: "legacy-status"
+            expect: accept
+
+          - id: configure-v2
+            parents: [configure-v1]
+            author: alice
+            timestamp: 2026-01-01T00:05:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: configure
+              op_version: 2
+              body:
+                mode: 7
+            expect: accept

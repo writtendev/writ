@@ -1,0 +1,119 @@
+name: schema-driven-cross-op-type-lattice-collision
+description: >
+  WRIT-198 round 3's finding: the widened target-collision standard
+  (spec/fold.md §5, spec/schema-ops.md §8) must also hold `lattice`
+  rules to agreement, because `lattice` — unlike `value_type`, `key`,
+  `key_types`, `enum` and `max_length` — is consulted by the strategy at
+  fold time (`newLatticeAccumulator` builds its rank map from it). Two
+  different op_types, "promote" and "demote", both declare field "level"
+  with no explicit target, so both default to target "level"
+  (spec.FieldRule.TargetKey). Both use strategy lattice — the check
+  before this fix compared only Strategy, value_type, key, key_types,
+  enum and max_length, and would have installed both despite their
+  lattice orderings disagreeing (["low","high"] vs ["high","low"]),
+  making the folded state depend on which rule RulesFromSchemas happened
+  to resolve first: exactly the order-dependence hazard WRIT-186 named.
+  RulesFromSchemas iterates a type's fields in the canonical
+  (op_type, op_version, field) order engine/state/schema.go's
+  fieldKeyLess sorts them into (WRIT-186 round 1), so "demote" (which
+  sorts before "promote") is bound first regardless of declaration
+  order in the log; "promote"'s rule then collides on the shared
+  "level" target and is dropped, reporting a SchemaConflict, and a
+  "promote" op on the ordinary object matches no rule and becomes an
+  UnknownOp. This is the fixture spec.CheckTargetCollision's
+  TestCheckTargetCollision Go table pins at the function level; this
+  fixture pins it at the log-resolved RulesFromSchemas level a
+  schema-driven fold actually walks. (pins: reader)
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: define-type
+            parents: [create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "widget"
+            expect: accept
+
+          - id: define-field-promote
+            parents: [define-type]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "promote"
+                op_version: "1"
+                field: "level"
+                strategy: "lattice"
+                lattice: ["low", "high"]
+            expect: accept
+
+          - id: define-field-demote
+            parents: [define-field-promote]
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "demote"
+                op_version: "1"
+                field: "level"
+                strategy: "lattice"
+                lattice: ["high", "low"]
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/widget
+    history:
+      - commits:
+          - id: promote-1
+            author: alice
+            timestamp: 2026-01-01T00:04:00Z
+            op:
+              object_id: widget-1
+              object_type: widget
+              op_type: promote
+              op_version: 1
+              body:
+                level: "high"
+            expect: accept
+
+          - id: demote-1
+            parents: [promote-1]
+            author: alice
+            timestamp: 2026-01-01T00:05:00Z
+            op:
+              object_id: widget-1
+              object_type: widget
+              op_type: demote
+              op_version: 1
+              body:
+                level: "low"
+            expect: accept

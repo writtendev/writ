@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
+	"slices"
 	"strings"
 )
 
@@ -22,6 +23,12 @@ type FieldRule struct {
 	MaxLength  int64             `json:"max_length,omitempty"`
 	KeyTypes   map[string]string `json:"key_types,omitempty"`
 	Vocabulary string            `json:"-"`
+	// ObjectType is derived from Vocabulary via vocabularyObjectTypes, not
+	// serialized: the log's define-field already carries a `type` field, and
+	// this is that same association, made reachable for the fold matching
+	// layer to scope rule matching by object type (spec/fold.md §5) without
+	// changing the normative field-rules.json or define-field wire shape.
+	ObjectType string `json:"-"`
 }
 
 // TargetKey returns Target if non-empty, otherwise Field.
@@ -189,6 +196,12 @@ func FieldRules() ([]FieldRule, error) {
 	var allRules []FieldRule
 	seen := make(map[ruleKey]bool)
 	keyTypesByGroup := make(map[keyGroupKey]map[string]string)
+	// objectTypeDirs asserts vocabularyObjectTypes is injective: it records
+	// the first directory seen claiming each object type, so a second
+	// directory mapped to that same object type is caught here rather than
+	// silently sharing a target-collision universe with the first one
+	// unchecked (targetBindings below is fresh per file — see its comment).
+	objectTypeDirs := make(map[string]string)
 
 	err := fs.WalkDir(FS, "testdata", func(filePath string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -209,6 +222,31 @@ func FieldRules() ([]FieldRule, error) {
 		}
 
 		vocab := path.Base(path.Dir(filePath))
+		// A field-rules.json directory with no vocabularyObjectTypes entry
+		// fails closed here rather than deriving ObjectType "" — which would
+		// match every object type in fold's rule matching (spec/fold.md §5)
+		// and silently disable scoping for this vocabulary's rules.
+		objectType, ok := vocabularyObjectTypes[vocab]
+		if !ok {
+			return fmt.Errorf("spec: %s: directory %q has no entry in vocabularyObjectTypes; add one mapping %q to the object type its ops declare rules for", filePath, vocab, vocab)
+		}
+		// Two directories claiming the same object type would let their
+		// rules collide across the file boundary that targetBindings (below)
+		// assumes separates distinct object types — assert the map stays
+		// one directory per object type.
+		if priorDir, ok := objectTypeDirs[objectType]; ok && priorDir != vocab {
+			return fmt.Errorf("spec: vocabularyObjectTypes maps both %q and %q to object type %q; each object type must have exactly one field-rules.json directory", priorDir, vocab, objectType)
+		}
+		objectTypeDirs[objectType] = vocab
+		// targetBindings is fresh per file: each field-rules.json directory
+		// declares the rule table for exactly one object type, so a target
+		// collision is only ever checked within one file's rules, never
+		// across directories — where, e.g., review-ops's and issue-ops's
+		// both declaring a "title" target is unrelated and fine. The
+		// injectivity check above is what keeps that assumption true: it
+		// rejects a second directory sharing review's or issue's object
+		// type before any of its rules could bypass this check unseen.
+		targetBindings := make(map[string][]FieldRule)
 		for _, r := range rules {
 			if err := ValidateFieldRule(r); err != nil {
 				return fmt.Errorf("spec: %s %w", filePath, err)
@@ -220,6 +258,11 @@ func FieldRules() ([]FieldRule, error) {
 					filePath, r.OpType, r.OpVersion, r.Field, key.Dir)
 			}
 			seen[key] = true
+
+			if err := CheckTargetCollision(targetBindings, r); err != nil {
+				return fmt.Errorf("spec: %s %w", filePath, err)
+			}
+			targetBindings[r.TargetKey()] = append(targetBindings[r.TargetKey()], r)
 
 			if r.Strategy == "keyed-lww" {
 				group := keyGroupKey{Dir: path.Dir(filePath), OpType: r.OpType, OpVersion: r.OpVersion, Key: strings.Join(r.Key, "\x00")}
@@ -234,6 +277,7 @@ func FieldRules() ([]FieldRule, error) {
 			}
 
 			r.Vocabulary = vocab
+			r.ObjectType = objectType
 			allRules = append(allRules, r)
 		}
 
@@ -259,4 +303,77 @@ func equalKeyTypes(a, b map[string]string) bool {
 		}
 	}
 	return true
+}
+
+// CheckTargetCollision enforces spec/fold.md §5's and spec/schema-ops.md §8's
+// shared-target agreement rule for one candidate rule against bound, every
+// rule already accepted within the same object type for the candidate's
+// target (TargetKey()) — not merely the most recently accepted one: rules
+// sharing a target MUST always agree on Strategy, and — unless they are an
+// op_version bump of the same (op_type, field), which those sections
+// explicitly permit to freely change every other attribute — MUST also agree
+// on ValueType, Key, KeyTypes, Enum, MaxLength and Lattice. The rule is
+// set-level, so this check is too: comparing a candidate only against the
+// last-bound rule let a version-bump carve-out against a *middle* rule
+// rebind the target, after which a *later* candidate was compared only to
+// the rebound rule and never caught disagreeing with the *first* — the
+// same order-dependence hazard WRIT-186 named for accumulator instantiation
+// ("two conforming implementations that list rules differently would
+// disagree"), reintroduced here in the validator meant to prevent it.
+// Checking every bound rule closes that hole regardless of declaration
+// order.
+//
+// It is the one check all three sites that resolve field rules run, so
+// writ's own hand-written Go tables are held to the exact standard writ
+// imposes on writ.schema authors: spec.FieldRules below (this package's own
+// tables), engine/schemasrc/compile.go's checkTargetCollision (a writ.schema
+// file, at compile time) and engine/schema.go's RulesFromSchemas (the same
+// schema, resolved from the log). It returns a descriptive error naming the
+// disagreement, or nil when candidate does not collide — including when
+// nothing is yet bound to its target. It does not mutate bound; the caller
+// owns recording the accepted rule once it decides to keep it.
+func CheckTargetCollision(bound map[string][]FieldRule, candidate FieldRule) error {
+	targetKey := candidate.TargetKey()
+	for _, prior := range bound[targetKey] {
+		if prior.Strategy != candidate.Strategy {
+			return fmt.Errorf(
+				"field rule (%s, %d, %s) reuses target %q already bound to strategy %q with a different strategy %q; a version bump that changes strategy must declare a distinct target",
+				candidate.OpType, candidate.OpVersion, candidate.Field, targetKey, prior.Strategy, candidate.Strategy)
+		}
+		// An op_version bump of the same (op_type, field) MAY freely change
+		// value_type, key, key_types, enum and max_length (spec/schema-ops.md
+		// §8) — that carve-out applies only against this specific prior, and
+		// no wider: every other pair here shares a target across a different
+		// op_type or field and must still agree.
+		if prior.OpType == candidate.OpType && prior.Field == candidate.Field {
+			continue
+		}
+		if !equalMergeAttrs(prior, candidate) {
+			return fmt.Errorf(
+				"field rule (%s, %d, %s) reuses target %q already bound by (%s, %d, %s), but they disagree on value_type, key, key_types, enum, max_length or lattice; rules sharing a target across different op_types or fields must agree on every merge attribute (spec/fold.md §5)",
+				candidate.OpType, candidate.OpVersion, candidate.Field, targetKey, prior.OpType, prior.OpVersion, prior.Field)
+		}
+	}
+	return nil
+}
+
+// equalMergeAttrs reports whether a and b agree on every merge attribute
+// CheckTargetCollision holds a cross-op-type or cross-field target share to:
+// value_type, key, key_types, enum, max_length and lattice. Strategy is
+// checked separately by the caller, and op_type/field/op_version identify
+// the rule rather than describe its merge behaviour, so neither belongs
+// here. lattice belongs here and not on the version-bump carve-out's
+// freely-changeable list (spec/fold.md §5, spec/schema-ops.md §8): unlike
+// the other five, it is consulted by the strategy at fold time — the
+// lattice accumulator (engine/internal/fold/strategy.go, spec/reffold.go)
+// reads it to order its semilattice — so two rules sharing a target that
+// disagree on it are exactly as order-dependent as two that disagree on
+// strategy.
+func equalMergeAttrs(a, b FieldRule) bool {
+	return a.ValueType == b.ValueType &&
+		slices.Equal(a.Key, b.Key) &&
+		equalKeyTypes(a.KeyTypes, b.KeyTypes) &&
+		slices.Equal(a.Enum, b.Enum) &&
+		a.MaxLength == b.MaxLength &&
+		slices.Equal(a.Lattice, b.Lattice)
 }

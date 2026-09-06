@@ -46,7 +46,7 @@
         }
       ],
       "state": {
-        "add": [
+        "assignees": [
           "email:alice@example.com",
           "keybase:alice",
           "user:ci",
@@ -80,12 +80,6 @@
             ],
             "value": "Bob under the user scheme"
           }
-        ],
-        "remove": [
-          "email:alice@example.com",
-          "keybase:alice",
-          "user:ci",
-          "user:dana"
         ],
         "revision": [
           {

@@ -104,17 +104,18 @@ func toSpecRules(rules []writ.Rule) []spec.FieldRule {
 	specRules := make([]spec.FieldRule, 0, len(rules))
 	for _, r := range rules {
 		specRules = append(specRules, spec.FieldRule{
-			OpType:    r.OpType,
-			OpVersion: r.OpVersion,
-			Field:     r.Field,
-			Target:    r.Target,
-			Strategy:  r.Strategy,
-			Key:       r.Key,
-			Lattice:   r.Lattice,
-			ValueType: r.ValueType,
-			Enum:      r.Enum,
-			MaxLength: r.MaxLength,
-			KeyTypes:  r.KeyTypes,
+			OpType:     r.OpType,
+			OpVersion:  r.OpVersion,
+			Field:      r.Field,
+			Target:     r.Target,
+			Strategy:   r.Strategy,
+			Key:        r.Key,
+			Lattice:    r.Lattice,
+			ValueType:  r.ValueType,
+			Enum:       r.Enum,
+			MaxLength:  r.MaxLength,
+			KeyTypes:   r.KeyTypes,
+			ObjectType: r.ObjectType,
 		})
 	}
 	return specRules
@@ -211,37 +212,6 @@ func stringSlice(raw any) []string {
 		return res
 	}
 	return nil
-}
-
-func stringSliceOrString(raw any) []string {
-	switch v := raw.(type) {
-	case string:
-		return []string{v}
-	case []string:
-		return v
-	case []any:
-		res := make([]string, 0, len(v))
-		for _, it := range v {
-			if s, ok := it.(string); ok {
-				res = append(res, s)
-			}
-		}
-		return res
-	}
-	return nil
-}
-
-func extractRawSetAdds(body map[string]any) []string {
-	var adds []string
-	if m, ok := body["add"].(map[string]any); ok {
-		adds = append(adds, stringSliceOrString(m["add"])...)
-	} else if body["add"] != nil {
-		adds = append(adds, stringSliceOrString(body["add"])...)
-	}
-	if m, ok := body["remove"].(map[string]any); ok {
-		adds = append(adds, stringSliceOrString(m["add"])...)
-	}
-	return adds
 }
 
 type keyedLWWItem struct {
@@ -399,35 +369,21 @@ func projectReview(generic writ.ObjectState, ops []codec.Op, _ string) state.Rev
 	compMap := makeKeyedMap(parseKeyedLWW(generic.State["completed_at"]))
 	extMap := makeKeyedMap(parseKeyedLWW(generic.State["external_id"]))
 
+	// approval.revision and ci-status.revision are keyed on different tuples
+	// but share the field name "revision"; WRIT-198 gives ci-status.revision
+	// its own target, "ci_revision" (the ci_description precedent already on
+	// this rule block), so unlike before, nothing here needs to guess which
+	// entries under a shared "revision" key actually came from a ci-status op.
 	type ciKey struct {
 		revision string
 		name     string
 	}
-	ciIntroduced := make(map[ciKey]bool)
-	for _, o := range ops {
-		if unknownMap[o.ID] {
-			continue
-		}
-		if o.ObjectType == "review" && o.OpType == "ci-status" && o.OpVersion == 1 {
-			var bm map[string]any
-			if len(o.Body) > 0 {
-				_ = json.Unmarshal(o.Body, &bm)
-			}
-			rev, _ := bm["revision"].(string)
-			name, _ := bm["name"].(string)
-			ciIntroduced[ciKey{revision: rev, name: name}] = true
-		}
-	}
-
 	ciKeySet := make(map[ciKey]bool)
-	ciFields := []string{"revision", "name", "state", "url", "ci_description", "started_at", "completed_at", "external_id"}
+	ciFields := []string{"ci_revision", "name", "state", "url", "ci_description", "started_at", "completed_at", "external_id"}
 	for _, f := range ciFields {
 		for _, it := range parseKeyedLWW(generic.State[f]) {
 			if len(it.Key) >= 2 {
-				k := ciKey{revision: it.Key[0], name: it.Key[1]}
-				if f != "revision" || ciIntroduced[k] {
-					ciKeySet[k] = true
-				}
+				ciKeySet[ciKey{revision: it.Key[0], name: it.Key[1]}] = true
 			}
 		}
 	}
@@ -482,58 +438,18 @@ func projectReview(generic writ.ObjectState, ops []codec.Op, _ string) state.Rev
 	})
 	rev.Links = links
 
-	assignIntroduced := make(map[string]bool)
-	labelIntroduced := make(map[string]bool)
-	for _, o := range ops {
-		if unknownMap[o.ID] {
-			continue
-		}
-		var bm map[string]any
-		if len(o.Body) > 0 {
-			_ = json.Unmarshal(o.Body, &bm)
-		}
-		if bm == nil {
-			continue
-		}
-		if o.OpType == "assign" {
-			adds := extractRawSetAdds(bm)
-			for _, it := range adds {
-				if norm := state.NormalizePerson(it); norm != "" {
-					assignIntroduced[norm] = true
-				}
-			}
-		} else if o.OpType == "label" {
-			adds := extractRawSetAdds(bm)
-			for _, it := range adds {
-				if it != "" {
-					labelIntroduced[it] = true
-				}
-			}
-		}
-	}
-
-	var assignees []string
-	var labels []string
-	for _, it := range stringSlice(generic.State["add"]) {
-		if assignIntroduced[it] {
-			assignees = append(assignees, it)
-		}
-		if labelIntroduced[it] {
-			labels = append(labels, it)
-		}
-	}
-	rev.Assignees = assignees
-	rev.Labels = labels
+	// assign.{add,remove} and label.{add,remove} each collapse onto one
+	// target ("assignees", "labels": WRIT-198 §C1), so the generic fold's
+	// OR-set result is read directly — no demux by re-scanning raw ops
+	// needed, the thing that let this projection paper over the two rule
+	// tables colliding onto shared "add"/"remove" keys in the first place.
+	rev.Assignees = stringSlice(generic.State["assignees"])
+	rev.Labels = stringSlice(generic.State["labels"])
 
 	return rev
 }
 
-func projectIssue(generic writ.ObjectState, ops []codec.Op, _ string) state.Issue {
-	unknownMap := make(map[string]bool, len(generic.UnknownOps))
-	for _, u := range generic.UnknownOps {
-		unknownMap[u.Commit] = true
-	}
-
+func projectIssue(generic writ.ObjectState, _ []codec.Op, _ string) state.Issue {
 	var st string
 	if stateVal, ok := generic.State["state"]; ok {
 		st = stringVal(stateVal)
@@ -615,48 +531,13 @@ func projectIssue(generic writ.ObjectState, ops []codec.Op, _ string) state.Issu
 	})
 	iss.Links = links
 
-	assignIntroduced := make(map[string]bool)
-	labelIntroduced := make(map[string]bool)
-	for _, o := range ops {
-		if unknownMap[o.ID] {
-			continue
-		}
-		var bm map[string]any
-		if len(o.Body) > 0 {
-			_ = json.Unmarshal(o.Body, &bm)
-		}
-		if bm == nil {
-			continue
-		}
-		if o.OpType == "assign" {
-			adds := extractRawSetAdds(bm)
-			for _, it := range adds {
-				if norm := state.NormalizePerson(it); norm != "" {
-					assignIntroduced[norm] = true
-				}
-			}
-		} else if o.OpType == "label" {
-			adds := extractRawSetAdds(bm)
-			for _, it := range adds {
-				if it != "" {
-					labelIntroduced[it] = true
-				}
-			}
-		}
-	}
-
-	var assignees []string
-	var labels []string
-	for _, it := range stringSlice(generic.State["add"]) {
-		if assignIntroduced[it] {
-			assignees = append(assignees, it)
-		}
-		if labelIntroduced[it] {
-			labels = append(labels, it)
-		}
-	}
-	iss.Assignees = assignees
-	iss.Labels = labels
+	// assign.{add,remove} and label.{add,remove} each collapse onto one
+	// target ("assignees", "labels": WRIT-198 §C1), so the generic fold's
+	// OR-set result is read directly — no demux by re-scanning raw ops
+	// needed, the thing that let this projection paper over the two rule
+	// tables colliding onto shared "add"/"remove" keys in the first place.
+	iss.Assignees = stringSlice(generic.State["assignees"])
+	iss.Labels = stringSlice(generic.State["labels"])
 
 	return iss
 }
@@ -1282,15 +1163,16 @@ func generateReviewStream(rng *rand.Rand) ([]codec.Op, []writ.Rule, string) {
 			}
 			ops[i].Body, _ = json.Marshal(b)
 		case 6:
-			// label and assign can both appear in the same review stream
+			// label and assign can both appear in the same review stream,
+			// drawing from the same underlying identifier pool: a label
+			// item can name the identical string an assign op introduces
+			// (assign.add's normalization is a no-op on a colonless string),
+			// the overlap WRIT-198's collapsed-target fix must survive —
+			// disjoint pools could never exercise a label.remove naming a
+			// value an assign.add introduced.
 			opType := []string{"assign", "label"}[rng.Intn(2)]
 			ops[i].OpType = opType
-			var item string
-			if opType == "assign" {
-				item = fmt.Sprintf("email:user%d@example.com", rng.Intn(4))
-			} else {
-				item = fmt.Sprintf("tag-%d", rng.Intn(4))
-			}
+			item := fmt.Sprintf("shared-%d", rng.Intn(4))
 			b := make(map[string]any)
 			if rng.Intn(2) == 0 {
 				if rng.Intn(2) == 0 {
@@ -1357,14 +1239,12 @@ func generateIssueStream(rng *rand.Rand) ([]codec.Op, []writ.Rule, string) {
 			}
 			ops[i].Body, _ = json.Marshal(b)
 		case 3:
+			// label and assign draw from the same underlying identifier
+			// pool (see generateReviewStream's case 6), so a label item can
+			// name the identical string an assign op introduces.
 			opType := []string{"assign", "label"}[rng.Intn(2)]
 			ops[i].OpType = opType
-			var item string
-			if opType == "assign" {
-				item = fmt.Sprintf("email:dev%d@example.com", rng.Intn(3))
-			} else {
-				item = fmt.Sprintf("label-%d", rng.Intn(3))
-			}
+			item := fmt.Sprintf("shared-%d", rng.Intn(3))
 			b := make(map[string]any)
 			if rng.Intn(2) == 0 {
 				b["add"] = []string{item, interestingStrings[rng.Intn(len(interestingStrings))]}

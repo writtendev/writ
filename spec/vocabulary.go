@@ -7,6 +7,49 @@ import (
 	"sync"
 )
 
+// vocabularyObjectTypes maps a field-rules.json directory
+// (spec.FieldRule.Vocabulary, the testdata/ basename) to the object type
+// whose ops it declares rules for. Three of the eleven directories differ
+// from the object type name they cover — "review-ops" declares "review",
+// "issue-ops" declares "issue", "comments" declares "comment" — so this map,
+// not string equality, is the one place that association is recorded.
+// spec.FieldRules derives each rule's ObjectType from it, and
+// engine/codec/schema.go's fieldRuleVocabularies (object type -> directory,
+// the inverse direction, keyed the way a producer looks things up) derives
+// from it too, via the VocabularyObjectTypes accessor below, rather than
+// keeping a second, independently hand-maintained copy that could drift
+// from this one. Unexported so nothing outside this package can mutate the
+// table a process-wide fold matching layer depends on: a package-level
+// exported map is shared, mutable state with every importer, and there is
+// no reason another package needs a live handle on it rather than a
+// snapshot.
+var vocabularyObjectTypes = map[string]string{
+	"review-ops":     "review",
+	"comments":       "comment",
+	"issue-ops":      "issue",
+	"project":        "project",
+	"cycle":          "cycle",
+	"workflow-state": "workflow-state",
+	"label":          "label",
+	"document":       "document",
+	"section":        "section",
+	"settings":       "settings",
+	"schema-ops":     "schema",
+}
+
+// VocabularyObjectTypes returns a copy of the field-rules.json directory ->
+// object type association (see vocabularyObjectTypes): safe for a caller to
+// range over or index without holding a handle on writ's own process-wide
+// table, and without any caller being able to mutate it out from under the
+// fold matching layer.
+func VocabularyObjectTypes() map[string]string {
+	out := make(map[string]string, len(vocabularyObjectTypes))
+	for dir, objectType := range vocabularyObjectTypes {
+		out[dir] = objectType
+	}
+	return out
+}
+
 // fieldRulesOnce caches spec.FieldRules() for the vocabulary accessors below,
 // which are called repeatedly (cmd/writ flag help, shell completion,
 // validation) and must not re-walk and re-parse the embedded field-rules.json

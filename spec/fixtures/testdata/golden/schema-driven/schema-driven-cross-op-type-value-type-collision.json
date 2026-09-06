@@ -1,0 +1,68 @@
+{
+  "schemas": [
+    {
+      "object_id": "sch-acme",
+      "schema": {
+        "object_id": "sch-acme",
+        "namespace": "acme",
+        "types": [
+          {
+            "type": "gadget",
+            "fields": [
+              {
+                "field": "mode",
+                "op_type": "configure",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              },
+              {
+                "field": "mode",
+                "op_type": "reset",
+                "op_version": 1,
+                "value_type": "int",
+                "strategy": "lww"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "conflicts": [
+    {
+      "object_type": "gadget",
+      "object_ids": [
+        "sch-acme"
+      ],
+      "reason": "field rule (reset, 1, mode) reuses target \"mode\" already bound by (configure, 1, mode), but they disagree on value_type, key, key_types, enum, max_length or lattice; rules sharing a target across different op_types or fields must agree on every merge attribute (spec/fold.md §5)"
+    }
+  ],
+  "objects": [
+    {
+      "object_id": "gadget-1",
+      "object_type": "gadget",
+      "total_order": [
+        {
+          "commit": "bd2d4a3b86ce89c5ef1a9049636fce427414be50",
+          "t_star": 1767225840
+        },
+        {
+          "commit": "81723d49dac63a97295bc3856ea6139d83650cc9",
+          "t_star": 1767225900
+        }
+      ],
+      "state": {
+        "mode": "legacy-status"
+      },
+      "unknown_ops": [
+        {
+          "commit": "81723d49dac63a97295bc3856ea6139d83650cc9",
+          "object_type": "gadget",
+          "op_type": "reset",
+          "op_version": 1
+        }
+      ]
+    }
+  ]
+}

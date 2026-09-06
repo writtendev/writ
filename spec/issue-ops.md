@@ -131,7 +131,7 @@ The issue family defines six operation types for `op_version: 1`:
 | `update` | `{"title"?: string, "description"?: string, "priority"?: integer, "estimate"?: number, "position"?: string}` | Metadata edits (title, description, priority, estimate, position). |
 | `set-state` | `{"state": reference, "reason"?: string, "position"?: string}` | State transitions, optional reason, and optional destination position. |
 | `assign` | `{"add"?: [person-id], "remove"?: [person-id]}` | Add or remove assignees. |
-| `label` | `{"add"?: [reference], "remove"?: [string]}` | Add or remove labels (referencing label object IDs, FC-16). |
+| `label` | `{"add"?: [reference], "remove"?: [reference]}` | Add or remove labels (referencing label object IDs, FC-16). |
 | `link` | `{"target": reference, "target_type"?: string, "relation": "fixes"\|"relates"\|"none"}` | Associate or retract cross-references. |
 
 ### 1. `create`
@@ -267,7 +267,9 @@ Adds or removes labels on the issue. In v1, label operations reference collabora
 ```
 
 - `add` (array of label references, optional): Label object identifiers or references to add.
-- `remove` (array of non-empty strings, optional): Label object identifiers or references to remove, matching the stored value byte-exactly.
+- `remove` (array of label references, optional): Label object identifiers or references to remove. `object-ref` is an opaque pointer with no resolution (`spec/value-types.md`), so a `remove` entry matches the stored value byte-exactly.
+
+`add` and `remove` are the two sides of one `set-observed-remove` OR-set, so both carry the same value type (`object-ref`, per `spec/identifiers.md#reference`).
 
 At least one of `add` or `remove` MUST be present and contain at least one item.
 An empty `{}` body or empty arrays (`"remove": []`) are invalid.
@@ -326,10 +328,10 @@ Folded issue state is `Issue{title, description, state, reason, priority, estima
 | `set-state` | `state` | `lww` | Last writer wins |
 | `set-state` | `reason` | `lww` | Last writer wins |
 | `set-state` | `position` | `lww` | Last writer wins |
-| `assign` | `add` | `set-observed-remove` | Add-wins OR-set over normalized person identifiers (`spec/identifiers.md`) |
-| `assign` | `remove` | `set-observed-remove` | Add-wins OR-set over normalized person identifiers (`spec/identifiers.md`) |
-| `label` | `add` | `set-observed-remove` | Add-wins OR-set over label strings |
-| `label` | `remove` | `set-observed-remove` | Add-wins OR-set over label strings |
+| `assign` | `add` | `set-observed-remove` | Add-wins OR-set over normalized person identifiers (`spec/identifiers.md`); maps to state key `assignees` |
+| `assign` | `remove` | `set-observed-remove` | Add-wins OR-set over normalized person identifiers (`spec/identifiers.md`); maps to state key `assignees` |
+| `label` | `add` | `set-observed-remove` | Add-wins OR-set over label references (`object-ref`); maps to state key `labels` |
+| `label` | `remove` | `set-observed-remove` | Add-wins OR-set over label references (`object-ref`); maps to state key `labels` |
 | `link` | `target` | `keyed-lww` | Scoped by key `["target"]` |
 | `link` | `target_type` | `keyed-lww` | Scoped by key `["target"]` |
 | `link` | `relation` | `keyed-lww` | Scoped by key `["target"]`; `"none"` retracts |

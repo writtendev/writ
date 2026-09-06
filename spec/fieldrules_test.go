@@ -255,3 +255,142 @@ func TestFieldRuleTargetKey(t *testing.T) {
 		t.Fatalf("expected Target 'ci_description', got %q", got)
 	}
 }
+
+// TestCheckTargetCollision pins WRIT-198's widened target-collision standard
+// (spec/fold.md §5, spec/schema-ops.md §8): rules sharing a TargetKey must
+// always agree on Strategy, and must also agree on ValueType, Key, KeyTypes,
+// Enum, MaxLength and Lattice unless they are an op_version bump of the same
+// (op_type, field) — the one case those sections let change everything but
+// strategy. Lattice belongs in that must-agree set rather than on the
+// version-bump carve-out's freely-changeable list because, unlike the other
+// five, it is consulted by the strategy at fold time: two same-strategy
+// lattice rules sharing a target but declaring different orderings are
+// exactly as order-dependent as two rules disagreeing on strategy itself.
+func TestCheckTargetCollision(t *testing.T) {
+	tests := []struct {
+		name      string
+		prior     spec.FieldRule
+		candidate spec.FieldRule
+		wantErr   bool
+	}{
+		{
+			name:      "different strategy, same target: rejected",
+			prior:     spec.FieldRule{OpType: "create", Field: "priority", Strategy: "lww", ValueType: "string"},
+			candidate: spec.FieldRule{OpType: "create", OpVersion: 2, Field: "priority", Strategy: "lattice", ValueType: "string"},
+			wantErr:   true,
+		},
+		{
+			name:      "same strategy, different value_type, cross op_type: rejected",
+			prior:     spec.FieldRule{OpType: "assign", Field: "add", Strategy: "set-observed-remove", ValueType: "person-ref"},
+			candidate: spec.FieldRule{OpType: "label", Field: "add", Strategy: "set-observed-remove", ValueType: "object-ref"},
+			wantErr:   true,
+		},
+		{
+			name:      "same strategy, different key, cross field: rejected",
+			prior:     spec.FieldRule{OpType: "approval", Field: "revision", Strategy: "keyed-lww", Key: []string{"subject", "revision"}},
+			candidate: spec.FieldRule{OpType: "ci-status", Field: "revision", Strategy: "keyed-lww", Key: []string{"revision", "name"}},
+			wantErr:   true,
+		},
+		{
+			name:      "same strategy, different lattice ordering, cross op_type: rejected",
+			prior:     spec.FieldRule{OpType: "promote", Field: "level", Target: "level", Strategy: "lattice", Lattice: []string{"low", "high"}},
+			candidate: spec.FieldRule{OpType: "demote", Field: "level", Target: "level", Strategy: "lattice", Lattice: []string{"high", "low"}},
+			wantErr:   true,
+		},
+		{
+			name:      "version bump, same op_type and field, different value_type: permitted",
+			prior:     spec.FieldRule{OpType: "widget-op", OpVersion: 1, Field: "value", Strategy: "lww", ValueType: "string"},
+			candidate: spec.FieldRule{OpType: "widget-op", OpVersion: 2, Field: "value", Strategy: "lww", ValueType: "enum", Enum: []string{"draft", "approved"}},
+			wantErr:   false,
+		},
+		{
+			name:      "version bump, same op_type and field, strategy changes: still rejected",
+			prior:     spec.FieldRule{OpType: "widget-op", OpVersion: 1, Field: "value", Strategy: "lww", ValueType: "string"},
+			candidate: spec.FieldRule{OpType: "widget-op", OpVersion: 2, Field: "value", Strategy: "set-union", ValueType: "string"},
+			wantErr:   true,
+		},
+		{
+			name:      "cross op_type, everything agrees: permitted (the 28 deliberate shares)",
+			prior:     spec.FieldRule{OpType: "create", Field: "title", Strategy: "lww", ValueType: "string"},
+			candidate: spec.FieldRule{OpType: "update", Field: "title", Strategy: "lww", ValueType: "string"},
+			wantErr:   false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			bound := map[string][]spec.FieldRule{tc.prior.TargetKey(): {tc.prior}}
+			err := spec.CheckTargetCollision(bound, tc.candidate)
+			if tc.wantErr && err == nil {
+				t.Fatalf("expected a collision error, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("expected no collision, got: %v", err)
+			}
+		})
+	}
+}
+
+// TestFieldRulesNoUndeclaredTargetCollisions asserts that every shipped
+// vocabulary in spec/testdata/**/field-rules.json passes the standard
+// TestCheckTargetCollision pins above — the same standard writ imposes on
+// writ.schema authors (engine/schemasrc/compile.go's checkTargetCollision)
+// and on log-resolved schemas (engine/schema.go's RulesFromSchemas).
+// spec.FieldRules() runs this check itself while loading, so a corpus that
+// violates it fails to load at all; this test exists to name the invariant
+// directly, so a future collision (a renamed target reused, a reconciled
+// value_type drifting back apart) fails here by name rather than as an
+// opaque error deep in some unrelated test's setup.
+func TestFieldRulesNoUndeclaredTargetCollisions(t *testing.T) {
+	if _, err := spec.FieldRules(); err != nil {
+		t.Fatalf("spec.FieldRules() failed; it runs the target-collision check while loading, so this may be a collision in the shipped corpus, an unmapped vocabulary directory, or a duplicate object type: %v", err)
+	}
+}
+
+// TestFieldRulesDeriveNonEmptyObjectType asserts that every rule
+// spec.FieldRules() loads from the shipped testdata/**/field-rules.json
+// corpus carries a non-empty ObjectType. FieldRules derives ObjectType from
+// vocabularyObjectTypes (spec/vocabulary.go) keyed by directory, and fails
+// closed — returning an error rather than an empty string — when a
+// directory has no entry there; this test pins that every shipped directory
+// does have one, so a directory added without updating the map fails here
+// by name instead of silently matching every object type in fold's rule
+// matching (spec/fold.md §5). It does not apply to the hand-written Go rule
+// tables (engine/state/{review,issue}.go and friends), which deliberately
+// leave ObjectType empty (Plan §C3), or to the abstract merge vectors under
+// testdata/fold/merge/, which declare no object type at all — neither goes
+// through FieldRules.
+func TestFieldRulesDeriveNonEmptyObjectType(t *testing.T) {
+	rules, err := spec.FieldRules()
+	if err != nil {
+		t.Fatalf("spec.FieldRules(): %v", err)
+	}
+	for _, r := range rules {
+		if r.ObjectType == "" {
+			t.Errorf("rule (%s, %d, %s) from directory %q has empty ObjectType; add an entry to vocabularyObjectTypes for that directory", r.OpType, r.OpVersion, r.Field, r.Vocabulary)
+		}
+	}
+}
+
+// TestVocabularyObjectTypesIsInjective asserts that spec.VocabularyObjectTypes
+// maps at most one directory to each object type. Fold's rule matching
+// (spec/fold.md §5) scopes rules by ObjectType, and spec.FieldRules() only
+// checks for a target collision within one field-rules.json directory's own
+// rules (its targetBindings map is fresh per file — see FieldRules's
+// comment) on the assumption that a directory is the sole source of rules
+// for its object type. Two directories mapped to the same object type would
+// break that assumption silently: their rules would share an ObjectType and
+// so share a fold rule-matching universe, but a genuine target collision
+// between them would go unchecked. FieldRules() itself now rejects this at
+// load time; this test pins the invariant directly against the map, so a
+// future hand-edit reusing an object type fails here by name.
+func TestVocabularyObjectTypesIsInjective(t *testing.T) {
+	seenBy := make(map[string]string)
+	for dir, objectType := range spec.VocabularyObjectTypes() {
+		if priorDir, ok := seenBy[objectType]; ok {
+			t.Errorf("directories %q and %q both map to object type %q in vocabularyObjectTypes; each object type must have exactly one field-rules.json directory", priorDir, dir, objectType)
+			continue
+		}
+		seenBy[objectType] = dir
+	}
+}

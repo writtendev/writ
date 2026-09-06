@@ -1052,8 +1052,8 @@ func TestFoldReviewOrSetBodyShapes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fold: %v", err)
 	}
-	if !reflect.DeepEqual(generic.State["add"], want) {
-		t.Errorf("generic add = %v, want %v", generic.State["add"], want)
+	if !reflect.DeepEqual(generic.State["labels"], want) {
+		t.Errorf("generic labels = %v, want %v", generic.State["labels"], want)
 	}
 }
 
@@ -1096,8 +1096,8 @@ func TestFoldReviewNestedShapeAtFlatField(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fold: %v", err)
 	}
-	if !reflect.DeepEqual(generic.State["add"], want) {
-		t.Errorf("generic add = %v, want %v", generic.State["add"], want)
+	if !reflect.DeepEqual(generic.State["labels"], want) {
+		t.Errorf("generic labels = %v, want %v", generic.State["labels"], want)
 	}
 }
 
@@ -1147,11 +1147,8 @@ func TestFoldReviewMixedFlatAndNestedShapes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fold: %v", err)
 	}
-	if !reflect.DeepEqual(generic.State["add"], want) {
-		t.Errorf("generic add = %v, want %v", generic.State["add"], want)
-	}
-	if !reflect.DeepEqual(generic.State["remove"], want) {
-		t.Errorf("generic remove = %v, want %v", generic.State["remove"], want)
+	if !reflect.DeepEqual(generic.State["labels"], want) {
+		t.Errorf("generic labels = %v, want %v", generic.State["labels"], want)
 	}
 
 	// Reference fold cross-check
@@ -1193,11 +1190,8 @@ func TestFoldReviewMixedFlatAndNestedShapes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("spec.Fold: %v", err)
 	}
-	if !reflect.DeepEqual(refRes.State["add"], want) {
-		t.Errorf("ref add = %v, want %v", refRes.State["add"], want)
-	}
-	if !reflect.DeepEqual(refRes.State["remove"], want) {
-		t.Errorf("ref remove = %v, want %v", refRes.State["remove"], want)
+	if !reflect.DeepEqual(refRes.State["labels"], want) {
+		t.Errorf("ref labels = %v, want %v", refRes.State["labels"], want)
 	}
 }
 
@@ -1360,19 +1354,31 @@ func TestFoldReviewApprovalAndCIStatusKeyAgreement(t *testing.T) {
 		t.Fatalf("Fold: %v", err)
 	}
 
+	// approval.revision and ci-status.revision are keyed on different tuples
+	// ((subject, revision) vs (revision, name)) but both declared the field
+	// "revision" with no distinct target — so before WRIT-198's fix they
+	// collided onto one shared "revision" state key. ci-status.revision is
+	// now targeted "ci_revision" (following the ci_description precedent
+	// already on this same rule block), so the two land in separate state
+	// keys and neither can overwrite the other.
 	wantRevision := []any{
 		map[string]any{
-			"key":   []string{rev, "build"},
+			"key":   []string{"user:alice", rev},
 			"value": rev,
 		},
+	}
+	wantCIRevision := []any{
 		map[string]any{
-			"key":   []string{"user:alice", rev},
+			"key":   []string{rev, "build"},
 			"value": rev,
 		},
 	}
 
 	if !reflect.DeepEqual(generic.State["revision"], wantRevision) {
 		t.Errorf("revision mismatch:\n got:  %v\n want: %v", generic.State["revision"], wantRevision)
+	}
+	if !reflect.DeepEqual(generic.State["ci_revision"], wantCIRevision) {
+		t.Errorf("ci_revision mismatch:\n got:  %v\n want: %v", generic.State["ci_revision"], wantCIRevision)
 	}
 
 	// 2. FoldReview typed fold verification
@@ -1438,6 +1444,10 @@ func TestFoldReviewApprovalAndCIStatusKeyAgreement(t *testing.T) {
 		t.Errorf("revision mismatch between engine fold and spec fold:\n engine: %v\n spec:   %v",
 			generic.State["revision"], refRes.State["revision"])
 	}
+	if !reflect.DeepEqual(generic.State["ci_revision"], refRes.State["ci_revision"]) {
+		t.Errorf("ci_revision mismatch between engine fold and spec fold:\n engine: %v\n spec:   %v",
+			generic.State["ci_revision"], refRes.State["ci_revision"])
+	}
 
 	engineRaw, err := json.Marshal(generic.State)
 	if err != nil {
@@ -1460,6 +1470,82 @@ func TestFoldReviewApprovalAndCIStatusKeyAgreement(t *testing.T) {
 	if string(engineJSON) != string(specJSON) {
 		t.Errorf("canonical JSON mismatch between engine fold and spec fold:\n engine: %s\n spec:   %s",
 			string(engineJSON), string(specJSON))
+	}
+}
+
+// TestFoldReviewGenericMatchesTypedWithOverlappingAssigneeAndLabel is
+// WRIT-198's behavioural regression test, run against a fixed, readable
+// example rather than the property test (engine/fold_property_test.go's
+// TestProperty_FoldThreeWay, which now also draws assign and label items
+// from an overlapping pool for the same reason). Before the fix,
+// assign.{add,remove} and label.{add,remove} declared no target, so both
+// pairs fell back to the shared body field names "add"/"remove": the
+// generic fold merged a review's assignees and labels into one set. An
+// assignee and a label sharing the identical underlying string is exactly
+// the case a shared, undiscriminating target cannot represent.
+func TestFoldReviewGenericMatchesTypedWithOverlappingAssigneeAndLabel(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	const shared = "shared-item"
+
+	ops := []codec.Op{
+		{
+			ID: "op-create",
+			Envelope: codec.Envelope{
+				ObjectID:   "r-overlap",
+				ObjectType: "review",
+				OpType:     "create",
+				OpVersion:  1,
+				Body:       json.RawMessage(`{"title":"Overlap Test"}`),
+			},
+			Author: codec.Identity{When: now},
+		},
+		{
+			ID:      "op-assign",
+			Parents: []string{"op-create"},
+			Envelope: codec.Envelope{
+				ObjectID:   "r-overlap",
+				ObjectType: "review",
+				OpType:     "assign",
+				OpVersion:  1,
+				Body:       json.RawMessage(`{"add":["` + shared + `"]}`),
+			},
+			Author: codec.Identity{When: now.Add(time.Minute)},
+		},
+		{
+			ID:      "op-label",
+			Parents: []string{"op-assign"},
+			Envelope: codec.Envelope{
+				ObjectID:   "r-overlap",
+				ObjectType: "review",
+				OpType:     "label",
+				OpVersion:  1,
+				Body:       json.RawMessage(`{"add":["` + shared + `"]}`),
+			},
+			Author: codec.Identity{When: now.Add(2 * time.Minute)},
+		},
+	}
+
+	typed, err := s.FoldReview(ops)
+	if err != nil {
+		t.Fatalf("FoldReview: %v", err)
+	}
+	wantSet := []string{shared}
+	if !reflect.DeepEqual(typed.Assignees, wantSet) {
+		t.Fatalf("typed Assignees = %v, want %v", typed.Assignees, wantSet)
+	}
+	if !reflect.DeepEqual(typed.Labels, wantSet) {
+		t.Fatalf("typed Labels = %v, want %v", typed.Labels, wantSet)
+	}
+
+	generic, err := s.Fold(ops, s.ReviewRules())
+	if err != nil {
+		t.Fatalf("Fold: %v", err)
+	}
+	if !reflect.DeepEqual(generic.State["assignees"], wantSet) {
+		t.Errorf("generic assignees = %v, want %v", generic.State["assignees"], wantSet)
+	}
+	if !reflect.DeepEqual(generic.State["labels"], wantSet) {
+		t.Errorf("generic labels = %v, want %v", generic.State["labels"], wantSet)
 	}
 }
 

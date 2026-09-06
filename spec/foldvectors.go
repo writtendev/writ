@@ -67,6 +67,15 @@ type StrategyConfig struct {
 	// Target names the state key this rule's value lands under, defaulting to
 	// the resolved Field when empty (spec/fold.md §5's TargetKey).
 	Target string `json:"target,omitempty"`
+	// ObjectType scopes the rule to one object type (spec/fold.md §5), as a
+	// production FieldRule/Rule does; empty matches any op's object type, as
+	// before. It exists so a merge vector can pin the object-type scoping
+	// clause in opMatchesRule itself: two StrategyConfig entries sharing a
+	// Target and Field but declaring different ObjectType are exactly the
+	// cross-vocabulary target collision spec.FieldRules() produces today
+	// (the "labels" target, document vs review/issue) and must not merge into
+	// one accumulator.
+	ObjectType string `json:"object_type,omitempty"`
 }
 
 // MergeAuthor represents the author identity on a commit carrier for an operation.
