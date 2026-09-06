@@ -120,6 +120,24 @@ func toSpecRules(rules []writ.Rule) []spec.FieldRule {
 	return specRules
 }
 
+// filterValidRules drops any rule spec.ValidateFieldRule would reject
+// before it reaches the fold. Schema-sourced rules are gated the same way
+// in production (engine/schema.go's RulesFromSchemas, WRIT-186 §Rule
+// validation), and the abstract fuzz path's fc.Rules is fuzz-mutated JSON
+// with no producer standing behind it: a mutation that turns Strategy into
+// "" or an unknown string must not reach NewAccumulator here either
+// (WRIT-196) — that recurrence, after this filter lands, is a real
+// failure, not the flake it fixes.
+func filterValidRules(rules []writ.Rule) []writ.Rule {
+	var out []writ.Rule
+	for i, sr := range toSpecRules(rules) {
+		if spec.ValidateFieldRule(sr) == nil {
+			out = append(out, rules[i])
+		}
+	}
+	return out
+}
+
 func toCanonicalJSON(t *testing.T, v any) []byte {
 	t.Helper()
 	b, err := json.Marshal(v)
@@ -1974,6 +1992,10 @@ func FuzzFoldThreeWay(f *testing.F) {
 				}
 				assertThreeWayFoldDomain(t, fc.ObjectType, fc.Ops, rules, fc.Mode)
 			} else {
+				if len(fc.Rules) == 0 {
+					return
+				}
+				fc.Rules = filterValidRules(fc.Rules)
 				if len(fc.Rules) == 0 {
 					return
 				}

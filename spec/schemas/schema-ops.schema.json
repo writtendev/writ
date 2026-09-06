@@ -1,0 +1,357 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://writ.dev/spec/schema-ops.schema.json",
+  "title": "Writ schema operations (v1)",
+  "description": "JSON Schema for operations on collaborative objects of type 'schema' — writ's one hard-coded object type. Extends the op envelope schema (spec/schemas/op-envelope.schema.json) with body definitions for create, define-type, define-field, define-op, deprecate-type, and deprecate-field. Unknown additional properties are permitted on envelope and body per the forward compatibility rule.",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "https://writ.dev/spec/op-envelope.schema.json"
+    }
+  ],
+  "properties": {
+    "object_type": {
+      "const": "schema"
+    }
+  },
+  "required": [
+    "object_type"
+  ],
+  "if": {
+    "properties": {
+      "object_type": {
+        "const": "schema"
+      },
+      "op_version": {
+        "const": 1
+      }
+    },
+    "required": [
+      "object_type",
+      "op_version"
+    ]
+  },
+  "then": {
+    "allOf": [
+      {
+        "if": {
+          "properties": {
+            "op_type": {
+              "const": "create"
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "body": {
+              "$ref": "#/$defs/create_body"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "op_type": {
+              "const": "define-type"
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "body": {
+              "$ref": "#/$defs/define_type_body"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "op_type": {
+              "const": "define-field"
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "body": {
+              "$ref": "#/$defs/define_field_body"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "op_type": {
+              "const": "define-op"
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "body": {
+              "$ref": "#/$defs/define_op_body"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "op_type": {
+              "const": "deprecate-type"
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "body": {
+              "$ref": "#/$defs/deprecate_type_body"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "op_type": {
+              "const": "deprecate-field"
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "body": {
+              "$ref": "#/$defs/deprecate_field_body"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "$defs": {
+    "namespace": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "maxLength": 64,
+      "description": "A schema's namespace. Namespace is part of the schema object and disambiguates independent authors; it is never carried on the wire (spec/schema-ops.md §Namespace and object_type binding) — object_type on ops stays the bare type name below."
+    },
+    "type_name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "maxLength": 64,
+      "description": "A declared object type's bare name. This is used verbatim as the wire object_type (spec/op-envelope.md), so it shares that field's exact grammar."
+    },
+    "op_type_name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "maxLength": 64,
+      "description": "The op_type this rule governs, within the declaring type's vocabulary. Shares the wire op_type grammar (spec/op-envelope.md)."
+    },
+    "op_version_string": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]*$",
+      "maxLength": 16,
+      "description": "The op_version this rule governs, encoded as a decimal string rather than a JSON integer. A keyed-lww key component must be a string on the fold path (engine/internal/fold/reject.go); this is that constraint applied to op_version wherever it appears in a key, stated as a deliberate encoding rather than an accident."
+    },
+    "field_name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "maxLength": 64,
+      "description": "The op body field this rule governs."
+    },
+    "value_type": {
+      "type": "string",
+      "enum": [
+        "string",
+        "text",
+        "int",
+        "number",
+        "bool",
+        "timestamp",
+        "enum",
+        "person-ref",
+        "object-ref",
+        "git-oid",
+        "position",
+        "anchor"
+      ],
+      "description": "The closed value-type catalogue (spec/value-types.md)."
+    },
+    "strategy": {
+      "type": "string",
+      "enum": [
+        "lww",
+        "create-once",
+        "set-union",
+        "set-observed-remove",
+        "append",
+        "tombstone",
+        "lattice",
+        "keyed-lww",
+        "multi-value"
+      ],
+      "description": "The closed per-field merge strategy catalogue (spec/fold.md §5)."
+    },
+    "create_body": {
+      "type": "object",
+      "properties": {
+        "namespace": {
+          "$ref": "#/$defs/namespace"
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "namespace"
+      ]
+    },
+    "define_type_body": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "$ref": "#/$defs/type_name"
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ]
+    },
+    "deprecate_type_body": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "$ref": "#/$defs/type_name"
+        },
+        "deprecated": {
+          "const": true
+        }
+      },
+      "required": [
+        "type",
+        "deprecated"
+      ]
+    },
+    "define_op_body": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "$ref": "#/$defs/type_name"
+        },
+        "op_type": {
+          "$ref": "#/$defs/op_type_name"
+        },
+        "op_version": {
+          "$ref": "#/$defs/op_version_string"
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "op_type",
+        "op_version"
+      ]
+    },
+    "define_field_body": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "$ref": "#/$defs/type_name"
+        },
+        "op_type": {
+          "$ref": "#/$defs/op_type_name"
+        },
+        "op_version": {
+          "$ref": "#/$defs/op_version_string"
+        },
+        "field": {
+          "$ref": "#/$defs/field_name"
+        },
+        "value_type": {
+          "$ref": "#/$defs/value_type"
+        },
+        "enum": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "max_length": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "strategy": {
+          "$ref": "#/$defs/strategy"
+        },
+        "key": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        },
+        "key_types": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/value_type"
+          }
+        },
+        "lattice": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "type",
+        "op_type",
+        "op_version",
+        "field",
+        "strategy"
+      ]
+    },
+    "deprecate_field_body": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "$ref": "#/$defs/type_name"
+        },
+        "op_type": {
+          "$ref": "#/$defs/op_type_name"
+        },
+        "op_version": {
+          "$ref": "#/$defs/op_version_string"
+        },
+        "field": {
+          "$ref": "#/$defs/field_name"
+        },
+        "deprecated": {
+          "const": true
+        }
+      },
+      "required": [
+        "type",
+        "op_type",
+        "op_version",
+        "field",
+        "deprecated"
+      ]
+    }
+  }
+}

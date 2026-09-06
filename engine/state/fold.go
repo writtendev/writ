@@ -20,6 +20,14 @@ type Rule struct {
 	Enum      []string          `json:"enum,omitempty"`
 	MaxLength int64             `json:"max_length,omitempty"`
 	KeyTypes  map[string]string `json:"key_types,omitempty"`
+	// Deprecated is carried through from a schema-declared field's
+	// deprecate-field state (spec/schema-ops.md §4.6, §5): it is metadata
+	// for a producer or UI to read, discouraging new writes. It never
+	// affects folding — a deprecated rule is installed and matched exactly
+	// like any other, because already-signed ops written under it must keep
+	// folding (spec/schema-ops.md §7 step 3; AGENTS.md "old clients must not
+	// destroy new clients' data").
+	Deprecated bool `json:"deprecated,omitempty"`
 }
 
 // TargetKey returns Target if non-empty, otherwise Field.

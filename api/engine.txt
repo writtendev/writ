@@ -57,6 +57,7 @@ func FoldIssue(ops []codec.Op) (Issue, error)
 func FoldLabel(ops []codec.Op) (Label, error)
 func FoldProject(ops []codec.Op) (Project, error)
 func FoldReview(ops []codec.Op) (Review, error)
+func FoldSchema(ops []codec.Op) (Schema, error)
 func FoldSection(ops []codec.Op) (Section, error)
 func FoldSettings(ops []codec.Op) (Settings, error)
 func FoldWorkflowState(ops []codec.Op) (WorkflowState, error)
@@ -69,6 +70,8 @@ func ParseReference(ref string) (string, string, error)
 func ProjectRules() []Rule
 func ResolveGitDir(path string) (GitDirInfo, error)
 func ReviewRules() []Rule
+func RulesFromSchemas(schemas []state.Schema) (map[string][]Rule, []SchemaConflict)
+func SchemaRules() []Rule
 func SectionRules() []Rule
 func SettingsRules() []Rule
 func WithCacheDir(dir string) Option
@@ -365,6 +368,21 @@ type Revision = state.Revision
 
 type Rule = state.Rule
 
+type Schema = state.Schema
+
+type SchemaConflict struct {
+	ObjectType string `json:"object_type,omitempty"`
+	Namespace string `json:"namespace,omitempty"`
+	ObjectIDs []string `json:"object_ids"`
+	Reason string `json:"reason"`
+}
+
+type SchemaField = state.SchemaField
+
+type SchemaOp = state.SchemaOp
+
+type SchemaType = state.SchemaType
+
 type Section = state.Section
 
 type SectionEdit struct {
@@ -417,6 +435,7 @@ func (*Store) Close() error
 func (*Store) Rebuild(ctx context.Context) (RefreshStats, error)
 func (*Store) Ref(objectID string) string
 func (*Store) Refresh(ctx context.Context) (RefreshStats, error)
+func (*Store) Schema(ctx context.Context) ([]state.Schema, error)
 func (*Store) Sync(ctx context.Context, remote string) (SyncResult, error)
 func (*Store) SyncStatus(ctx context.Context, remote string) (SyncStatus, error)
 func (*Store) Watch(ctx context.Context) <-chan Event
@@ -1309,6 +1328,7 @@ func FoldIssue(ops []codec.Op) (Issue, error)
 func FoldLabel(ops []codec.Op) (Label, error)
 func FoldProject(ops []codec.Op) (Project, error)
 func FoldReview(ops []codec.Op) (Review, error)
+func FoldSchema(ops []codec.Op) (Schema, error)
 func FoldSection(ops []codec.Op) (Section, error)
 func FoldSettings(ops []codec.Op) (Settings, error)
 func FoldWorkflowState(ops []codec.Op) (WorkflowState, error)
@@ -1319,6 +1339,7 @@ func ParseCommentSubject(raw []byte) (CommentSubject, error)
 func ParseReference(ref string) (designator string, objectID string, err error)
 func ProjectRules() []Rule
 func ReviewRules() []Rule
+func SchemaRules() []Rule
 func SectionRules() []Rule
 func SettingsRules() []Rule
 func WorkflowStateRules() []Rule
@@ -1468,8 +1489,46 @@ type Rule struct {
 	Enum []string `json:"enum,omitempty"`
 	MaxLength int64 `json:"max_length,omitempty"`
 	KeyTypes map[string]string `json:"key_types,omitempty"`
+	Deprecated bool `json:"deprecated,omitempty"`
 }
 func (Rule) TargetKey() string
+
+type Schema struct {
+	ObjectID string `json:"object_id"`
+	Namespace string `json:"namespace,omitempty"`
+	Description string `json:"description,omitempty"`
+	Types []SchemaType `json:"types,omitempty"`
+	UnknownOps []UnknownOp `json:"unknown_ops,omitempty"`
+}
+
+type SchemaField struct {
+	Name string `json:"field"`
+	OpType string `json:"op_type"`
+	OpVersion int64 `json:"op_version"`
+	ValueType string `json:"value_type,omitempty"`
+	Enum []string `json:"enum,omitempty"`
+	MaxLength int64 `json:"max_length,omitempty"`
+	Strategy string `json:"strategy,omitempty"`
+	Key []string `json:"key,omitempty"`
+	KeyTypes map[string]string `json:"key_types,omitempty"`
+	Lattice []string `json:"lattice,omitempty"`
+	Target string `json:"target,omitempty"`
+	Deprecated bool `json:"deprecated,omitempty"`
+}
+
+type SchemaOp struct {
+	OpType string `json:"op_type"`
+	OpVersion int64 `json:"op_version"`
+	Description string `json:"description,omitempty"`
+}
+
+type SchemaType struct {
+	Name string `json:"type"`
+	Description string `json:"description,omitempty"`
+	Deprecated bool `json:"deprecated,omitempty"`
+	Fields []SchemaField `json:"fields,omitempty"`
+	Ops []SchemaOp `json:"ops,omitempty"`
+}
 
 type Section struct {
 	DocumentID string `json:"document_id,omitempty"`

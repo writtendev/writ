@@ -1,0 +1,1 @@
+{"body":{"field":"verdict","key":["subject","revision"],"key_types":{"subject":"person-ref"},"op_type":"approval","op_version":"1","strategy":"keyed-lww","type":"standup"},"object_id":"sch-acme","object_type":"schema","op_type":"define-field","op_version":1}

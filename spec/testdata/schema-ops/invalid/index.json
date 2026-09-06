@@ -1,0 +1,99 @@
+[
+  {
+    "file": "create-missing-namespace.json",
+    "rejects": "schema",
+    "reason": "create op body is missing required namespace"
+  },
+  {
+    "file": "wrong-object-type.json",
+    "rejects": "schema",
+    "reason": "object_type is 'workflow-state', not the constant 'schema' this schema requires"
+  },
+  {
+    "file": "define-type-missing-type.json",
+    "rejects": "schema",
+    "reason": "define-type op body is missing required type"
+  },
+  {
+    "file": "define-field-missing-strategy.json",
+    "rejects": "schema",
+    "reason": "define-field op body is missing required strategy"
+  },
+  {
+    "file": "define-field-unknown-strategy.json",
+    "rejects": "schema",
+    "reason": "strategy 'counter' is not a member of the closed merge-strategy catalogue"
+  },
+  {
+    "file": "define-field-unknown-value-type.json",
+    "rejects": "schema",
+    "reason": "value_type 'currency' is not a member of the closed value-type catalogue"
+  },
+  {
+    "file": "define-field-op-version-not-string.json",
+    "rejects": "schema",
+    "reason": "op_version is the JSON integer 1, not the decimal string encoding a keyed-lww key component requires on the fold path"
+  },
+  {
+    "file": "define-field-op-version-leading-zero.json",
+    "rejects": "schema",
+    "reason": "op_version '01' has a leading zero, violating the decimal-string pattern"
+  },
+  {
+    "file": "define-field-max-length-zero.json",
+    "rejects": "schema",
+    "reason": "max_length is 0, below the minimum of 1 (field-rules.schema.json's max_length shares this bound, and ValidateFieldRule's != 0 gate would otherwise read a 0 as 'no limit declared' rather than reject it)"
+  },
+  {
+    "file": "define-op-missing-op-version.json",
+    "rejects": "schema",
+    "reason": "define-op op body is missing required op_version"
+  },
+  {
+    "file": "deprecate-type-deprecated-false.json",
+    "rejects": "schema",
+    "reason": "deprecated is false; the const true this op type requires"
+  },
+  {
+    "file": "deprecate-field-missing-field.json",
+    "rejects": "schema",
+    "reason": "deprecate-field op body is missing required field"
+  },
+  {
+    "file": "define-field-enum-without-enum-value-type.json",
+    "rejects": "invariant",
+    "reason": "enum values declared on value_type 'string', which is not 'enum' (spec.ValidateFieldRule)"
+  },
+  {
+    "file": "define-field-keyed-lww-missing-key.json",
+    "rejects": "invariant",
+    "reason": "strategy 'keyed-lww' declares no key (spec.ValidateFieldRule)"
+  },
+  {
+    "file": "define-field-key-types-mismatch.json",
+    "rejects": "invariant",
+    "reason": "key_types covers only 'subject', not the 'revision' column key also declares (spec.ValidateFieldRule)"
+  },
+  {
+    "file": "define-field-lattice-missing-elements.json",
+    "rejects": "invariant",
+    "reason": "strategy 'lattice' declares no lattice elements (spec.ValidateFieldRule)"
+  },
+  {
+    "file": "define-field-max-length-on-bool.json",
+    "rejects": "invariant",
+    "reason": "max_length declared on value_type 'bool'; only string and text take one (spec.ValidateFieldRule)"
+  },
+  {
+    "file": "not-canonical.json",
+    "rejects": "canonicalization",
+    "category": "not-canonical",
+    "reason": "pretty-printed with indentation and newlines, not the compact canonical encoding"
+  },
+  {
+    "file": "duplicate-key.json",
+    "rejects": "canonicalization",
+    "category": "duplicate-key",
+    "reason": "body object declares 'namespace' twice"
+  }
+]

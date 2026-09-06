@@ -40,6 +40,15 @@ type OrderVector struct {
 
 // StrategyConfig specifies the merge strategy and optional parameters (e.g. lattice elements)
 // for a field in a merge vector.
+//
+// Field, OpType, OpVersion, and Target are optional and exist for the sole
+// case the map key cannot express: two rules for the *same* op body field
+// scoped to different (op_type, op_version), as spec/fold.md §5's target
+// remedy requires (WRIT-186 §Evolution). A vector's `fields` map is keyed by
+// an arbitrary label in that case rather than by the field name itself, and
+// Field supplies the real body field every such label shares. Every existing
+// vector omits all four, and the map key remains the field name for them,
+// unchanged.
 type StrategyConfig struct {
 	Strategy  string            `json:"strategy"`
 	Lattice   []string          `json:"lattice,omitempty"`
@@ -48,6 +57,16 @@ type StrategyConfig struct {
 	Enum      []string          `json:"enum,omitempty"`
 	MaxLength int64             `json:"max_length,omitempty"`
 	KeyTypes  map[string]string `json:"key_types,omitempty"`
+	// Field overrides the op body field name this rule reads; defaults to the
+	// vector's `fields` map key when empty.
+	Field string `json:"field,omitempty"`
+	// OpType and OpVersion scope the rule to one operation version, as a
+	// production Rule does; empty/zero match any op, as before.
+	OpType    string `json:"op_type,omitempty"`
+	OpVersion int64  `json:"op_version,omitempty"`
+	// Target names the state key this rule's value lands under, defaulting to
+	// the resolved Field when empty (spec/fold.md §5's TargetKey).
+	Target string `json:"target,omitempty"`
 }
 
 // MergeAuthor represents the author identity on a commit carrier for an operation.

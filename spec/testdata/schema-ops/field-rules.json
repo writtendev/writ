@@ -1,0 +1,162 @@
+[
+  {
+    "op_type": "create",
+    "op_version": 1,
+    "field": "namespace",
+    "strategy": "create-once",
+    "value_type": "string"
+  },
+  {
+    "op_type": "create",
+    "op_version": 1,
+    "field": "description",
+    "strategy": "lww",
+    "value_type": "string"
+  },
+  {
+    "op_type": "define-type",
+    "op_version": 1,
+    "field": "type",
+    "target": "type_name",
+    "strategy": "keyed-lww",
+    "key": ["type"],
+    "key_types": { "type": "string" },
+    "value_type": "string"
+  },
+  {
+    "op_type": "define-type",
+    "op_version": 1,
+    "field": "description",
+    "target": "type_description",
+    "strategy": "keyed-lww",
+    "key": ["type"],
+    "key_types": { "type": "string" },
+    "value_type": "string"
+  },
+  {
+    "op_type": "deprecate-type",
+    "op_version": 1,
+    "field": "deprecated",
+    "target": "type_deprecated",
+    "strategy": "keyed-lww",
+    "key": ["type"],
+    "key_types": { "type": "string" },
+    "value_type": "bool"
+  },
+  {
+    "op_type": "define-op",
+    "op_version": 1,
+    "field": "op_type",
+    "target": "op_name",
+    "strategy": "keyed-lww",
+    "key": ["type", "op_type", "op_version"],
+    "key_types": { "type": "string", "op_type": "string", "op_version": "string" },
+    "value_type": "string"
+  },
+  {
+    "op_type": "define-op",
+    "op_version": 1,
+    "field": "description",
+    "target": "op_description",
+    "strategy": "keyed-lww",
+    "key": ["type", "op_type", "op_version"],
+    "key_types": { "type": "string", "op_type": "string", "op_version": "string" },
+    "value_type": "string"
+  },
+  {
+    "op_type": "define-field",
+    "op_version": 1,
+    "field": "field",
+    "target": "field_name",
+    "strategy": "keyed-lww",
+    "key": ["type", "op_type", "op_version", "field"],
+    "key_types": { "type": "string", "op_type": "string", "op_version": "string", "field": "string" },
+    "value_type": "string"
+  },
+  {
+    "op_type": "define-field",
+    "op_version": 1,
+    "field": "value_type",
+    "target": "field_value_type",
+    "strategy": "keyed-lww",
+    "key": ["type", "op_type", "op_version", "field"],
+    "key_types": { "type": "string", "op_type": "string", "op_version": "string", "field": "string" },
+    "value_type": "string"
+  },
+  {
+    "op_type": "define-field",
+    "op_version": 1,
+    "field": "enum",
+    "target": "field_enum",
+    "strategy": "keyed-lww",
+    "key": ["type", "op_type", "op_version", "field"],
+    "key_types": { "type": "string", "op_type": "string", "op_version": "string", "field": "string" }
+  },
+  {
+    "op_type": "define-field",
+    "op_version": 1,
+    "field": "max_length",
+    "target": "field_max_length",
+    "strategy": "keyed-lww",
+    "key": ["type", "op_type", "op_version", "field"],
+    "key_types": { "type": "string", "op_type": "string", "op_version": "string", "field": "string" },
+    "value_type": "int"
+  },
+  {
+    "op_type": "define-field",
+    "op_version": 1,
+    "field": "strategy",
+    "target": "field_strategy",
+    "strategy": "keyed-lww",
+    "key": ["type", "op_type", "op_version", "field"],
+    "key_types": { "type": "string", "op_type": "string", "op_version": "string", "field": "string" },
+    "value_type": "string"
+  },
+  {
+    "op_type": "define-field",
+    "op_version": 1,
+    "field": "key",
+    "target": "field_key",
+    "strategy": "keyed-lww",
+    "key": ["type", "op_type", "op_version", "field"],
+    "key_types": { "type": "string", "op_type": "string", "op_version": "string", "field": "string" }
+  },
+  {
+    "op_type": "define-field",
+    "op_version": 1,
+    "field": "key_types",
+    "target": "field_key_types",
+    "strategy": "keyed-lww",
+    "key": ["type", "op_type", "op_version", "field"],
+    "key_types": { "type": "string", "op_type": "string", "op_version": "string", "field": "string" }
+  },
+  {
+    "op_type": "define-field",
+    "op_version": 1,
+    "field": "lattice",
+    "target": "field_lattice",
+    "strategy": "keyed-lww",
+    "key": ["type", "op_type", "op_version", "field"],
+    "key_types": { "type": "string", "op_type": "string", "op_version": "string", "field": "string" }
+  },
+  {
+    "op_type": "define-field",
+    "op_version": 1,
+    "field": "target",
+    "target": "field_target",
+    "strategy": "keyed-lww",
+    "key": ["type", "op_type", "op_version", "field"],
+    "key_types": { "type": "string", "op_type": "string", "op_version": "string", "field": "string" },
+    "value_type": "string"
+  },
+  {
+    "op_type": "deprecate-field",
+    "op_version": 1,
+    "field": "deprecated",
+    "target": "field_deprecated",
+    "strategy": "keyed-lww",
+    "key": ["type", "op_type", "op_version", "field"],
+    "key_types": { "type": "string", "op_type": "string", "op_version": "string", "field": "string" },
+    "value_type": "bool"
+  }
+]

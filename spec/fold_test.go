@@ -122,8 +122,15 @@ func TestMergeVectors(t *testing.T) {
 		t.Run(vec.Name, func(t *testing.T) {
 			var rules []spec.FieldRule
 			for fieldName, cfg := range vec.Fields {
+				field := cfg.Field
+				if field == "" {
+					field = fieldName
+				}
 				rules = append(rules, spec.FieldRule{
-					Field:     fieldName,
+					OpType:    cfg.OpType,
+					OpVersion: cfg.OpVersion,
+					Field:     field,
+					Target:    cfg.Target,
 					Strategy:  cfg.Strategy,
 					Key:       cfg.Key,
 					Lattice:   cfg.Lattice,
@@ -185,8 +192,15 @@ func assertEngineAgrees(t *testing.T, vec spec.MergeVector, wantStateJSON []byte
 
 	var rules []writ.Rule
 	for fieldName, cfg := range vec.Fields {
+		field := cfg.Field
+		if field == "" {
+			field = fieldName
+		}
 		rules = append(rules, writ.Rule{
-			Field:     fieldName,
+			OpType:    cfg.OpType,
+			OpVersion: cfg.OpVersion,
+			Field:     field,
+			Target:    cfg.Target,
 			Strategy:  cfg.Strategy,
 			Key:       cfg.Key,
 			Lattice:   cfg.Lattice,

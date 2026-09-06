@@ -50,6 +50,7 @@ var vocabularySchemaFiles = map[string]string{
 	"document":       "document-ops.schema.json",
 	"section":        "document-ops.schema.json",
 	"settings":       "settings-ops.schema.json",
+	"schema":         "schema-ops.schema.json",
 }
 
 // fieldRuleVocabularies maps an object type to the field-rules.json directory
@@ -69,6 +70,7 @@ var fieldRuleVocabularies = map[string]string{
 	"document":       "document",
 	"section":        "section",
 	"settings":       "settings",
+	"schema":         "schema-ops",
 }
 
 // fieldRuleKey groups the value-typed rules for one (vocabulary, op_type,
@@ -127,6 +129,7 @@ var vocabularyOpTypes = map[string][]string{
 	"document":       {"create", "label", "link", "update"},
 	"section":        {"create", "delete", "edit", "move", "update"},
 	"settings":       {"set"},
+	"schema":         {"create", "define-field", "define-op", "define-type", "deprecate-field", "deprecate-type"},
 }
 
 // vocabularyOpVersion is the op version this build defines for every object

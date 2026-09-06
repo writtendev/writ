@@ -80,6 +80,12 @@ func FoldSettings(ops []codec.Op) (Settings, error) {
 	return state.FoldSettings(ops)
 }
 
+// FoldSchema executes deterministic fold reduction on an input set of operations
+// for a schema collaborative object, returning the materialized Schema state.
+func FoldSchema(ops []codec.Op) (Schema, error) {
+	return state.FoldSchema(ops)
+}
+
 // ReviewRules returns the built-in field merge rules for the review-ops vocabulary (v1).
 func ReviewRules() []Rule {
 	return state.ReviewRules()
@@ -113,6 +119,13 @@ func LabelRules() []Rule {
 // SettingsRules returns the built-in field merge rules for the settings vocabulary (v1).
 func SettingsRules() []Rule {
 	return state.SettingsRules()
+}
+
+// SchemaRules returns the built-in field merge rules for the schema vocabulary
+// (v1) — the one rule table that never comes from the log
+// (spec/schema-ops.md §Bootstrap).
+func SchemaRules() []Rule {
+	return state.SchemaRules()
 }
 
 // FoldDocument executes deterministic fold reduction on an input set of operations
