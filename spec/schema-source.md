@@ -68,6 +68,25 @@ names are never invented by this grammar (§3) — they always come from an
 explicit `op` block header, exactly as `define-op`'s `op_type` always
 comes from the payload a producer wrote (`schema-ops.md` §4.4).
 
+## 1.1. Encoding
+
+A `writ.schema` source file is UTF-8. A byte, or byte sequence, that is
+not valid UTF-8 is a lexical error — a file, line, and column, exactly
+like any other rejection here (§9) — wherever it appears, including
+inside a comment body or a string literal. `Format` writes a source
+file back in place, so silently repairing an invalid byte (to U+FFFD, or
+anything else) is not an option: the byte the author actually typed
+would be gone with no error to say so, and no way to recover it from the
+rewritten file. This applies uniformly; there is no position in the
+grammar where an invalid byte is tolerated.
+
+A leading UTF-8 byte-order mark (`EF BB BF`, U+FEFF) is stripped before
+lexing begins, so a file saved with one by an editor that adds it
+automatically lexes exactly as the same file without it. A BOM anywhere
+other than the very first byte of the file is just the character
+U+FEFF, which has no token production (§2) and is rejected the same way
+any other unexpected character is.
+
 ## 2. The fence
 
 This grammar declares **types, value types, merge strategies, and

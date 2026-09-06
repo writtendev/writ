@@ -71,17 +71,14 @@ func renderType(b *strings.Builder, t state.SchemaType) error {
 		fmt.Fprintf(b, "  description %s\n", quoteString(t.Description))
 	}
 
-	groups, err := groupOps(t)
-	if err != nil {
-		return fmt.Errorf("schemasrc: render type %q: %w", t.Name, err)
-	}
+	groups := groupOps(t)
 
 	for i, g := range groups {
 		if i > 0 || t.Description != "" {
 			b.WriteByte('\n')
 		}
 		if err := renderOpBlock(b, g); err != nil {
-			return err
+			return fmt.Errorf("schemasrc: render type %q: %w", t.Name, err)
 		}
 	}
 
@@ -125,8 +122,11 @@ func toFieldView(f state.SchemaField) fieldView {
 // groupOps computes t's rendered op blocks: the union of every
 // (op_type, op_version) named by t.Ops or t.Fields, grouped by identical
 // (description, field-rule-set) content, ordered by each group's lowest
-// (op_type, op_version).
-func groupOps(t state.SchemaType) ([]opGroup, error) {
+// (op_type, op_version). It has no error path of its own — grouping is
+// pure bookkeeping over already-folded state — so the errors that matter
+// (an unrenderable op type name or field) surface later, from
+// renderOpBlock, where renderType's own wrap now reaches them.
+func groupOps(t state.SchemaType) []opGroup {
 	opDescription := make(map[opKey]string)
 	present := make(map[opKey]bool)
 	for _, o := range t.Ops {
@@ -176,7 +176,7 @@ func groupOps(t state.SchemaType) ([]opGroup, error) {
 	for i := range groups {
 		sort.Slice(groups[i].Ops, func(a, b int) bool { return opKeyLess(groups[i].Ops[a], groups[i].Ops[b]) })
 	}
-	return groups, nil
+	return groups
 }
 
 func sameFieldSet(a, b []state.SchemaField) bool {

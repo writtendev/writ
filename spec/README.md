@@ -90,7 +90,7 @@ producer would have refused. A blank cell means the split does not apply
 | `foldvectors.go` | Informative | | Go loader and structural validation for fold ordering and merge test vectors |
 | `resolutionvectors.go` | Informative | | Go loader and structural validation for resolution test cases |
 | `fixtures/` | Mixed | | The fixture-repo generator and golden harness (informative tooling) producing the golden corpus under `fixtures/testdata/` (normative) |
-| `README.md` | Informative | This document: index, conformance model, independent-implementation guide |
+| `README.md` | Informative | | This document: index, conformance model, independent-implementation guide |
 
 ### Schema Identity ($id)
 
