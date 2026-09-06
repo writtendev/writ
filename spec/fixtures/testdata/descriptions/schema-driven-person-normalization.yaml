@@ -1,6 +1,6 @@
 name: schema-driven-person-normalization
 description: >
-  The highest-value fixture in WRIT-190: one schema declares value_type
+  The highest-value fixture in this corpus: one schema declares value_type
   person-ref at every strategy position that normalizes it
   (spec/value-types.md §Normalization) -- lww value, create-once value,
   multi-value value, keyed-lww value, keyed-lww key column, set-union
@@ -9,7 +9,7 @@ description: >
   collection strategies NormalizesItems() covers. Every op writes a
   denormalized identifier (uppercase scheme, mixed-case value); the golden
   pins which fields come out normalized and which come out verbatim.
-  create-once and multi-value normalizing here is WRIT-190's reducer fix
+  create-once and multi-value normalizing here is a reducer fix
   (engine/internal/fold/strategy.go): before it, an unnormalized identifier
   under create-once would permanently beat a normalized one. tombstone and
   lattice are excluded: person-ref typechecks with neither (spec/fieldrules.go

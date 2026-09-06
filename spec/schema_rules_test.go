@@ -39,8 +39,8 @@ func loadSchemaRuleMatrix(t *testing.T) []matrixEntry {
 // every (strategy, value_type) cell in the closed cross-product: the 9
 // merge strategies (spec/fold.md §5) times the 12 value types plus the
 // untyped ("no value_type declared") cell (spec/value-types.md), for 9*13
-// = 117 cells total. This is axis D of WRIT-190's conformance corpus: the
-// cross-product is covered exhaustively and cheaply here, as a
+// = 117 cells total. This is axis D of the schema-parametric conformance
+// corpus: the cross-product is covered exhaustively and cheaply here, as a
 // rule-validation matrix, rather than as ~95 new fold fixtures pinning
 // byte-identical output (the read path consults value_type for exactly one
 // purpose — person-ref normalization, spec/value-types.md
