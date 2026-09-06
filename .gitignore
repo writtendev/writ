@@ -53,3 +53,10 @@ docs/static/casts/
 
 # htmltest scratch (its default cache dir, written by a local link check)
 tmp/
+
+# Shared agent pipeline: relative symlinks up to the studio repo, and
+# the detached worktrees dispatch creates. Both point at or live in
+# workspace tooling writ does not ship (see bin/wire-repo in the studio).
+.claude/skills/
+.agents/skills/
+.claude/worktrees/

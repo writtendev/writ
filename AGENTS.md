@@ -90,17 +90,97 @@ Planned monorepo layout (see `ARCHITECTURE.md` for the rationale):
 
 ## Workflow
 
-The pipeline is four composable skills, each in `.agents/skills/`:
-`implement-ticket` takes one Linear WRIT ticket to a CI-green draft PR
-in a detached git worktree; `adversarial-review` runs reviewer/fixer
-rounds on an open PR to a mergeable or capped verdict; `merge-queue`
-rebases and squash-merges every eligible, approved PR, in an order
-chosen to minimize conflicts, resolving mechanical rebase conflicts
-itself and surfacing anything needing new logic; `dispatch`
-orchestrates a batch of tickets through all three. The first three
-stand alone for a single ticket or PR a human is already driving;
-`dispatch` is for running the queue. Read a skill's `SKILL.md` before
-changing what its stage produces; read `dispatch`'s before changing
-how runs are queued.
+The pipeline is four composable skills, reachable here at
+`.agents/skills/` — each entry there is a relative symlink up to the
+canonical copy in the parent studio repo, which is where they are
+actually maintained, so every project runs the same pipeline and there
+is no per-project fork to keep in sync. Edit them there, not here.
+Those symlinks are untracked on purpose: they resolve only in a
+checkout sitting inside the parent repo, so a standalone clone of
+writ has no `.agents/skills/` at all. That is expected — the pipeline
+is workspace tooling, not something writ ships. If you cloned this
+repo on its own and the skills described below are missing, that is
+why.
 
-Build and test commands will be documented here once code exists.
+The four: `implement-ticket` takes one Linear WRIT ticket to a
+CI-green draft PR in a detached git worktree; `adversarial-review`
+runs reviewer/fixer rounds on an open PR to a mergeable or capped
+verdict; `merge-queue` rebases and squash-merges every eligible,
+approved PR, in an order chosen to minimize conflicts, resolving
+mechanical rebase conflicts itself and surfacing anything needing new
+logic; `dispatch` orchestrates a batch of tickets through all three.
+The first three stand alone for a single ticket or PR a human is
+already driving; `dispatch` is for running the queue. Read a skill's
+`SKILL.md` before changing what its stage produces; read `dispatch`'s
+before changing how runs are queued.
+
+## Dispatch
+
+The per-repo configuration those four skills read. Every value they
+would otherwise have to hardcode lives here.
+
+- **Linear team key**: `WRIT` (ticket ids are `WRIT-<n>`).
+- **Check command**: `make build test api-check cli-docs-check` — must
+  pass locally before any push, by an implementer, a fixer, or a human.
+- **Base branch**: `main`.
+- **Worktrees**: `.claude/worktrees/` — one detached worktree per
+  ticket, named for the ticket.
+- **Run manifest**: `.claude/worktrees/dispatch-manifest.md`.
+
+Statuses are Linear's stock ones — `Todo` → `In Progress` →
+`In Review` → `Done` — with two workspace labels doing the rest:
+`approved-to-merge` on a ticket in `In Review` means a human has approved
+its merge and it is in the merge queue; `needs-attention` means it
+needs a human and keeps whatever status it already had. `Backlog` is
+off-limits to dispatch: promoting a ticket to `Todo` is the only
+signal that it is available to work.
+
+### Review invariants
+
+The house rules above that a reviewer of a writ change is adversarial
+about, each with what makes a diff a finding against it. A diff that
+breaks one is a major finding, not a nit.
+
+`## House rules` is the canonical statement of every rule named here.
+This list points at them rather than restating them, so there is one
+copy to keep current and nothing to drift; where the two look like
+they disagree, the house rule wins. `VISION.md` and `ARCHITECTURE.md`
+are the long form behind both.
+
+- **Fold purity.** I/O, a clock, randomness, or any ambient state
+  reaching the fold path is a finding, however convenient it is.
+- **Unknown op types and fields preserved and ignored.** Round-trip
+  loss of anything unrecognized is a finding — old clients must not
+  destroy new clients' data.
+- **The SQLite projection as a droppable cache.** Anything answerable
+  only from the projection, or wrong after dropping and rebuilding it,
+  is a finding.
+- **The public Go API staying schema-shaped.** Git plumbing — SHAs,
+  refspecs — reaching callers who did not ask for it is a finding, and
+  so is a caller-visible shape that comes from a Go struct writ ships
+  rather than from the schema in the log. Reaching into internals from
+  anything built on top, including anything we host, is a finding too.
+- **The schema DSL fence.** A computed field, hook, expression,
+  permission, or logic in a default is a finding no matter how small
+  the increment — framework-building is a bug even one field at a time.
+- **No downstream product named.** A ticket, spec file, fixture,
+  symbol, or line of documentation prose naming what is built on top
+  of writ's schema layer is a finding.
+- **Spec changes landing atomically.** Implementation moving without
+  conformance fixtures, or fixtures without spec text, is a finding —
+  the spec is the fixtures, not the prose.
+- **No backward-compatibility work before v0.1.0.** A tolerance shim,
+  migration path, or fixture pinning a form the format never released
+  is a finding; a superseded decision gets its old form deleted, not
+  bridged to. Forward compatibility is a different thing and stays.
+- **No scope growth, speculative abstraction, or framework-building.**
+  A new dependency without a stated reason is a finding.
+- **A `Signed-off-by` trailer on every commit** (DCO, enforced by CI).
+  A fresh worktree does not inherit `git config core.hooksPath
+  .githooks` — set it before the first commit there.
+- **A branch rebased onto current `origin/main`** before its PR is
+  opened or force-pushed. A stale base makes a review of the diff mean
+  less than it looks.
+
+Build and test commands beyond the check command above will be
+documented here once more code exists.
