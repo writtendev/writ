@@ -260,8 +260,16 @@ type schemaPlanResult struct {
 }
 
 func (r *schemaPlanResult) toWirePlan() wire.SchemaPlan {
+	// A creation plan's objectID is only ever a preview: apply resolves its
+	// own target independently and mints its own id, so this id is never
+	// the one a later apply would actually write to (see wire.SchemaPlan).
+	var objectID *string
+	if !r.created {
+		id := r.objectID
+		objectID = &id
+	}
 	return wire.SchemaPlan{
-		ObjectID:      r.objectID,
+		ObjectID:      objectID,
 		Namespace:     r.namespace,
 		Created:       r.created,
 		UpToDate:      r.upToDate,
@@ -375,6 +383,15 @@ func buildSchemaPlan(ctx context.Context, store *writ.Store, dir string) (*schem
 // artifact and no recorded id, and no --object-id flag: every case that
 // flag would serve is a repository already in the state this guard exists
 // to prevent.
+//
+// The contested-object_type guard runs on every outcome that can lead to
+// an append — both the "no namespace match" branch (a fresh object) and
+// the "exactly one match" branch (reuse) — because either one can bind an
+// object_type a different schema object already binds, and
+// RulesFromSchemas responds to that by withholding every rule for the
+// contested type, permanently. A reuse that stays within the target's own
+// existing types is never contested by this check: contestedTypeOwners
+// excludes the target itself.
 func resolveSchemaTarget(schemas []state.Schema, f *schemasrc.File) (string, error) {
 	var matches []state.Schema
 	for _, s := range schemas {
@@ -383,35 +400,49 @@ func resolveSchemaTarget(schemas []state.Schema, f *schemasrc.File) (string, err
 		}
 	}
 
+	declared := make(map[string]bool, len(f.Types))
+	for _, t := range f.Types {
+		declared[t.Name] = true
+	}
+
 	switch len(matches) {
 	case 1:
-		return matches[0].ObjectID, nil
+		target := matches[0]
+		if contested := contestedTypeOwners(schemas, target.ObjectID, declared); len(contested) > 0 {
+			return "", fmt.Errorf(
+				"writ schema: schema object %s (namespace %q) would also bind object_type(s) %s, already bound by another schema object; applying would bind the same object_type twice and RulesFromSchemas withholds all rules for it, permanently — reconcile the type name before running `writ schema apply`",
+				target.ObjectID, f.Namespace, contestedTypeParts(contested))
+		}
+		return target.ObjectID, nil
 	case 0:
-		declared := make(map[string]bool, len(f.Types))
-		for _, t := range f.Types {
-			declared[t.Name] = true
-		}
-		contestedOwner := make(map[string]string)
-		for _, s := range schemas {
-			for _, t := range s.Types {
-				if declared[t.Name] {
-					contestedOwner[t.Name] = s.ObjectID
+		contested := contestedTypeOwners(schemas, "", declared)
+		if len(contested) > 0 {
+			owners := make(map[string]bool, len(contested))
+			for _, id := range contested {
+				owners[id] = true
+			}
+			// Every id contestedTypeOwners can name here declares some
+			// namespace other than f.Namespace — this branch only runs
+			// when no schema object matches f.Namespace at all. When every
+			// contested type traces back to the very same object, the
+			// file isn't colliding with an unrelated object; it is that
+			// object's own file, still declaring its types, under a
+			// different namespace — a namespace change, which
+			// spec/schema-ops.md forbids (`create`'s namespace folds
+			// create-once).
+			if len(owners) == 1 {
+				var ownerID string
+				for id := range owners {
+					ownerID = id
 				}
-			}
-		}
-		if len(contestedOwner) > 0 {
-			var names []string
-			for name := range contestedOwner {
-				names = append(names, name)
-			}
-			sort.Strings(names)
-			var parts []string
-			for _, name := range names {
-				parts = append(parts, fmt.Sprintf("%q (already bound by schema object %s)", name, contestedOwner[name]))
+				owner := schemaByObjectID(schemas, ownerID)
+				return "", fmt.Errorf(
+					"writ schema: schema object %s already declares namespace %q and binds object_type(s) %s; this file declares namespace %q for the same type(s) — a schema object's namespace is set once by its first create op and never changes; reconcile the namespace before running `writ schema apply`",
+					owner.ObjectID, owner.Namespace, contestedTypeNames(contested), f.Namespace)
 			}
 			return "", fmt.Errorf(
 				"writ schema: no schema object declares namespace %q, but this file would bind object_type(s) %s to a new schema object; applying would bind the same object_type twice and RulesFromSchemas withholds all rules for it, permanently — reconcile the namespace or type name before running `writ schema apply`",
-				f.Namespace, strings.Join(parts, ", "))
+				f.Namespace, contestedTypeParts(contested))
 		}
 		id, err := newSchemaObjectID()
 		if err != nil {
@@ -428,6 +459,55 @@ func resolveSchemaTarget(schemas []state.Schema, f *schemasrc.File) (string, err
 			"writ schema: namespace %q is declared by more than one schema object (%s); resolve the collision in the log before running `writ schema apply`",
 			f.Namespace, strings.Join(ids, ", "))
 	}
+}
+
+// contestedTypeOwners returns, for each name in declared already bound by
+// some schema object other than exclude (schemaByObjectID's "" never
+// matches a real object id, so exclude == "" excludes nothing), the id of
+// the object that binds it.
+func contestedTypeOwners(schemas []state.Schema, exclude string, declared map[string]bool) map[string]string {
+	owners := make(map[string]string)
+	for _, s := range schemas {
+		if exclude != "" && s.ObjectID == exclude {
+			continue
+		}
+		for _, t := range s.Types {
+			if declared[t.Name] {
+				owners[t.Name] = s.ObjectID
+			}
+		}
+	}
+	return owners
+}
+
+// contestedTypeNames renders a contestedTypeOwners map as sorted, quoted
+// type names, with no owner attribution.
+func contestedTypeNames(contested map[string]string) string {
+	names := make([]string, 0, len(contested))
+	for name := range contested {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	quoted := make([]string, len(names))
+	for i, name := range names {
+		quoted[i] = fmt.Sprintf("%q", name)
+	}
+	return strings.Join(quoted, ", ")
+}
+
+// contestedTypeParts renders a contestedTypeOwners map as sorted, quoted
+// type names, each naming the schema object that already binds it.
+func contestedTypeParts(contested map[string]string) string {
+	names := make([]string, 0, len(contested))
+	for name := range contested {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	parts := make([]string, len(names))
+	for i, name := range names {
+		parts[i] = fmt.Sprintf("%q (already bound by schema object %s)", name, contested[name])
+	}
+	return strings.Join(parts, ", ")
 }
 
 // newSchemaObjectID mints a fresh object id per spec/identifiers.md: 128
@@ -495,17 +575,19 @@ func findSchemaField(t state.SchemaType, opType string, opVersion int64, field s
 // and no op clears `deprecated` — so each is refused rather than silently
 // compiled into a no-op or a tombstone the caller didn't ask for.
 //
+// A namespace change is refused earlier, by resolveSchemaTarget, and never
+// reaches here: current and planned are only ever compared once a target
+// object id is already settled, and current.Namespace is by construction
+// either "" (a brand-new object) or already equal to planned.Namespace (a
+// namespace match) — resolveSchemaTarget refuses every other outcome
+// before buildSchemaPlan folds current or planned at all.
+//
 // Comparison is always compiled declarations (planned) against folded
 // state (current), never source text — comments, spacing, and declaration
 // order in the file have no bearing on this check, by construction.
 func schemaRemovals(current, planned state.Schema) []string {
 	var problems []string
 
-	if current.Namespace != "" && current.Namespace != planned.Namespace {
-		problems = append(problems, fmt.Sprintf(
-			"namespace changed from %q to %q; a schema object's namespace is set once by its first create op and never changes",
-			current.Namespace, planned.Namespace))
-	}
 	if current.Description != "" && planned.Description == "" {
 		problems = append(problems, "the schema object's description was removed; mark it differently or leave it in place, nothing is ever removed from the log")
 	}
@@ -792,7 +874,7 @@ func renderSchemaPlanPorcelain(w io.Writer, r *schemaPlanResult) {
 		parts = append(parts, fmt.Sprintf("%d %s", counts[opType], opType))
 	}
 	if r.created {
-		fmt.Fprintf(w, "%d op(s) to append (will create schema object %s): %s\n", len(r.ops), r.objectID, strings.Join(parts, ", "))
+		fmt.Fprintf(w, "%d op(s) to append (will create a new schema object): %s\n", len(r.ops), strings.Join(parts, ", "))
 	} else {
 		fmt.Fprintf(w, "%d op(s) to append: %s\n", len(r.ops), strings.Join(parts, ", "))
 	}

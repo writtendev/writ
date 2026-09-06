@@ -514,7 +514,7 @@ Parses `writ.schema`, folds the schema objects already in the repository, and re
 
 | Field | Type | Description |
 |---|---|---|
-| `object_id` | string | 32-character lowercase hex identifier for the target schema object — reused from a namespace match, or freshly minted (see `created`). |
+| `object_id` | string | 32-character lowercase hex identifier for the target schema object, present only when `created` is `false`. A creation plan mints no id of its own — `apply` resolves its own target independently and mints its own id — so there is no id to report yet; the field is omitted rather than naming one `apply` may never actually create. |
 | `namespace` | string | The file's `namespace` declaration. |
 | `created` | boolean | `true` iff the repository has no schema object with this namespace yet, so applying would mint a fresh object id. |
 | `up_to_date` | boolean | `true` iff `ops` is empty: the file already matches the folded log state. |
@@ -538,7 +538,6 @@ A refused plan (an invalid file, or an edit that would remove a declaration) exi
   "schema_version": 1,
   "kind": "schema.plan",
   "data": {
-    "object_id": "0123456789abcdef0123456789abcdef",
     "namespace": "acme",
     "created": true,
     "up_to_date": false,
@@ -553,6 +552,25 @@ A refused plan (an invalid file, or an edit that would remove a declaration) exi
       }
     ],
     "current_source": "",
+    "planned_source": "namespace acme\ndescription \"Acme's vocabulary\"\n\ntype standup {\n  description \"A daily standup update\"\n}\n",
+    "conflicts": []
+  }
+}
+```
+
+A reuse plan (`created: false`) reports the real, already-folded `object_id`:
+
+```json
+{
+  "schema_version": 1,
+  "kind": "schema.plan",
+  "data": {
+    "object_id": "0123456789abcdef0123456789abcdef",
+    "namespace": "acme",
+    "created": false,
+    "up_to_date": true,
+    "ops": [],
+    "current_source": "namespace acme\ndescription \"Acme's vocabulary\"\n\ntype standup {\n  description \"A daily standup update\"\n}\n",
     "planned_source": "namespace acme\ndescription \"Acme's vocabulary\"\n\ntype standup {\n  description \"A daily standup update\"\n}\n",
     "conflicts": []
   }

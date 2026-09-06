@@ -160,6 +160,13 @@ func TestSchemaCLI_Idempotence(t *testing.T) {
 	if len(plan.Ops) == 0 {
 		t.Errorf("expected a non-empty op sequence, got none")
 	}
+	// A creation plan mints no id of its own — apply resolves its own
+	// target independently, so a planned id would never be the one apply
+	// actually creates. object_id must be entirely absent, not a fabricated
+	// preview (WRIT-191 round-1 finding 3).
+	if plan.ObjectID != nil {
+		t.Errorf("expected object_id to be omitted on a creation plan, got %q", *plan.ObjectID)
+	}
 
 	// apply: the ref must not exist yet.
 	if tip := writSchemaRef(t, env.repoDir); tip != "" {
@@ -197,6 +204,11 @@ func TestSchemaCLI_Idempotence(t *testing.T) {
 	}
 	if plan.Created {
 		t.Errorf("expected created=false once the object exists, got true")
+	}
+	// A reuse plan's target is real (already folded from the log), so
+	// object_id must be present.
+	if plan.ObjectID == nil {
+		t.Errorf("expected object_id to be present on a reuse plan, got nil")
 	}
 
 	// apply a second time: the writer's chain tip must not move.
@@ -366,6 +378,15 @@ type standup {
 	}
 }
 
+// TestSchemaCLI_NamespaceChangeIsRefused exercises the namespace-change
+// refusal itself (resolveSchemaTarget's case-0, single-contested-owner
+// branch), distinctly from the cross-object collision case
+// TestSchemaCLI_ObjectIdentity covers: the changed file re-declares the
+// same type ("standup") as before, so no *other* schema object in this
+// repository binds it — declared types don't overlap with any third
+// object, so the generic "object_type already bound" guard has nothing to
+// catch here. The only thing that changed is the namespace, which is what
+// this test means to prove is refused, and refused for that reason.
 func TestSchemaCLI_NamespaceChangeIsRefused(t *testing.T) {
 	env := initTestRepo(t)
 	base := `namespace acme
@@ -379,12 +400,15 @@ type standup {
 `
 	writeSchemaFile(t, env.repoDir, base)
 	var stdout, stderr bytes.Buffer
-	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply", "--json"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("initial apply failed with %d; stderr: %s", code, stderr.String())
 	}
+	objectID := applyObjectID(t, stdout.Bytes())
 
 	changed := strings.Replace(base, "namespace acme", "namespace acme2", 1)
 	writeSchemaFile(t, env.repoDir, changed)
+
+	tipBefore := writSchemaRef(t, env.repoDir)
 
 	stdout.Reset()
 	stderr.Reset()
@@ -392,8 +416,27 @@ type standup {
 	if code != 1 {
 		t.Fatalf("expected exit 1 for a namespace change, got %d; stdout: %s", code, stdout.String())
 	}
-	if !strings.Contains(stderr.String(), "standup") {
-		t.Errorf("expected the refusal to name the contested type, got: %s", stderr.String())
+	msg := stderr.String()
+	if !strings.Contains(msg, objectID) {
+		t.Errorf("expected the refusal to name the existing object id %s, got: %s", objectID, msg)
+	}
+	if !strings.Contains(msg, `"acme"`) || !strings.Contains(msg, `"acme2"`) {
+		t.Errorf("expected the refusal to name both the old and new namespace, got: %s", msg)
+	}
+	if !strings.Contains(msg, "namespace is set once") || !strings.Contains(msg, "never changes") {
+		t.Errorf("expected the refusal to read as a namespace change, not a generic object_type collision, got: %s", msg)
+	}
+
+	// A refused plan appends nothing, and apply runs the same computation,
+	// so it must refuse identically and leave the chain tip untouched.
+	stdout.Reset()
+	stderr.Reset()
+	code = run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("expected apply to also refuse with exit 1, got %d", code)
+	}
+	if tip := writSchemaRef(t, env.repoDir); tip != tipBefore {
+		t.Fatalf("a refused apply appended ops: chain tip moved %s -> %s", tipBefore, tip)
 	}
 }
 
@@ -472,6 +515,99 @@ type standup {
 	}
 }
 
+// TestSchemaCLI_ReuseRefusesContestedType is finding 1's regression net:
+// the contested-object_type guard must run on the reuse branch
+// (resolveSchemaTarget's "exactly one namespace match" case), not only on
+// the "no match" creation branch. A file whose namespace matches an
+// existing schema object, but which adds a type a *different* schema
+// object already binds, must be refused exactly like the creation
+// branch's own collision — otherwise apply would double-bind the type and
+// RulesFromSchemas would withhold every rule for it, permanently.
+func TestSchemaCLI_ReuseRefusesContestedType(t *testing.T) {
+	env := initTestRepo(t)
+
+	// Object A: namespace acme, type standup.
+	writeSchemaFile(t, env.repoDir, `namespace acme
+description "Acme's vocabulary"
+
+type standup {
+  op create 1 {
+    title  string(200)  lww
+  }
+}
+`)
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply", "--json"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("first apply failed with %d; stderr: %s", code, stderr.String())
+	}
+	objectA := applyObjectID(t, stdout.Bytes())
+
+	// Object B: a distinct namespace, a distinct type — a legitimate
+	// second schema object, no collision.
+	writeSchemaFile(t, env.repoDir, `namespace other
+description "A different vocabulary"
+
+type sprint {
+  op create 1 {
+    title  string(200)  lww
+  }
+}
+`)
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply", "--json"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("second apply failed with %d; stderr: %s", code, stderr.String())
+	}
+	objectB := applyObjectID(t, stdout.Bytes())
+	if objectB == objectA {
+		t.Fatalf("expected a distinct object id for the second namespace, got the same id %s twice", objectA)
+	}
+
+	// Back to namespace acme (an exact match: object A, the reuse branch)
+	// — but now also declaring "sprint", which object B already binds.
+	tipBefore := writSchemaRef(t, env.repoDir)
+	writeSchemaFile(t, env.repoDir, `namespace acme
+description "Acme's vocabulary"
+
+type standup {
+  op create 1 {
+    title  string(200)  lww
+  }
+}
+
+type sprint {
+  op create 1 {
+    title  string(200)  lww
+  }
+}
+`)
+
+	stdout.Reset()
+	stderr.Reset()
+	code := run(context.Background(), []string{"-C", env.repoDir, "schema", "plan"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("expected exit 1 for a reuse that contests object B's type, got %d; stdout: %s", code, stdout.String())
+	}
+	msg := stderr.String()
+	if !strings.Contains(msg, objectA) || !strings.Contains(msg, objectB) {
+		t.Errorf("expected the refusal to name both object ids (%s reusing, %s already bound), got: %s", objectA, objectB, msg)
+	}
+	if !strings.Contains(msg, "sprint") {
+		t.Errorf("expected the refusal to name the contested type, got: %s", msg)
+	}
+
+	// A refused plan appends nothing, and apply runs the same computation.
+	stdout.Reset()
+	stderr.Reset()
+	code = run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("expected apply to also refuse with exit 1, got %d", code)
+	}
+	if tip := writSchemaRef(t, env.repoDir); tip != tipBefore {
+		t.Fatalf("a refused apply appended ops: chain tip moved %s -> %s", tipBefore, tip)
+	}
+}
+
 func planObjectID(t *testing.T, jsonData []byte) string {
 	t.Helper()
 	var envW wire.Envelope
@@ -483,7 +619,10 @@ func planObjectID(t *testing.T, jsonData []byte) string {
 	if err := json.Unmarshal(data, &plan); err != nil {
 		t.Fatalf("unmarshal SchemaPlan: %v", err)
 	}
-	return plan.ObjectID
+	if plan.ObjectID == nil {
+		return ""
+	}
+	return *plan.ObjectID
 }
 
 func applyObjectID(t *testing.T, jsonData []byte) string {

@@ -1318,6 +1318,7 @@ const ValueTypeScalar ValueTypeKind
 
 func Compile(f *File, objectID string) ([]codec.Envelope, error)
 func Format(name string, src []byte) ([]byte, error)
+func IsKeyword(s string) bool
 func Parse(name string, src []byte) (*File, error)
 func Render(s state.Schema) ([]byte, error)
 

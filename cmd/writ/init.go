@@ -14,6 +14,7 @@ import (
 	"github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/engine/dag"
 	"github.com/writtendev/writ/engine/identity"
+	"github.com/writtendev/writ/engine/schemasrc"
 	"github.com/writtendev/writ/engine/sync"
 	"github.com/writtendev/writ/internal/gitdir"
 )
@@ -336,14 +337,6 @@ func writeStarterSchemaFile(workTree string, stdout, stderr io.Writer) error {
 // it is a placeholder, not a vocabulary (AGENTS.md).
 const starterNamespacePlaceholder = "repo"
 
-// schemaReservedWords mirrors engine/schemasrc's closed keyword table
-// (spec/schema-source.md §2) just enough to keep a derived namespace from
-// landing on a reserved word, which schemasrc.Parse would then reject.
-var schemaReservedWords = map[string]bool{
-	"namespace": true, "description": true, "type": true, "op": true,
-	"deprecated": true, "untyped": true, "key": true, "target": true,
-}
-
 // deriveStarterNamespace turns the work tree's directory name into a legal
 // writ.schema namespace: lowercased, anything outside [a-z0-9-] replaced
 // with '-', trimmed of leading digits/hyphens (a namespace must start with
@@ -368,7 +361,7 @@ func deriveStarterNamespace(workTree string) string {
 		s = strings.TrimRight(s[:64], "-")
 	}
 
-	if s == "" || schemaReservedWords[s] {
+	if s == "" || schemasrc.IsKeyword(s) {
 		return starterNamespacePlaceholder
 	}
 	return s
