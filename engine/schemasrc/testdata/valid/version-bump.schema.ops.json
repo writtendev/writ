@@ -1,0 +1,81 @@
+[
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "create",
+    "op_version": 1,
+    "body": {
+      "namespace": "acme"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-type",
+    "op_version": 1,
+    "body": {
+      "type": "ticket"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-op",
+    "op_version": 1,
+    "body": {
+      "op_type": "create",
+      "op_version": "1",
+      "type": "ticket"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-op",
+    "op_version": 1,
+    "body": {
+      "op_type": "create",
+      "op_version": "2",
+      "type": "ticket"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "priority",
+      "op_type": "create",
+      "op_version": "1",
+      "strategy": "lww",
+      "type": "ticket",
+      "value_type": "string"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "field": "priority",
+      "lattice": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "op_type": "create",
+      "op_version": "2",
+      "strategy": "lattice",
+      "target": "priority_v2",
+      "type": "ticket",
+      "value_type": "enum"
+    }
+  }
+]

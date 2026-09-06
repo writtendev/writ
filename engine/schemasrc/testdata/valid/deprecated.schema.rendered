@@ -1,0 +1,14 @@
+namespace acme
+
+type gadget {
+  op create 1 {
+    name string lww
+    old_name string lww deprecated
+  }
+}
+
+type legacy-gadget deprecated {
+  op create 1 {
+    id string lww
+  }
+}

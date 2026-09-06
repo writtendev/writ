@@ -1307,6 +1307,93 @@ type Writer struct {
 	Email string `json:"email"`
 }
 
+package schemasrc // github.com/writtendev/writ/engine/schemasrc
+
+const ValueTypeCollection ValueTypeKind
+const ValueTypeEnum ValueTypeKind
+const ValueTypeNone ValueTypeKind = iota
+const ValueTypeScalar ValueTypeKind
+
+func Compile(f *File, objectID string) ([]codec.Envelope, error)
+func Format(name string, src []byte) ([]byte, error)
+func Parse(name string, src []byte) (*File, error)
+func Render(s state.Schema) ([]byte, error)
+
+type ErrorList []*SyntaxError
+func (ErrorList) Error() string
+
+type Field struct {
+	Name string
+	ValueType ValueType
+	Strategy string
+	Lattice []string
+	Key []KeyCol
+	Target string
+	Deprecated bool
+	LeadingComments []string
+	TrailingComment string
+	Pos Position
+}
+
+type File struct {
+	Name string
+	Namespace string
+	Description string
+	Types []*Type
+	LeadingComments []string
+	Pos Position
+}
+
+type KeyCol struct {
+	Name string
+	ValueType string
+}
+
+type OpBlock struct {
+	Ops []OpDecl
+	Description string
+	Fields []*Field
+	LeadingComments []string
+	Pos Position
+}
+
+type OpDecl struct {
+	OpType string
+	OpVersion int64
+	Pos Position
+}
+
+type Position struct {
+	Line int
+	Col int
+}
+
+type SyntaxError struct {
+	File string
+	Line int
+	Col int
+	Msg string
+}
+func (*SyntaxError) Error() string
+
+type Type struct {
+	Name string
+	Description string
+	Deprecated bool
+	Blocks []*OpBlock
+	LeadingComments []string
+	Pos Position
+}
+
+type ValueType struct {
+	Kind ValueTypeKind
+	Name string
+	Enum []string
+	MaxLength int64
+}
+
+type ValueTypeKind int
+
 package state // github.com/writtendev/writ/engine/state
 
 const DefaultSettingsObjectID = "00000000000000000000000073657474"

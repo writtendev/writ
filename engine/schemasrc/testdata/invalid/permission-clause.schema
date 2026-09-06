@@ -1,0 +1,8 @@
+namespace acme
+
+type t {
+  op create 1 {
+    name  string  lww
+    permission owner: write
+  }
+}

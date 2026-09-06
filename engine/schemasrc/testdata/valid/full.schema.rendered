@@ -1,0 +1,25 @@
+namespace acme
+description "Acme's vocabulary"
+
+type standup {
+  description "A daily standup update"
+
+  op approval 1 {
+    description "Approve or block a standup"
+    message string keyed-lww key(subject person-ref)
+    verdict enum(approve, block) keyed-lww key(subject person-ref)
+  }
+
+  op create 1, update 1 {
+    attendees [person-ref] set-observed-remove
+    author person-ref create-once
+    body text multi-value
+    position position lww
+    state enum(open, done) lattice(open, done)
+    title string(200) lww
+  }
+
+  op update 2 {
+    title string(200) lww target(title_v2)
+  }
+}

@@ -1,0 +1,313 @@
+[
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "create",
+    "op_version": 1,
+    "body": {
+      "description": "Acme's vocabulary",
+      "namespace": "acme"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-type",
+    "op_version": 1,
+    "body": {
+      "description": "A daily standup update",
+      "type": "standup"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-op",
+    "op_version": 1,
+    "body": {
+      "description": "Approve or block a standup",
+      "op_type": "approval",
+      "op_version": "1",
+      "type": "standup"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-op",
+    "op_version": 1,
+    "body": {
+      "op_type": "create",
+      "op_version": "1",
+      "type": "standup"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-op",
+    "op_version": 1,
+    "body": {
+      "op_type": "update",
+      "op_version": "1",
+      "type": "standup"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-op",
+    "op_version": 1,
+    "body": {
+      "op_type": "update",
+      "op_version": "2",
+      "type": "standup"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "message",
+      "key": [
+        "subject"
+      ],
+      "key_types": {
+        "subject": "person-ref"
+      },
+      "op_type": "approval",
+      "op_version": "1",
+      "strategy": "keyed-lww",
+      "type": "standup",
+      "value_type": "string"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "enum": [
+        "approve",
+        "block"
+      ],
+      "field": "verdict",
+      "key": [
+        "subject"
+      ],
+      "key_types": {
+        "subject": "person-ref"
+      },
+      "op_type": "approval",
+      "op_version": "1",
+      "strategy": "keyed-lww",
+      "type": "standup",
+      "value_type": "enum"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "attendees",
+      "op_type": "create",
+      "op_version": "1",
+      "strategy": "set-observed-remove",
+      "type": "standup",
+      "value_type": "person-ref"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "author",
+      "op_type": "create",
+      "op_version": "1",
+      "strategy": "create-once",
+      "type": "standup",
+      "value_type": "person-ref"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "body",
+      "op_type": "create",
+      "op_version": "1",
+      "strategy": "multi-value",
+      "type": "standup",
+      "value_type": "text"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "position",
+      "op_type": "create",
+      "op_version": "1",
+      "strategy": "lww",
+      "type": "standup",
+      "value_type": "position"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "enum": [
+        "open",
+        "done"
+      ],
+      "field": "state",
+      "lattice": [
+        "open",
+        "done"
+      ],
+      "op_type": "create",
+      "op_version": "1",
+      "strategy": "lattice",
+      "type": "standup",
+      "value_type": "enum"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "title",
+      "max_length": 200,
+      "op_type": "create",
+      "op_version": "1",
+      "strategy": "lww",
+      "type": "standup",
+      "value_type": "string"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "attendees",
+      "op_type": "update",
+      "op_version": "1",
+      "strategy": "set-observed-remove",
+      "type": "standup",
+      "value_type": "person-ref"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "author",
+      "op_type": "update",
+      "op_version": "1",
+      "strategy": "create-once",
+      "type": "standup",
+      "value_type": "person-ref"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "body",
+      "op_type": "update",
+      "op_version": "1",
+      "strategy": "multi-value",
+      "type": "standup",
+      "value_type": "text"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "position",
+      "op_type": "update",
+      "op_version": "1",
+      "strategy": "lww",
+      "type": "standup",
+      "value_type": "position"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "enum": [
+        "open",
+        "done"
+      ],
+      "field": "state",
+      "lattice": [
+        "open",
+        "done"
+      ],
+      "op_type": "update",
+      "op_version": "1",
+      "strategy": "lattice",
+      "type": "standup",
+      "value_type": "enum"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "title",
+      "max_length": 200,
+      "op_type": "update",
+      "op_version": "1",
+      "strategy": "lww",
+      "type": "standup",
+      "value_type": "string"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "title",
+      "max_length": 200,
+      "op_type": "update",
+      "op_version": "2",
+      "strategy": "lww",
+      "target": "title_v2",
+      "type": "standup",
+      "value_type": "string"
+    }
+  }
+]

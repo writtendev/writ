@@ -1,0 +1,142 @@
+[
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "create",
+    "op_version": 1,
+    "body": {
+      "namespace": "acme"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-type",
+    "op_version": 1,
+    "body": {
+      "type": "widget"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-op",
+    "op_version": 1,
+    "body": {
+      "op_type": "create",
+      "op_version": "1",
+      "type": "widget"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "archived",
+      "op_type": "create",
+      "op_version": "1",
+      "strategy": "tombstone",
+      "type": "widget",
+      "value_type": "bool"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "count",
+      "op_type": "create",
+      "op_version": "1",
+      "strategy": "lww",
+      "type": "widget",
+      "value_type": "int"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "created_at",
+      "op_type": "create",
+      "op_version": "1",
+      "strategy": "lww",
+      "type": "widget",
+      "value_type": "timestamp"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "marker",
+      "op_type": "create",
+      "op_version": "1",
+      "strategy": "lww",
+      "type": "widget",
+      "value_type": "anchor"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "notes",
+      "op_type": "create",
+      "op_version": "1",
+      "strategy": "append",
+      "type": "widget"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "origin",
+      "op_type": "create",
+      "op_version": "1",
+      "strategy": "lww",
+      "type": "widget",
+      "value_type": "git-oid"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "tags",
+      "op_type": "create",
+      "op_version": "1",
+      "strategy": "set-union",
+      "type": "widget",
+      "value_type": "object-ref"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "weight",
+      "op_type": "create",
+      "op_version": "1",
+      "strategy": "lww",
+      "type": "widget",
+      "value_type": "number"
+    }
+  }
+]

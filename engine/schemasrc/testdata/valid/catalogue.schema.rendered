@@ -1,0 +1,14 @@
+namespace acme
+
+type widget {
+  op create 1 {
+    archived bool tombstone
+    count int lww
+    created_at timestamp lww
+    marker anchor lww
+    notes untyped append
+    origin git-oid lww
+    tags [object-ref] set-union
+    weight number lww
+  }
+}

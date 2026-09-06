@@ -1,0 +1,114 @@
+[
+  {
+    "file": "computed-field.schema",
+    "line": 5,
+    "col": 21,
+    "message": "unexpected character '='",
+    "reason": "no expression production exists; '=' is not a lexable character in this grammar"
+  },
+  {
+    "file": "hook.schema",
+    "line": 8,
+    "col": 3,
+    "message": "unexpected \"on\" inside type \"t\"; expected 'description' or 'op'",
+    "reason": "no hook/trigger production exists; 'on create() { ... }' is not a recognized type-body member"
+  },
+  {
+    "file": "if-conditional.schema",
+    "line": 7,
+    "col": 13,
+    "message": "unexpected character '='",
+    "reason": "no conditional production exists; '==' is not a lexable token sequence"
+  },
+  {
+    "file": "import.schema",
+    "line": 1,
+    "col": 1,
+    "message": "expected \"namespace\", found \"import\"",
+    "reason": "no import production exists; a file must open with 'namespace'"
+  },
+  {
+    "file": "extends.schema",
+    "line": 3,
+    "col": 12,
+    "message": "expected '{' opening type body, found \"extends\"",
+    "reason": "no inheritance production exists; a type name must be followed by 'deprecated' or '{'"
+  },
+  {
+    "file": "default-now.schema",
+    "line": 5,
+    "col": 41,
+    "message": "unknown value type \"now\"; expected one of anchor, bool, enum, git-oid, int, number, object-ref, person-ref, position, string, text, timestamp, enum(...), untyped, or [\u003cvalue type\u003e]",
+    "reason": "no default-with-logic production exists; 'now()' is not a value type and calls are not a value-type-expr"
+  },
+  {
+    "file": "permission-clause.schema",
+    "line": 6,
+    "col": 21,
+    "message": "unexpected character ':'",
+    "reason": "no permission production exists; ':' is not a lexable character in this grammar"
+  },
+  {
+    "file": "missing-value-type.schema",
+    "line": 5,
+    "col": 11,
+    "message": "unknown value type \"lww\"; expected one of anchor, bool, enum, git-oid, int, number, object-ref, person-ref, position, string, text, timestamp, enum(...), untyped, or [\u003cvalue type\u003e]",
+    "reason": "omitting the value type is a parse error, not a silent default (WRIT-187 correction 3): the token in its place is read as an unknown value type"
+  },
+  {
+    "file": "missing-strategy.schema",
+    "line": 6,
+    "col": 3,
+    "message": "expected merge strategy, found '}'",
+    "reason": "omitting the merge strategy is a parse error, not a silent default (spec/fold.md §5's no-implicit-behavior rule, applied at parse time)"
+  },
+  {
+    "file": "enum-without-parens.schema",
+    "line": 5,
+    "col": 18,
+    "message": "expected '(' after 'enum', found \"lww\"",
+    "reason": "enum(...) is required whenever value_type is enum; the bare keyword alone has nowhere to put its value list"
+  },
+  {
+    "file": "key-on-non-keyed-lww.schema",
+    "line": 5,
+    "col": 5,
+    "message": "key(...) is only valid with strategy keyed-lww, not \"lww\"",
+    "reason": "key(...) is only valid on a keyed-lww field (spec/schema-source.md: exactly one spelling per rule)"
+  },
+  {
+    "file": "collection-on-scalar-strategy.schema",
+    "line": 5,
+    "col": 25,
+    "message": "'[person-ref]' is only valid with set-union or set-observed-remove, not strategy \"lww\"",
+    "reason": "[T] is only valid with set-union or set-observed-remove (spec/schema-source.md: exactly one spelling per rule)"
+  },
+  {
+    "file": "max-length-on-bool.schema",
+    "line": 5,
+    "col": 15,
+    "message": "max_length parameter '(...)' is only valid on string/text, not \"bool\"",
+    "reason": "max_length only parameterises string/text (spec/value-types.md)"
+  },
+  {
+    "file": "lattice-element-outside-enum.schema",
+    "line": 5,
+    "col": 5,
+    "message": "rule for (create, state) declares lattice element \"closed\" not a member of its enum [open done]",
+    "reason": "a lattice element must be a member of the field's declared enum (spec.ValidateFieldRule); caught at Compile time, not Parse time"
+  },
+  {
+    "file": "unknown-strategy.schema",
+    "line": 5,
+    "col": 19,
+    "message": "unknown merge strategy \"blorp\"; expected one of append, create-once, keyed-lww, lattice, lww, multi-value, set-observed-remove, set-union, tombstone",
+    "reason": "'blorp' is not a member of the closed merge-strategy catalogue (spec/fold.md §5)"
+  },
+  {
+    "file": "unknown-value-type.schema",
+    "line": 5,
+    "col": 11,
+    "message": "unknown value type \"currency\"; expected one of anchor, bool, enum, git-oid, int, number, object-ref, person-ref, position, string, text, timestamp, enum(...), untyped, or [\u003cvalue type\u003e]",
+    "reason": "'currency' is not a member of the closed value-type catalogue (spec/value-types.md)"
+  }
+]

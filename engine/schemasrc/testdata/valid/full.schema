@@ -1,0 +1,26 @@
+namespace acme
+description "Acme's vocabulary"
+
+# The daily standup type: most of the catalogue in one place.
+type standup {
+  description "A daily standup update"
+
+  op create 1, update 1 {
+    title      string(200)       lww
+    body       text              multi-value
+    author     person-ref        create-once
+    attendees  [person-ref]      set-observed-remove
+    position   position          lww
+    state      enum(open, done)  lattice(open, done)
+  }
+
+  op approval 1 {
+    description "Approve or block a standup"
+    verdict  enum(approve, block)  keyed-lww  key(subject person-ref)
+    message  string                keyed-lww  key(subject person-ref)
+  }
+
+  op update 2 {
+    title  string(200)  lww  target(title_v2)  # a same-strategy target change is allowed, not just a required one
+  }
+}

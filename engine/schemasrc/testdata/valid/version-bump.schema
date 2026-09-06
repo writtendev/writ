@@ -1,0 +1,11 @@
+namespace acme
+
+type ticket {
+  op create 1 {
+    priority  string  lww
+  }
+
+  op create 2 {
+    priority  enum(low, medium, high)  lattice(low, medium, high)  target(priority_v2)
+  }
+}

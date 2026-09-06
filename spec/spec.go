@@ -9,8 +9,9 @@
 // canonicalization.md, forward-compatibility.md, anchors.md, identifiers.md,
 // ordering.md, value-types.md, review-ops.md, comments.md, issue-ops.md,
 // workflow-state-ops.md, label-ops.md, documents.md, project-cycle.md,
-// settings-ops.md, schema-ops.md, and README.md in this directory; the
-// fixture-repo generator and golden harness live in the fixtures subpackage.
+// settings-ops.md, schema-ops.md, schema-source.md, and README.md in this
+// directory; the fixture-repo generator and golden harness live in the
+// fixtures subpackage.
 package spec
 
 import "embed"
