@@ -3,10 +3,6 @@
     "kind": "schema",
     "reason": "reference must not contain newline or control characters"
   },
-  "duplicate-registry-repo-id.json": {
-    "kind": "invariant",
-    "reason": "registry repo IDs must be unique within a workspace"
-  },
   "embedded-whitespace.json": {
     "kind": "schema",
     "reason": "reference must not contain whitespace"

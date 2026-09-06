@@ -7,7 +7,7 @@ Ordering: [`spec/ordering.md`](ordering.md).
 This document defines the operation vocabulary, payload schemas, and fold
 semantics for workflow states in Writ (`object_type: "workflow-state"`).
 Workflow states represent the board columns and lifecycle stages of issues
-in a workspace.
+in a repository.
 
 The key words MUST, MUST NOT, SHOULD, and MAY are to be interpreted as
 described in RFC 2119.
@@ -21,9 +21,9 @@ In Writ, **each workflow state is its own collaborative object**
 a semantic type, a fractional index column position, and optional visual hints.
 Issues reference workflow states by object identifier (`object_id`).
 
-Workflow states live in the designated workspace repository (ARCHITECTURE.md
-§Object homing, WRIT-113) and are workspace-global: all projects and issues
-within the workspace share the common workflow state definitions.
+Workflow states live in the repository the client is operating on and are
+repo-global (ARCHITECTURE.md §Object homing): all projects and issues in
+that repository share the common workflow state definitions.
 
 ### 1.1. Why States Are Collaborative Objects
 

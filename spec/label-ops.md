@@ -7,7 +7,7 @@ Forward compatibility: [`spec/forward-compatibility.md`](forward-compatibility.m
 This document defines the operation vocabulary, payload schemas, and fold
 semantics for labels in Writ (`object_type: "label"`). Labels represent
 categorization, tags, and visual indicators attached to issues and reviews in
-a workspace.
+a repository.
 
 The key words MUST, MUST NOT, SHOULD, and MAY are to be interpreted as
 described in RFC 2119.
@@ -22,9 +22,9 @@ optional client presentation color hint (`color`), and an optional human
 description (`description`). Issues and reviews reference labels by object
 identifier (`object_id`).
 
-Labels live in the designated workspace repository (ARCHITECTURE.md
-§Object homing, WRIT-113) and are workspace-global: all projects, issues,
-and reviews within the workspace share the common label definitions.
+Labels live in the repository the client is operating on and are repo-global
+(ARCHITECTURE.md §Object homing): all projects, issues, and reviews in that
+repository share the common label definitions.
 
 ### 1.1. Why Labels Are Collaborative Objects
 

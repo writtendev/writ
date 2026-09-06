@@ -116,13 +116,13 @@ func Fold(ops []codec.Op, rules []Rule) (ObjectState, error) {
 // reducer, so a non-string here is unreachable and skipped rather than rendered.
 //
 // Every typed reducer shares this with the generic fold's own item helpers so a
-// body shape one consumes cannot be silently dropped by the other. FoldRepo read
-// `remote` with a bare `.(string)` assertion until WRIT-124's round-2 review:
-// `{"remote":["origin","upstream"]}` is accepted by the uninterpretability check
-// and folded by both the generic driver and the reference fold, so nothing
-// quarantined it and the typed reducer alone returned no remotes at all — "skip
-// invents an absence" relocated from the predicate into a reducer, reaching the
-// public API and the SQLite projection.
+// body shape one consumes cannot be silently dropped by the other. A set-union
+// field read with a bare `.(string)` assertion until WRIT-124's round-2 review:
+// an array-shaped value such as `{"remote":["origin","upstream"]}` is accepted
+// by the uninterpretability check and folded by both the generic driver and the
+// reference fold, so nothing quarantined it and the typed reducer alone
+// returned no items at all — "skip invents an absence" relocated from the
+// predicate into a reducer, reaching the public API and the SQLite projection.
 func stringItems(raw any) []string {
 	switch v := raw.(type) {
 	case string:

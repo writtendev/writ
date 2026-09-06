@@ -76,10 +76,6 @@ type Project = state.Project
 // produced by FoldCycle.
 type Cycle = state.Cycle
 
-// RepoEntry represents a repository registry entry collaborative object (v1),
-// produced by FoldRepo.
-type RepoEntry = state.RepoEntry
-
 // WorkflowState represents the materialized state of a workflow-state collaborative object (v1),
 // produced by FoldWorkflowState.
 type WorkflowState = state.WorkflowState

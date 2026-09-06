@@ -331,8 +331,6 @@ func (*ReadState) Unread(ctx context.Context, ids ...string) ([]string, error)
 
 type RefreshStats = projection.Stats
 
-type RepoEntry = state.RepoEntry
-
 type ResolvedPosition = projection.ResolvedPosition
 
 type Review = state.Review
@@ -882,8 +880,6 @@ func (*DB) Objects(f ObjectFilter) ([]ObjectResult, error)
 func (*DB) ReadMarks(objectIDs ...string) (map[string]ReadMark, error)
 func (*DB) Rebuild(store *dag.Store, opts ...Option) (Stats, error)
 func (*DB) Refresh(store *dag.Store, opts ...Option) (Stats, error)
-func (*DB) Repo(objectID string) (state.RepoEntry, error)
-func (*DB) Repos() ([]state.RepoEntry, error)
 func (*DB) Review(objectID string) (ReviewResult, error)
 func (*DB) Reviews(f ReviewFilter) ([]ReviewResult, error)
 func (*DB) SaveDraft(draft Draft) (string, error)
@@ -1314,7 +1310,6 @@ func FoldDocument(ops []codec.Op) (Document, error)
 func FoldIssue(ops []codec.Op) (Issue, error)
 func FoldLabel(ops []codec.Op) (Label, error)
 func FoldProject(ops []codec.Op) (Project, error)
-func FoldRepo(ops []codec.Op) (RepoEntry, error)
 func FoldReview(ops []codec.Op) (Review, error)
 func FoldSection(ops []codec.Op) (Section, error)
 func FoldSettings(ops []codec.Op) (Settings, error)
@@ -1325,8 +1320,6 @@ func NormalizePerson(s string) string
 func ParseCommentSubject(raw []byte) (CommentSubject, error)
 func ParseReference(ref string) (designator string, objectID string, err error)
 func ProjectRules() []Rule
-func RepoRules() []Rule
-func ResolveReference(ref string, localRepoID string, registry []RepoEntry) (ResolvedReference, error)
 func ReviewRules() []Rule
 func SectionRules() []Rule
 func SettingsRules() []Rule
@@ -1450,26 +1443,6 @@ type Project struct {
 	Issues []string `json:"issues,omitempty"`
 	UnknownOps []UnknownOp `json:"unknown_ops,omitempty"`
 }
-
-type RepoEntry struct {
-	RepoID string `json:"repo_id"`
-	Slug string `json:"slug"`
-	Remotes []string `json:"remotes,omitempty"`
-	IsWorkspace bool `json:"is_workspace,omitempty"`
-	UnknownOps []UnknownOp `json:"unknown_ops,omitempty"`
-}
-
-type ResolvedReference struct {
-	Scope string `json:"scope"`
-	RepoID string `json:"repo_id,omitempty"`
-	Slug string `json:"slug,omitempty"`
-	Remotes []string `json:"remotes,omitempty"`
-	ObjectID string `json:"object_id"`
-	Reference string `json:"reference,omitempty"`
-	Designator string `json:"designator,omitempty"`
-	Reason string `json:"reason,omitempty"`
-}
-func (ResolvedReference) IsResolved() bool
 
 type Review struct {
 	Title string `json:"title,omitempty"`

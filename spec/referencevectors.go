@@ -8,34 +8,10 @@ import (
 	"strings"
 )
 
-// ReferenceRegistryEntry represents a repository registry entry in reference resolution vectors.
-type ReferenceRegistryEntry struct {
-	RepoID      string   `json:"repo_id"`
-	Slug        string   `json:"slug"`
-	Remotes     []string `json:"remotes,omitempty"`
-	IsWorkspace bool     `json:"is_workspace,omitempty"`
-}
-
-// ReferenceContext represents the context in a reference resolution case.
-type ReferenceContext struct {
-	LocalRepoID string `json:"local_repo_id,omitempty"`
-}
-
-// ReferenceExpected represents the expected resolution result in a reference vector.
-type ReferenceExpected struct {
-	Resolved bool   `json:"resolved"`
-	Scope    string `json:"scope"`
-	RepoID   string `json:"repo_id,omitempty"`
-	ObjectID string `json:"object_id"`
-}
-
 // ReferenceCase represents one reference test case from testdata/references/valid/*.json.
 type ReferenceCase struct {
-	Name      string                   `json:"name,omitempty"`
-	Reference string                   `json:"reference"`
-	Context   *ReferenceContext        `json:"context,omitempty"`
-	Registry  []ReferenceRegistryEntry `json:"registry,omitempty"`
-	Expected  *ReferenceExpected       `json:"expected,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Reference string `json:"reference"`
 }
 
 // ReferenceVectors loads all valid reference test cases from testdata/references/valid/

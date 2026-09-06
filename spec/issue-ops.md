@@ -15,11 +15,11 @@ described in RFC 2119.
 
 ## Scope & Object Model
 
-An issue is represented in Writ as a workspace-scoped collaborative object with
-`object_type: "issue"`. Issues live in the designated workspace repository
-(ARCHITECTURE.md §Object types, `spec/identifiers.md`) and can reference or be
-referenced by reviews and other collaborative objects across repositories in the
-workspace.
+An issue is represented in Writ as a collaborative object with
+`object_type: "issue"`. Issues live in the repository the client is operating on
+(ARCHITECTURE.md §Object homing) and can reference or be referenced by reviews
+and other collaborative objects in other repositories via qualified
+references (`spec/identifiers.md`).
 
 ### Decisions behind the vocabulary
 
@@ -89,7 +89,7 @@ Public issue intake is externalized to downstream intake bridges and bots:
   writer with its own `writer-id` and push credentials. It accepts bug reports
   from external interfaces (webhooks, public web forms, email, or forge issues
   such as GitHub Issues) and commits standard `create` and `comment` operations
-  into the workspace repository.
+  into the repository the client is operating on.
 - **Truthful attribution via `user:` person identifiers:** When attributing
   external reporters (for example in description headers, comments, or assignees),
   intake bots MUST use scheme-prefixed person identifiers per
@@ -294,8 +294,8 @@ object (such as a code review or another issue).
 - `target` (reference string, required): Reference to the target object per
   `spec/identifiers.md`. Either a bare `<object-id>` (for objects in the same
   repository) or a fully-qualified `<repo-id>#<object-id>` (for cross-repo
-  references, such as an issue in a workspace repo linking to a review in a
-  code repo).
+  references, such as an issue in one repository linking to a review in
+  another).
 - `target_type` (string, optional): Type of the target collaborative object
   (e.g. `"review"`, `"issue"`), minLength 1.
 - `relation` (string, required): One of:
@@ -434,7 +434,7 @@ A Linear `Issue` maps to an `issue` collaborative object (`object_type: "issue"`
 #### 2. Workflow States
 
 A Linear `WorkflowState` maps to a `workflow-state` collaborative object
-(WRIT-104) in the workspace repository:
+(WRIT-104) in the repository the client is operating on:
 
 - `name` (string, `lww`): State display name (e.g. `"Backlog"`, `"In Progress"`, `"Done"`).
 - `type` (string, `lww`): One of the five canonical state types (`backlog`,
@@ -513,17 +513,19 @@ rules:
 In Linear, workflow states, issue keys, and triage queues are scoped to a team,
 while an organization workspace often contains multiple teams.
 
-Per WRIT-113 ("One workspace = one team") and ARCHITECTURE.md §Object homing:
-- A Writ workspace corresponds to a single team: workflow states, labels, and
-  settings are workspace-global, and there is no `team` collaborative object in
+Per ARCHITECTURE.md §Object homing:
+- A Writ repository corresponds to a single team: workflow states, labels, and
+  settings are repo-global, and there is no `team` collaborative object in
   v1 core.
-- Importers MUST target one Writ workspace repository per Linear team.
-- Team-level workflow states, labels, and settings map to workspace-global objects
-  within that team's Writ workspace repository.
+- Importers MUST target one Writ repository per Linear team.
+- Team-level workflow states, labels, and settings map to repo-global objects
+  within that team's Writ repository.
 - Cross-team relations in Linear (e.g. an issue in Team A blocking an issue in
-  Team B) cannot be represented as native Writ DAG links in v1 because cross-workspace
-  DAG links are not supported. Importers MUST degrade cross-team relations to
-  external Markdown links in the issue description or in a comment.
+  Team B) MAY be recorded as `link` ops with fully-qualified
+  `<repo-id>#<object-id>` targets pointing into Team B's Writ repository. Writ
+  does not resolve the target repository for such a reference, so importers
+  SHOULD additionally record a human-readable external link (a Markdown link
+  in the issue description or a comment) alongside the qualified `link` op.
 
 ### Identifier Preservation
 
@@ -587,7 +589,8 @@ The following Linear concepts deliberately do NOT map to Writ v1 primitives:
    local-first, offline-capable git event-sourcing engine.
 5. **Roadmaps & Saved Views:** Visual timeline views, filter queries, and personal
    view configurations belong to client user interfaces, not canonical repository data.
-6. **Cross-Team Links:** Bounded by the one-workspace-one-team model in v1 (WRIT-113).
+6. **Cross-Team Links:** Bounded by the one-repo-one-team model in v1
+   (ARCHITECTURE.md §Object homing).
 7. **Custom Fields:** Arbitrary organization-defined custom fields not part of
    the standard issue schema have no native typed representation in v1 core.
 

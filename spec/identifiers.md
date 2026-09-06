@@ -22,10 +22,6 @@ This section defines:
 - **Repository designators** — the immutable identity of a git repository.
 - **Reference grammar** — the syntax for bare local and fully-qualified
   cross-repository references.
-- **The repository registry entry shape** — the folded metadata structure
-  mapping repository designators to human-readable slugs and remote URLs.
-- **The reference resolution algorithm** — how references are resolved
-  against a repository's registry of known repositories.
 
 This section deliberately does not define:
 
@@ -33,10 +29,6 @@ This section deliberately does not define:
   printable non-space ASCII string (1–256 characters) for forward
   compatibility ([`spec/op-envelope.md`](op-envelope.md)). This section
   constrains what conforming Writ producers mint.
-- **The operation vocabulary for modifying the repository registry** — the
-  `repo` create, set-slug, and add-remote op payloads are specified in the
-  repository registry op vocabulary ([`spec/repo-ops.md`](repo-ops.md)). This
-  document defines the folded registry entry shape that resolution consumes.
 - **Permission semantics** — see [Out of scope](#out-of-scope).
 
 ## Object identifiers
@@ -686,120 +678,6 @@ human-readable repository slug (e.g. `writ#a1b2c3d` or `writtendev/writ#a1b2c3d`
 
 Short forms are strictly a client display concern. Canonical references stored
 in op payloads MUST always use full, unabbreviated identifiers.
-
-## Repository registry
-
-A repository maintains a folded repository registry that maps
-immutable `repo-id` designators to mutable human-readable slugs and remote
-URLs.
-
-### Entry shape
-
-A repository registry entry is a JSON object with the following fields:
-
-```jsonc
-{
-  "repo_id": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
-  "slug": "writtendev/writ",
-  "remotes": [
-    "git@github.com:writtendev/writ.git",
-    "https://github.com/writtendev/writ.git"
-  ],
-  "is_workspace": false
-}
-```
-
-| Field | Type | Required | Meaning |
-| --- | --- | --- | --- |
-| `repo_id` | string | yes | The repository's 32-hex designator (`^[0-9a-f]{32}$`). |
-| `slug` | string | yes | Human-readable repository slug (e.g. `writtendev/writ` or `backend`). Non-empty string without whitespace. |
-| `remotes` | array of strings | no | Known git remote URLs for cloning and fetching the repository. |
-| `is_workspace` | boolean | no | `true` if this repository is the workspace repository itself. Default is `false`. |
-
-Unknown fields MUST be preserved and ignored, per standard envelope evolution
-rules.
-
-### Operations and fold
-
-The concrete op vocabulary for creating and modifying repository registry
-entries (e.g. `repo/create`, `repo/set-slug`, `repo/add-remote`) is specified in
-[`spec/repo-ops.md`](repo-ops.md). This document defines the folded output shape
-that resolution consumes.
-
-## Reference resolution
-
-Reference resolution is the process of mapping a reference string to a target
-repository and object ID:
-
-$$\text{resolve}(\text{reference}, \text{local\_repo\_id}, \text{registry}) \rightarrow \text{ResolvedReference} \mid \text{UnresolvedReference}$$
-
-### Resolution algorithm
-
-Given:
-- `reference`: A reference string.
-- `local_repo_id`: The 32-hex designator of the local repository where the op
-  resides.
-- `registry`: The folded repository registry from the workspace repository
-  (a list or map of registry entries).
-
-The resolution procedure executes as follows:
-
-1. **Parse reference:**
-   - If `reference` contains no `#`:
-     - `designator = ""`
-     - `target_object_id = reference`
-   - If `reference` contains `#`:
-     - Split at the first `#`: `designator = reference[0:index]`, `target_object_id = reference[index+1:]`.
-2. **Same-repo short-circuit:**
-   - If `designator == ""` OR `designator == local_repo_id`:
-     - Return **ResolvedReference**:
-       - `scope = "local"`
-       - `repo_id = local_repo_id`
-       - `object_id = target_object_id`
-3. **Cross-repo registry lookup:**
-   - If `designator != ""` and `designator != local_repo_id`:
-     - Search `registry` for an entry where `entry.repo_id == designator`.
-     - If a matching entry $E$ is found:
-       - Return **ResolvedReference**:
-         - `scope = "cross-repo"`
-         - `repo_id = E.repo_id`
-         - `slug = E.slug`
-         - `remotes = E.remotes`
-         - `object_id = target_object_id`
-     - If no matching entry is found (or if the registry is unavailable):
-       - Return **UnresolvedReference**:
-         - `scope = "unresolved"`
-         - `reference = reference`
-         - `designator = designator`
-         - `object_id = target_object_id`
-         - `reason = "unknown_repo"`
-
-### Unresolved reference preservation rule
-
-If a reference cannot be resolved (for example, because the target repository
-has not yet been registered in the workspace, or the workspace repository is not
-currently accessible), the reference is **preserved and surfaced as
-unresolved, never dropped or rewritten**.
-
-This mirrors the orphaned-anchor rule in comment anchoring (`spec/anchors.md`):
-unresolvable data remains intact in the op payload and projection, preserving
-historical intent and automatically resolving if the target repository is later
-registered or fetched.
-
-### Separation from fold
-
-Reference resolution is **explicitly not the fold's job**.
-
-The fold reducer is a pure function that processes operations into domain state
-carrying reference strings verbatim as data. Resolution requires access to
-external context (the workspace repository registry and local repository
-checkouts), which may vary depending on what repositories are cloned locally.
-Separating resolution from fold ensures that `fold(ops) → state` remains 100%
-deterministic and produces byte-identical results across all machines regardless
-of local clone topology.
-
-Resolution is performed by the projection layer (`engine/projection`) and
-queried by client porcelain.
 
 ## Out of scope
 

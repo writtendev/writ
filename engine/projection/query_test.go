@@ -90,16 +90,6 @@ func setupSeededDB(t *testing.T) *projection.DB {
 	execSQL(t, rawDB, "INSERT INTO anchor_resolutions (comment_object_id, target_commit, side, outcome, match, path, start_line, end_line, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		"comm-1", "tip-commit-1", "new", "resolved", "exact", "pkg/loop.go", 10, 15, "found match")
 
-	// Insert repos
-	execSQL(t, rawDB, "INSERT INTO repos (object_id, slug, is_workspace) VALUES (?, ?, ?)",
-		"a1b2c3d4e5f60718293a4b5c6d7e8f90", "acme/backend", 0)
-	execSQL(t, rawDB, "INSERT INTO repo_remotes (repo_object_id, remote) VALUES (?, ?)",
-		"a1b2c3d4e5f60718293a4b5c6d7e8f90", "git@github.com:acme/backend.git")
-	execSQL(t, rawDB, "INSERT INTO repos (object_id, slug, is_workspace) VALUES (?, ?, ?)",
-		"00000000000000000000000000000001", "acme/workspace", 1)
-	execSQL(t, rawDB, "INSERT INTO repo_remotes (repo_object_id, remote) VALUES (?, ?)",
-		"00000000000000000000000000000001", "git@github.com:acme/workspace.git")
-
 	return db
 }
 
@@ -432,46 +422,6 @@ func TestThreadsAssembly(t *testing.T) {
 	}
 	if !root2.Comment.Deleted {
 		t.Errorf("expected comm-4 to have Deleted = true")
-	}
-}
-
-func TestReposQuery(t *testing.T) {
-	db := setupSeededDB(t)
-	defer db.Close()
-
-	repos, err := db.Repos()
-	if err != nil {
-		t.Fatalf("Repos query failed: %v", err)
-	}
-
-	if len(repos) != 2 {
-		t.Fatalf("expected 2 repos, got %d", len(repos))
-	}
-
-	r1 := repos[0]
-	if r1.RepoID != "00000000000000000000000000000001" || r1.Slug != "acme/workspace" || !r1.IsWorkspace {
-		t.Errorf("unexpected workspace repo: %+v", r1)
-	}
-	if len(r1.Remotes) != 1 || r1.Remotes[0] != "git@github.com:acme/workspace.git" {
-		t.Errorf("unexpected workspace remotes: %v", r1.Remotes)
-	}
-
-	r2 := repos[1]
-	if r2.RepoID != "a1b2c3d4e5f60718293a4b5c6d7e8f90" || r2.Slug != "acme/backend" || r2.IsWorkspace {
-		t.Errorf("unexpected backend repo: %+v", r2)
-	}
-
-	single, err := db.Repo("a1b2c3d4e5f60718293a4b5c6d7e8f90")
-	if err != nil {
-		t.Fatalf("Repo query failed: %v", err)
-	}
-	if single.Slug != "acme/backend" {
-		t.Errorf("single slug = %q, want 'acme/backend'", single.Slug)
-	}
-
-	_, errMissing := db.Repo("nonexistent")
-	if errMissing == nil {
-		t.Fatalf("expected ErrNotFound for missing repo, got nil")
 	}
 }
 

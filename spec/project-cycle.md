@@ -6,7 +6,7 @@ Field rules: [`testdata/project/field-rules.json`](testdata/project/field-rules.
 Fixtures: [`spec/fixtures/testdata/descriptions/project-*.yaml`](fixtures/testdata/descriptions/), [`spec/fixtures/testdata/descriptions/cycle-*.yaml`](fixtures/testdata/descriptions/).
 
 This document defines the operation vocabularies, payload schemas, and fold
-semantics for workspace-scoped grouping objects in Writ: `project` (`object_type: "project"`)
+semantics for repo-scoped grouping objects in Writ: `project` (`object_type: "project"`)
 and `cycle` (`object_type: "cycle"`). It covers project creation, metadata updates,
 status transitions, cycle creation, cycle date ranges, and issue membership
 (ARCHITECTURE.md §Object types).
@@ -20,9 +20,9 @@ described in RFC 2119.
 
 ## Scope & Object Model
 
-Projects and cycles are workspace-scoped collaborative objects that group
-issues. In Writ's architecture, workspace-scoped objects reside in a designated
-workspace repository (ARCHITECTURE.md §Object types, `spec/identifiers.md`).
+Projects and cycles are collaborative objects that group issues. Like every
+collaborative object, they reside in the repository the client is operating
+on (ARCHITECTURE.md §Object homing).
 
 - A `project` represents an initiative or goal with an explicit lifecycle status
   (`planned`, `active`, `paused`, `completed`, `canceled`) and a set of member issues.
@@ -398,4 +398,4 @@ and inline comment threads bidirectionally with Writ operations.
 
 GitHub Projects (v2) and GitHub Milestones are not synchronized by the bridge
 and have no operational mapping in `spec/testdata/`. Grouping and cycle entities
-in Writ are self-contained workspace-level primitives.
+in Writ are self-contained, repo-scoped primitives.

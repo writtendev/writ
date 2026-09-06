@@ -36,8 +36,8 @@ into two collaborative object types:
    - `body`: Markdown body content folded as a **multi-value register** (`multi-value`).
    - `deleted`: Soft deletion status (tombstone, `tombstone`).
 
-Documents and sections are workspace-scoped collaborative objects (ARCHITECTURE.md
-§Object homing, WRIT-113) homed in the workspace repository.
+Documents and sections are collaborative objects homed in the repository the
+client is operating on (ARCHITECTURE.md §Object homing).
 
 ### 1.1. Why Sections Are First-Class Collaborative Objects
 

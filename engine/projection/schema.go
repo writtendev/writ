@@ -16,7 +16,8 @@ package projection
 // 11: WRIT-105 added documents, document_links, document_labels, sections tables.
 // 12: WRIT-106 added priority, estimate, position, position_op_id to issues table.
 // 13: WRIT-110 added settings table.
-const schemaVersion = 13
+// 14: WRIT-182 removed the repos and repo_remotes tables (repo registry object type deleted).
+const schemaVersion = 14
 
 var projectionTables = []string{
 	"meta",
@@ -42,8 +43,6 @@ var projectionTables = []string{
 	"project_issues",
 	"cycles",
 	"cycle_issues",
-	"repos",
-	"repo_remotes",
 	"workflow_states",
 	"labels",
 	"documents",
@@ -77,8 +76,6 @@ var tableQueries = map[string]string{
 	"project_issues":     "SELECT * FROM project_issues ORDER BY project_object_id ASC, issue ASC",
 	"cycles":             "SELECT * FROM cycles ORDER BY object_id ASC",
 	"cycle_issues":       "SELECT * FROM cycle_issues ORDER BY cycle_object_id ASC, issue ASC",
-	"repos":              "SELECT * FROM repos ORDER BY object_id ASC",
-	"repo_remotes":       "SELECT * FROM repo_remotes ORDER BY repo_object_id ASC, remote ASC",
 	"workflow_states":    "SELECT * FROM workflow_states ORDER BY object_id ASC",
 	"labels":             "SELECT * FROM labels ORDER BY object_id ASC",
 	"documents":          "SELECT * FROM documents ORDER BY object_id ASC",
@@ -306,19 +303,6 @@ CREATE TABLE IF NOT EXISTS cycle_issues (
     issue TEXT NOT NULL,
     PRIMARY KEY (cycle_object_id, issue)
 );
-
-CREATE TABLE IF NOT EXISTS repos (
-    object_id TEXT PRIMARY KEY,
-    slug TEXT NOT NULL,
-    is_workspace INTEGER NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS repo_remotes (
-    repo_object_id TEXT NOT NULL,
-    remote TEXT NOT NULL,
-    PRIMARY KEY (repo_object_id, remote)
-);
-CREATE INDEX IF NOT EXISTS idx_repo_remotes_repo_object_id ON repo_remotes(repo_object_id);
 
 CREATE TABLE IF NOT EXISTS workflow_states (
     object_id TEXT PRIMARY KEY,

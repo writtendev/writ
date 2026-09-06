@@ -40,28 +40,8 @@ func compileIdentifiersSchema(t *testing.T) *jsonschema.Schema {
 	return sch
 }
 
-type repoRegistryEntry struct {
-	RepoID      string   `json:"repo_id"`
-	Slug        string   `json:"slug"`
-	Remotes     []string `json:"remotes,omitempty"`
-	IsWorkspace bool     `json:"is_workspace,omitempty"`
-}
-
-type referenceResolutionVector struct {
-	Reference string `json:"reference"`
-	Context   *struct {
-		LocalRepoID string `json:"local_repo_id"`
-	} `json:"context,omitempty"`
-	Registry []repoRegistryEntry `json:"registry,omitempty"`
-	Expected *struct {
-		Resolved bool   `json:"resolved"`
-		Scope    string `json:"scope"`
-		RepoID   string `json:"repo_id,omitempty"`
-		ObjectID string `json:"object_id"`
-	} `json:"expected,omitempty"`
-}
-
-// parseReference parses a reference string into designator and object ID.
+// parseReference parses a reference string into designator and object ID,
+// mirroring the grammar in spec/identifiers.md §Reference grammar.
 func parseReference(ref string) (designator string, objectID string, err error) {
 	if ref == "" {
 		return "", "", fmt.Errorf("reference is empty")
@@ -81,54 +61,6 @@ func parseReference(ref string) (designator string, objectID string, err error) 
 	default:
 		return "", "", fmt.Errorf("reference %q contains multiple '#' separators", ref)
 	}
-}
-
-// resolveReference executes the reference resolution algorithm from
-// spec/identifiers.md §Reference resolution.
-func resolveReference(ref string, localRepoID string, registry []repoRegistryEntry) (resolved bool, scope string, repoID string, objectID string, err error) {
-	designator, objID, err := parseReference(ref)
-	if err != nil {
-		return false, "", "", "", err
-	}
-
-	// Same-repo short circuit
-	if designator == "" || (localRepoID != "" && designator == localRepoID) {
-		targetRepoID := localRepoID
-		if targetRepoID == "" && designator != "" {
-			targetRepoID = designator
-		}
-		return true, "local", targetRepoID, objID, nil
-	}
-
-	// Cross-repo lookup in registry
-	for _, entry := range registry {
-		if entry.RepoID == designator {
-			return true, "cross-repo", entry.RepoID, objID, nil
-		}
-	}
-
-	// Unresolvable reference: preserved and surfaced as unresolved
-	return false, "unresolved", "", objID, nil
-}
-
-// referenceInvariants enforces cross-field rules from spec/identifiers.md
-// that JSON Schema cannot express.
-func referenceInvariants(raw []byte) error {
-	var vec referenceResolutionVector
-	if err := json.Unmarshal(raw, &vec); err != nil {
-		return fmt.Errorf("decoding JSON: %w", err)
-	}
-
-	// Enforce uniqueness of repo_id in registry
-	seen := make(map[string]bool)
-	for _, entry := range vec.Registry {
-		if seen[entry.RepoID] {
-			return fmt.Errorf("duplicate repo_id %q in registry", entry.RepoID)
-		}
-		seen[entry.RepoID] = true
-	}
-
-	return nil
 }
 
 func TestIdentifiersSchemaCompiles(t *testing.T) {
@@ -153,40 +85,15 @@ func TestValidReferenceVectors(t *testing.T) {
 				t.Fatalf("schema validation failed: %v", err)
 			}
 
-			// Invariant validation
-			if err := referenceInvariants(raw); err != nil {
-				t.Fatalf("invariant validation failed: %v", err)
+			// Parse execution
+			var vec struct {
+				Reference string `json:"reference"`
 			}
-
-			// Resolution execution
-			var vec referenceResolutionVector
 			if err := json.Unmarshal(raw, &vec); err != nil {
 				t.Fatalf("unmarshaling vector: %v", err)
 			}
-
-			var localRepoID string
-			if vec.Context != nil {
-				localRepoID = vec.Context.LocalRepoID
-			}
-
-			resolved, scope, repoID, objectID, err := resolveReference(vec.Reference, localRepoID, vec.Registry)
-			if err != nil {
-				t.Fatalf("resolveReference error: %v", err)
-			}
-
-			if vec.Expected != nil {
-				if resolved != vec.Expected.Resolved {
-					t.Errorf("resolved = %v, want %v", resolved, vec.Expected.Resolved)
-				}
-				if scope != vec.Expected.Scope {
-					t.Errorf("scope = %q, want %q", scope, vec.Expected.Scope)
-				}
-				if vec.Expected.RepoID != "" && repoID != vec.Expected.RepoID {
-					t.Errorf("repoID = %q, want %q", repoID, vec.Expected.RepoID)
-				}
-				if objectID != vec.Expected.ObjectID {
-					t.Errorf("objectID = %q, want %q", objectID, vec.Expected.ObjectID)
-				}
+			if _, _, err := parseReference(vec.Reference); err != nil {
+				t.Fatalf("parseReference error: %v", err)
 			}
 		})
 	}
@@ -241,15 +148,8 @@ func TestInvalidReferenceVectors(t *testing.T) {
 				if schemaErr == nil {
 					t.Errorf("schema accepted it; expected rejection: %s", entry.Reason)
 				}
-			case "invariant":
-				if schemaErr != nil {
-					t.Errorf("schema rejected an invariant-kind vector (%v); expected only invariant to fail: %s", schemaErr, entry.Reason)
-				}
-				if err := referenceInvariants(raw); err == nil {
-					t.Errorf("invariants accepted it; expected rejection: %s", entry.Reason)
-				}
 			default:
-				t.Errorf("index.json kind %q unknown (want schema or invariant)", entry.Kind)
+				t.Errorf("index.json kind %q unknown (want schema)", entry.Kind)
 			}
 		})
 	}

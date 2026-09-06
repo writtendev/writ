@@ -687,16 +687,6 @@ func projectComment(generic writ.ObjectState, _ []codec.Op) state.Comment {
 	return c
 }
 
-func projectRepo(generic writ.ObjectState, _ []codec.Op) state.RepoEntry {
-	return state.RepoEntry{
-		RepoID:      generic.ObjectID,
-		Slug:        stringVal(generic.State["slug"]),
-		IsWorkspace: boolVal(generic.State["is_workspace"]),
-		Remotes:     stringSlice(generic.State["remote"]),
-		UnknownOps:  toStateUnknownOps(generic.UnknownOps),
-	}
-}
-
 func projectProject(generic writ.ObjectState, _ []codec.Op) state.Project {
 	return state.Project{
 		Title:       stringVal(generic.State["title"]),
@@ -870,19 +860,6 @@ func assertThreeWayFoldDomain(t *testing.T, objectType string, ops []codec.Op, r
 		typedJSON := toCanonicalJSON(t, typed)
 		if !bytes.Equal(projJSON, typedJSON) {
 			t.Fatalf("Comment canonical JSON mismatch:\n proj:  %s\n typed: %s", string(projJSON), string(typedJSON))
-		}
-		assertTypedUnknownOpsParity(t, typed.UnknownOps, writRes.UnknownOps)
-
-	case "repo":
-		typed, err := state.FoldRepo(ops)
-		if err != nil {
-			t.Fatalf("FoldRepo failed: %v", err)
-		}
-		projected := projectRepo(writRes, ops)
-		projJSON := toCanonicalJSON(t, projected)
-		typedJSON := toCanonicalJSON(t, typed)
-		if !bytes.Equal(projJSON, typedJSON) {
-			t.Fatalf("RepoEntry canonical JSON mismatch:\n proj:  %s\n typed: %s", string(projJSON), string(typedJSON))
 		}
 		assertTypedUnknownOpsParity(t, typed.UnknownOps, writRes.UnknownOps)
 
@@ -1444,37 +1421,6 @@ func generateCommentStream(rng *rand.Rand) ([]codec.Op, []writ.Rule) {
 	return ops, rules
 }
 
-func generateRepoStream(rng *rand.Rand) ([]codec.Op, []writ.Rule) {
-	numOps := 4 + rng.Intn(6)
-	ops := generateDAGSkeleton(rng, numOps, "repo-property", "repo")
-	rules := state.RepoRules()
-
-	ops[0].OpType = "create"
-	ops[0].Body, _ = json.Marshal(map[string]any{
-		"slug":         "writ",
-		"is_workspace": (rng.Intn(2) == 1),
-	})
-
-	for i := 1; i < len(ops); i++ {
-		if rng.Intn(2) == 0 {
-			ops[i].OpType = "set-slug"
-			ops[i].Body, _ = json.Marshal(map[string]any{
-				"slug": fmt.Sprintf("repo-slug-%d", i),
-			})
-		} else {
-			ops[i].OpType = "add-remote"
-			ops[i].Body, _ = json.Marshal(map[string]any{
-				"remote": []string{
-					fmt.Sprintf("remote-%d", rng.Intn(4)),
-					interestingStrings[rng.Intn(len(interestingStrings))],
-				},
-			})
-		}
-	}
-
-	return ops, rules
-}
-
 func generateProjectStream(rng *rand.Rand) ([]codec.Op, []writ.Rule) {
 	numOps := 4 + rng.Intn(6)
 	ops := generateDAGSkeleton(rng, numOps, "proj-property", "project")
@@ -1939,7 +1885,7 @@ func TestProperty_FoldThreeWay(t *testing.T) {
 		assertThreeWayFoldAbstract(t, synthOps, synthRules)
 
 		// 2. Domain object stream
-		domainIdx := rng.Intn(6)
+		domainIdx := rng.Intn(5)
 		switch domainIdx {
 		case 0:
 			ops, rules, mode := generateReviewStream(rng)
@@ -1951,12 +1897,9 @@ func TestProperty_FoldThreeWay(t *testing.T) {
 			ops, rules := generateCommentStream(rng)
 			assertThreeWayFoldDomain(t, "comment", ops, rules, "")
 		case 3:
-			ops, rules := generateRepoStream(rng)
-			assertThreeWayFoldDomain(t, "repo", ops, rules, "")
-		case 4:
 			ops, rules := generateProjectStream(rng)
 			assertThreeWayFoldDomain(t, "project", ops, rules, "")
-		case 5:
+		case 4:
 			ops, rules := generateCycleStream(rng)
 			assertThreeWayFoldDomain(t, "cycle", ops, rules, "")
 		}
@@ -1985,7 +1928,7 @@ func FuzzFoldThreeWay(f *testing.F) {
 
 	// Seed with generated cases for each domain
 	rng := rand.New(rand.NewSource(42))
-	for i := 0; i < 6; i++ {
+	for i := 0; i < 5; i++ {
 		var fc FuzzCase
 		switch i {
 		case 0:
@@ -1998,12 +1941,9 @@ func FuzzFoldThreeWay(f *testing.F) {
 			ops, rules := generateCommentStream(rng)
 			fc = FuzzCase{ObjectType: "comment", Rules: rules, Ops: ops}
 		case 3:
-			ops, rules := generateRepoStream(rng)
-			fc = FuzzCase{ObjectType: "repo", Rules: rules, Ops: ops}
-		case 4:
 			ops, rules := generateProjectStream(rng)
 			fc = FuzzCase{ObjectType: "project", Rules: rules, Ops: ops}
-		case 5:
+		case 4:
 			ops, rules := generateCycleStream(rng)
 			fc = FuzzCase{ObjectType: "cycle", Rules: rules, Ops: ops}
 		}
@@ -2030,8 +1970,6 @@ func FuzzFoldThreeWay(f *testing.F) {
 					rules = writ.IssueRules()
 				case "comment":
 					rules = commentRules()
-				case "repo":
-					rules = state.RepoRules()
 				case "project":
 					rules = writ.ProjectRules()
 				case "cycle":
@@ -2053,7 +1991,7 @@ func FuzzFoldThreeWay(f *testing.F) {
 		if len(data) >= 8 {
 			seed := int64(binary.BigEndian.Uint64(data[:8]))
 			localRNG := rand.New(rand.NewSource(seed))
-			choice := localRNG.Intn(7)
+			choice := localRNG.Intn(6)
 			if choice == 0 {
 				synthOps, synthRules := generateAbstractSyntheticStream(localRNG)
 				assertThreeWayFoldAbstract(t, synthOps, synthRules)
@@ -2069,12 +2007,9 @@ func FuzzFoldThreeWay(f *testing.F) {
 					ops, rules := generateCommentStream(localRNG)
 					assertThreeWayFoldDomain(t, "comment", ops, rules, "")
 				case 4:
-					ops, rules := generateRepoStream(localRNG)
-					assertThreeWayFoldDomain(t, "repo", ops, rules, "")
-				case 5:
 					ops, rules := generateProjectStream(localRNG)
 					assertThreeWayFoldDomain(t, "project", ops, rules, "")
-				case 6:
+				case 5:
 					ops, rules := generateCycleStream(localRNG)
 					assertThreeWayFoldDomain(t, "cycle", ops, rules, "")
 				}

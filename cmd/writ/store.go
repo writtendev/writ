@@ -128,17 +128,17 @@ func resolveCommentID(ctx context.Context, store *writ.Store, prefix string) (st
 	return matches[0], nil
 }
 
-func resolveIssueRef(ctx context.Context, store *writ.Store, ref string) (scope string, slug string, objectID string, err error) {
+func resolveIssueRef(ctx context.Context, store *writ.Store, ref string) (scope string, objectID string, err error) {
 	des, objID, err := state.ParseReference(ref)
 	if err != nil {
-		return "", "", "", err
+		return "", "", err
 	}
 
 	if des == "" || store.Ref(objID) == ref {
-		return "local", "", objID, nil
+		return "local", objID, nil
 	}
 
-	return "unresolved", "", objID, nil
+	return "unresolved", objID, nil
 }
 
 func resolveIssueID(ctx context.Context, store *writ.Store, prefix string) (string, error) {
@@ -148,16 +148,9 @@ func resolveIssueID(ctx context.Context, store *writ.Store, prefix string) (stri
 
 	targetPrefix := prefix
 	if strings.Contains(prefix, "#") {
-		scope, slug, objID, err := resolveIssueRef(ctx, store, prefix)
+		scope, objID, err := resolveIssueRef(ctx, store, prefix)
 		if err != nil {
 			return "", err
-		}
-		if scope == "cross-repo" {
-			if slug == "" {
-				des, _, _ := state.ParseReference(prefix)
-				slug = des
-			}
-			return "", fmt.Errorf("issue lives in repo %s", slug)
 		}
 		if scope == "unresolved" {
 			return "", notFoundError{kind: "issue", id: prefix}

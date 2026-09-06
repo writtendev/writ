@@ -19,39 +19,8 @@ func TestReferenceVectorsValidCorpus(t *testing.T) {
 
 	for _, vec := range vectors {
 		t.Run(vec.Name, func(t *testing.T) {
-			var localRepoID string
-			if vec.Context != nil {
-				localRepoID = vec.Context.LocalRepoID
-			}
-
-			var registry []s.RepoEntry
-			for _, r := range vec.Registry {
-				registry = append(registry, s.RepoEntry{
-					RepoID:      r.RepoID,
-					Slug:        r.Slug,
-					Remotes:     r.Remotes,
-					IsWorkspace: r.IsWorkspace,
-				})
-			}
-
-			resolved, err := s.ResolveReference(vec.Reference, localRepoID, registry)
-			if err != nil {
-				t.Fatalf("ResolveReference(%q) error: %v", vec.Reference, err)
-			}
-
-			if vec.Expected != nil {
-				if resolved.IsResolved() != vec.Expected.Resolved {
-					t.Errorf("IsResolved = %v, want %v", resolved.IsResolved(), vec.Expected.Resolved)
-				}
-				if resolved.Scope != vec.Expected.Scope {
-					t.Errorf("Scope = %q, want %q", resolved.Scope, vec.Expected.Scope)
-				}
-				if vec.Expected.RepoID != "" && resolved.RepoID != vec.Expected.RepoID {
-					t.Errorf("RepoID = %q, want %q", resolved.RepoID, vec.Expected.RepoID)
-				}
-				if resolved.ObjectID != vec.Expected.ObjectID {
-					t.Errorf("ObjectID = %q, want %q", resolved.ObjectID, vec.Expected.ObjectID)
-				}
+			if _, _, err := s.ParseReference(vec.Reference); err != nil {
+				t.Fatalf("ParseReference(%q) error: %v", vec.Reference, err)
 			}
 		})
 	}
@@ -83,70 +52,30 @@ func TestInvalidReferenceGrammarCases(t *testing.T) {
 			if err == nil {
 				t.Errorf("ParseReference(%q) expected error, got nil", tc.ref)
 			}
-			_, errRes := s.ResolveReference(tc.ref, "", nil)
-			if errRes == nil {
-				t.Errorf("ResolveReference(%q) expected error, got nil", tc.ref)
-			}
 		})
 	}
 }
 
-func TestResolveReferenceUnresolvedPreservation(t *testing.T) {
-	ref := "99999999999999999999999999999999#0123456789abcdef0123456789abcdef"
-	localRepoID := "a1b2c3d4e5f60718293a4b5c6d7e8f90"
-	registry := []s.RepoEntry{
-		{
-			RepoID:  localRepoID,
-			Slug:    "acme/backend",
-			Remotes: []string{"git@github.com:acme/backend.git"},
-		},
-	}
-
-	res, err := s.ResolveReference(ref, localRepoID, registry)
-	if err != nil {
-		t.Fatalf("ResolveReference failed: %v", err)
-	}
-
-	if res.IsResolved() {
-		t.Errorf("expected unresolved, got resolved")
-	}
-	if res.Scope != "unresolved" {
-		t.Errorf("scope = %q, want 'unresolved'", res.Scope)
-	}
-	if res.Reference != ref {
-		t.Errorf("reference = %q, want %q", res.Reference, ref)
-	}
-	if res.Designator != "99999999999999999999999999999999" {
-		t.Errorf("designator = %q, want '99999999999999999999999999999999'", res.Designator)
-	}
-	if res.ObjectID != "0123456789abcdef0123456789abcdef" {
-		t.Errorf("object_id = %q, want '0123456789abcdef0123456789abcdef'", res.ObjectID)
-	}
-	if res.Reason != "unknown_repo" {
-		t.Errorf("reason = %q, want 'unknown_repo'", res.Reason)
-	}
-}
-
-func TestResolveReferenceSameRepoShortCircuit(t *testing.T) {
+func TestParseReferenceBareAndQualified(t *testing.T) {
 	localRepoID := "a1b2c3d4e5f60718293a4b5c6d7e8f90"
 	objID := "0123456789abcdef0123456789abcdef"
 
-	// Bare reference
-	res1, err := s.ResolveReference(objID, localRepoID, nil)
+	// Bare reference: no designator.
+	des, gotObjID, err := s.ParseReference(objID)
 	if err != nil {
-		t.Fatalf("ResolveReference bare failed: %v", err)
+		t.Fatalf("ParseReference bare failed: %v", err)
 	}
-	if !res1.IsResolved() || res1.Scope != "local" || res1.RepoID != localRepoID || res1.ObjectID != objID {
-		t.Errorf("bare resolution mismatch: %+v", res1)
+	if des != "" || gotObjID != objID {
+		t.Errorf("bare parse mismatch: designator=%q, objectID=%q", des, gotObjID)
 	}
 
-	// Qualified reference matching localRepoID
+	// Fully-qualified reference.
 	qualRef := localRepoID + "#" + objID
-	res2, err := s.ResolveReference(qualRef, localRepoID, nil)
+	des, gotObjID, err = s.ParseReference(qualRef)
 	if err != nil {
-		t.Fatalf("ResolveReference qual matching failed: %v", err)
+		t.Fatalf("ParseReference qualified failed: %v", err)
 	}
-	if !res2.IsResolved() || res2.Scope != "local" || res2.RepoID != localRepoID || res2.ObjectID != objID {
-		t.Errorf("qual matching resolution mismatch: %+v", res2)
+	if des != localRepoID || gotObjID != objID {
+		t.Errorf("qualified parse mismatch: designator=%q, objectID=%q", des, gotObjID)
 	}
 }

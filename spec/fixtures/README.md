@@ -70,7 +70,7 @@ func TestFoldFamily(t *testing.T) {
             return strings.HasPrefix(desc.Name, "fold-")
         },
         Runner: func(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
-            return fold.FoldRepo(fix.Repo)
+            return foldState(fix.Repo)
         },
     })
 }

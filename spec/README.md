@@ -22,24 +22,22 @@ disagree, the fixtures win and the prose gets fixed.
 | `forward-compatibility.md` | Normative | Unknown-op handling, forward compatibility, version-bump semantics, and round-trip preservation rules |
 | `anchors.md` | Normative | Content-based comment anchors (v1): the dual-sided anchor object, context capture, re-anchoring and orphaning |
 | `fold.md` | Normative | Fold semantics: the input model, causality-monotone effective time `t*`, the deterministic total order, concurrency rules, the closed per-field merge strategy catalogue, tombstones, and state serialization |
-| `identifiers.md` | Normative | Globally unique object IDs, repo designators, cross-repo references, reference resolution, and person identifiers |
+| `identifiers.md` | Normative | Globally unique object IDs, repo designators, cross-repo references, and person identifiers |
 | `ordering.md` | Normative | Fractional indexing & shared ordering primitive: byte-comparable base-62 strings, canonical form, boundary generation, and op-id tiebreak |
 | `review-ops.md` | Normative | The review family operation vocabulary (v1): review creation, revisions, status transitions, assignments, approvals, and CI statuses |
 | `comments.md` | Normative | Comment op vocabulary (v1): object model, create/edit/delete ops, threading, anchor reference, GitHub shapes |
 | `issue-ops.md` | Normative | The issue family operation vocabulary (v1): issue creation, metadata updates, state transitions, assignments, labels, and cross-references (Appendix B: Linear schema mapping) |
-| `project-cycle.md` | Normative | Project and cycle operation vocabularies (v1): workspace-scoped grouping types, creation, status transitions, cycle dates, and issue membership |
-| `repo-ops.md` | Normative | The repository registry operation vocabulary (v1): repository registration, slug updates, and remote URLs |
+| `project-cycle.md` | Normative | Project and cycle operation vocabularies (v1): repo-scoped grouping types, creation, status transitions, cycle dates, and issue membership |
 | `resolution.md` | Normative | Re-anchoring & orphan degradation (v1): the `resolve(anchor, tree)` ladder, tiebreaks, thresholds, and orphan semantics |
 | `schemas/op-envelope.schema.json` | Normative | JSON Schema (draft 2020-12) for the payload half of the envelope |
 | `schemas/anchor.schema.json` | Normative | JSON Schema (draft 2020-12) for the anchor object |
-| `schemas/identifiers.schema.json` | Normative | JSON Schema (draft 2020-12) for identifiers, references, and the repo registry |
+| `schemas/identifiers.schema.json` | Normative | JSON Schema (draft 2020-12) for identifiers and references |
 | `schemas/ordering.schema.json` | Normative | JSON Schema (draft 2020-12) for the fractional index position key |
 | `schemas/review-ops.schema.json` | Normative | JSON Schema (draft 2020-12) for the review operations family |
 | `schemas/comment.schema.json` | Normative | JSON Schema (draft 2020-12) for comment op payloads |
 | `schemas/issue-ops.schema.json` | Normative | JSON Schema (draft 2020-12) for the issue operations family |
 | `schemas/project-ops.schema.json` | Normative | JSON Schema (draft 2020-12) for project operation payloads |
 | `schemas/cycle-ops.schema.json` | Normative | JSON Schema (draft 2020-12) for cycle operation payloads |
-| `schemas/repo-ops.schema.json` | Normative | JSON Schema (draft 2020-12) for repository registry operation payloads |
 | `schemas/resolution.schema.json` | Normative | JSON Schema (draft 2020-12) for the resolution outcome object |
 | `schemas/field-rules.schema.json` | Normative | JSON Schema (draft 2020-12) for field merge rule declarations (`field-rules.json`) |
 | `testdata/canonicalization/vectors.json` | Normative | Canonicalization test vectors: input → exact canonical bytes, or input → rejection |
@@ -50,7 +48,7 @@ disagree, the fixtures win and the prose gets fixed.
 | `testdata/anchors/valid/`, `testdata/anchors/invalid/` | Normative | Anchor instances; `invalid/index.json` records each expected rejection and whether the schema or an invariant catches it |
 | `testdata/anchors/github/` | Informative | GitHub-position conversion vectors, illustrating a mapping whose enforcement lives in the bridge rather than here |
 | `testdata/fold/order/`, `testdata/fold/merge/` | Normative | Fold test vectors: deterministic total order test vectors and merge strategy vectors |
-| `testdata/references/valid/`, `testdata/references/invalid/` | Normative | Reference and resolution instances; `invalid/index.json` records each expected rejection |
+| `testdata/references/valid/`, `testdata/references/invalid/` | Normative | Reference instances; `invalid/index.json` records each expected rejection |
 | `testdata/review-ops/valid/`, `testdata/review-ops/invalid/` | Normative | Review operation payload instances; `invalid/index.json` records each expected rejection |
 | `testdata/review-ops/field-rules.json` | Normative | Field-by-field fold merge strategy declarations for the review op vocabulary |
 | `testdata/review-ops/github/` | Informative | GitHub PR, review, status, and check-run conversion vectors |
@@ -63,8 +61,6 @@ disagree, the fixtures win and the prose gets fixed.
 | `testdata/project/field-rules.json` | Normative | Field-by-field fold merge strategy declarations for the project op vocabulary |
 | `testdata/cycle/valid/`, `testdata/cycle/invalid/` | Normative | Cycle operation payload instances; `invalid/index.json` records each expected rejection |
 | `testdata/cycle/field-rules.json` | Normative | Field-by-field fold merge strategy declarations for the cycle op vocabulary |
-| `testdata/repo/valid/`, `testdata/repo/invalid/` | Normative | Repository registry operation payload instances; `invalid/index.json` records each expected rejection |
-| `testdata/repo/field-rules.json` | Normative | Field-by-field fold merge strategy declarations for the repository registry op vocabulary |
 | `testdata/resolution/` | Normative | Resolution test vectors (`cases/*.json`) and outcome index (`index.json`) |
 | `spec.go` | Informative | Go embedding of `schemas/` and `testdata/` so every consumer reads the one committed copy |
 | `foldvectors.go` | Informative | Go loader and structural validation for fold ordering and merge test vectors |
@@ -94,7 +90,6 @@ spec/
 ├── comments.md             — normative: comment op vocabulary (v1)
 ├── issue-ops.md            — normative: issue family operation vocabulary (v1), Linear mapping (Appendix B)
 ├── project-cycle.md        — normative: project & cycle grouping op vocabularies (v1)
-├── repo-ops.md             — normative: repository registry op vocabulary (v1)
 ├── resolution.md           — normative: re-anchoring & orphan degradation (v1)
 ├── spec.go                 — go:embed of schemas/ and testdata/ (package spec)
 ├── foldvectors.go          — loader and structural validation for fold test vectors
@@ -109,7 +104,6 @@ spec/
 │   ├── issue-ops.schema.json — draft 2020-12 schema for issue operations
 │   ├── project-ops.schema.json — draft 2020-12 schema for project operation payloads
 │   ├── cycle-ops.schema.json — draft 2020-12 schema for cycle operation payloads
-│   ├── repo-ops.schema.json — draft 2020-12 schema for repository registry operation payloads
 │   ├── resolution.schema.json — draft 2020-12 schema for the resolution outcome object
 │   └── field-rules.schema.json — draft 2020-12 schema for field merge rule declarations
 ├── testdata/
@@ -126,7 +120,7 @@ spec/
 │   │   ├── order/          — deterministic total order vectors
 │   │   └── merge/          — per-field merge strategy and interleaving vectors
 │   ├── references/
-│   │   ├── valid/          — references & resolution vectors that must validate
+│   │   ├── valid/          — reference vectors that must validate
 │   │   └── invalid/        — invalid references & index.json of expected rejections
 │   ├── persons/
 │   │   ├── valid/          — person identifiers with their split, normalization and equality
@@ -152,10 +146,6 @@ spec/
 │   ├── cycle/
 │   │   ├── valid/          — cycle op instances that must validate
 │   │   ├── invalid/        — cycle op instances that must be rejected (+ index.json)
-│   │   └── field-rules.json — fold merge strategies per field
-│   ├── repo/
-│   │   ├── valid/          — repo op instances that must validate
-│   │   ├── invalid/        — repo op instances that must be rejected (+ index.json)
 │   │   └── field-rules.json — fold merge strategies per field
 │   └── resolution/
 │       ├── cases/          — resolution test cases (anchor + target tree -> outcome)

@@ -21,7 +21,7 @@ type ObjectChange struct {
 	// ObjectID is the unique identifier of the collaborative object.
 	ObjectID string `json:"object_id"`
 
-	// ObjectType is the type of collaborative object (e.g. "review", "issue", "comment", "project", "cycle", "repo").
+	// ObjectType is the type of collaborative object (e.g. "review", "issue", "comment", "project", "cycle").
 	ObjectType string `json:"object_type"`
 
 	// OpTypes lists the distinct operation types applied to the object in this refresh batch.

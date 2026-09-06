@@ -576,17 +576,10 @@ func runIssueStatus(ctx context.Context, defaultDir string, args []string, stdou
 		if len(res.Issue.Links) > 0 {
 			fmt.Fprintln(stdout, "Links:")
 			for _, link := range res.Issue.Links {
-				scope, slug, _, err := resolveIssueRef(ctx, store, link.Target)
+				scope, _, err := resolveIssueRef(ctx, store, link.Target)
 				var outcome string
 				if err != nil || scope == "unresolved" {
 					outcome = "unresolved"
-				} else if scope == "cross-repo" {
-					if slug != "" {
-						outcome = fmt.Sprintf("cross-repo %s", slug)
-					} else {
-						des, _, _ := state.ParseReference(link.Target)
-						outcome = fmt.Sprintf("cross-repo %s", des)
-					}
 				} else {
 					outcome = "local"
 				}

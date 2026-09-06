@@ -57,7 +57,6 @@ func TestAPIShapeNoGitInternalsLeak(t *testing.T) {
 		writ.Project{},
 		writ.Cycle{},
 		writ.Writer{},
-		writ.RepoEntry{},
 	}
 
 	for _, target := range targets {

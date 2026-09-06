@@ -1,17 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://writ.dev/spec/identifiers.schema.json",
-  "title": "Writ identifiers, references, and repo registry (v1)",
-  "description": "Workspace-global object identifiers, repo designators, references, and workspace repo registry entries. Normative text: spec/identifiers.md. Cross-field invariants the schema cannot express (resolution algorithm, registry uniqueness, opaque-fallback handling) are defined in the spec text and enforced by validators alongside this schema. additionalProperties is deliberately never false: unknown fields are preserved and ignored.",
+  "title": "Writ identifiers and references (v1)",
+  "description": "Globally unique object identifiers, repository designators, and cross-repository references. Normative text: spec/identifiers.md. Cross-field invariants the schema cannot express (opaque-fallback handling) are defined in the spec text and enforced by validators alongside this schema. additionalProperties is deliberately never false: unknown fields are preserved and ignored.",
   "type": "object",
   "properties": {
-    "reference": { "$ref": "#/$defs/reference" },
-    "context": { "$ref": "#/$defs/resolution-context" },
-    "registry": {
-      "type": "array",
-      "items": { "$ref": "#/$defs/repo-entry" }
-    },
-    "expected": { "$ref": "#/$defs/resolution-expected" }
+    "reference": { "$ref": "#/$defs/reference" }
   },
   "required": ["reference"],
   "$defs": {
@@ -43,51 +37,6 @@
       "type": "string",
       "pattern": "^([0-9a-f]{32}#)?[0-9a-f]{32}$",
       "description": "Canonical reference: bare <object-id> (32 hex) or <repo-id>#<object-id> (32 hex # 32 hex)."
-    },
-    "repo-slug": {
-      "type": "string",
-      "minLength": 1,
-      "pattern": "^[^\\s]+$",
-      "description": "Repository slug in the registry: non-empty string without whitespace."
-    },
-    "remote-url": {
-      "type": "string",
-      "minLength": 1,
-      "description": "Remote URL string for discovery: non-empty string."
-    },
-    "repo-entry": {
-      "type": "object",
-      "properties": {
-        "repo_id": { "$ref": "#/$defs/repo-id" },
-        "slug": { "$ref": "#/$defs/repo-slug" },
-        "remotes": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/remote-url" }
-        },
-        "is_workspace": {
-          "type": "boolean"
-        }
-      },
-      "required": ["repo_id", "slug"]
-    },
-    "resolution-context": {
-      "type": "object",
-      "properties": {
-        "local_repo_id": { "$ref": "#/$defs/repo-id" }
-      }
-    },
-    "resolution-expected": {
-      "type": "object",
-      "properties": {
-        "resolved": { "type": "boolean" },
-        "scope": {
-          "type": "string",
-          "enum": ["local", "cross-repo", "unresolved"]
-        },
-        "repo_id": { "$ref": "#/$defs/repo-id" },
-        "object_id": { "type": "string", "minLength": 1 }
-      },
-      "required": ["resolved", "scope", "object_id"]
     }
   }
 }

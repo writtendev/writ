@@ -112,12 +112,11 @@ func TestBuildCommitRejectsSchemaInvalidBody(t *testing.T) {
 // against every one of them rather than against whichever one happens to be
 // most permissive.
 var knownCreateBodies = map[string]string{
-	"review":  `{"title":"Initial"}`,
-	"comment": `{"subject":{"object_id":"rev-1","object_type":"review"},"text":"hello"}`,
-	"issue":   `{"title":"Initial"}`,
-	"project": `{"title":"Initial"}`,
+	"review":         `{"title":"Initial"}`,
+	"comment":        `{"subject":{"object_id":"rev-1","object_type":"review"},"text":"hello"}`,
+	"issue":          `{"title":"Initial"}`,
+	"project":        `{"title":"Initial"}`,
 	"cycle":          `{"ends_at":"2026-02-01T00:00:00Z","starts_at":"2026-01-01T00:00:00Z","title":"Sprint 1"}`,
-	"repo":           `{"slug":"org/repo"}`,
 	"workflow-state": `{"name":"Todo","position":"V","type":"unstarted"}`,
 	"label":          `{"name":"bug"}`,
 	"document":       `{"title":"Initial"}`,
@@ -235,12 +234,11 @@ func TestVocabularySchemasTolerateUnknownOpTypeAndVersion(t *testing.T) {
 // unrecognized op type means the body is never examined at all — and the op it
 // would write is one no reader will ever interpret.
 var producerTypos = map[string]string{
-	"review":  "aproval",
-	"comment": "resolv",
-	"issue":   "set-stat",
-	"project": "add-isue",
+	"review":         "aproval",
+	"comment":        "resolv",
+	"issue":          "set-stat",
+	"project":        "add-isue",
 	"cycle":          "set-date",
-	"repo":           "add-remot",
 	"workflow-state": "creat",
 	"label":          "creat",
 	"document":       "creat",
