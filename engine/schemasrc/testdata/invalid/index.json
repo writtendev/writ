@@ -110,5 +110,19 @@
     "col": 11,
     "message": "unknown value type \"currency\"; expected one of anchor, bool, enum, git-oid, int, number, object-ref, person-ref, position, string, text, timestamp, enum(...), untyped, or [\u003cvalue type\u003e]",
     "reason": "'currency' is not a member of the closed value-type catalogue (spec/value-types.md)"
+  },
+  {
+    "file": "version-bump-reuses-target.schema",
+    "line": 9,
+    "col": 5,
+    "message": "field rule (create, 2, priority) reuses target \"priority\" already bound to strategy \"lww\" with a different strategy \"lattice\"; a version bump that changes strategy must declare a distinct target",
+    "reason": "a version bump changing strategy while reusing the default (field-name) target is the WRIT-198 class reachable from source; RulesFromSchemas would drop the create-2 rule as a TargetKey() collision, so Compile rejects it instead (spec/schema-source.md §5, §7; WRIT-187 round-1 finding 2)"
+  },
+  {
+    "file": "repeated-modifier.schema",
+    "line": 5,
+    "col": 32,
+    "message": "modifier \"target\" is already declared on this field",
+    "reason": "each modifier has exactly one spelling per field (spec/schema-source.md §3.3); a second target(...) is rejected rather than silently keeping whichever the author wrote last (WRIT-187 round-1 finding 4)"
   }
 ]

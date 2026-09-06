@@ -1342,6 +1342,9 @@ type File struct {
 	Types []*Type
 	LeadingComments []string
 	Pos Position
+	NamespaceTrailingComment string
+	DescriptionTrailingComment string
+	TrailingComments []string
 }
 
 type KeyCol struct {
@@ -1355,6 +1358,8 @@ type OpBlock struct {
 	Fields []*Field
 	LeadingComments []string
 	Pos Position
+	DescriptionTrailingComment string
+	DanglingComments []string
 }
 
 type OpDecl struct {
@@ -1383,6 +1388,8 @@ type Type struct {
 	Blocks []*OpBlock
 	LeadingComments []string
 	Pos Position
+	DescriptionTrailingComment string
+	DanglingComments []string
 }
 
 type ValueType struct {

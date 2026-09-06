@@ -3,11 +3,13 @@ package schemasrc
 import (
 	"fmt"
 	"reflect"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/writtendev/writ/engine/state"
+	"github.com/writtendev/writ/spec"
 )
 
 // Render renders folded schema state back to canonical writ.schema source
@@ -195,6 +197,9 @@ func renderOpBlock(b *strings.Builder, g opGroup) error {
 }
 
 func renderField(b *strings.Builder, f state.SchemaField) error {
+	if err := validateFieldForRender(f); err != nil {
+		return fmt.Errorf("field %q: %w", f.Name, err)
+	}
 	valueType, err := renderValueType(f)
 	if err != nil {
 		return fmt.Errorf("field %q: %w", f.Name, err)
@@ -222,6 +227,95 @@ func renderField(b *strings.Builder, f state.SchemaField) error {
 		b.WriteString(" deprecated")
 	}
 	b.WriteByte('\n')
+	return nil
+}
+
+// identLexPattern matches whatever lex.go's isIdentStart/isIdentCont
+// accept as a bare identifier token, independent of any further naming
+// convention a specific grammar production layers on top. enum(...),
+// lattice(...), and a key(...) column name are all parsed via
+// expectIdentAny alone, with no accompanying validateName call (parse.go),
+// so this is the exact bar Render must clear for those slots to guarantee
+// Parse accepts the result back — nothing stricter is required, but
+// nothing looser is safe either (spaces and grammar punctuation break the
+// lexer, per spec/schemas/schema-ops.schema.json's define_field_body: it
+// puts no pattern on enum items or target, so both are otherwise
+// wire-legal with a space).
+var identLexPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
+
+// validateNameForRender applies the same constraints Parse's validateName
+// enforces on a field name or a target(...) name (parse.go): the naming
+// pattern (spec/schema-source.md §3.3), the reserved-word exclusion, and
+// the length limit. Render must clear this stricter bar (not just
+// identLexPattern) for these two slots specifically, because
+// parseField/parseTargetModifier both route through validateName rather
+// than a bare expectIdentAny.
+func validateNameForRender(name, what string) error {
+	if isKeyword(name) {
+		return fmt.Errorf("%s %q is a reserved word and would not parse back", what, name)
+	}
+	if len(name) > maxNameLength {
+		return fmt.Errorf("%s %q is %d characters, over the %d-character limit and would not parse back", what, name, len(name), maxNameLength)
+	}
+	if !fieldNamePattern.MatchString(name) {
+		return fmt.Errorf("%s %q would not parse back; must match %s", what, name, fieldNamePattern.String())
+	}
+	return nil
+}
+
+// validateIdentForRender checks only that s would lex as a bare
+// identifier token — see identLexPattern.
+func validateIdentForRender(s, what string) error {
+	if !identLexPattern.MatchString(s) {
+		return fmt.Errorf("%s %q would not lex as an identifier and would not parse back; must match %s", what, s, identLexPattern.String())
+	}
+	return nil
+}
+
+// validateFieldForRender rejects, before any text is written, every
+// declaration this grammar has no spelling for or that Parse would then
+// reject — the wire's define_field_body has no pattern on enum, lattice,
+// key, or target (spec/schemas/schema-ops.schema.json), and FoldSchema
+// does no catalogue validation of strategy or value_type, so all of this
+// is reachable only from a non-conforming writer's log, never from
+// Compile's own output. Naming the offending declaration (which field,
+// which part) is the point: WRIT-191's `plan` diffs a log's rendering
+// against the working tree and would otherwise write out a writ.schema
+// `apply` cannot parse back, with no indication of which declaration
+// broke it.
+func validateFieldForRender(f state.SchemaField) error {
+	if err := validateNameForRender(f.Name, "field name"); err != nil {
+		return err
+	}
+	if !spec.KnownCatalogueStrategies[f.Strategy] {
+		return fmt.Errorf("unknown merge strategy %q", f.Strategy)
+	}
+	if f.ValueType != "" && !spec.KnownValueTypes[f.ValueType] {
+		return fmt.Errorf("unknown value type %q", f.ValueType)
+	}
+	for _, m := range f.Enum {
+		if err := validateIdentForRender(m, "enum member"); err != nil {
+			return err
+		}
+	}
+	for _, m := range f.Lattice {
+		if err := validateIdentForRender(m, "lattice element"); err != nil {
+			return err
+		}
+	}
+	if f.Target != "" {
+		if err := validateNameForRender(f.Target, "target"); err != nil {
+			return err
+		}
+	}
+	for _, col := range f.Key {
+		if err := validateIdentForRender(col, "key column"); err != nil {
+			return err
+		}
+		if kt := f.KeyTypes[col]; !spec.KnownValueTypes[kt] {
+			return fmt.Errorf("key column %q declares unknown value type %q", col, kt)
+		}
+	}
 	return nil
 }
 

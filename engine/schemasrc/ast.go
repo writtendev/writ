@@ -22,6 +22,19 @@ type File struct {
 	// LeadingComments are comment lines preceding `namespace`.
 	LeadingComments []string
 	Pos             Position
+
+	// NamespaceTrailingComment is a same-line comment following the
+	// `namespace` line, e.g. `namespace acme  # comment`.
+	NamespaceTrailingComment string
+	// DescriptionTrailingComment is a same-line comment following the
+	// file-level `description "..."` line.
+	DescriptionTrailingComment string
+	// TrailingComments are comment lines with nowhere ahead of them to
+	// attach to — after the last type declaration, or, in a file with no
+	// types, after `namespace`/`description` — up to end of file. Format
+	// reprints these verbatim at the end of the file rather than
+	// dropping them.
+	TrailingComments []string
 }
 
 // Type is one declared object type: `type <name> [deprecated] { ... }`.
@@ -33,6 +46,14 @@ type Type struct {
 
 	LeadingComments []string
 	Pos             Position
+
+	// DescriptionTrailingComment is a same-line comment following this
+	// type's own `description "..."` line.
+	DescriptionTrailingComment string
+	// DanglingComments are comment lines with nowhere ahead of them to
+	// attach to — after the last op block (or, if there are none, after
+	// the description) — up to the closing `}`.
+	DanglingComments []string
 }
 
 // OpDecl names one op within an OpBlock's header, e.g. the `create 1` in
@@ -51,6 +72,14 @@ type OpBlock struct {
 
 	LeadingComments []string
 	Pos             Position
+
+	// DescriptionTrailingComment is a same-line comment following this
+	// op block's own `description "..."` line.
+	DescriptionTrailingComment string
+	// DanglingComments are comment lines with nowhere ahead of them to
+	// attach to — after the last field (or, if there are none, after
+	// the description) — up to the closing `}`.
+	DanglingComments []string
 }
 
 // ValueTypeKind distinguishes the value-type-expr productions

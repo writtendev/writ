@@ -1,0 +1,7 @@
+namespace acme
+
+type widget {
+  op create 1 {
+    a  string  lww  target(x)  target(y)
+  }
+}

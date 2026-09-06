@@ -214,7 +214,12 @@ function every vocabulary's `field-rules.json` is validated through —
 before `Compile` returns, so a file that would produce a rule
 `RulesFromSchemas` later drops (a lattice element outside its enum, a
 `key_types` mismatch, and so on) is rejected at compile time, with a line
-and column, instead of silently vanishing at resolve time.
+and column, instead of silently vanishing at resolve time. One rule
+`ValidateFieldRule` cannot see on its own, because it validates a single
+rule at a time, is checked alongside it across the whole type: two
+define-fields whose `TargetKey()` collides while their strategies differ
+(§7) are rejected the same way, at the same time, rather than only at
+resolve time.
 
 `objectID` is an explicit, required parameter with no default and nothing
 derived from `namespace`. Reusing it across successive applies to the
@@ -270,11 +275,19 @@ A field's merge strategy can change from one op version to the next
 without a migration, because field rules are already keyed by
 `(op_type, op_version, field)` (`schema-ops.md` §8): ops written under the
 old version keep folding under the old rules, and ops written under the
-new version fold under the new ones. The one constraint this grammar
-cannot check for you locally — it needs the whole type — is that a
-version bump changing `strategy` while reusing the same `target` as a
-prior version is order-dependent, and is rejected by the resolver rather
-than accepted:
+new version fold under the new ones. A version bump changing `strategy`
+while reusing the same `target` as a prior version is order-dependent —
+`fold.md` §5's generic fold groups matched rules by target key alone and
+instantiates one accumulator from whichever rule a caller's slice lists
+first — and `engine/schemasrc.Compile` rejects it at compile time, with a
+line and column, rather than deferring to the resolver: `compileType`
+already holds the whole type when a field is compiled, so nothing about
+this check needs to wait until the type's rules are assembled elsewhere.
+Left unchecked here, the same collision is still caught later —
+`RulesFromSchemas` drops the colliding rule and records a
+`SchemaConflict` — but only after the ops are signed into the log and
+unremovable, which is what makes catching it at `Compile` time the one
+that matters:
 
 ```
 type ticket {

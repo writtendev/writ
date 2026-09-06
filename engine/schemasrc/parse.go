@@ -186,7 +186,7 @@ func (p *parser) parseFile() *File {
 		validateName(p, nameTok, namespacePattern, "namespace")
 		f.Namespace = nameTok.Text
 	}
-	p.trailingCommentSameLine()
+	f.NamespaceTrailingComment = p.trailingCommentSameLine()
 
 	// A comment between `namespace` and `description` (or between
 	// `namespace` and the first `type`, if there is no description) has
@@ -196,12 +196,13 @@ func (p *parser) parseFile() *File {
 	f.LeadingComments = append(f.LeadingComments, p.collectLeading()...)
 	if p.peek().Kind == tokIdent && p.peek().Text == "description" {
 		f.Description, _ = p.parseDescription()
-		p.trailingCommentSameLine()
+		f.DescriptionTrailingComment = p.trailingCommentSameLine()
 	}
 
 	for {
 		leading := p.collectLeading()
 		if p.peek().Kind == tokEOF {
+			f.TrailingComments = leading
 			return f
 		}
 		if p.peek().Kind == tokIdent && p.peek().Text == "type" {
@@ -270,6 +271,7 @@ func (p *parser) parseType() *Type {
 	for {
 		leading := p.collectLeading()
 		if p.peek().Kind == tokRBrace {
+			t.DanglingComments = leading
 			p.advanceTok()
 			return t
 		}
@@ -289,7 +291,7 @@ func (p *parser) parseType() *Type {
 				p.errorf(p.peek().Pos, "type %q already has a description", t.Name)
 			}
 			t.Description, _ = p.parseDescription()
-			p.trailingCommentSameLine()
+			t.DescriptionTrailingComment = p.trailingCommentSameLine()
 			continue
 		}
 		if p.peek().Kind == tokIdent && p.peek().Text == "op" {
@@ -344,6 +346,7 @@ func (p *parser) parseOpBlock() *OpBlock {
 	for {
 		leading := p.collectLeading()
 		if p.peek().Kind == tokRBrace {
+			ob.DanglingComments = leading
 			p.advanceTok()
 			return ob
 		}
@@ -363,7 +366,7 @@ func (p *parser) parseOpBlock() *OpBlock {
 				p.errorf(p.peek().Pos, "op block already has a description")
 			}
 			ob.Description, _ = p.parseDescription()
-			p.trailingCommentSameLine()
+			ob.DescriptionTrailingComment = p.trailingCommentSameLine()
 			continue
 		}
 		field := p.parseField()
@@ -411,16 +414,30 @@ func (p *parser) parseField() *Field {
 		}
 	}
 
+	// Each modifier has exactly one spelling per field (spec/schema-source.md
+	// §3.3), which is what keeps parsing and rendering inverse operations:
+	// a repeat is rejected here rather than silently kept (last write) or
+	// silently merged (key's columns), either of which would let one field
+	// carry two different spellings for the same rule.
+	seenModifier := make(map[string]bool)
 modifiers:
 	for p.peek().Kind == tokIdent {
-		switch p.peek().Text {
-		case "key":
-			p.parseKeyModifier(f)
-		case "target":
-			p.parseTargetModifier(f)
-		case "deprecated":
-			p.advanceTok()
-			f.Deprecated = true
+		text := p.peek().Text
+		switch text {
+		case "key", "target", "deprecated":
+			if seenModifier[text] {
+				p.errorf(p.peek().Pos, "modifier %q is already declared on this field", text)
+			}
+			seenModifier[text] = true
+			switch text {
+			case "key":
+				p.parseKeyModifier(f)
+			case "target":
+				p.parseTargetModifier(f)
+			case "deprecated":
+				p.advanceTok()
+				f.Deprecated = true
+			}
 		default:
 			break modifiers
 		}

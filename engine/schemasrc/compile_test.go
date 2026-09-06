@@ -1,6 +1,7 @@
 package schemasrc_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -136,6 +137,66 @@ type widget {
 		t.Fatal("expected an error for a duplicate type declaration")
 	} else if !strings.Contains(err.Error(), "declared more than once") {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// TestCompileVersionBumpReusingTargetIsRejected pins WRIT-187 round-1
+// finding 2: a version bump that changes strategy while reusing the
+// default (field-name) target compiles clean under spec.ValidateFieldRule
+// (it validates one rule at a time) and would then have its `create 2`
+// rule silently dropped by RulesFromSchemas as a TargetKey() collision
+// (engine/schema.go) — exactly the guarantee Compile's own doc comment and
+// spec/schema-source.md §5 claim it rejects at compile time instead.
+func TestCompileVersionBumpReusingTargetIsRejected(t *testing.T) {
+	src := `namespace acme
+
+type ticket {
+  op create 1 {
+    priority  string  lww
+  }
+
+  op create 2 {
+    priority  enum(low, high)  lattice(low, high)
+  }
+}
+`
+	f := mustParse(t, src)
+	_, err := schemasrc.Compile(f, "sch-acme")
+	if err == nil {
+		t.Fatal("expected an error for a version bump reusing the default target across a strategy change")
+	}
+	if !strings.Contains(err.Error(), `reuses target "priority"`) {
+		t.Errorf("unexpected error: %v", err)
+	}
+	var se *schemasrc.SyntaxError
+	if !errors.As(err, &se) {
+		t.Fatalf("expected a *schemasrc.SyntaxError, got %T: %v", err, err)
+	}
+	if se.Line == 0 || se.Col == 0 {
+		t.Errorf("expected a line and column on the collision error, got %+v", se)
+	}
+}
+
+// TestCompileVersionBumpWithDistinctTargetIsAccepted is the positive
+// control for TestCompileVersionBumpReusingTargetIsRejected: the same
+// strategy change is accepted once the new version declares its own
+// target, exactly as testdata/valid/version-bump.schema does.
+func TestCompileVersionBumpWithDistinctTargetIsAccepted(t *testing.T) {
+	src := `namespace acme
+
+type ticket {
+  op create 1 {
+    priority  string  lww
+  }
+
+  op create 2 {
+    priority  enum(low, high)  lattice(low, high)  target(priority_v2)
+  }
+}
+`
+	f := mustParse(t, src)
+	if _, err := schemasrc.Compile(f, "sch-acme"); err != nil {
+		t.Fatalf("Compile: %v", err)
 	}
 }
 

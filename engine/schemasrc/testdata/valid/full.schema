@@ -1,9 +1,9 @@
-namespace acme
-description "Acme's vocabulary"
+namespace acme  # the umbrella namespace for every type below
+description "Acme's vocabulary"  # a short description of the whole file
 
 # The daily standup type: most of the catalogue in one place.
 type standup {
-  description "A daily standup update"
+  description "A daily standup update"  # the type's own description
 
   op create 1, update 1 {
     title      string(200)       lww
@@ -12,10 +12,11 @@ type standup {
     attendees  [person-ref]      set-observed-remove
     position   position          lww
     state      enum(open, done)  lattice(open, done)
+    # a dangling comment at the end of this op block's fields
   }
 
   op approval 1 {
-    description "Approve or block a standup"
+    description "Approve or block a standup"  # the op block's own description
     verdict  enum(approve, block)  keyed-lww  key(subject person-ref)
     message  string                keyed-lww  key(subject person-ref)
   }
@@ -23,4 +24,6 @@ type standup {
   op update 2 {
     title  string(200)  lww  target(title_v2)  # a same-strategy target change is allowed, not just a required one
   }
+  # a dangling comment at the end of the type body
 }
+# a dangling comment at the end of the file

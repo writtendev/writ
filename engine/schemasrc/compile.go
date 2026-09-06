@@ -77,13 +77,23 @@ type compiledField struct {
 // Every emitted define-field is validated through spec.ValidateFieldRule
 // before Compile returns: the parser already enforces the single-field
 // grammar-level invariants (value-type/strategy pairing, key(...) only on
-// keyed-lww, and so on), but the cross-field invariants
-// ValidateFieldRule alone knows — lattice elements being a subset of the
-// declared enum, tombstone requiring value_type bool, key_types covering
-// exactly its key columns — are checked here, so a file that would
-// produce a rule RulesFromSchemas later drops is rejected at compile
-// time, with a line and column, instead of silently vanishing at resolve
-// time.
+// keyed-lww, and so on), but the per-rule invariants ValidateFieldRule
+// alone knows — lattice elements being a subset of the declared enum,
+// tombstone requiring value_type bool, key_types covering exactly its key
+// columns — are checked here, so a file that would produce a rule
+// RulesFromSchemas later drops is rejected at compile time, with a line
+// and column, instead of silently vanishing at resolve time.
+//
+// One further check spans more than one rule, so ValidateFieldRule cannot
+// see it on its own: two define-fields within the same type whose
+// TargetKey() (the declared target, or the field name if undeclared)
+// collides while their strategies differ — a version bump that changes
+// strategy without also declaring a distinct target, the WRIT-198 class
+// (spec/schema-ops.md §8, `fold.md` §5). compileType holds every field of
+// the type at once, so this is checked here too, across the type's fields
+// in canonical order, rather than deferred to RulesFromSchemas, which
+// would otherwise drop the colliding rule silently once the ops are
+// already signed and unremovable in the log.
 func Compile(f *File, objectID string) ([]codec.Envelope, error) {
 	if f == nil {
 		return nil, fmt.Errorf("schemasrc: Compile: nil file")
@@ -189,13 +199,18 @@ func compileType(fileName, objectID string, t *Type) ([]codec.Envelope, error) {
 	}
 
 	sort.Slice(fieldOrder, func(i, j int) bool { return fieldKeyLess(fieldOrder[i], fieldOrder[j]) })
+	targetStrategy := make(map[string]string) // TargetKey() -> strategy already bound to it
 	for _, k := range fieldOrder {
 		cf := fields[k]
 		body, err := fieldBody(t.Name, k, cf.field)
 		if err != nil {
 			return nil, err
 		}
-		if err := validateFieldBody(fileName, cf, body); err != nil {
+		rule, err := validateFieldBody(fileName, cf, body)
+		if err != nil {
+			return nil, err
+		}
+		if err := checkTargetCollision(fileName, cf, rule, targetStrategy); err != nil {
 			return nil, err
 		}
 		env, err := envelope(objectID, "define-field", body)
@@ -291,8 +306,11 @@ func fieldBody(typeName string, k fieldKey, f *Field) (map[string]any, error) {
 // runs it through spec.ValidateFieldRule — the same function every
 // vocabulary's field-rules.json is validated through — so a rule this
 // package would emit but RulesFromSchemas would later drop is rejected
-// here instead, with the source position that produced it.
-func validateFieldBody(fileName string, cf *compiledField, body map[string]any) error {
+// here instead, with the source position that produced it. It returns the
+// derived rule so checkTargetCollision can run the one cross-field check
+// ValidateFieldRule cannot see (it validates one rule at a time) without
+// re-deriving it.
+func validateFieldBody(fileName string, cf *compiledField, body map[string]any) (spec.FieldRule, error) {
 	rule := spec.FieldRule{
 		OpType:    cf.key.opType,
 		OpVersion: cf.key.opVersion,
@@ -322,9 +340,38 @@ func validateFieldBody(fileName string, cf *compiledField, body map[string]any) 
 	}
 
 	if err := spec.ValidateFieldRule(rule); err != nil {
-		return &SyntaxError{File: fileName, Line: cf.pos.Line, Col: cf.pos.Col, Msg: err.Error()}
+		return rule, &SyntaxError{File: fileName, Line: cf.pos.Line, Col: cf.pos.Col, Msg: err.Error()}
 	}
-	return nil
+	return rule, nil
+}
+
+// checkTargetCollision rejects a define-field whose rule reuses a target
+// (spec.FieldRule.TargetKey: the declared target, or the field name if
+// undeclared) already bound to a different strategy by an earlier field in
+// the same type — the exact collision engine/schema.go's RulesFromSchemas
+// detects at resolve time by dropping the rule and recording a
+// SchemaConflict nobody on the `apply` path is obliged to inspect
+// (spec/schema-ops.md §8, `fold.md` §5's order-dependent-target rule).
+// compileType already holds the whole type when this runs, so — contrary
+// to what an earlier draft of spec/schema-source.md §7 claimed — there is
+// no missing information that would force this check to wait for the
+// resolver; targetStrategy accumulates across the type's fields in the
+// same canonical (op_type, op_version, field) order Compile emits them in,
+// so the reported collision always names the second-declared field, the
+// one whose version bump silently changed strategy without a new target.
+func checkTargetCollision(fileName string, cf *compiledField, rule spec.FieldRule, targetStrategy map[string]string) error {
+	targetKey := rule.TargetKey()
+	prior, bound := targetStrategy[targetKey]
+	if !bound {
+		targetStrategy[targetKey] = rule.Strategy
+		return nil
+	}
+	if prior == rule.Strategy {
+		return nil
+	}
+	return &SyntaxError{File: fileName, Line: cf.pos.Line, Col: cf.pos.Col, Msg: fmt.Sprintf(
+		"field rule (%s, %d, %s) reuses target %q already bound to strategy %q with a different strategy %q; a version bump that changes strategy must declare a distinct target",
+		cf.key.opType, cf.key.opVersion, cf.key.field, targetKey, prior, rule.Strategy)}
 }
 
 // envelope builds one schema-ops v1 codec.Envelope from a body map,

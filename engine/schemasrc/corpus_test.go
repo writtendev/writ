@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/engine/codec"
 	"github.com/writtendev/writ/engine/schemasrc"
 	"github.com/writtendev/writ/engine/state"
@@ -105,6 +106,19 @@ func TestValidCorpus(t *testing.T) {
 			}
 			if len(folded.UnknownOps) != 0 {
 				t.Fatalf("FoldSchema reported unknown ops: %+v", folded.UnknownOps)
+			}
+
+			// RulesFromSchemas must install every rule this file compiled,
+			// with zero conflicts: Compile's own checkTargetCollision
+			// (WRIT-187 round-1 finding 2) promises a file that would
+			// produce a rule RulesFromSchemas drops is rejected before it
+			// ever reaches Compile's output, so every corpus case that
+			// does compile must resolve cleanly here — guarding the
+			// promise on the corpus itself, not only on
+			// version-bump.schema's target(priority_v2) happening to
+			// avoid the collision.
+			if _, conflicts := writ.RulesFromSchemas([]state.Schema{folded}); len(conflicts) != 0 {
+				t.Errorf("RulesFromSchemas reported conflicts for a file Compile accepted: %+v", conflicts)
 			}
 
 			rendered, err := schemasrc.Render(folded)
