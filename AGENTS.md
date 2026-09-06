@@ -1,8 +1,10 @@
 # Agent brief
 
-Writ is an open SDLC layer that stores code review — and eventually
-issues, projects, and cycles — inside the git repository itself, as
-signed, append-only operations under `refs/writ/*`. Written in Go,
+Writ stores signed, append-only, mergeable state inside the git
+repository itself, under `refs/writ/*`. Writ knows merge types and
+value types, not SDLC types: the SDLC vocabulary — review, issue,
+project, cycle, and the rest — is a schema declared as data by a
+consumer, the same way git knows nothing about GitHub. Written in Go,
 Apache-2.0, one monorepo.
 
 Before proposing or implementing anything, read `VISION.md` (what this
@@ -45,9 +47,20 @@ stubs alone. Same pattern as the rest of the studio.
 - The SQLite projection is a droppable cache, never a source of truth.
 - Unknown op types and fields are preserved and ignored, never dropped.
   Old clients must not destroy new clients' data.
-- The public Go API is domain-shaped: no SHAs or refspecs leak to
-  callers unless they ask. Anything built on top — including anything
-  we host — consumes that public API with no reach into internals.
+- The public Go API is schema-shaped: no SHAs or refspecs leak to
+  callers unless they ask, and the shapes callers see come from the
+  schema in the log, not from Go structs writ ships. Anything built
+  on top — including anything we host — consumes that public API
+  with no reach into internals.
+- The schema DSL declares types, value types, merge strategies, and
+  relations, and nothing else — no computed fields, no hooks, no
+  expressions, no permissions, no logic in defaults (see
+  ARCHITECTURE.md §Schema layer). This fence is a house rule, not a
+  suggestion; framework-building is a bug even one field at a time.
+- Writ names no downstream product: no ticket, spec file, fixture, or
+  symbol names what's built on top of writ's schema layer. Writ
+  defines `writ.schema`; who authors one, and for what domain, is not
+  writ's business — the way git knows nothing about GitHub.
 - When you file a Linear ticket, set a priority and an estimate — your
   best judgment, stated once, not discussed.
 - Every commit needs a `Signed-off-by` trailer (DCO, enforced by CI —
