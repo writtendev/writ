@@ -165,3 +165,127 @@ func TestRenderAcceptsConformingField(t *testing.T) {
 		t.Fatalf("Parse(Render(...)): %v\n--- rendered ---\n%s", err, out)
 	}
 }
+
+// TestRenderRejectsUnparseableNames pins WRIT-187 round-2 finding 2:
+// namespace, a type name, and an op_type are each written by Render with
+// no validation at all, even though every one of them is a bare
+// object_type/op_type-shaped wire string (spec/schema-ops.md §4) with no
+// pattern of its own on the wire — `object_type: "op"` is fully wire-legal
+// (folds straight through FoldSchema) and renders `type op {`, which
+// Parse then rejects as a reserved word, with no indication of which
+// declaration broke it. Each case here mutates exactly one of the three
+// slots to something wire-legal but not a legal source identifier.
+func TestRenderRejectsUnparseableNames(t *testing.T) {
+	baseSchema := func() state.Schema {
+		return state.Schema{
+			ObjectID:  "sch-acme",
+			Namespace: "acme",
+			Types: []state.SchemaType{
+				{
+					Name: "widget",
+					Ops:  []state.SchemaOp{{OpType: "create", OpVersion: 1}},
+					Fields: []state.SchemaField{
+						{Name: "title", OpType: "create", OpVersion: 1, ValueType: "string", Strategy: "lww"},
+					},
+				},
+			},
+		}
+	}
+
+	cases := []struct {
+		name    string
+		mutate  func(s state.Schema) state.Schema
+		wantErr string
+	}{
+		{
+			name: "namespace containing a space",
+			mutate: func(s state.Schema) state.Schema {
+				s.Namespace = "acme corp"
+				return s
+			},
+			wantErr: `namespace "acme corp" would not parse back`,
+		},
+		{
+			name: "empty namespace",
+			mutate: func(s state.Schema) state.Schema {
+				s.Namespace = ""
+				return s
+			},
+			wantErr: `namespace "" would not parse back`,
+		},
+		{
+			name: "type name containing a space",
+			mutate: func(s state.Schema) state.Schema {
+				s.Types[0].Name = "wid get"
+				return s
+			},
+			wantErr: `type name "wid get" would not parse back`,
+		},
+		{
+			name: "type name is a reserved word",
+			mutate: func(s state.Schema) state.Schema {
+				s.Types[0].Name = "op"
+				return s
+			},
+			wantErr: `type name "op" is a reserved word`,
+		},
+		{
+			name: "op_type containing a space",
+			mutate: func(s state.Schema) state.Schema {
+				s.Types[0].Ops[0].OpType = "cre ate"
+				s.Types[0].Fields[0].OpType = "cre ate"
+				return s
+			},
+			wantErr: `op type name "cre ate" would not parse back`,
+		},
+		{
+			name: "op_type is a reserved word",
+			mutate: func(s state.Schema) state.Schema {
+				s.Types[0].Ops[0].OpType = "description"
+				s.Types[0].Fields[0].OpType = "description"
+				return s
+			},
+			wantErr: `op type name "description" is a reserved word`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sch := tc.mutate(baseSchema())
+			out, err := schemasrc.Render(sch)
+			if err == nil {
+				t.Fatalf("Render: expected an error, got output:\n%s", out)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("Render error = %q, want it to contain %q", err.Error(), tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestRenderAcceptsConformingNames is the positive control for
+// TestRenderRejectsUnparseableNames: a schema whose namespace, type name,
+// and op_type are all legal source identifiers renders without error, and
+// Parse accepts the result back.
+func TestRenderAcceptsConformingNames(t *testing.T) {
+	sch := state.Schema{
+		ObjectID:  "sch-acme",
+		Namespace: "acme",
+		Types: []state.SchemaType{
+			{
+				Name: "widget",
+				Ops:  []state.SchemaOp{{OpType: "create", OpVersion: 1}},
+				Fields: []state.SchemaField{
+					{Name: "title", OpType: "create", OpVersion: 1, ValueType: "string", Strategy: "lww"},
+				},
+			},
+		},
+	}
+	out, err := schemasrc.Render(sch)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if _, err := schemasrc.Parse("rendered.schema", out); err != nil {
+		t.Fatalf("Parse(Render(...)): %v\n--- rendered ---\n%s", err, out)
+	}
+}

@@ -124,5 +124,12 @@
     "col": 32,
     "message": "modifier \"target\" is already declared on this field",
     "reason": "each modifier has exactly one spelling per field (spec/schema-source.md §3.3); a second target(...) is rejected rather than silently keeping whichever the author wrote last (WRIT-187 round-1 finding 4)"
+  },
+  {
+    "file": "empty-description.schema",
+    "line": 2,
+    "col": 13,
+    "message": "description must not be empty; omit the description line entirely instead of writing description \"\"",
+    "reason": "description \"\" carries no data — it compiles to the same omitted wire field as no description line at all — so it is rejected rather than given 'no description' a second spelling that let a trailing comment on that line be silently discarded as a side effect (WRIT-187 round-2 finding 1a)"
   }
 ]

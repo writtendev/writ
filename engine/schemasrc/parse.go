@@ -135,15 +135,21 @@ func (p *parser) collectLeading() []string {
 }
 
 // trailingCommentSameLine consumes and returns a comment immediately
-// following the just-parsed declaration on the same source line, or "" if
-// the next token is not such a comment. A comment on its own line, even
+// following the just-parsed declaration on the same source line, or nil if
+// the next token is not such a comment. The return is a pointer, not a
+// bare string, because a bare `#` lexes to an empty-bodied comment that is
+// present and must round-trip through Format exactly like any other
+// comment — collapsing "absent" and "present but empty" onto the same ""
+// value silently deleted every bare trailing comment (round-2 review of
+// WRIT-187 PR #157, finding 1b). A comment on its own line, even
 // immediately after, is a leading comment of the next declaration instead
 // (collectLeading picks it up there).
-func (p *parser) trailingCommentSameLine() string {
+func (p *parser) trailingCommentSameLine() *string {
 	if p.peek().Kind == tokComment && p.peek().Pos.Line == p.lastLine {
-		return p.advanceTok().Text
+		c := p.advanceTok().Text
+		return &c
 	}
-	return ""
+	return nil
 }
 
 // skipUntilRBraceAtDepth0 discards tokens after an unrecoverable error
@@ -237,11 +243,24 @@ func validateName(p *parser, tok token, pattern *regexp.Regexp, what string) {
 	}
 }
 
+// parseDescription parses `description "..."` and rejects an empty
+// string literal: `description ""` carries no data — it compiles to the
+// same omitted wire field as no description line at all (§5, §6) — and
+// letting it through gives "no description" two spellings, which lets a
+// same-line trailing comment on that line be discarded as a side effect
+// of treating Description == "" as "absent" (round-2 review of WRIT-187
+// PR #157, finding 1a). Rejecting it at the source is structural: since
+// Description can no longer be the empty string for anything Parse
+// accepted, "" unambiguously means absent everywhere downstream, and no
+// value-level case can slip back in through this slot.
 func (p *parser) parseDescription() (string, Position) {
 	kwPos, _ := p.expectKeyword("description")
 	strTok, ok := p.expect(tokString, "string literal after 'description'")
 	if !ok {
 		return "", kwPos
+	}
+	if strTok.Text == "" {
+		p.errorf(strTok.Pos, "description must not be empty; omit the description line entirely instead of writing description \"\"")
 	}
 	return strTok.Text, kwPos
 }

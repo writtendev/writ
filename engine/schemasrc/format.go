@@ -56,14 +56,20 @@ func writeComments(b *strings.Builder, indent string, comments []string) {
 }
 
 // writeTrailingComment appends a same-line trailing comment (if c is
-// non-empty) followed by the line's terminating newline. Every trailing
+// non-nil) followed by the line's terminating newline. Every trailing
 // comment in this grammar — on `namespace`, a `description`, or a field —
 // shares this exact rendering, so this is the one place that spells it.
-func writeTrailingComment(b *strings.Builder, c string) {
-	if c != "" {
+// c distinguishes "no comment" (nil) from "a comment whose body happens
+// to be empty" (non-nil, pointing at ""), i.e. a bare `#`: collapsing
+// those onto one empty string silently deleted every bare trailing
+// comment (round-2 review of WRIT-187 PR #157, finding 1b).
+func writeTrailingComment(b *strings.Builder, c *string) {
+	if c != nil {
 		b.WriteString("  #")
-		b.WriteByte(' ')
-		b.WriteString(c)
+		if *c != "" {
+			b.WriteByte(' ')
+			b.WriteString(*c)
+		}
 	}
 	b.WriteByte('\n')
 }

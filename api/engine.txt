@@ -1331,7 +1331,7 @@ type Field struct {
 	Target string
 	Deprecated bool
 	LeadingComments []string
-	TrailingComment string
+	TrailingComment *string
 	Pos Position
 }
 
@@ -1342,8 +1342,8 @@ type File struct {
 	Types []*Type
 	LeadingComments []string
 	Pos Position
-	NamespaceTrailingComment string
-	DescriptionTrailingComment string
+	NamespaceTrailingComment *string
+	DescriptionTrailingComment *string
 	TrailingComments []string
 }
 
@@ -1358,7 +1358,7 @@ type OpBlock struct {
 	Fields []*Field
 	LeadingComments []string
 	Pos Position
-	DescriptionTrailingComment string
+	DescriptionTrailingComment *string
 	DanglingComments []string
 }
 
@@ -1388,7 +1388,7 @@ type Type struct {
 	Blocks []*OpBlock
 	LeadingComments []string
 	Pos Position
-	DescriptionTrailingComment string
+	DescriptionTrailingComment *string
 	DanglingComments []string
 }
 

@@ -28,6 +28,19 @@ import (
 // (op_type, op_version). UnknownOps are not declarations and are never
 // rendered.
 func Render(s state.Schema) ([]byte, error) {
+	// namespace, a type name, and an op_type are each a bare
+	// object_type/op_type-shaped wire string (schema-ops.md §4) with no
+	// pattern of its own on the wire — object_type: "op" is fully
+	// wire-legal and folds straight through — so, exactly like a field
+	// name, target, enum member, or lattice element (validateFieldForRender
+	// above), each must be validated as a legal source identifier before
+	// any text naming it is written; otherwise Render emits `type op {`
+	// for a conforming producer's state and Parse rejects it as a
+	// reserved word (round-2 review of WRIT-187 PR #157, finding 2).
+	if err := validateNameForRender(s.Namespace, namespacePattern, "namespace"); err != nil {
+		return nil, err
+	}
+
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "namespace %s\n", s.Namespace)
@@ -46,6 +59,9 @@ func Render(s state.Schema) ([]byte, error) {
 }
 
 func renderType(b *strings.Builder, t state.SchemaType) error {
+	if err := validateNameForRender(t.Name, typeNamePattern, "type name"); err != nil {
+		return err
+	}
 	if t.Deprecated {
 		fmt.Fprintf(b, "type %s deprecated {\n", t.Name)
 	} else {
@@ -176,6 +192,11 @@ func sameFieldSet(a, b []state.SchemaField) bool {
 }
 
 func renderOpBlock(b *strings.Builder, g opGroup) error {
+	for _, k := range g.Ops {
+		if err := validateNameForRender(k.opType, opTypeNamePattern, "op type name"); err != nil {
+			return err
+		}
+	}
 	b.WriteString("  op ")
 	for i, k := range g.Ops {
 		if i > 0 {
@@ -244,21 +265,24 @@ func renderField(b *strings.Builder, f state.SchemaField) error {
 var identLexPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
 
 // validateNameForRender applies the same constraints Parse's validateName
-// enforces on a field name or a target(...) name (parse.go): the naming
-// pattern (spec/schema-source.md §3.3), the reserved-word exclusion, and
-// the length limit. Render must clear this stricter bar (not just
-// identLexPattern) for these two slots specifically, because
-// parseField/parseTargetModifier both route through validateName rather
-// than a bare expectIdentAny.
-func validateNameForRender(name, what string) error {
+// enforces on a name in this slot (parse.go): pattern is the slot's own
+// naming pattern (spec/schema-source.md §3.3) — fieldNamePattern for a
+// field name or target(...), namespacePattern for the namespace,
+// typeNamePattern for a type name, opTypeNamePattern for an op type —
+// plus the reserved-word exclusion and the length limit, both shared
+// across every slot. Render must clear this stricter bar (not just
+// identLexPattern) for every one of these five slots, because
+// parseField/parseTargetModifier/parseFile/parseType/parseOpBlock all
+// route through validateName rather than a bare expectIdentAny.
+func validateNameForRender(name string, pattern *regexp.Regexp, what string) error {
 	if isKeyword(name) {
 		return fmt.Errorf("%s %q is a reserved word and would not parse back", what, name)
 	}
 	if len(name) > maxNameLength {
 		return fmt.Errorf("%s %q is %d characters, over the %d-character limit and would not parse back", what, name, len(name), maxNameLength)
 	}
-	if !fieldNamePattern.MatchString(name) {
-		return fmt.Errorf("%s %q would not parse back; must match %s", what, name, fieldNamePattern.String())
+	if !pattern.MatchString(name) {
+		return fmt.Errorf("%s %q would not parse back; must match %s", what, name, pattern.String())
 	}
 	return nil
 }
@@ -284,7 +308,7 @@ func validateIdentForRender(s, what string) error {
 // `apply` cannot parse back, with no indication of which declaration
 // broke it.
 func validateFieldForRender(f state.SchemaField) error {
-	if err := validateNameForRender(f.Name, "field name"); err != nil {
+	if err := validateNameForRender(f.Name, fieldNamePattern, "field name"); err != nil {
 		return err
 	}
 	if !spec.KnownCatalogueStrategies[f.Strategy] {
@@ -304,7 +328,7 @@ func validateFieldForRender(f state.SchemaField) error {
 		}
 	}
 	if f.Target != "" {
-		if err := validateNameForRender(f.Target, "target"); err != nil {
+		if err := validateNameForRender(f.Target, fieldNamePattern, "target"); err != nil {
 			return err
 		}
 	}

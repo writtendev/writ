@@ -45,16 +45,29 @@ func srcCommentTag(position string) string {
 	return "marker: " + position
 }
 
-// testFormatSrc is one source file placing a distinctly tagged comment in
-// every position commentPositions names, exercising each of the AST slots
-// noted above — including the five `Format` used to silently drop before
-// this fix: a same-line trailing comment on `namespace`, on the file-level
-// `description`, on a type's own `description`, and on an op block's own
-// `description`, plus a dangling comment before each of the three
-// `}`-delimited block closings (op block, type body, end of file).
-func testFormatSrc() string {
+// bareCommentTag is the value-axis counterpart to srcCommentTag: every
+// comment body is empty, i.e. every comment in the source is a bare `#`.
+// commentPositions enumerates *where* a comment can appear; pairing it
+// with this body generator instead of srcCommentTag's exercises *what* it
+// can contain, at every position at once, structurally — a bare `#` at
+// any of the 17 positions is a value-level case the position-only guard
+// cannot see (round-2 review of WRIT-187 PR #157, finding 1).
+func bareCommentTag(position string) string {
+	return ""
+}
+
+// testFormatSrc is one source file placing a comment — tagged by body(pos)
+// — in every position commentPositions names, exercising each of the AST
+// slots noted above: a same-line trailing comment on `namespace`, on the
+// file-level `description`, on a type's own `description`, and on an op
+// block's own `description` (the five `Format` used to silently drop for
+// a non-empty body before the round-1 fix, and for an empty body before
+// the round-2 fix — see writeTrailingComment), plus a dangling comment
+// before each of the three `}`-delimited block closings (op block, type
+// body, end of file).
+func testFormatSrc(body func(position string) string) string {
 	var b strings.Builder
-	tag := srcCommentTag
+	tag := body
 	fmt.Fprintf(&b, "# %s\n", tag("leading-on-namespace"))
 	fmt.Fprintf(&b, "namespace acme  # %s\n", tag("trailing-on-namespace"))
 	fmt.Fprintf(&b, "# %s\n", tag("between-namespace-and-description"))
@@ -89,7 +102,7 @@ func testFormatSrc() string {
 // single combined substring check — so a regression on any one slot fails
 // with the position's own name rather than a generic diff.
 func TestFormatPreservesCommentsInEveryPosition(t *testing.T) {
-	src := testFormatSrc()
+	src := testFormatSrc(srcCommentTag)
 
 	out, err := schemasrc.Format("test.schema", []byte(src))
 	if err != nil {
@@ -148,5 +161,183 @@ type widget {
 	}
 	if !found {
 		t.Fatalf("field a's line not found in output:\n%s", out)
+	}
+}
+
+// TestFormatPreservesBareCommentsInEveryPosition is the value-axis
+// regression net for round-2 finding 1b: writeTrailingComment used to
+// read an empty comment body as "no comment" and drop the line's `#`
+// entirely, at every one of the five trailing-comment slots (namespace,
+// the three description levels, and a field). commentPositions' own
+// tagged-marker test (above) cannot see this, because a bare `#` carries
+// no marker text to look for — so this test checks the one thing that
+// does distinguish "preserved" from "deleted" for an empty body: the `#`
+// itself must still be there, once per position, both after one Format
+// pass and after a second (idempotence).
+func TestFormatPreservesBareCommentsInEveryPosition(t *testing.T) {
+	src := testFormatSrc(bareCommentTag)
+	if got := strings.Count(src, "#"); got != len(commentPositions) {
+		t.Fatalf("test fixture itself has %d '#' markers, want %d (one per commentPositions entry) — fixture and list have drifted", got, len(commentPositions))
+	}
+
+	out, err := schemasrc.Format("test.schema", []byte(src))
+	if err != nil {
+		t.Fatalf("Format: %v", err)
+	}
+	if got := strings.Count(string(out), "#"); got != len(commentPositions) {
+		t.Errorf("Format(bare-comment src) has %d '#' markers, want %d — a bare trailing comment was dropped", got, len(commentPositions))
+	}
+
+	out2, err := schemasrc.Format("test.schema", out)
+	if err != nil {
+		t.Fatalf("Format(Format(src)): %v", err)
+	}
+	if string(out) != string(out2) {
+		t.Errorf("Format is not idempotent on bare-comment output:\n--- first ---\n%s\n--- second ---\n%s", out, out2)
+	}
+	if got := strings.Count(string(out2), "#"); got != len(commentPositions) {
+		t.Errorf("Format(Format(bare-comment src)) has %d '#' markers, want %d", got, len(commentPositions))
+	}
+}
+
+// TestFormatPreservesBareTrailingCommentAtEachSlot pins the same bug
+// (finding 1b) with exact line content at each of the five slots that
+// route through writeTrailingComment, rather than only an aggregate
+// count — so a regression at one specific slot is named, not just
+// counted.
+func TestFormatPreservesBareTrailingCommentAtEachSlot(t *testing.T) {
+	cases := []struct {
+		name     string
+		src      string
+		wantLine string
+	}{
+		{
+			name:     "namespace",
+			src:      "namespace acme  #\n",
+			wantLine: "namespace acme  #",
+		},
+		{
+			name:     "file description",
+			src:      "namespace acme\ndescription \"d\"  #\n",
+			wantLine: `description "d"  #`,
+		},
+		{
+			name: "type description",
+			src: `namespace acme
+
+type widget {
+  description "d"  #
+}
+`,
+			wantLine: `  description "d"  #`,
+		},
+		{
+			name: "op block description",
+			src: `namespace acme
+
+type widget {
+  op create 1 {
+    description "d"  #
+    a string lww
+  }
+}
+`,
+			wantLine: `    description "d"  #`,
+		},
+		{
+			name: "field",
+			src: `namespace acme
+
+type widget {
+  op create 1 {
+    a string lww  #
+  }
+}
+`,
+			wantLine: `    a string lww  #`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := schemasrc.Format("test.schema", []byte(tc.src))
+			if err != nil {
+				t.Fatalf("Format: %v", err)
+			}
+			found := false
+			for _, l := range strings.Split(string(out), "\n") {
+				if l == tc.wantLine {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("Format dropped the bare trailing comment; want a line %q, got:\n%s", tc.wantLine, out)
+			}
+
+			out2, err := schemasrc.Format("test.schema", out)
+			if err != nil {
+				t.Fatalf("Format(Format(src)): %v", err)
+			}
+			if string(out) != string(out2) {
+				t.Errorf("Format is not idempotent:\n--- first ---\n%s\n--- second ---\n%s", out, out2)
+			}
+		})
+	}
+}
+
+// TestParseRejectsEmptyDescription pins round-2 finding 1a: an explicit
+// `description ""` carries no data — it compiles to the same omitted wire
+// field as no description line at all (spec/schema-source.md §5, §6) —
+// so letting it through gave "no description" two spellings, and a
+// same-line trailing comment on that line was silently discarded as a
+// side effect of Format treating Description == "" as "line absent".
+// Rejecting it at parse time closes the gap structurally: Description
+// can no longer be "" for anything Parse accepted, so every
+// Format/Compile/Render site that already tests it against "" for
+// absence is correct by construction, at all three levels an empty
+// description can appear.
+func TestParseRejectsEmptyDescription(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+	}{
+		{
+			name: "file level",
+			src:  "namespace acme\ndescription \"\"\n",
+		},
+		{
+			name: "type level",
+			src: `namespace acme
+
+type widget {
+  description ""
+}
+`,
+		},
+		{
+			name: "op block level",
+			src: `namespace acme
+
+type widget {
+  op create 1 {
+    description ""
+    a string lww
+  }
+}
+`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := schemasrc.Parse("test.schema", []byte(tc.src))
+			if err == nil {
+				t.Fatalf("Parse: expected an error rejecting the empty description, got none")
+			}
+			if !strings.Contains(err.Error(), "description must not be empty") {
+				t.Errorf("Parse error = %q, want it to contain %q", err.Error(), "description must not be empty")
+			}
+		})
 	}
 }

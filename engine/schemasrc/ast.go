@@ -24,11 +24,17 @@ type File struct {
 	Pos             Position
 
 	// NamespaceTrailingComment is a same-line comment following the
-	// `namespace` line, e.g. `namespace acme  # comment`.
-	NamespaceTrailingComment string
+	// `namespace` line, e.g. `namespace acme  # comment` — nil if there is
+	// no such comment, non-nil (even pointing at "") if there is one: a
+	// bare `#` is a comment whose body happens to be empty, not the
+	// absence of a comment, and the two must stay distinguishable all the
+	// way to Format's output (round-2 review of WRIT-187 PR #157, finding
+	// 1b).
+	NamespaceTrailingComment *string
 	// DescriptionTrailingComment is a same-line comment following the
-	// file-level `description "..."` line.
-	DescriptionTrailingComment string
+	// file-level `description "..."` line. Same nil-means-absent
+	// convention as NamespaceTrailingComment.
+	DescriptionTrailingComment *string
 	// TrailingComments are comment lines with nowhere ahead of them to
 	// attach to — after the last type declaration, or, in a file with no
 	// types, after `namespace`/`description` — up to end of file. Format
@@ -48,8 +54,9 @@ type Type struct {
 	Pos             Position
 
 	// DescriptionTrailingComment is a same-line comment following this
-	// type's own `description "..."` line.
-	DescriptionTrailingComment string
+	// type's own `description "..."` line. nil means absent; see
+	// File.NamespaceTrailingComment.
+	DescriptionTrailingComment *string
 	// DanglingComments are comment lines with nowhere ahead of them to
 	// attach to — after the last op block (or, if there are none, after
 	// the description) — up to the closing `}`.
@@ -74,8 +81,9 @@ type OpBlock struct {
 	Pos             Position
 
 	// DescriptionTrailingComment is a same-line comment following this
-	// op block's own `description "..."` line.
-	DescriptionTrailingComment string
+	// op block's own `description "..."` line. nil means absent; see
+	// File.NamespaceTrailingComment.
+	DescriptionTrailingComment *string
 	// DanglingComments are comment lines with nowhere ahead of them to
 	// attach to — after the last field (or, if there are none, after
 	// the description) — up to the closing `}`.
@@ -133,6 +141,8 @@ type Field struct {
 	Deprecated bool
 
 	LeadingComments []string
-	TrailingComment string
+	// TrailingComment is a same-line comment following this field. nil
+	// means absent; see File.NamespaceTrailingComment.
+	TrailingComment *string
 	Pos             Position
 }
