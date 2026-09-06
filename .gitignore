@@ -57,6 +57,6 @@ tmp/
 # Shared agent pipeline: relative symlinks up to the studio repo, and
 # the detached worktrees dispatch creates. Both point at or live in
 # workspace tooling writ does not ship (see bin/wire-repo in the studio).
-.claude/skills/
 .agents/skills/
 .claude/worktrees/
+.claude/settings.local.json
