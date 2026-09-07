@@ -28,19 +28,29 @@ const maxNameLength = 64
 // parseOpBlock's description branch and parseField's key/target modifier
 // handling disambiguate it from a field name with one token of
 // lookahead — so only deprecated is refused here: its modifier is bare
-// (no parenthesized argument to look ahead for), so a field named
-// `deprecated` immediately followed by another field's bare `deprecated`
-// modifier has no single-token split.
+// (no parenthesized argument to look ahead for), so a field followed by
+// a field named `deprecated` puts one bare `deprecated` token where it
+// could be either the first field's modifier or the second field's name,
+// and one token of lookahead does not settle it.
 var fieldReserved = map[string]bool{"deprecated": true}
 
-// fieldReservedReason is appended to the diagnostic when validateName (or
-// Render's validateNameForRender) rejects a name in the field-name or
-// target(...) slot: the only word either slot still refuses is
-// deprecated, and unlike every other structural word, its modifier is
+// fieldNameReservedReason is appended to the diagnostic when validateName
+// (or Render's validateNameForRender) rejects deprecated as a field's own
+// name: unlike every other structural word, deprecated's modifier is
 // bare (no parenthesized argument for the parser to look ahead for), so
-// it cannot be split from a following field's own name with one token
-// of lookahead the way description, key, and target can be.
-const fieldReservedReason = "; its modifier is bare, so it cannot be split from a field name with one token of lookahead"
+// a bare `deprecated` immediately after a field cannot be told apart
+// from a following field's own name with one token of lookahead — see
+// fieldReserved.
+const fieldNameReservedReason = "; a bare \"deprecated\" modifier immediately after a field cannot be told apart from a following field's own name with one token of lookahead"
+
+// targetReservedReason is appended to the diagnostic when validateName
+// (or Render's validateNameForRender) rejects deprecated as a
+// target(...) argument. target(...) is fully delimited by its own
+// parentheses, so there is no lookahead ambiguity in this slot at all —
+// the reason to refuse it here is symmetry with the field-name slot: a
+// target names a state key that some field's own name may equally
+// spell, so it stays reserved everywhere a field name is.
+const targetReservedReason = "; a target name draws from the same namespace as a field name, so it stays reserved everywhere a field name is"
 
 // Parse parses one writ.schema source file into an AST. name is used only
 // to prefix error messages (conventionally "writ.schema", or a path).
@@ -268,9 +278,9 @@ func (p *parser) parseFile() *File {
 // namespace, type name, or op type name (all eight remain reserved
 // there, and reason is "" — the rejection is self-explanatory), or
 // fieldReserved for a field name or a target(...) argument (only
-// deprecated remains reserved there, and reason is fieldReservedReason,
-// naming why that one word alone survives) — see spec/schema-source.md
-// §2.
+// deprecated remains reserved there; reason is fieldNameReservedReason
+// or targetReservedReason depending on which of the two slots is being
+// validated) — see spec/schema-source.md §2.
 func validateName(p *parser, tok token, pattern *regexp.Regexp, what string, reserved map[string]bool, reason string) {
 	if reserved[tok.Text] {
 		p.errorf(tok.Pos, "%q is a reserved word and cannot be used as a %s%s", tok.Text, what, reason)
@@ -453,7 +463,19 @@ func (p *parser) parseField() *Field {
 	if !ok {
 		return nil
 	}
-	validateName(p, nameTok, fieldNamePattern, "field name", fieldReserved, fieldReservedReason)
+	validateName(p, nameTok, fieldNamePattern, "field name", fieldReserved, fieldNameReservedReason)
+	return p.parseFieldBody(nameTok)
+}
+
+// parseFieldBody parses everything after a field's name token — value
+// type, strategy, and modifiers — given that nameTok has already been
+// consumed (and, for a real field, already name-validated by the
+// caller). It is split out from parseField so the modifier loop's
+// "deprecated" case below can run it speculatively: a trial parse of the
+// tokens after a bare `deprecated`, treating `deprecated` itself as the
+// name being tried, is how that case tells whether the token was this
+// field's modifier or the next field's own (reserved) name.
+func (p *parser) parseFieldBody(nameTok token) *Field {
 	f := &Field{Name: nameTok.Text, Pos: nameTok.Pos}
 
 	vt, vtPos, ok := p.parseValueTypeExpr()
@@ -514,6 +536,36 @@ modifiers:
 				p.parseTargetModifier(f)
 			}
 		case "deprecated":
+			// deprecated's own modifier is bare — no parenthesized
+			// argument to look ahead for the way key and target have —
+			// so a bare "deprecated" immediately following a completed
+			// field cannot be told apart from a following field's own
+			// (reserved) name by any single token (spec/schema-source.md
+			// §2, fieldReserved above). Rather than guess, try the other
+			// reading: parse what follows as a field named "deprecated"
+			// (its reserved-word check suppressed for the trial) into a
+			// scratch error sink. If that trial comes back clean, the
+			// input has a reading where the only thing wrong with it is
+			// the reserved name, so report exactly that, pointing at
+			// "deprecated" — not the confusing downstream error that
+			// always assuming "modifier" would otherwise produce. If the
+			// trial itself fails, no such reading exists; fall back to
+			// the modifier reading, unchanged from before, and let
+			// whatever is actually wrong with the next field surface
+			// normally.
+			deprecatedTok := p.peek()
+			savedPos, savedLine := p.pos, p.lastLine
+			p.advanceTok() // tentatively: 'deprecated' as the next field's name
+			savedErrs := p.errs
+			p.errs = nil
+			trial := p.parseFieldBody(deprecatedTok)
+			trialClean := trial != nil && len(p.errs) == 0
+			p.errs = savedErrs
+			if trialClean {
+				validateName(p, deprecatedTok, fieldNamePattern, "field name", fieldReserved, fieldNameReservedReason)
+				break modifiers
+			}
+			p.pos, p.lastLine = savedPos, savedLine
 			if seenModifier[text] {
 				p.errorf(p.peek().Pos, "modifier %q is already declared on this field", text)
 			}
@@ -674,7 +726,7 @@ func (p *parser) parseTargetModifier(f *Field) {
 	}
 	nameTok, ok := p.expectIdentAny("target name")
 	if ok {
-		validateName(p, nameTok, fieldNamePattern, "target name", fieldReserved, fieldReservedReason)
+		validateName(p, nameTok, fieldNamePattern, "target name", fieldReserved, targetReservedReason)
 		f.Target = nameTok.Text
 	}
 	p.expect(tokRParen, "')'")

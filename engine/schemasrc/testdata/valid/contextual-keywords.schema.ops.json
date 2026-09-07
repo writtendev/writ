@@ -202,7 +202,7 @@
       "op_type": "widget",
       "op_version": "1",
       "strategy": "keyed-lww",
-      "target": "ci_description",
+      "target": "b_v2",
       "type": "thing",
       "value_type": "string"
     }

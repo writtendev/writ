@@ -115,7 +115,8 @@ func TestRenderRejectsTextParseWouldReject(t *testing.T) {
 		{
 			// deprecated is the one word WRIT-204 leaves reserved as a
 			// field name (spec/schema-source.md §2): its own modifier is
-			// bare, so it cannot be split from a following field's name
+			// bare, so a bare "deprecated" immediately after a field
+			// cannot be told apart from a following field's own name
 			// with one token of lookahead the way description, key, and
 			// target can. The error says so, not just that the word is
 			// reserved.
@@ -124,7 +125,7 @@ func TestRenderRejectsTextParseWouldReject(t *testing.T) {
 				f.Name = "deprecated"
 				return f
 			},
-			wantErr: `field name "deprecated" is a reserved word and would not parse back; its modifier is bare, so it cannot be split from a field name with one token of lookahead`,
+			wantErr: `field name "deprecated" is a reserved word and would not parse back; a bare "deprecated" modifier immediately after a field cannot be told apart from a following field's own name with one token of lookahead`,
 		},
 		{
 			name: "key column containing a space",

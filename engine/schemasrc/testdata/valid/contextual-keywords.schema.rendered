@@ -18,7 +18,7 @@ type thing {
   }
 
   op widget 1 {
-    description string keyed-lww key(subject person-ref) target(ci_description)
+    description string keyed-lww key(subject person-ref) target(b_v2)
     type enum(a, b) lww
   }
 }

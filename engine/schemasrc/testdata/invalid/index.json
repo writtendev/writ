@@ -136,8 +136,15 @@
     "file": "deprecated-field-name.schema",
     "line": 5,
     "col": 5,
-    "message": "\"deprecated\" is a reserved word and cannot be used as a field name; its modifier is bare, so it cannot be split from a field name with one token of lookahead",
-    "reason": "WRIT-204: description, target and type are only contextual keywords in the field-name and target(...) slots, disambiguated from a following field's name by one token of lookahead — but deprecated's own modifier is bare, with no parenthesized argument to look ahead for, so it alone stays reserved as a field name"
+    "message": "\"deprecated\" is a reserved word and cannot be used as a field name; a bare \"deprecated\" modifier immediately after a field cannot be told apart from a following field's own name with one token of lookahead",
+    "reason": "WRIT-204: description, target and type are only contextual keywords in the field-name and target(...) slots, disambiguated from a following field's name by one token of lookahead — but deprecated's own modifier is bare, with no parenthesized argument to look ahead for: a field followed by a field named deprecated puts one bare deprecated token where it could be either the first field's modifier or the second field's name, and one token of lookahead does not settle it, so it alone stays reserved as a field name. This is the unrealistic form: deprecated is the first field in its op block, so validateName sees it directly (deprecated-field-name-after-field.schema pins the realistic form, where a preceding field's modifier loop is what has to catch it)."
+  },
+  {
+    "file": "deprecated-field-name-after-field.schema",
+    "line": 6,
+    "col": 5,
+    "message": "\"deprecated\" is a reserved word and cannot be used as a field name; a bare \"deprecated\" modifier immediately after a field cannot be told apart from a following field's own name with one token of lookahead",
+    "reason": "WRIT-204 round-1 review finding 1: deprecated appearing after a real field is the realistic position the carve-out exists for, and the one the modifier loop used to swallow silently as the preceding field's modifier before parseField ever validated it — producing a confusing downstream 'unknown value type' error pointing at the wrong line instead of naming deprecated. The modifier loop now tries the alternate reading (deprecated as the next field's own name) as a trial parse before committing to 'modifier', and reports this diagnostic when that trial comes back clean."
   },
   {
     "file": "reserved-type-name.schema",

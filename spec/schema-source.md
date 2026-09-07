@@ -134,10 +134,13 @@ slot refuses depends on where that slot sits, not on the word alone.
     them there.
 
   `deprecated` alone survives as reserved in this slot: its modifier is
-  bare (no parenthesized argument to look ahead for), so a field named
-  `deprecated` immediately followed by another field's bare `deprecated`
-  modifier has no single-token split — pinned by
-  `deprecated-field-name.schema` in the invalid corpus.
+  bare (no parenthesized argument to look ahead for), so a field
+  followed by a field named `deprecated` puts one bare `deprecated`
+  token where it could be either the first field's modifier or the
+  second field's name, and one token of lookahead does not settle it —
+  pinned by `deprecated-field-name.schema` (the word as the first field
+  in its op block) and `deprecated-field-name-after-field.schema` (the
+  realistic position, after a real field) in the invalid corpus.
   `contextual-keywords.schema` in the valid corpus is the positive
   fixture: one file with fields literally named `description`, `target`,
   `type`, `namespace`, `op`, `key`, and `untyped`, alongside real

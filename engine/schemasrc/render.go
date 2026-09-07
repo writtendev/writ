@@ -273,7 +273,8 @@ var identLexPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
 // slot's own reserved-word set: keywords for a namespace, type name, or
 // op type name (all eight remain reserved there, with reason ""), or
 // fieldReserved for a field name or target (only deprecated remains
-// reserved there, with reason fieldReservedReason). Render must take the
+// reserved there, with reason fieldNameReservedReason or
+// targetReservedReason respectively). Render must take the
 // same set validateName would for this slot, not the global keywords
 // table, or a folded field named "description" would render
 // successfully into source Parse then rejects as unparseable. Render
@@ -315,7 +316,7 @@ func validateIdentForRender(s, what string) error {
 // `apply` cannot parse back, with no indication of which declaration
 // broke it.
 func validateFieldForRender(f state.SchemaField) error {
-	if err := validateNameForRender(f.Name, fieldNamePattern, "field name", fieldReserved, fieldReservedReason); err != nil {
+	if err := validateNameForRender(f.Name, fieldNamePattern, "field name", fieldReserved, fieldNameReservedReason); err != nil {
 		return err
 	}
 	if !spec.KnownCatalogueStrategies[f.Strategy] {
@@ -335,7 +336,7 @@ func validateFieldForRender(f state.SchemaField) error {
 		}
 	}
 	if f.Target != "" {
-		if err := validateNameForRender(f.Target, fieldNamePattern, "target", fieldReserved, fieldReservedReason); err != nil {
+		if err := validateNameForRender(f.Target, fieldNamePattern, "target", fieldReserved, targetReservedReason); err != nil {
 			return err
 		}
 	}
