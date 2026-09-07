@@ -34,3 +34,14 @@ func NeedsLogVocabularies(envs []codec.Envelope) bool {
 func StoreVocabularies(s *Store, ctx context.Context) (codec.Vocabularies, error) {
 	return s.vocabularies(ctx)
 }
+
+// CheckBeforeAppend exposes Store.checkBeforeAppend for testing: the
+// all-or-nothing pre-validation a multi-envelope write goes through before
+// any of its envelopes are actually appended (the property every typed
+// multi-op writer — Reviews.Create's create-then-revision sequence among
+// them — relied on before WRIT-195 deleted the typed writers themselves;
+// the generic Objects.Create/Apply each append exactly one envelope, so
+// nothing else in the public API still exercises the multi-envelope case).
+func CheckBeforeAppend(s *Store, ctx context.Context, envs ...codec.Envelope) error {
+	return s.checkBeforeAppend(ctx, envs...)
+}

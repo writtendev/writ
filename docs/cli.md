@@ -5,7 +5,7 @@ slug: "cli"
 
 # CLI Reference
 
-`writ` is an open SDLC layer that stores code review and issues inside git.
+`writ` stores signed, append-only, mergeable state inside a git repository, under types your own `writ.schema` declares.
 
 ## Table of Contents
 
@@ -352,9 +352,9 @@ Show help for writ or a subcommand.
 
 ```bash
 writ help
-writ help issue
-writ help issue create
-writ help review
-writ help review open
+writ help object
+writ help object create
+writ help schema
+writ help schema show
 ```
 

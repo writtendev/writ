@@ -8,14 +8,12 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	"sort"
 	"testing"
 	"time"
 
 	writ "github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/engine/codec"
 	"github.com/writtendev/writ/engine/codec/canonicaljson"
-	"github.com/writtendev/writ/engine/resolve"
 	"github.com/writtendev/writ/engine/state"
 	"github.com/writtendev/writ/spec"
 )
@@ -152,126 +150,6 @@ func toCanonicalJSON(t *testing.T, v any) []byte {
 	return canon
 }
 
-func stringVal(v any) string {
-	switch s := v.(type) {
-	case string:
-		return s
-	case json.RawMessage:
-		var str string
-		if err := json.Unmarshal(s, &str); err == nil {
-			return str
-		}
-		return string(s)
-	case []byte:
-		var str string
-		if err := json.Unmarshal(s, &str); err == nil {
-			return str
-		}
-		return string(s)
-	}
-	return ""
-}
-
-func boolVal(v any) bool {
-	switch b := v.(type) {
-	case bool:
-		return b
-	case json.RawMessage:
-		return string(b) == "true"
-	case []byte:
-		return string(b) == "true"
-	}
-	return false
-}
-
-func boolPtrVal(v any) *bool {
-	switch b := v.(type) {
-	case bool:
-		return &b
-	case json.RawMessage:
-		val := (string(b) == "true")
-		return &val
-	case []byte:
-		val := (string(b) == "true")
-		return &val
-	}
-	return nil
-}
-
-func stringSlice(raw any) []string {
-	switch v := raw.(type) {
-	case []string:
-		return v
-	case []any:
-		res := make([]string, 0, len(v))
-		for _, it := range v {
-			if s, ok := it.(string); ok {
-				res = append(res, s)
-			}
-		}
-		return res
-	}
-	return nil
-}
-
-type keyedLWWItem struct {
-	Key   []string
-	Value any
-}
-
-func parseKeyedLWW(raw any) []keyedLWWItem {
-	slice, ok := raw.([]any)
-	if !ok {
-		return nil
-	}
-	var res []keyedLWWItem
-	for _, item := range slice {
-		m, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		var key []string
-		switch ks := m["key"].(type) {
-		case []string:
-			key = ks
-		case []any:
-			for _, k := range ks {
-				if s, ok := k.(string); ok {
-					key = append(key, s)
-				}
-			}
-		}
-		res = append(res, keyedLWWItem{
-			Key:   key,
-			Value: m["value"],
-		})
-	}
-	return res
-}
-
-func makeKeyedMap(items []keyedLWWItem) map[string]string {
-	m := make(map[string]string, len(items))
-	for _, it := range items {
-		if len(it.Key) >= 2 {
-			m[it.Key[0]+":"+it.Key[1]] = stringVal(it.Value)
-		} else if len(it.Key) == 1 {
-			m[it.Key[0]] = stringVal(it.Value)
-		}
-	}
-	return m
-}
-
-func toStateUnknownOps(uops []writ.UnknownOp) []state.UnknownOp {
-	if len(uops) == 0 {
-		return nil
-	}
-	res := make([]state.UnknownOp, len(uops))
-	for i, u := range uops {
-		res[i] = state.UnknownOp(u)
-	}
-	return res
-}
-
 func commentRules() []writ.Rule {
 	return []writ.Rule{
 		{OpType: "create", OpVersion: 1, Field: "subject", Strategy: "create-once"},
@@ -285,322 +163,18 @@ func commentRules() []writ.Rule {
 	}
 }
 
-// --------------------------------------------------------------------------
-// 2. Declared Shape Projections
-// --------------------------------------------------------------------------
-
-func projectReview(generic writ.ObjectState, ops []codec.Op, _ string) state.Review {
-	rev := state.Review{
-		Title:       stringVal(generic.State["title"]),
-		Description: stringVal(generic.State["description"]),
-		Status:      stringVal(generic.State["status"]),
-		MergeCommit: stringVal(generic.State["merge_commit"]),
-		Reason:      stringVal(generic.State["reason"]),
-		UnknownOps:  toStateUnknownOps(generic.UnknownOps),
+// builtinRules returns the built-in (pre-WRIT-194) vocabulary's fold rules
+// for one object type -- the replacement for the deleted
+// writ.ReviewRules/IssueRules/ProjectRules/CycleRules functions, which this
+// property/fuzz suite used only as a source of realistic field-rule shapes
+// to generate synthetic op streams against, not as public API surface in
+// its own right.
+func builtinRules(objectType string) []writ.Rule {
+	rules, err := state.BuiltinRules()
+	if err != nil {
+		panic(err)
 	}
-
-	unknownMap := make(map[string]bool, len(generic.UnknownOps))
-	for _, u := range generic.UnknownOps {
-		unknownMap[u.Commit] = true
-	}
-	opMap := make(map[string]codec.Op, len(ops))
-	for _, o := range ops {
-		opMap[o.ID] = o
-	}
-
-	var revs []state.Revision
-	for _, ref := range generic.TotalOrder {
-		if unknownMap[ref.Commit] {
-			continue
-		}
-		o, ok := opMap[ref.Commit]
-		if !ok {
-			continue
-		}
-		if o.ObjectType == "review" && o.OpVersion == 1 && o.OpType == "revision" {
-			var bm map[string]any
-			if len(o.Body) > 0 {
-				_ = json.Unmarshal(o.Body, &bm)
-			}
-			base, _ := bm["base"].(string)
-			head, _ := bm["head"].(string)
-			revs = append(revs, state.Revision{Base: base, Head: head})
-		}
-	}
-	rev.Revisions = revs
-
-	verdictItems := parseKeyedLWW(generic.State["verdict"])
-	messageItems := parseKeyedLWW(generic.State["message"])
-	msgMap := make(map[string]string)
-	for _, it := range messageItems {
-		if len(it.Key) >= 2 {
-			msgMap[it.Key[0]+":"+it.Key[1]] = stringVal(it.Value)
-		}
-	}
-	var approvals []state.Approval
-	for _, it := range verdictItems {
-		if len(it.Key) >= 2 {
-			subj := it.Key[0]
-			revision := it.Key[1]
-			verdict := stringVal(it.Value)
-			if verdict != "" && verdict != "none" {
-				msg := msgMap[subj+":"+revision]
-				approvals = append(approvals, state.Approval{
-					Subject:  subj,
-					Revision: revision,
-					Verdict:  verdict,
-					Message:  msg,
-				})
-			}
-		}
-	}
-	sort.Slice(approvals, func(i, j int) bool {
-		if approvals[i].Subject != approvals[j].Subject {
-			return approvals[i].Subject < approvals[j].Subject
-		}
-		return approvals[i].Revision < approvals[j].Revision
-	})
-	rev.Approvals = approvals
-
-	stateMap := makeKeyedMap(parseKeyedLWW(generic.State["state"]))
-	urlMap := makeKeyedMap(parseKeyedLWW(generic.State["url"]))
-	descMap := makeKeyedMap(parseKeyedLWW(generic.State["ci_description"]))
-	startMap := makeKeyedMap(parseKeyedLWW(generic.State["started_at"]))
-	compMap := makeKeyedMap(parseKeyedLWW(generic.State["completed_at"]))
-	extMap := makeKeyedMap(parseKeyedLWW(generic.State["external_id"]))
-
-	// approval.revision and ci-status.revision are keyed on different tuples
-	// but share the field name "revision"; WRIT-198 gives ci-status.revision
-	// its own target, "ci_revision" (the ci_description precedent already on
-	// this rule block), so unlike before, nothing here needs to guess which
-	// entries under a shared "revision" key actually came from a ci-status op.
-	type ciKey struct {
-		revision string
-		name     string
-	}
-	ciKeySet := make(map[ciKey]bool)
-	ciFields := []string{"ci_revision", "name", "state", "url", "ci_description", "started_at", "completed_at", "external_id"}
-	for _, f := range ciFields {
-		for _, it := range parseKeyedLWW(generic.State[f]) {
-			if len(it.Key) >= 2 {
-				ciKeySet[ciKey{revision: it.Key[0], name: it.Key[1]}] = true
-			}
-		}
-	}
-
-	var ciStatuses []state.CIStatus
-	for k := range ciKeySet {
-		keyStr := k.revision + ":" + k.name
-		ciStatuses = append(ciStatuses, state.CIStatus{
-			Revision:    k.revision,
-			Name:        k.name,
-			State:       stateMap[keyStr],
-			URL:         urlMap[keyStr],
-			Description: descMap[keyStr],
-			StartedAt:   startMap[keyStr],
-			CompletedAt: compMap[keyStr],
-			ExternalID:  extMap[keyStr],
-		})
-	}
-	sort.Slice(ciStatuses, func(i, j int) bool {
-		if ciStatuses[i].Revision != ciStatuses[j].Revision {
-			return ciStatuses[i].Revision < ciStatuses[j].Revision
-		}
-		return ciStatuses[i].Name < ciStatuses[j].Name
-	})
-	rev.CIStatuses = ciStatuses
-
-	relMap := makeKeyedMap(parseKeyedLWW(generic.State["relation"]))
-	targetTypeMap := makeKeyedMap(parseKeyedLWW(generic.State["target_type"]))
-
-	allTargets := make(map[string]bool)
-	for _, f := range []string{"target", "target_type", "relation"} {
-		for _, it := range parseKeyedLWW(generic.State[f]) {
-			if len(it.Key) >= 1 && it.Key[0] != "" {
-				allTargets[it.Key[0]] = true
-			}
-		}
-	}
-
-	var links []state.Link
-	for target := range allTargets {
-		rel := relMap[target]
-		if rel != "" && rel != "none" {
-			links = append(links, state.Link{
-				Target:     target,
-				TargetType: targetTypeMap[target],
-				Relation:   rel,
-			})
-		}
-	}
-	sort.Slice(links, func(i, j int) bool {
-		return links[i].Target < links[j].Target
-	})
-	rev.Links = links
-
-	// assign.{add,remove} and label.{add,remove} each collapse onto one
-	// target ("assignees", "labels": WRIT-198 §C1), so the generic fold's
-	// OR-set result is read directly — no demux by re-scanning raw ops
-	// needed, the thing that let this projection paper over the two rule
-	// tables colliding onto shared "add"/"remove" keys in the first place.
-	rev.Assignees = stringSlice(generic.State["assignees"])
-	rev.Labels = stringSlice(generic.State["labels"])
-
-	return rev
-}
-
-func projectIssue(generic writ.ObjectState, _ []codec.Op, _ string) state.Issue {
-	var st string
-	if stateVal, ok := generic.State["state"]; ok {
-		st = stringVal(stateVal)
-	}
-
-	var priority int
-	if p, ok := generic.State["priority"]; ok && p != nil {
-		switch val := p.(type) {
-		case float64:
-			priority = int(val)
-		case int:
-			priority = val
-		case int64:
-			priority = int(val)
-		case json.Number:
-			if i, err := val.Int64(); err == nil {
-				priority = int(i)
-			}
-		}
-	}
-
-	var estimate *float64
-	if e, ok := generic.State["estimate"]; ok && e != nil {
-		switch val := e.(type) {
-		case float64:
-			est := val
-			estimate = &est
-		case int:
-			est := float64(val)
-			estimate = &est
-		case int64:
-			est := float64(val)
-			estimate = &est
-		case json.Number:
-			if f, err := val.Float64(); err == nil {
-				estimate = &f
-			}
-		}
-	}
-
-	position := stringVal(generic.State["position"])
-
-	iss := state.Issue{
-		Title:       stringVal(generic.State["title"]),
-		Description: stringVal(generic.State["description"]),
-		State:       st,
-		Reason:      stringVal(generic.State["reason"]),
-		Priority:    priority,
-		Estimate:    estimate,
-		Position:    position,
-		UnknownOps:  toStateUnknownOps(generic.UnknownOps),
-	}
-
-	relMap := makeKeyedMap(parseKeyedLWW(generic.State["relation"]))
-	targetTypeMap := makeKeyedMap(parseKeyedLWW(generic.State["target_type"]))
-
-	allTargets := make(map[string]bool)
-	for _, f := range []string{"target", "target_type", "relation"} {
-		for _, it := range parseKeyedLWW(generic.State[f]) {
-			if len(it.Key) >= 1 && it.Key[0] != "" {
-				allTargets[it.Key[0]] = true
-			}
-		}
-	}
-
-	var links []state.Link
-	for target := range allTargets {
-		rel := relMap[target]
-		if rel != "" && rel != "none" {
-			links = append(links, state.Link{
-				Target:     target,
-				TargetType: targetTypeMap[target],
-				Relation:   rel,
-			})
-		}
-	}
-	sort.Slice(links, func(i, j int) bool {
-		return links[i].Target < links[j].Target
-	})
-	iss.Links = links
-
-	// assign.{add,remove} and label.{add,remove} each collapse onto one
-	// target ("assignees", "labels": WRIT-198 §C1), so the generic fold's
-	// OR-set result is read directly — no demux by re-scanning raw ops
-	// needed, the thing that let this projection paper over the two rule
-	// tables colliding onto shared "add"/"remove" keys in the first place.
-	iss.Assignees = stringSlice(generic.State["assignees"])
-	iss.Labels = stringSlice(generic.State["labels"])
-
-	return iss
-}
-
-func projectComment(generic writ.ObjectState, _ []codec.Op) state.Comment {
-	c := state.Comment{
-		Text:       stringVal(generic.State["text"]),
-		InReplyTo:  stringVal(generic.State["in_reply_to"]),
-		Deleted:    boolVal(generic.State["deleted"]),
-		Resolved:   boolPtrVal(generic.State["resolved"]),
-		ResolvedBy: state.NormalizePerson(stringVal(generic.State["resolved_by"])),
-		UnknownOps: toStateUnknownOps(generic.UnknownOps),
-	}
-
-	if raw, ok := generic.State["subject"].(json.RawMessage); ok && len(raw) > 0 && string(raw) != "null" {
-		sub, err := state.ParseCommentSubject(raw)
-		if err == nil {
-			c.Subject = sub
-		}
-	} else if m, ok := generic.State["subject"].(map[string]any); ok {
-		raw, _ := json.Marshal(m)
-		sub, err := state.ParseCommentSubject(raw)
-		if err == nil {
-			c.Subject = sub
-		}
-	}
-
-	if raw, ok := generic.State["anchor"].(json.RawMessage); ok && len(raw) > 0 && string(raw) != "null" {
-		anc, err := resolve.ParseAnchor(raw)
-		if err == nil {
-			c.Anchor = &anc
-		}
-	} else if m, ok := generic.State["anchor"].(map[string]any); ok {
-		raw, _ := json.Marshal(m)
-		anc, err := resolve.ParseAnchor(raw)
-		if err == nil {
-			c.Anchor = &anc
-		}
-	}
-
-	return c
-}
-
-func projectProject(generic writ.ObjectState, _ []codec.Op) state.Project {
-	return state.Project{
-		Title:       stringVal(generic.State["title"]),
-		Description: stringVal(generic.State["description"]),
-		Status:      stringVal(generic.State["status"]),
-		Reason:      stringVal(generic.State["reason"]),
-		Issues:      stringSlice(generic.State["issue"]),
-		UnknownOps:  toStateUnknownOps(generic.UnknownOps),
-	}
-}
-
-func projectCycle(generic writ.ObjectState, _ []codec.Op) state.Cycle {
-	return state.Cycle{
-		Title:       stringVal(generic.State["title"]),
-		Description: stringVal(generic.State["description"]),
-		StartsAt:    stringVal(generic.State["starts_at"]),
-		EndsAt:      stringVal(generic.State["ends_at"]),
-		Issues:      stringSlice(generic.State["issue"]),
-		UnknownOps:  toStateUnknownOps(generic.UnknownOps),
-	}
+	return rules[objectType]
 }
 
 // --------------------------------------------------------------------------
@@ -616,19 +190,6 @@ func assertUnknownOpsParity(t *testing.T, writU []writ.UnknownOp, specU []spec.U
 		su := specU[i]
 		if u.Commit != su.Commit || u.ObjectType != su.ObjectType || u.OpType != su.OpType || u.OpVersion != su.OpVersion {
 			t.Fatalf("unknown op mismatch at %d: writ=%+v, spec=%+v", i, u, su)
-		}
-	}
-}
-
-func assertTypedUnknownOpsParity(t *testing.T, typedU []state.UnknownOp, writU []writ.UnknownOp) {
-	t.Helper()
-	if len(typedU) != len(writU) {
-		t.Fatalf("typed unknown ops length mismatch: typed=%d, writ=%d", len(typedU), len(writU))
-	}
-	for i, u := range typedU {
-		wu := writU[i]
-		if u.Commit != wu.Commit || u.ObjectType != wu.ObjectType || u.OpType != wu.OpType || u.OpVersion != wu.OpVersion {
-			t.Fatalf("typed unknown op mismatch at %d: typed=%+v, writ=%+v", i, u, wu)
 		}
 	}
 }
@@ -686,102 +247,6 @@ func assertThreeWayFoldAbstract(t *testing.T, ops []codec.Op, rules []writ.Rule)
 	specJSON := toCanonicalJSON(t, specRes.State)
 	if !bytes.Equal(writJSON, specJSON) {
 		t.Fatalf("canonical JSON mismatch between writ.Fold and spec.Fold:\n writ: %s\n spec: %s", string(writJSON), string(specJSON))
-	}
-}
-
-func assertThreeWayFoldDomain(t *testing.T, objectType string, ops []codec.Op, rules []writ.Rule, mode string) {
-	t.Helper()
-	writRes, writErr := writ.Fold(ops, rules)
-	mergeOps := toSpecOps(ops)
-	specRules := toSpecRules(rules)
-	specRes, specErr := spec.Fold(mergeOps, specRules)
-
-	if (writErr != nil) != (specErr != nil) {
-		t.Fatalf("error parity mismatch: writErr=%v, specErr=%v", writErr, specErr)
-	}
-	if writErr != nil {
-		return
-	}
-
-	// 1. Total order
-	assertTotalOrderMatchesSpec(t, ops, writRes.TotalOrder)
-
-	// 2. Unknown ops between generic folds
-	assertUnknownOpsParity(t, writRes.UnknownOps, specRes.UnknownOps)
-
-	// 3. State canonical JSON byte equality between writ.Fold and spec.Fold
-	writJSON := toCanonicalJSON(t, writRes.State)
-	specJSON := toCanonicalJSON(t, specRes.State)
-	if !bytes.Equal(writJSON, specJSON) {
-		t.Fatalf("generic state canonical JSON mismatch:\n writ: %s\n spec: %s", string(writJSON), string(specJSON))
-	}
-
-	// 4. Domain object typed reducer comparison
-	switch objectType {
-	case "review":
-		typed, err := writ.FoldReview(ops)
-		if err != nil {
-			t.Fatalf("FoldReview failed: %v", err)
-		}
-		projected := projectReview(writRes, ops, mode)
-		projJSON := toCanonicalJSON(t, projected)
-		typedJSON := toCanonicalJSON(t, typed)
-		if !bytes.Equal(projJSON, typedJSON) {
-			t.Fatalf("Review canonical JSON mismatch:\n proj:  %s\n typed: %s", string(projJSON), string(typedJSON))
-		}
-		assertTypedUnknownOpsParity(t, typed.UnknownOps, writRes.UnknownOps)
-
-	case "issue":
-		typed, err := writ.FoldIssue(ops)
-		if err != nil {
-			t.Fatalf("FoldIssue failed: %v", err)
-		}
-		projected := projectIssue(writRes, ops, mode)
-		projJSON := toCanonicalJSON(t, projected)
-		typedJSON := toCanonicalJSON(t, typed)
-		if !bytes.Equal(projJSON, typedJSON) {
-			t.Fatalf("Issue canonical JSON mismatch:\n proj:  %s\n typed: %s", string(projJSON), string(typedJSON))
-		}
-		assertTypedUnknownOpsParity(t, typed.UnknownOps, writRes.UnknownOps)
-
-	case "comment":
-		typed, err := writ.FoldComment(ops)
-		if err != nil {
-			t.Fatalf("FoldComment failed: %v", err)
-		}
-		projected := projectComment(writRes, ops)
-		projJSON := toCanonicalJSON(t, projected)
-		typedJSON := toCanonicalJSON(t, typed)
-		if !bytes.Equal(projJSON, typedJSON) {
-			t.Fatalf("Comment canonical JSON mismatch:\n proj:  %s\n typed: %s", string(projJSON), string(typedJSON))
-		}
-		assertTypedUnknownOpsParity(t, typed.UnknownOps, writRes.UnknownOps)
-
-	case "project":
-		typed, err := writ.FoldProject(ops)
-		if err != nil {
-			t.Fatalf("FoldProject failed: %v", err)
-		}
-		projected := projectProject(writRes, ops)
-		projJSON := toCanonicalJSON(t, projected)
-		typedJSON := toCanonicalJSON(t, typed)
-		if !bytes.Equal(projJSON, typedJSON) {
-			t.Fatalf("Project canonical JSON mismatch:\n proj:  %s\n typed: %s", string(projJSON), string(typedJSON))
-		}
-		assertTypedUnknownOpsParity(t, typed.UnknownOps, writRes.UnknownOps)
-
-	case "cycle":
-		typed, err := writ.FoldCycle(ops)
-		if err != nil {
-			t.Fatalf("FoldCycle failed: %v", err)
-		}
-		projected := projectCycle(writRes, ops)
-		projJSON := toCanonicalJSON(t, projected)
-		typedJSON := toCanonicalJSON(t, typed)
-		if !bytes.Equal(projJSON, typedJSON) {
-			t.Fatalf("Cycle canonical JSON mismatch:\n proj:  %s\n typed: %s", string(projJSON), string(typedJSON))
-		}
-		assertTypedUnknownOpsParity(t, typed.UnknownOps, writRes.UnknownOps)
 	}
 }
 
@@ -1064,7 +529,7 @@ func generateAbstractSyntheticStream(rng *rand.Rand) ([]codec.Op, []writ.Rule) {
 func generateReviewStream(rng *rand.Rand) ([]codec.Op, []writ.Rule, string) {
 	numOps := 6 + rng.Intn(12)
 	ops := generateDAGSkeleton(rng, numOps, "r-property", "review")
-	rules := writ.ReviewRules()
+	rules := builtinRules("review")
 
 	// First op: create
 	createBody := map[string]any{
@@ -1197,7 +662,7 @@ func generateReviewStream(rng *rand.Rand) ([]codec.Op, []writ.Rule, string) {
 func generateIssueStream(rng *rand.Rand) ([]codec.Op, []writ.Rule, string) {
 	numOps := 5 + rng.Intn(10)
 	ops := generateDAGSkeleton(rng, numOps, "iss-property", "issue")
-	rules := writ.IssueRules()
+	rules := builtinRules("issue")
 
 	ops[0].OpType = "create"
 	ops[0].Body, _ = json.Marshal(map[string]any{
@@ -1317,7 +782,7 @@ func generateCommentStream(rng *rand.Rand) ([]codec.Op, []writ.Rule) {
 func generateProjectStream(rng *rand.Rand) ([]codec.Op, []writ.Rule) {
 	numOps := 4 + rng.Intn(6)
 	ops := generateDAGSkeleton(rng, numOps, "proj-property", "project")
-	rules := writ.ProjectRules()
+	rules := builtinRules("project")
 
 	ops[0].OpType = "create"
 	ops[0].Body, _ = json.Marshal(map[string]any{
@@ -1356,7 +821,7 @@ func generateProjectStream(rng *rand.Rand) ([]codec.Op, []writ.Rule) {
 func generateCycleStream(rng *rand.Rand) ([]codec.Op, []writ.Rule) {
 	numOps := 4 + rng.Intn(6)
 	ops := generateDAGSkeleton(rng, numOps, "cycle-property", "cycle")
-	rules := writ.CycleRules()
+	rules := builtinRules("cycle")
 
 	ops[0].OpType = "create"
 	ops[0].Body, _ = json.Marshal(map[string]any{
@@ -1421,7 +886,7 @@ func regressionVectorWRIT112() FuzzCase {
 	}
 	return FuzzCase{
 		ObjectType: "review",
-		Rules:      writ.ReviewRules(),
+		Rules:      builtinRules("review"),
 		Ops:        ops,
 	}
 }
@@ -1456,7 +921,7 @@ func regressionVectorWRIT116() FuzzCase {
 	}
 	return FuzzCase{
 		ObjectType: "issue",
-		Rules:      writ.IssueRules(),
+		Rules:      builtinRules("issue"),
 		Ops:        ops,
 		Mode:       "label",
 	}
@@ -1515,7 +980,7 @@ func regressionVectorWRIT124() FuzzCase {
 	}
 	return FuzzCase{
 		ObjectType: "review",
-		Rules:      writ.ReviewRules(),
+		Rules:      builtinRules("review"),
 		Ops:        ops,
 	}
 }
@@ -1666,33 +1131,33 @@ func TestProperty_FoldThreeWay(t *testing.T) {
 	// Subtests for the 6 historical regression vectors
 	t.Run("Regression_WRIT_112_ApprovalSubjectDenormalized", func(t *testing.T) {
 		c := regressionVectorWRIT112()
-		assertThreeWayFoldDomain(t, c.ObjectType, c.Ops, c.Rules, c.Mode)
+		assertThreeWayFoldAbstract(t, c.Ops, c.Rules)
 	})
 
 	t.Run("Regression_WRIT_116_EmptySetItems", func(t *testing.T) {
 		c := regressionVectorWRIT116()
-		assertThreeWayFoldDomain(t, c.ObjectType, c.Ops, c.Rules, c.Mode)
+		assertThreeWayFoldAbstract(t, c.Ops, c.Rules)
 	})
 
 	t.Run("Regression_WRIT_118_WhitespaceResolveActor", func(t *testing.T) {
 		c := regressionVectorWRIT118()
-		assertThreeWayFoldDomain(t, c.ObjectType, c.Ops, c.Rules, c.Mode)
+		assertThreeWayFoldAbstract(t, c.Ops, c.Rules)
 	})
 
 	t.Run("Regression_WRIT_124_KeyedLWWNonStringKeys", func(t *testing.T) {
 		c := regressionVectorWRIT124()
-		assertThreeWayFoldDomain(t, c.ObjectType, c.Ops, c.Rules, c.Mode)
+		assertThreeWayFoldAbstract(t, c.Ops, c.Rules)
 	})
 
 	t.Run("Regression_WRIT_125_OmitemptyEmptyScalars", func(t *testing.T) {
 		c := regressionVectorWRIT125()
-		assertThreeWayFoldDomain(t, c.ObjectType, c.Ops, c.Rules, c.Mode)
+		assertThreeWayFoldAbstract(t, c.Ops, c.Rules)
 	})
 
 	t.Run("Regression_WRIT_126_NonStringNullSetUnionAppend", func(t *testing.T) {
 		c := regressionVectorWRIT126()
 		if c.ObjectType != "" {
-			assertThreeWayFoldDomain(t, c.ObjectType, c.Ops, c.Rules, c.Mode)
+			assertThreeWayFoldAbstract(t, c.Ops, c.Rules)
 		} else {
 			assertThreeWayFoldAbstract(t, c.Ops, c.Rules)
 		}
@@ -1737,7 +1202,7 @@ func TestProperty_FoldThreeWay(t *testing.T) {
 				Author: codec.Identity{When: now.Add(20 * time.Second)},
 			},
 		}
-		assertThreeWayFoldDomain(t, "review", ops, writ.ReviewRules(), "")
+		assertThreeWayFoldAbstract(t, ops, builtinRules("review"))
 	})
 
 	t.Run("Issue_ExplicitEmptyState", func(t *testing.T) {
@@ -1767,7 +1232,7 @@ func TestProperty_FoldThreeWay(t *testing.T) {
 				Author: codec.Identity{When: now.Add(10 * time.Second)},
 			},
 		}
-		assertThreeWayFoldDomain(t, "issue", ops, writ.IssueRules(), "")
+		assertThreeWayFoldAbstract(t, ops, builtinRules("issue"))
 	})
 
 	// 100 randomized property iterations over abstract strategies and domain object streams
@@ -1781,20 +1246,20 @@ func TestProperty_FoldThreeWay(t *testing.T) {
 		domainIdx := rng.Intn(5)
 		switch domainIdx {
 		case 0:
-			ops, rules, mode := generateReviewStream(rng)
-			assertThreeWayFoldDomain(t, "review", ops, rules, mode)
+			ops, rules, _ := generateReviewStream(rng)
+			assertThreeWayFoldAbstract(t, ops, rules)
 		case 1:
-			ops, rules, mode := generateIssueStream(rng)
-			assertThreeWayFoldDomain(t, "issue", ops, rules, mode)
+			ops, rules, _ := generateIssueStream(rng)
+			assertThreeWayFoldAbstract(t, ops, rules)
 		case 2:
 			ops, rules := generateCommentStream(rng)
-			assertThreeWayFoldDomain(t, "comment", ops, rules, "")
+			assertThreeWayFoldAbstract(t, ops, rules)
 		case 3:
 			ops, rules := generateProjectStream(rng)
-			assertThreeWayFoldDomain(t, "project", ops, rules, "")
+			assertThreeWayFoldAbstract(t, ops, rules)
 		case 4:
 			ops, rules := generateCycleStream(rng)
-			assertThreeWayFoldDomain(t, "cycle", ops, rules, "")
+			assertThreeWayFoldAbstract(t, ops, rules)
 		}
 	}
 }
@@ -1858,19 +1323,19 @@ func FuzzFoldThreeWay(f *testing.F) {
 				var rules []writ.Rule
 				switch fc.ObjectType {
 				case "review":
-					rules = writ.ReviewRules()
+					rules = builtinRules("review")
 				case "issue":
-					rules = writ.IssueRules()
+					rules = builtinRules("issue")
 				case "comment":
 					rules = commentRules()
 				case "project":
-					rules = writ.ProjectRules()
+					rules = builtinRules("project")
 				case "cycle":
-					rules = writ.CycleRules()
+					rules = builtinRules("cycle")
 				default:
 					return
 				}
-				assertThreeWayFoldDomain(t, fc.ObjectType, fc.Ops, rules, fc.Mode)
+				assertThreeWayFoldAbstract(t, fc.Ops, rules)
 			} else {
 				if len(fc.Rules) == 0 {
 					return
@@ -1895,20 +1360,20 @@ func FuzzFoldThreeWay(f *testing.F) {
 			} else {
 				switch choice {
 				case 1:
-					ops, rules, mode := generateReviewStream(localRNG)
-					assertThreeWayFoldDomain(t, "review", ops, rules, mode)
+					ops, rules, _ := generateReviewStream(localRNG)
+					assertThreeWayFoldAbstract(t, ops, rules)
 				case 2:
-					ops, rules, mode := generateIssueStream(localRNG)
-					assertThreeWayFoldDomain(t, "issue", ops, rules, mode)
+					ops, rules, _ := generateIssueStream(localRNG)
+					assertThreeWayFoldAbstract(t, ops, rules)
 				case 3:
 					ops, rules := generateCommentStream(localRNG)
-					assertThreeWayFoldDomain(t, "comment", ops, rules, "")
+					assertThreeWayFoldAbstract(t, ops, rules)
 				case 4:
 					ops, rules := generateProjectStream(localRNG)
-					assertThreeWayFoldDomain(t, "project", ops, rules, "")
+					assertThreeWayFoldAbstract(t, ops, rules)
 				case 5:
 					ops, rules := generateCycleStream(localRNG)
-					assertThreeWayFoldDomain(t, "cycle", ops, rules, "")
+					assertThreeWayFoldAbstract(t, ops, rules)
 				}
 			}
 		}

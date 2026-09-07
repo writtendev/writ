@@ -19,8 +19,8 @@
 //
 //	// Create an object of a schema-declared type. objectType and the op's
 //	// Type both come from the schema in the log (writ.schema) — writ itself
-//	// has no built-in notion of "review" beyond what a schema declares.
-//	objectID, err := store.Objects.Create(ctx, "review", writ.NewOp{
+//	// has no built-in notion of "ticket" beyond what a schema declares.
+//	objectID, err := store.Objects.Create(ctx, "ticket", writ.NewOp{
 //	    Type:   "create",
 //	    Fields: map[string]any{"title": "Add OAuth2 authentication provider"},
 //	})
@@ -31,7 +31,7 @@
 //
 //	// Query across every declared type
 //	objects, err := store.Query.Objects(writ.ObjectFilter{
-//	    Type: []string{"review"},
+//	    Type: []string{"ticket"},
 //	})
 //
 //	// Synchronize with git remote

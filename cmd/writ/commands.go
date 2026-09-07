@@ -288,10 +288,10 @@ var helpCmd = &command{
 	Long:      "Show help for writ or a subcommand.",
 	Examples: []string{
 		"writ help",
-		"writ help issue",
-		"writ help issue create",
-		"writ help review",
-		"writ help review open",
+		"writ help object",
+		"writ help object create",
+		"writ help schema",
+		"writ help schema show",
 	},
 }
 

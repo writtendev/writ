@@ -16,7 +16,7 @@ func renderDocs(w io.Writer) error {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "# CLI Reference")
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "`writ` is an open SDLC layer that stores code review and issues inside git.")
+	fmt.Fprintln(w, "`writ` stores signed, append-only, mergeable state inside a git repository, under types your own `writ.schema` declares.")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "## Table of Contents")
 	fmt.Fprintln(w)

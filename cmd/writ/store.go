@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os/exec"
 	"strings"
 
 	"github.com/writtendev/writ/engine"
@@ -90,26 +89,6 @@ func parseOrderBy(sortOrder string) (writ.OrderBy, error) {
 	default:
 		return "", fmt.Errorf("invalid sort order %q", sortOrder)
 	}
-}
-
-func gitRevParse(ctx context.Context, dir, ref string) (string, error) {
-	if dir == "" {
-		dir = "."
-	}
-	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--verify", ref+"^{commit}")
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		// Fallback to plain rev-parse if ^{commit} failed (e.g. if ref is already an OID)
-		cmdPlain := exec.CommandContext(ctx, "git", "rev-parse", "--verify", ref)
-		cmdPlain.Dir = dir
-		outPlain, errPlain := cmdPlain.CombinedOutput()
-		if errPlain != nil {
-			return "", fmt.Errorf("resolve ref %q: %v (%s)", ref, err, strings.TrimSpace(string(out)))
-		}
-		return strings.TrimSpace(string(outPlain)), nil
-	}
-	return strings.TrimSpace(string(out)), nil
 }
 
 // resolveObjectID resolves an object ID or unambiguous prefix to a full

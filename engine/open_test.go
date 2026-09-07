@@ -67,59 +67,70 @@ func TestOpenWithRepositoryExtensions(t *testing.T) {
 			defer s.Close()
 
 			// 2. Create Issue
-			issueID, err := s.Issues.Create(ctx, writ.NewIssue{
-				Title:       "Test issue with extensions",
-				Description: "Testing repository extensions compatibility",
+			issueID, err := s.Objects.Create(ctx, "issue", writ.NewOp{
+				Type: "create",
+				Fields: map[string]any{
+					"title":       "Test issue with extensions",
+					"description": "Testing repository extensions compatibility",
+				},
 			})
 			if err != nil {
-				t.Fatalf("Issues.Create failed: %v", err)
+				t.Fatalf("Objects.Create(issue) failed: %v", err)
 			}
 			if issueID == "" {
 				t.Fatal("expected non-empty issue ID")
 			}
 
 			// 3. Create Review
-			revID, err := s.Reviews.Create(ctx, writ.NewReview{
-				Title: "Test review with extensions",
+			revID, err := s.Objects.Create(ctx, "review", writ.NewOp{
+				Type:   "create",
+				Fields: map[string]any{"title": "Test review with extensions"},
 			})
 			if err != nil {
-				t.Fatalf("Reviews.Create failed: %v", err)
+				t.Fatalf("Objects.Create(review) failed: %v", err)
 			}
 			if revID == "" {
 				t.Fatal("expected non-empty review ID")
 			}
 
 			// 4. Create Comment
-			commentID, err := s.Reviews.Comment(ctx, revID, writ.NewComment{
-				Text: "Looks good to me!",
+			commentID, err := s.Objects.Create(ctx, "comment", writ.NewOp{
+				Type: "create",
+				Fields: map[string]any{
+					"text": "Looks good to me!",
+					"subject": map[string]string{
+						"object_type": "review",
+						"object_id":   revID,
+					},
+				},
 			})
 			if err != nil {
-				t.Fatalf("Reviews.Comment failed: %v", err)
+				t.Fatalf("Objects.Create(comment) failed: %v", err)
 			}
 			if commentID == "" {
 				t.Fatal("expected non-empty comment ID")
 			}
 
 			// 5. Query
-			issues, err := s.Query.Issues(writ.IssueFilter{})
+			issues, err := s.Query.Objects(writ.ObjectFilter{Type: []string{"issue"}})
 			if err != nil {
-				t.Fatalf("Query.Issues failed: %v", err)
+				t.Fatalf("Query.Objects(issue) failed: %v", err)
 			}
 			if len(issues) != 1 || issues[0].ObjectID != issueID {
 				t.Fatalf("unexpected issues query result: %+v", issues)
 			}
 
-			reviews, err := s.Query.Reviews(writ.ReviewFilter{})
+			reviews, err := s.Query.Objects(writ.ObjectFilter{Type: []string{"review"}})
 			if err != nil {
-				t.Fatalf("Query.Reviews failed: %v", err)
+				t.Fatalf("Query.Objects(review) failed: %v", err)
 			}
 			if len(reviews) != 1 || reviews[0].ObjectID != revID {
 				t.Fatalf("unexpected reviews query result: %+v", reviews)
 			}
 
-			comments, err := s.Query.Comments(writ.CommentFilter{SubjectID: revID})
+			comments, err := s.Query.Objects(writ.ObjectFilter{Type: []string{"comment"}})
 			if err != nil {
-				t.Fatalf("Query.Comments failed: %v", err)
+				t.Fatalf("Query.Objects(comment) failed: %v", err)
 			}
 			if len(comments) != 1 || comments[0].ObjectID != commentID {
 				t.Fatalf("unexpected comments query result: %+v", comments)
@@ -176,19 +187,20 @@ func TestOpenSparseCheckoutRepository(t *testing.T) {
 	}
 	defer s.Close()
 
-	issueID, err := s.Issues.Create(ctx, writ.NewIssue{
-		Title: "Sparse checkout test issue",
+	issueID, err := s.Objects.Create(ctx, "issue", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Sparse checkout test issue"},
 	})
 	if err != nil {
-		t.Fatalf("Issues.Create failed: %v", err)
+		t.Fatalf("Objects.Create(issue) failed: %v", err)
 	}
 	if issueID == "" {
 		t.Fatal("expected non-empty issue ID")
 	}
 
-	issues, err := s.Query.Issues(writ.IssueFilter{})
+	issues, err := s.Query.Objects(writ.ObjectFilter{Type: []string{"issue"}})
 	if err != nil {
-		t.Fatalf("Query.Issues failed: %v", err)
+		t.Fatalf("Query.Objects(issue) failed: %v", err)
 	}
 	if len(issues) != 1 || issues[0].ObjectID != issueID {
 		t.Fatalf("unexpected issues query result: %+v", issues)
@@ -216,19 +228,20 @@ func TestOpenLinkedWorktreeWithExtensions(t *testing.T) {
 	}
 	defer s.Close()
 
-	issueID, err := s.Issues.Create(ctx, writ.NewIssue{
-		Title: "Linked worktree with extensions issue",
+	issueID, err := s.Objects.Create(ctx, "issue", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Linked worktree with extensions issue"},
 	})
 	if err != nil {
-		t.Fatalf("Issues.Create failed: %v", err)
+		t.Fatalf("Objects.Create(issue) failed: %v", err)
 	}
 	if issueID == "" {
 		t.Fatal("expected non-empty issue ID")
 	}
 
-	issues, err := s.Query.Issues(writ.IssueFilter{})
+	issues, err := s.Query.Objects(writ.ObjectFilter{Type: []string{"issue"}})
 	if err != nil {
-		t.Fatalf("Query.Issues failed: %v", err)
+		t.Fatalf("Query.Objects(issue) failed: %v", err)
 	}
 	if len(issues) != 1 || issues[0].ObjectID != issueID {
 		t.Fatalf("unexpected issues query result: %+v", issues)

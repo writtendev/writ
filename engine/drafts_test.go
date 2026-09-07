@@ -2,6 +2,7 @@ package writ_test
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"strings"
 	"testing"
@@ -113,11 +114,12 @@ func TestDraftPublishReview(t *testing.T) {
 	defer store.Close()
 
 	// Create a review
-	reviewID, err := store.Reviews.Create(ctx, writ.NewReview{
-		Title: "Publish Review Test",
+	reviewID, err := store.Objects.Create(ctx, "review", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Publish Review Test"},
 	})
 	if err != nil {
-		t.Fatalf("Reviews.Create failed: %v", err)
+		t.Fatalf("Objects.Create(review) failed: %v", err)
 	}
 
 	// Save draft on the review
@@ -139,13 +141,17 @@ func TestDraftPublishReview(t *testing.T) {
 		t.Fatalf("expected non-empty commentID")
 	}
 
-	// Verify comment exists in projection
-	comments, err := store.Query.Comments(writ.CommentFilter{SubjectID: reviewID})
+	// Verify the published comment folds with the right subject and text.
+	comment, err := store.Objects.Get(ctx, commentID)
 	if err != nil {
-		t.Fatalf("Query.Comments failed: %v", err)
+		t.Fatalf("Objects.Get(comment) failed: %v", err)
 	}
-	if len(comments) != 1 || comments[0].Comment.Text != "Published review comment text" {
-		t.Fatalf("unexpected comments in projection: %+v", comments)
+	if comment.ObjectType != "comment" || comment.Fields["text"] != "Published review comment text" {
+		t.Fatalf("unexpected published comment: %+v", comment)
+	}
+	subject := decodeCommentSubject(t, comment.Fields["subject"])
+	if subject["object_type"] != "review" || subject["object_id"] != reviewID {
+		t.Fatalf("unexpected comment subject: %+v", subject)
 	}
 
 	// Verify draft is deleted
@@ -165,11 +171,12 @@ func TestDraftPublishIssue(t *testing.T) {
 	defer store.Close()
 
 	// Create an issue
-	issueID, err := store.Issues.Create(ctx, writ.NewIssue{
-		Title: "Publish Issue Test",
+	issueID, err := store.Objects.Create(ctx, "issue", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Publish Issue Test"},
 	})
 	if err != nil {
-		t.Fatalf("Issues.Create failed: %v", err)
+		t.Fatalf("Objects.Create(issue) failed: %v", err)
 	}
 
 	// Save draft on the issue
@@ -191,13 +198,17 @@ func TestDraftPublishIssue(t *testing.T) {
 		t.Fatalf("expected non-empty commentID")
 	}
 
-	// Verify comment exists in projection
-	comments, err := store.Query.Comments(writ.CommentFilter{SubjectID: issueID})
+	// Verify the published comment folds with the right subject and text.
+	comment, err := store.Objects.Get(ctx, commentID)
 	if err != nil {
-		t.Fatalf("Query.Comments failed: %v", err)
+		t.Fatalf("Objects.Get(comment) failed: %v", err)
 	}
-	if len(comments) != 1 || comments[0].Comment.Text != "Published issue comment text" {
-		t.Fatalf("unexpected comments in projection: %+v", comments)
+	if comment.ObjectType != "comment" || comment.Fields["text"] != "Published issue comment text" {
+		t.Fatalf("unexpected published comment: %+v", comment)
+	}
+	subject := decodeCommentSubject(t, comment.Fields["subject"])
+	if subject["object_type"] != "issue" || subject["object_id"] != issueID {
+		t.Fatalf("unexpected comment subject: %+v", subject)
 	}
 
 	// Verify draft is deleted
@@ -217,11 +228,12 @@ func TestDraftsNeverReachSharedRefs(t *testing.T) {
 	defer sA.Close()
 
 	// Alice creates a review
-	reviewID, err := sA.Reviews.Create(ctx, writ.NewReview{
-		Title: "Draft Leak Test Review",
+	reviewID, err := sA.Objects.Create(ctx, "review", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Draft Leak Test Review"},
 	})
 	if err != nil {
-		t.Fatalf("Alice Reviews.Create failed: %v", err)
+		t.Fatalf("Alice Objects.Create(review) failed: %v", err)
 	}
 
 	// Alice saves a draft containing a unique sentinel string
@@ -278,14 +290,35 @@ func TestDraftsNeverReachSharedRefs(t *testing.T) {
 		t.Fatalf("Bob Sync after publish failed: %v", err)
 	}
 
-	// Bob queries comments and now sees the published comment
-	bobComments, err := sB.Query.Comments(writ.CommentFilter{SubjectID: reviewID})
+	// Bob now sees the published comment
+	bobComment, err := sB.Objects.Get(ctx, commentID)
 	if err != nil {
-		t.Fatalf("Bob Query.Comments failed: %v", err)
+		t.Fatalf("Bob Objects.Get(comment) failed: %v", err)
 	}
-	if len(bobComments) != 1 || bobComments[0].Comment.Text != sentinel {
-		t.Fatalf("Bob did not receive published comment: %+v", bobComments)
+	if bobComment.Fields["text"] != sentinel {
+		t.Fatalf("Bob did not receive published comment: %+v", bobComment)
 	}
+}
+
+// decodeCommentSubject decodes a comment's "subject" field, which the
+// generic fold returns as raw JSON bytes (json.RawMessage) rather than a
+// decoded map: "subject" declares no value_type, so create-once's
+// byte-exact-preservation rule (spec/fold.md §5.2) keeps it verbatim.
+func decodeCommentSubject(t *testing.T, raw any) map[string]any {
+	t.Helper()
+	b, ok := raw.(json.RawMessage)
+	if !ok {
+		if bs, ok2 := raw.([]byte); ok2 {
+			b = bs
+		} else {
+			t.Fatalf("comment subject field is %T, want json.RawMessage", raw)
+		}
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatalf("unmarshal comment subject: %v", err)
+	}
+	return m
 }
 
 func assertSentinelNotInWritRefs(t *testing.T, repoDir, sentinel string) {

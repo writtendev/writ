@@ -12,56 +12,7 @@ const (
 	OrderByCreatedAtDesc OrderBy = "created_at_desc"
 	OrderByUpdatedAtAsc  OrderBy = "updated_at_asc"
 	OrderByUpdatedAtDesc OrderBy = "updated_at_desc"
-	OrderByTitleAsc      OrderBy = "title_asc"
-	OrderByTitleDesc     OrderBy = "title_desc"
-	OrderByPriorityAsc   OrderBy = "priority_asc"
-	OrderByPriorityDesc  OrderBy = "priority_desc"
-	OrderByPositionAsc   OrderBy = "position_asc"
-	OrderByPositionDesc  OrderBy = "position_desc"
-	OrderByEstimateAsc   OrderBy = "estimate_asc"
-	OrderByEstimateDesc  OrderBy = "estimate_desc"
 )
-
-// ReviewFilter specifies filter criteria when querying reviews.
-type ReviewFilter struct {
-	Status         []string
-	Author         []string
-	Assignee       []string
-	Label          []string // Filter by label names or canonical label object IDs.
-	Text           string
-	IncludeDeleted bool
-	OrderBy        OrderBy
-	Limit          int
-	Offset         int
-}
-
-// IssueFilter specifies filter criteria when querying issues.
-type IssueFilter struct {
-	State          []string
-	Priority       []int
-	Author         []string
-	Assignee       []string
-	Label          []string // Filter by label names or canonical label object IDs.
-	Text           string
-	IncludeDeleted bool
-	OrderBy        OrderBy
-	Limit          int
-	Offset         int
-}
-
-// CommentFilter specifies filter criteria when querying comments.
-type CommentFilter struct {
-	SubjectType    string
-	SubjectID      string
-	Author         []string
-	Text           string
-	IncludeDeleted bool
-	Resolved       *bool
-	TargetCommit   string
-	OrderBy        OrderBy
-	Limit          int
-	Offset         int
-}
 
 // ObjectFilter specifies filter criteria when querying collaborative objects cross-type.
 type ObjectFilter struct {
@@ -72,21 +23,6 @@ type ObjectFilter struct {
 	OrderBy        OrderBy
 	Limit          int
 	Offset         int
-}
-
-// WorkflowStateFilter specifies filter criteria when querying workflow states.
-type WorkflowStateFilter struct {
-	Type    []string
-	OrderBy OrderBy
-	Limit   int
-	Offset  int
-}
-
-// LabelFilter specifies filter criteria when querying labels.
-type LabelFilter struct {
-	OrderBy OrderBy
-	Limit   int
-	Offset  int
 }
 
 // escapeLike escapes special SQLite LIKE pattern characters (%, _, \) so that

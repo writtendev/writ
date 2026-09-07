@@ -1,10 +1,29 @@
 {
-  "reviews": [
+  "objects": [
     {
       "object_id": "rev-rollback",
-      "review": {
-        "title": "Op3 Title (Fast-Forward Recovered)",
-        "description": "Initial creation"
+      "object_type": "review",
+      "object_state": {
+        "object_id": "rev-rollback",
+        "object_type": "review",
+        "total_order": [
+          {
+            "commit": "2d91fe243d94485907a0617301e0d4ae7df8062c",
+            "t_star": 1767268800
+          },
+          {
+            "commit": "c831ff295b39d8d1e346d9324fa8de53c659a61c",
+            "t_star": 1767268860
+          },
+          {
+            "commit": "ed7df59fdabc057cefda97b9f757db9a5efadda8",
+            "t_star": 1767268920
+          }
+        ],
+        "state": {
+          "description": "Initial creation",
+          "title": "Op3 Title (Fast-Forward Recovered)"
+        }
       }
     }
   ]

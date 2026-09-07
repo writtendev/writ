@@ -133,8 +133,15 @@ func (d *Drafts) Discard(ctx context.Context, id string) error {
 	return nil
 }
 
-// Publish converts a local draft into a committed comment operation on its subject,
-// deleting the draft upon success.
+// Publish converts a local draft into a committed comment object referencing
+// its subject by a soft "subject" field (object_type, object_id) — the same
+// generic construction Objects.Create uses for every schema-declared type,
+// "comment" included — and deletes the draft upon success. Unlike the
+// review/issue-specific comment writers this replaced, Publish no longer
+// threads the subject's (or reply's) frontier in as the new comment's
+// causal DAG parents: nothing folds, queries, or threads (all of which
+// group by the "subject"/"in_reply_to" fields, not DAG ancestry) depended
+// on that link, so dropping it costs no tested behavior.
 func (d *Drafts) Publish(ctx context.Context, id string) (string, error) {
 	if d == nil || d.store == nil {
 		return "", fmt.Errorf("writ: store is nil")
@@ -145,41 +152,31 @@ func (d *Drafts) Publish(ctx context.Context, id string) (string, error) {
 		return "", err
 	}
 
-	var commentID string
-	switch draft.SubjectType {
-	case "review", "":
-		cid, err := d.store.Reviews.Comment(ctx, draft.SubjectID, NewComment{
-			Text:      draft.Text,
-			Anchor:    draft.Anchor,
-			InReplyTo: draft.InReplyTo,
-		})
-		if err != nil {
-			if draft.SubjectType == "" {
-				cidIssue, errIssue := d.store.Issues.Comment(ctx, draft.SubjectID, NewComment{
-					Text:      draft.Text,
-					Anchor:    draft.Anchor,
-					InReplyTo: draft.InReplyTo,
-				})
-				if errIssue == nil {
-					commentID = cidIssue
-					break
-				}
-			}
-			return "", err
-		}
-		commentID = cid
-	case "issue":
-		cid, err := d.store.Issues.Comment(ctx, draft.SubjectID, NewComment{
-			Text:      draft.Text,
-			Anchor:    draft.Anchor,
-			InReplyTo: draft.InReplyTo,
-		})
-		if err != nil {
-			return "", err
-		}
-		commentID = cid
-	default:
+	subjectType := draft.SubjectType
+	if subjectType == "" {
+		subjectType = "review"
+	}
+	if subjectType != "review" && subjectType != "issue" {
 		return "", fmt.Errorf("writ: unsupported draft subject type %q", draft.SubjectType)
+	}
+
+	fields := map[string]any{
+		"subject": map[string]string{
+			"object_type": subjectType,
+			"object_id":   draft.SubjectID,
+		},
+		"text": draft.Text,
+	}
+	if draft.InReplyTo != "" {
+		fields["in_reply_to"] = draft.InReplyTo
+	}
+	if draft.Anchor != nil {
+		fields["anchor"] = draft.Anchor
+	}
+
+	commentID, err := d.store.Objects.Create(ctx, "comment", NewOp{Type: "create", Fields: fields})
+	if err != nil {
+		return "", err
 	}
 
 	// Delete draft after successful comment operation

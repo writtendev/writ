@@ -20,11 +20,17 @@ func TestReadStateLifecycle(t *testing.T) {
 	defer store.Close()
 
 	// 1. Create two reviews
-	rev1, err := store.Reviews.Create(ctx, writ.NewReview{Title: "Review One"})
+	rev1, err := store.Objects.Create(ctx, "review", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Review One"},
+	})
 	if err != nil {
 		t.Fatalf("Create rev1 failed: %v", err)
 	}
-	rev2, err := store.Reviews.Create(ctx, writ.NewReview{Title: "Review Two"})
+	rev2, err := store.Objects.Create(ctx, "review", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Review Two"},
+	})
 	if err != nil {
 		t.Fatalf("Create rev2 failed: %v", err)
 	}
@@ -67,7 +73,10 @@ func TestReadStateLifecycle(t *testing.T) {
 	// 4. Update rev1 (advancing its updated_at timestamp)
 	time.Sleep(1100 * time.Millisecond) // Ensure Unix timestamp increments
 	newTitle := "Review One (Updated)"
-	if err := store.Reviews.Update(ctx, rev1, writ.ReviewEdit{Title: &newTitle}); err != nil {
+	if err := store.Objects.Apply(ctx, rev1, writ.NewOp{
+		Type:   "update",
+		Fields: map[string]any{"title": newTitle},
+	}); err != nil {
 		t.Fatalf("Update rev1 failed: %v", err)
 	}
 

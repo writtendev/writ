@@ -1,79 +1,149 @@
 {
-  "reviews": [
-    {
-      "object_id": "rev-canonical",
-      "review": {
-        "title": "Add calculator functions (polished title)",
-        "description": "Initial draft of addition",
-        "approvals": [
-          {
-            "subject": "user:bob",
-            "revision": "1111111111111111111111111111111111111111",
-            "verdict": "approve",
-            "message": "Looks solid"
-          }
-        ]
-      }
-    }
-  ],
-  "comments": [
+  "objects": [
     {
       "object_id": "c-anchor",
-      "comment": {
-        "subject": {
-          "object_id": "rev-canonical",
-          "object_type": "review"
-        },
-        "text": "Consider adding multiplication support as well.",
-        "anchor": {
-          "new": {
-            "blob": "6b2fe1900a822a05d1a7b602b0cd446e19ebfe5d",
-            "commit": "0000000000000000000000000000000000000000",
-            "context": {
-              "after": [],
-              "before": [
-                "package calc",
-                ""
-              ],
-              "lines": [
-                "func Add(a, b int) int {",
-                "\treturn a + b",
-                "}"
-              ]
-            },
-            "path": "calc.go",
-            "range": {
-              "end": 5,
-              "start": 3
-            }
-          },
-          "version": 1
-        }
-      },
-      "replies": [
-        {
-          "object_id": "c-reply",
-          "comment": {
-            "subject": {
-              "object_id": "rev-canonical",
-              "object_type": "review"
-            },
-            "text": "Great idea, will follow up!",
-            "in_reply_to": "c-anchor"
+      "object_type": "comment",
+      "object_state": {
+        "object_id": "c-anchor",
+        "object_type": "comment",
+        "total_order": [
+          {
+            "commit": "61d636ae08107da9dac94c32f057bbbfcfd951ca",
+            "t_star": 1767268920
           }
+        ],
+        "state": {
+          "anchor": {
+            "new": {
+              "blob": "6b2fe1900a822a05d1a7b602b0cd446e19ebfe5d",
+              "commit": "0000000000000000000000000000000000000000",
+              "context": {
+                "after": [],
+                "before": [
+                  "package calc",
+                  ""
+                ],
+                "lines": [
+                  "func Add(a, b int) int {",
+                  "\treturn a + b",
+                  "}"
+                ]
+              },
+              "path": "calc.go",
+              "range": {
+                "end": 5,
+                "start": 3
+              }
+            },
+            "version": 1
+          },
+          "subject": {
+            "object_id": "rev-canonical",
+            "object_type": "review"
+          },
+          "text": "Consider adding multiplication support as well."
         }
-      ]
+      }
+    },
+    {
+      "object_id": "c-reply",
+      "object_type": "comment",
+      "object_state": {
+        "object_id": "c-reply",
+        "object_type": "comment",
+        "total_order": [
+          {
+            "commit": "e9c29828f1f97261e0e42894b445288b4b3f06e9",
+            "t_star": 1767268980
+          }
+        ],
+        "state": {
+          "in_reply_to": "c-anchor",
+          "subject": {
+            "object_id": "rev-canonical",
+            "object_type": "review"
+          },
+          "text": "Great idea, will follow up!"
+        }
+      }
+    },
+    {
+      "object_id": "rev-canonical",
+      "object_type": "review",
+      "object_state": {
+        "object_id": "rev-canonical",
+        "object_type": "review",
+        "total_order": [
+          {
+            "commit": "ca7a67f10b2f960f6a575a14fc266eb1a958df31",
+            "t_star": 1767268860
+          },
+          {
+            "commit": "a92a532fcb1d9f6a0d67a07e27f30d33d3fcc079",
+            "t_star": 1767269040
+          },
+          {
+            "commit": "d43c663bfc9fc518735435a4aa86f5c476374bf5",
+            "t_star": 1767269100
+          }
+        ],
+        "state": {
+          "description": "Initial draft of addition",
+          "message": [
+            {
+              "key": [
+                "user:bob",
+                "1111111111111111111111111111111111111111"
+              ],
+              "value": "Looks solid"
+            }
+          ],
+          "revision": [
+            {
+              "key": [
+                "user:bob",
+                "1111111111111111111111111111111111111111"
+              ],
+              "value": "1111111111111111111111111111111111111111"
+            }
+          ],
+          "subject": [
+            {
+              "key": [
+                "user:bob",
+                "1111111111111111111111111111111111111111"
+              ],
+              "value": "user:bob"
+            }
+          ],
+          "title": "Add calculator functions (polished title)",
+          "verdict": [
+            {
+              "key": [
+                "user:bob",
+                "1111111111111111111111111111111111111111"
+              ],
+              "value": "approve"
+            }
+          ]
+        }
+      }
     }
   ],
   "resolutions": [
     {
       "comment_id": "c-anchor",
       "anchor": {
+        "version": 1,
         "new": {
-          "blob": "6b2fe1900a822a05d1a7b602b0cd446e19ebfe5d",
           "commit": "0000000000000000000000000000000000000000",
+          "path": "calc.go",
+          "blob": "6b2fe1900a822a05d1a7b602b0cd446e19ebfe5d",
+          "range": {
+            "start": 3,
+            "end": 5
+          },
           "context": {
-            "after": [],
             "before": [
               "package calc",
               ""
@@ -82,23 +152,23 @@
               "func Add(a, b int) int {",
               "\treturn a + b",
               "}"
-            ]
-          },
-          "path": "calc.go",
-          "range": {
-            "end": 5,
-            "start": 3
+            ],
+            "after": []
           }
-        },
-        "version": 1
+        }
       },
       "resolution": {
         "anchor": {
+          "version": 1,
           "new": {
-            "blob": "6b2fe1900a822a05d1a7b602b0cd446e19ebfe5d",
             "commit": "0000000000000000000000000000000000000000",
+            "path": "calc.go",
+            "blob": "6b2fe1900a822a05d1a7b602b0cd446e19ebfe5d",
+            "range": {
+              "start": 3,
+              "end": 5
+            },
             "context": {
-              "after": [],
               "before": [
                 "package calc",
                 ""
@@ -107,15 +177,10 @@
                 "func Add(a, b int) int {",
                 "\treturn a + b",
                 "}"
-              ]
-            },
-            "path": "calc.go",
-            "range": {
-              "end": 5,
-              "start": 3
+              ],
+              "after": []
             }
-          },
-          "version": 1
+          }
         },
         "new": {
           "outcome": "resolved",

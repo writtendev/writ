@@ -20,9 +20,9 @@ func (f *stringSliceFlag) Set(val string) error {
 
 // parseArgs parses args against fs, interleaving positional arguments and
 // flags so that a positional argument may be followed by more flags (for
-// example "writ issue status <id> -reason foo"), which flag.FlagSet's own
-// Parse does not support on its own: it stops consuming flags at the first
-// non-flag argument.
+// example "writ object apply <id> update -field title=foo"), which
+// flag.FlagSet's own Parse does not support on its own: it stops consuming
+// flags at the first non-flag argument.
 func parseArgs(fs *flag.FlagSet, args []string) ([]string, error) {
 	var posArgs []string
 	remaining := args

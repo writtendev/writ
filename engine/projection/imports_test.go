@@ -64,14 +64,7 @@ func TestImportsAllowlist(t *testing.T) {
 // to ensure no git SHAs, refnames, or refspecs leak to callers beyond the allowed domain content fields.
 func TestDomainShapedResultTypes(t *testing.T) {
 	allowedFields := map[string]bool{
-		"MergeCommit": true, // review content
-		"Base":        true, // revision content
-		"Head":        true, // revision content
-		"Revision":    true, // approval / ci_status target revision
-		"Commit":      true, // unknown op / anchor target commit
-		"Blob":        true, // anchor blob
-		"Target":      true, // link target
-		"LastOpID":    true, // object summary op id
+		"LastOpID": true, // object summary op id
 	}
 
 	disallowedSubstrings := []string{
@@ -113,11 +106,7 @@ func TestDomainShapedResultTypes(t *testing.T) {
 	}
 
 	typesToCheck := []any{
-		projection.ReviewResult{},
-		projection.IssueResult{},
-		projection.CommentResult{},
 		projection.ObjectResult{},
-		projection.ResolvedPosition{},
 		projection.Author{},
 	}
 

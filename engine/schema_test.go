@@ -1337,11 +1337,12 @@ func TestSchemaObjectAlwaysValidatesAgainstBootstrapTable(t *testing.T) {
 
 // TestCheckBeforeAppendAgreesWithAppend is the multi-append all-or-nothing
 // property (checkBeforeAppend's whole job) exercised against log-sourced
-// vocabularies rather than the embedded tables: Reviews.Create's
-// create-then-revision sequence, with a schema in the log that narrowly
-// declares "review" (create only, no revision op at all). checkBeforeAppend
-// must refuse the sequence before either op is appended — using the exact
-// same vocabularies dag.Store.Append itself would — leaving no partially
+// vocabularies rather than the embedded tables: a create-then-revision
+// sequence — the same two-envelope shape the now-deleted Reviews.Create
+// used to build — against a schema in the log that narrowly declares
+// "review" (create only, no revision op at all). checkBeforeAppend must
+// refuse the sequence before either op is appended — using the exact same
+// vocabularies dag.Store.Append itself would — leaving no partially
 // written review behind. A direct Append of the same refused op afterwards
 // confirms Append agrees with the verdict checkBeforeAppend already gave.
 func TestCheckBeforeAppendAgreesWithAppend(t *testing.T) {
@@ -1361,9 +1362,24 @@ func TestCheckBeforeAppendAgreesWithAppend(t *testing.T) {
 
 	base := strings.Repeat("a", 40)
 	head := strings.Repeat("b", 40)
-	_, err := store.Reviews.Create(ctx, writ.NewReview{Title: "Initial", Base: base, Head: head})
-	if err == nil {
-		t.Fatal("Reviews.Create accepted a revision op the log schema does not declare an op type for at all")
+	id := "some-review-id"
+	createEnv := codec.Envelope{
+		ObjectID:   id,
+		ObjectType: "review",
+		OpType:     "create",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"title":"Initial"}`),
+	}
+	revEnv := codec.Envelope{
+		ObjectID:   id,
+		ObjectType: "review",
+		OpType:     "revision",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"base":"` + base + `","head":"` + head + `"}`),
+	}
+
+	if err := writ.CheckBeforeAppend(store, ctx, createEnv, revEnv); err == nil {
+		t.Fatal("checkBeforeAppend accepted a revision op the log schema does not declare an op type for at all")
 	}
 
 	dagStore := writ.StoreDAGStore(store)
@@ -1381,13 +1397,7 @@ func TestCheckBeforeAppendAgreesWithAppend(t *testing.T) {
 
 	// Append agrees: a standalone attempt at the same revision op, through
 	// the exact same store, is refused too.
-	if _, err := dagStore.Append(ctx, codec.Envelope{
-		ObjectID:   "some-review-id",
-		ObjectType: "review",
-		OpType:     "revision",
-		OpVersion:  1,
-		Body:       json.RawMessage(`{"base":"` + base + `","head":"` + head + `"}`),
-	}, nil); err == nil {
+	if _, err := dagStore.Append(ctx, revEnv, nil); err == nil {
 		t.Fatal("Append accepted the same op type checkBeforeAppend just refused")
 	}
 }
