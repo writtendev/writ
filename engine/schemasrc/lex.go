@@ -38,12 +38,16 @@ type token struct {
 }
 
 // keywords is writ.schema's closed, enumerated reserved-word set
-// (spec/schema-source.md §The fence). It is a structural fence, not a
-// stylistic one: these words cannot be used as a field, type, or op name,
-// which is what keeps a field line's grammar unambiguous without an
-// expression grammar to disambiguate it. TestKeywordsAreClosed fails by
-// name the moment this list grows, so adding one is a deliberate,
-// reviewed act.
+// (spec/schema-source.md §2). Reservation is positional, not global: in
+// the namespace, type-name, and op-type-name slots, all eight remain
+// reserved outright — this is the set to check there. In a field name
+// or a target(...) argument, every word except deprecated is only a
+// contextual keyword — the parser's own lookahead (parseOpBlock's
+// description branch, parseField's key/target modifier handling) tells
+// it apart from a field name with no ambiguity, and validateName checks
+// fieldReserved rather than this map for those two slots.
+// TestKeywordsAreClosed fails by name the moment this list grows, so
+// adding one is a deliberate, reviewed act.
 var keywords = map[string]bool{
 	"namespace":   true,
 	"description": true,

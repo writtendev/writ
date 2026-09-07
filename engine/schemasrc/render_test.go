@@ -99,10 +99,10 @@ func TestRenderRejectsTextParseWouldReject(t *testing.T) {
 		{
 			name: "target is a reserved word",
 			mutate: func(f state.SchemaField) state.SchemaField {
-				f.Target = "type"
+				f.Target = "deprecated"
 				return f
 			},
-			wantErr: `target "type" is a reserved word`,
+			wantErr: `target "deprecated" is a reserved word`,
 		},
 		{
 			name: "field name would not parse back",
@@ -111,6 +111,21 @@ func TestRenderRejectsTextParseWouldReject(t *testing.T) {
 				return f
 			},
 			wantErr: `field name "Title" would not parse back`,
+		},
+		{
+			// deprecated is the one word WRIT-204 leaves reserved as a
+			// field name (spec/schema-source.md §2): its own modifier is
+			// bare, so a bare "deprecated" immediately after a field
+			// cannot be told apart from a following field's own name
+			// with one token of lookahead the way description, key, and
+			// target can. The error says so, not just that the word is
+			// reserved.
+			name: "field name is a reserved word",
+			mutate: func(f state.SchemaField) state.SchemaField {
+				f.Name = "deprecated"
+				return f
+			},
+			wantErr: `field name "deprecated" is a reserved word and would not parse back; a bare "deprecated" modifier immediately after a field cannot be told apart from a following field's own name with one token of lookahead`,
 		},
 		{
 			name: "key column containing a space",
@@ -284,6 +299,38 @@ func TestRenderAcceptsConformingNames(t *testing.T) {
 	out, err := schemasrc.Render(sch)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
+	}
+	if _, err := schemasrc.Parse("rendered.schema", out); err != nil {
+		t.Fatalf("Parse(Render(...)): %v\n--- rendered ---\n%s", err, out)
+	}
+}
+
+// TestRenderAcceptsFieldsNamedDescriptionTargetAndType is WRIT-204's own
+// positive control on Render: description, target, and type are
+// contextual keywords, not reserved words, in the field-name slot, so
+// folded state carrying fields with exactly those names must render, and
+// the rendering must parse back — the symptom the ticket opened with was
+// that it did not (Render's own validateNameForRender used to check the
+// global keywords table for every slot, field name included).
+func TestRenderAcceptsFieldsNamedDescriptionTargetAndType(t *testing.T) {
+	sch := state.Schema{
+		ObjectID:  "sch-acme",
+		Namespace: "acme",
+		Types: []state.SchemaType{
+			{
+				Name: "widget",
+				Ops:  []state.SchemaOp{{OpType: "create", OpVersion: 1}},
+				Fields: []state.SchemaField{
+					{Name: "description", OpType: "create", OpVersion: 1, ValueType: "string", Strategy: "lww"},
+					{Name: "target", OpType: "create", OpVersion: 1, ValueType: "object-ref", Strategy: "lww"},
+					{Name: "type", OpType: "create", OpVersion: 1, ValueType: "enum", Enum: []string{"a", "b"}, Strategy: "lww"},
+				},
+			},
+		},
+	}
+	out, err := schemasrc.Render(sch)
+	if err != nil {
+		t.Fatalf("Render: %v\n--- output so far ---\n%s", err, out)
 	}
 	if _, err := schemasrc.Parse("rendered.schema", out); err != nil {
 		t.Fatalf("Parse(Render(...)): %v\n--- rendered ---\n%s", err, out)

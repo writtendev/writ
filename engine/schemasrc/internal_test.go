@@ -37,6 +37,35 @@ func TestKeywordsAreClosed(t *testing.T) {
 	}
 }
 
+// TestReservationIsPositional pins the correspondence between keywords
+// (the namespace/type-name/op-type-name slot's reserved-word set) and
+// fieldReserved (the field-name/target(...) slot's): every word in
+// keywords must be in fieldReserved iff it is "deprecated", and
+// fieldReserved must contain no word that isn't in keywords. It never
+// calls Parse, so it does not by itself pin what either slot actually
+// does with a given word at runtime — that is pinned separately by
+// contextual-keywords.schema (the positive case) and by
+// deprecated-field-name.schema, deprecated-field-name-after-field.schema,
+// and reserved-type-name.schema (the negative cases) in the invalid
+// corpus. This is the companion to TestKeywordsAreClosed: that test pins
+// the word list itself; this one pins which of those words fieldReserved
+// carries forward, so the WRIT-204 relaxation (contextual keywords, not
+// a shorter list) cannot silently widen or narrow fieldReserved without
+// a test noticing.
+func TestReservationIsPositional(t *testing.T) {
+	for word := range keywords {
+		wantFieldReserved := word == "deprecated"
+		if fieldReserved[word] != wantFieldReserved {
+			t.Errorf("fieldReserved[%q] = %v, want %v", word, fieldReserved[word], wantFieldReserved)
+		}
+	}
+	for word := range fieldReserved {
+		if !keywords[word] {
+			t.Errorf("fieldReserved contains %q, which is not even in keywords", word)
+		}
+	}
+}
+
 var opVersionPattern = regexp.MustCompile(`^[1-9][0-9]*$`)
 
 // TestEmittedOpVersionIsCanonicalDecimal is the WRIT-186 round-1 bug's
