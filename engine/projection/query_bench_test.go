@@ -223,25 +223,6 @@ func BenchmarkIssuesListWithFilter(b *testing.B) {
 	}
 }
 
-func BenchmarkGroupIssuesByAssignee(b *testing.B) {
-	db := openBenchDB(b)
-	defer db.Close()
-
-	filter := projection.IssueFilter{
-		State: []string{"open"},
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		groups, err := db.GroupIssues(projection.GroupByAssignee, filter)
-		if err != nil {
-			b.Fatalf("GroupIssues: %v", err)
-		}
-		if len(groups) == 0 {
-			b.Fatalf("expected > 0 groups")
-		}
-	}
-}
 
 func BenchmarkThreadsAssembly(b *testing.B) {
 	db := openBenchDB(b)

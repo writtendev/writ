@@ -92,7 +92,7 @@ type ObjectState struct {
 
 // opMatchesRule returns true if op matches the rule's op_type, op_version and
 // object_type filters. object_type is read straight off op (spec/fold.md §5):
-// no clock, no I/O, no ambient state, and — unlike determineObjectType below,
+// no clock, no I/O, no ambient state, and — unlike DetermineObjectType below,
 // which infers a whole op set's object type from create-op precedence for
 // ObjectState.ObjectType — this never resolves anything beyond the single op
 // in front of it.
@@ -109,10 +109,15 @@ func opMatchesRule(op codec.Op, r Rule) bool {
 	return true
 }
 
-// determineObjectType determines the object type from an ops slice, matching the
-// precedence in engine/projection/materialize.go: prioritize create ops with non-empty
-// ObjectType, then first non-empty ObjectType, then ops[0].ObjectType if non-empty, else "".
-func determineObjectType(ops []codec.Op) string {
+// DetermineObjectType determines the object type from an ops slice, matching
+// the precedence in engine/projection/materialize.go: prioritize create ops
+// with non-empty ObjectType, then first non-empty ObjectType, then
+// ops[0].ObjectType if non-empty, else "". Exported so package writ's
+// Objects.Get (engine/objects.go) can reuse this instead of keeping its own
+// copy — Get has to know an object's type before it can select which rules
+// to fold against, which Fold below otherwise only ever does internally,
+// after the fact.
+func DetermineObjectType(ops []codec.Op) string {
 	for _, op := range ops {
 		if op.OpType == "create" && op.ObjectType != "" {
 			return op.ObjectType
@@ -137,7 +142,7 @@ func Fold(ops []codec.Op, rules []Rule) (ObjectState, error) {
 	}
 
 	objectID := ops[0].ObjectID
-	objectType := determineObjectType(ops)
+	objectType := DetermineObjectType(ops)
 
 	orderedOps, err := OrderWithTStar(ops)
 	if err != nil {

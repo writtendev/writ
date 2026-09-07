@@ -166,23 +166,6 @@ func TestQueryFullSuite(t *testing.T) {
 	if len(objects) != 6 { // 2 reviews + 2 issues + 2 comments
 		t.Errorf("expected 6 objects total, got %d", len(objects))
 	}
-
-	// Test Query.GroupIssues
-	groups, err := s.Query.GroupIssues(writ.GroupByState, writ.IssueFilter{})
-	if err != nil {
-		t.Fatalf("Query.GroupIssues: %v", err)
-	}
-	if len(groups) != 2 {
-		t.Errorf("expected 2 groups (closed, open), got %d", len(groups))
-	}
-
-	assigneeGroups, err := s.Query.GroupIssues(writ.GroupByAssignee, writ.IssueFilter{})
-	if err != nil {
-		t.Fatalf("Query.GroupIssues by assignee: %v", err)
-	}
-	if len(assigneeGroups) != 2 {
-		t.Errorf("expected 2 assignee groups (user:alice, user:bob), got %d", len(assigneeGroups))
-	}
 }
 
 func TestWithoutAutoRefresh(t *testing.T) {
@@ -227,5 +210,107 @@ func TestWithoutAutoRefresh(t *testing.T) {
 	}
 	if res.Review.Title != "Manual Refresh Review" {
 		t.Errorf("got title %q", res.Review.Title)
+	}
+}
+
+// TestQueryObjects_WarmReopenWithoutAutoRefresh is WRIT-192 round 2's
+// MAJOR-1: engine/open.go deliberately skips ApplySchema on Open when the
+// projection cache already has generated tables (WRIT-189 round 1's lazy-Open
+// optimization) — a reopened warm cache starts out with a name-only
+// descriptor (table names only, no target plans) until this process's own
+// first Refresh. With WithoutAutoRefresh, no Refresh ever runs automatically,
+// so every Query.Objects call in that state used to build its !IncludeDeleted
+// and Text clauses from an empty descriptor: objectsNotDeletedClause emitted
+// no clause at all (a soft-deleted object surfaced in a default listing) and
+// objectsTextClause fell to "AND 0" (a text search that matched with a fully
+// resolved descriptor returned nothing). Both are regressions against `main`
+// — a warm reopen with WithoutAutoRefresh is a legitimate, optimized flow,
+// and both filters must answer correctly without a DAG walk.
+func TestQueryObjects_WarmReopenWithoutAutoRefresh(t *testing.T) {
+	ctx := context.Background()
+	dir, _ := setupConfiguredRepo(t)
+	cacheDir := t.TempDir()
+
+	s, err := writ.Open(dir, writ.WithSigner(dummySigner()), writ.WithCacheDir(cacheDir))
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+
+	r1, err := s.Reviews.Create(ctx, writ.NewReview{Title: "Zebra Crossing Review"})
+	if err != nil {
+		t.Fatalf("Create review failed: %v", err)
+	}
+	c1, err := s.Reviews.Comment(ctx, r1, writ.NewComment{Text: "first comment"})
+	if err != nil {
+		t.Fatalf("Comment failed: %v", err)
+	}
+	if err := s.Comments.Delete(ctx, c1); err != nil {
+		t.Fatalf("Comments.Delete failed: %v", err)
+	}
+
+	if _, err := s.Refresh(ctx); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	// Reopen the same cache dir: generated tables already on disk, so Open
+	// skips ApplySchema (HasGeneratedTables is true), and WithoutAutoRefresh
+	// means nothing ever calls Refresh in this process either — the
+	// name-only-descriptor state the finding describes.
+	s2, err := writ.Open(dir,
+		writ.WithSigner(dummySigner()),
+		writ.WithCacheDir(cacheDir),
+		writ.WithoutAutoRefresh(),
+	)
+	if err != nil {
+		t.Fatalf("reopen failed: %v", err)
+	}
+	defer s2.Close()
+
+	// Default listing (!IncludeDeleted) must exclude the soft-deleted
+	// comment, exactly as it does on a freshly built descriptor.
+	objects, err := s2.Query.Objects(writ.ObjectFilter{})
+	if err != nil {
+		t.Fatalf("Query.Objects (default) failed: %v", err)
+	}
+	for _, o := range objects {
+		if o.ObjectID == c1 {
+			t.Errorf("Query.Objects (default) on a warm reopen included the soft-deleted comment %s: %+v", c1, objects)
+		}
+	}
+	foundReview := false
+	for _, o := range objects {
+		if o.ObjectID == r1 {
+			foundReview = true
+		}
+	}
+	if !foundReview {
+		t.Errorf("Query.Objects (default) on a warm reopen did not include the review %s: %+v", r1, objects)
+	}
+
+	// IncludeDeleted: true must still surface it.
+	withDeleted, err := s2.Query.Objects(writ.ObjectFilter{IncludeDeleted: true})
+	if err != nil {
+		t.Fatalf("Query.Objects (IncludeDeleted) failed: %v", err)
+	}
+	foundDeleted := false
+	for _, o := range withDeleted {
+		if o.ObjectID == c1 {
+			foundDeleted = true
+		}
+	}
+	if !foundDeleted {
+		t.Errorf("Query.Objects (IncludeDeleted: true) on a warm reopen did not include the soft-deleted comment %s: %+v", c1, withDeleted)
+	}
+
+	// Text search over the descriptor-driven clause must still match.
+	textResults, err := s2.Query.Objects(writ.ObjectFilter{Text: "Zebra"})
+	if err != nil {
+		t.Fatalf("Query.Objects (Text) failed: %v", err)
+	}
+	if len(textResults) != 1 || textResults[0].ObjectID != r1 {
+		t.Errorf("Query.Objects (Text: Zebra) on a warm reopen = %+v, want [%s]", textResults, r1)
 	}
 }

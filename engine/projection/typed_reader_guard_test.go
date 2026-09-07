@@ -2,9 +2,11 @@ package projection_test
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
+	"github.com/writtendev/writ/engine/codec"
 	"github.com/writtendev/writ/engine/projection"
 	"github.com/writtendev/writ/engine/state"
 )
@@ -108,36 +110,41 @@ func TestTypedReaderDegradesOnRedeclaredType(t *testing.T) {
 	}
 }
 
-// TestObjectsDegradesOnRedeclaredType is WRIT-189 round 3 MAJOR-2's finding:
-// Objects (the cross-type summary query) hard-codes o_review/o_issue/
-// o_comment/o_project/o_cycle column literals of its own — a text-search
-// EXISTS clause per type, and a default (!IncludeDeleted) filter against
-// o_comment.f_deleted that fires on every call regardless of which filters
-// are set — so it was exactly as bare to a redeclaration as Reviews/Review
-// used to be, despite being the very API requireBuiltinShape's own error
-// message pointed a caller at as the safe fallback. This pins that Objects
-// now degrades the same way every other typed reader does: a clear, named
-// error instead of a raw SQLite "no such column", for every one of the five
-// hard-coded types, even a filter combination that would never have reached
-// the specific clause naming the redeclared type.
-func TestObjectsDegradesOnRedeclaredType(t *testing.T) {
+// TestObjectsWorksOnRedeclaredType is WRIT-192's fix for WRIT-189 round 3
+// MAJOR-2: Objects (the cross-type summary query) used to hard-code
+// o_review/o_issue/o_comment/o_project/o_cycle column literals of its own —
+// a text-search EXISTS clause per type, and a default (!IncludeDeleted)
+// filter against o_comment.f_deleted that fired on every call regardless of
+// which filters were set — so a log schema redeclaring any one of those
+// five types bricked Objects with a raw SQLite "no such column", despite
+// Objects being the very API requireBuiltinShape's own error message used
+// to point a caller at as the safe fallback. Objects' SQL is now built
+// directly from the installed schema descriptor (objectsTextClause,
+// objectsNotDeletedClause) instead of five hard-coded literals, so it never
+// needs requireBuiltinShape's guard at all: this pins that a redeclared
+// type keeps working, including full-text search over the redeclared
+// field itself, rather than merely degrading to a named error.
+func TestObjectsWorksOnRedeclaredType(t *testing.T) {
+	ctx := context.Background()
+	_, store := createTestStore(t, "0123456789abcdef")
+
 	db, err := projection.Open(":memory:")
 	if err != nil {
 		t.Fatalf("Open(:memory:) failed: %v", err)
 	}
 	defer db.Close()
 
-	if err := db.ApplySchema(testRules()); err != nil {
-		t.Fatalf("ApplySchema (built-in shape) failed: %v", err)
+	if _, err := db.Refresh(store, projection.WithSchema(testRules())); err != nil {
+		t.Fatalf("Refresh (built-in shape) failed: %v", err)
 	}
 	if _, err := db.Objects(projection.ObjectFilter{}); err != nil {
 		t.Fatalf("db.Objects before redeclaration failed: %v", err)
 	}
 
 	// A log-declared schema redeclaring "comment" down to a single
-	// unrelated field — legal ("log wins per type"), and exactly the shape
-	// Objects' default deleted-filter clause (o_comment.f_deleted) no
-	// longer matches.
+	// unrelated string field — legal ("log wins per type"), and exactly the
+	// shape Objects' old hard-coded o_comment.f_text/.f_deleted literals no
+	// longer matched.
 	base := testRules()
 	redeclared := make(map[string][]state.Rule, len(base))
 	for k, v := range base {
@@ -146,41 +153,74 @@ func TestObjectsDegradesOnRedeclaredType(t *testing.T) {
 	redeclared["comment"] = []state.Rule{
 		{OpType: "create", Field: "name", Strategy: "lww", ValueType: "string", ObjectType: "comment"},
 	}
-	if err := db.ApplySchema(redeclared); err != nil {
-		t.Fatalf("ApplySchema (redeclared comment) failed — the redeclaration itself must never brick ApplySchema: %v", err)
+
+	// subject and text satisfy the built-in comment.schema.json reader
+	// validation (required regardless of the log's own redeclaration, since
+	// reader validation is a different, unconditional layer); "name" is the
+	// extra field the redeclared schema actually declares and materializes
+	// — additionalProperties: true on the wire preserves it either way.
+	env := codec.Envelope{
+		ObjectID:   "cmt-1",
+		ObjectType: "comment",
+		OpType:     "create",
+		OpVersion:  1,
+	}
+	env.Body, _ = json.Marshal(map[string]any{
+		"subject": map[string]any{"object_type": "review", "object_id": "rev-x"},
+		"text":    "original text",
+		"name":    "hello redeclared world",
+	})
+	env.Raw, _ = codec.EncodePayload(env)
+	if _, err := store.Append(ctx, env, nil); err != nil {
+		t.Fatalf("store.Append failed: %v", err)
 	}
 
-	if _, err := db.Objects(projection.ObjectFilter{}); err == nil {
-		t.Fatalf("db.Objects after redeclaring comment: expected an error, got none")
-	} else if !strings.Contains(err.Error(), "comment") || !strings.Contains(err.Error(), "redeclared") {
-		t.Fatalf("db.Objects after redeclaring comment: error %q does not name the redeclared type", err.Error())
-	} else if strings.Contains(err.Error(), "Objects") {
-		// requireBuiltinShape's message used to recommend "Objects/Object"
-		// as the safe fallback; now that Objects is guarded too,
-		// recommending it back to a caller Objects itself just refused
-		// would be circular (WRIT-189 round 3 MAJOR-2's own instruction).
-		t.Fatalf("db.Objects after redeclaring comment: error %q still recommends the now-guarded Objects API", err.Error())
+	if _, err := db.Refresh(store, projection.WithSchema(redeclared)); err != nil {
+		t.Fatalf("Refresh (redeclared comment) failed — the redeclaration itself must never brick Refresh: %v", err)
 	}
 
-	// Still refuses even with a filter combination that would never reach
-	// the specific o_comment.f_deleted clause on its own (no Text filter,
-	// IncludeDeleted true skips the default deleted filter) — Objects is
-	// guarded unconditionally against every type its SQL ever hard-codes,
-	// not only whichever one the active filter happens to touch.
-	if _, err := db.Objects(projection.ObjectFilter{IncludeDeleted: true}); err == nil {
-		t.Fatalf("db.Objects(IncludeDeleted: true) after redeclaring comment: expected an error, got none")
+	// A plain, unfiltered listing still works.
+	all, err := db.Objects(projection.ObjectFilter{})
+	if err != nil {
+		t.Fatalf("db.Objects after redeclaring comment: %v", err)
+	}
+	found := false
+	for _, o := range all {
+		if o.ObjectID == "cmt-1" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("db.Objects after redeclaring comment: cmt-1 missing from %+v", all)
 	}
 
-	// The generic, schema-agnostic Object API (singular) never hard-codes
-	// any built-in column and so is unaffected by the redeclaration.
+	// The redeclared field itself is now searchable: comment no longer has
+	// a built-in "text" field at all, so this only passes if the text
+	// clause was rebuilt from the installed descriptor's own columns.
+	byText, err := db.Objects(projection.ObjectFilter{Text: "redeclared"})
+	if err != nil {
+		t.Fatalf("db.Objects(Text) after redeclaring comment: %v", err)
+	}
+	if len(byText) != 1 || byText[0].ObjectID != "cmt-1" {
+		t.Fatalf("db.Objects(Text: redeclared) = %+v, want [cmt-1]", byText)
+	}
+
+	// The default !IncludeDeleted filter also still works: the redeclared
+	// comment type has no tombstone-strategy target at all, so nothing
+	// should be excluded on that basis.
+	if _, err := db.Objects(projection.ObjectFilter{IncludeDeleted: true}); err != nil {
+		t.Fatalf("db.Objects(IncludeDeleted: true) after redeclaring comment: %v", err)
+	}
+
+	// The generic, schema-agnostic Object API (singular) is unaffected
+	// either way.
 	if _, err := db.Object("nonexistent"); err != projection.ErrNotFound {
 		t.Fatalf("db.Object after redeclaration: err = %v, want ErrNotFound", err)
 	}
 
-	// A second ApplySchema back at the built-in shape must un-degrade
-	// cleanly, exactly like every other guarded reader.
-	if err := db.ApplySchema(testRules()); err != nil {
-		t.Fatalf("ApplySchema (back to built-in shape) failed: %v", err)
+	// Reverting to the built-in shape keeps working too.
+	if _, err := db.Refresh(store, projection.WithSchema(testRules())); err != nil {
+		t.Fatalf("Refresh (back to built-in shape) failed: %v", err)
 	}
 	if _, err := db.Objects(projection.ObjectFilter{}); err != nil {
 		t.Fatalf("db.Objects after reverting to built-in shape failed: %v", err)
@@ -197,9 +237,8 @@ func TestObjectsDegradesOnRedeclaredType(t *testing.T) {
 // o_workflow_state out from under that literal and turn a state-filtered
 // Issues call into a raw SQLite "no such column: ws.f_name" instead of the
 // named error every other typed reader degrades to (the same class round 3
-// MAJOR-2 closed for Objects). group.go's GroupIssues(GroupByState, f) with
-// f.State set reaches the identical branch through Issues(f), so this
-// covers it too.
+// MAJOR-2 closed for Objects, since made descriptor-driven instead of
+// guarded — WRIT-192).
 func TestIssuesDegradesOnRedeclaredWorkflowState(t *testing.T) {
 	db, err := projection.Open(":memory:")
 	if err != nil {

@@ -46,6 +46,11 @@ type Store struct {
 	// Comments provides comment edits, deletions, and reply operations.
 	Comments *Comments
 
+	// Objects provides generic create, apply, and get operations over
+	// collaborative objects of any schema-declared type — the schema-shaped
+	// replacement for the typed per-type services above.
+	Objects *Objects
+
 	// Drafts provides local comment draft creation, updates, listing, discarding, and publishing.
 	Drafts *Drafts
 
@@ -103,11 +108,25 @@ type Store struct {
 	// ruleCache is the fold-rule counterpart to vocabCache: the built-in
 	// vocabulary overlaid by whatever the log declares (RulesFromSchemas),
 	// log wins per type. It is recomputed in the same cache-miss branch as
-	// vocabCache (Store.vocabularies), behind the same dag.Chains
-	// fingerprint, so it never costs a second Schema()/Enumerate fold: both
-	// are thin projections of the one resolveSchemaTypes pass over the same
-	// folded schema objects.
+	// vocabCache and typesCache (Store.vocabularies), behind the same
+	// dag.Chains fingerprint, so none of the three ever costs a second
+	// Schema()/Enumerate fold — that part is genuinely shared. What is not
+	// shared: vocabCache, ruleCache, and typesCache are three separate calls
+	// into resolveSchemaTypes (VocabulariesFromSchemas, RulesFromSchemas,
+	// and a direct call, respectively), each re-walking the same already-
+	// folded schemas slice — three passes, not one thin projection of a
+	// single pass. resolveSchemaTypes is pure and cheap relative to the
+	// Schema()/Enumerate it is fed from (WRIT-192 round 2's benchmarks: a
+	// third pass costs low single-digit percent at the miss, nothing
+	// measurable at the hit), which is why this was left as three calls
+	// rather than restructured into one — but that is a cost judgement, not
+	// a description of what the code does.
 	ruleCache map[string][]Rule
+	// typesCache is resolveSchemaTypes's own result, recomputed in the same
+	// cache-miss branch as vocabCache and ruleCache: Store.Types builds
+	// SchemaType values straight from it (Name, Fields, Ops, Description,
+	// Deprecated), which fields/ops-only ruleCache cannot carry.
+	typesCache resolvedSchemaTypes
 }
 
 // Close closes the underlying projection database and releases associated resources.

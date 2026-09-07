@@ -117,7 +117,6 @@ func TestDomainShapedResultTypes(t *testing.T) {
 		projection.IssueResult{},
 		projection.CommentResult{},
 		projection.ObjectResult{},
-		projection.Group{},
 		projection.ResolvedPosition{},
 		projection.Author{},
 	}

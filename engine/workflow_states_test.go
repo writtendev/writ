@@ -137,26 +137,6 @@ func TestWorkflowStatesCRUDAndOrdering(t *testing.T) {
 	if len(byType) != 1 || byType[0].ObjectID != iss2 {
 		t.Errorf("expected iss2 for started, got %+v", byType)
 	}
-
-	// 6. Test GroupIssues
-	groups, err := s.Query.GroupIssues(writ.GroupByState, writ.IssueFilter{})
-	if err != nil {
-		t.Fatalf("GroupIssues failed: %v", err)
-	}
-
-	// Columns should be "Todo", "Code Review", and trailing "Unknown"
-	if len(groups) != 3 {
-		t.Fatalf("expected 3 groups, got %d (%+v)", len(groups), groups)
-	}
-	if groups[0].Key != "Todo" || groups[0].Count != 1 {
-		t.Errorf("group 0: want Todo (1), got %s (%d)", groups[0].Key, groups[0].Count)
-	}
-	if groups[1].Key != "Code Review" || groups[1].Count != 1 {
-		t.Errorf("group 1: want Code Review (1), got %s (%d)", groups[1].Key, groups[1].Count)
-	}
-	if groups[2].Key != "Unknown" || groups[2].Count != 1 {
-		t.Errorf("group 2: want Unknown (1), got %s (%d)", groups[2].Key, groups[2].Count)
-	}
 }
 
 func TestWorkflowStatesIdenticalPositionTiebreakAndStability(t *testing.T) {

@@ -227,18 +227,31 @@ func (d *DB) resetSchema() error {
 // recorded in meta, with no rules and no DAG access: a reopened cache is
 // queryable on its own. If none was ever recorded, desc starts out with no
 // generated tables at all — the same shape a schema-less substrate-only cache
-// has always had — until this process's own first ApplySchema call.
+// has always had — until this process's own first ApplySchema call. It also
+// reloads "schema_query_shapes" the same way, so Objects' f.Text and
+// !IncludeDeleted filters (objectsTextClause, objectsNotDeletedClause in
+// query.go) are correct immediately on reopen too, not only after this
+// process's own first ApplySchema/Refresh call (WRIT-192 round 2 MAJOR-1).
 func (d *DB) loadPersistedTables() error {
 	raw, ok := loadMetaString(d.db, "schema_tables")
 	if !ok || raw == "" {
-		d.desc = descriptorFromPersisted(nil)
+		desc, err := descriptorFromPersisted(nil, "")
+		if err != nil {
+			return err
+		}
+		d.desc = desc
 		return nil
 	}
 	var tables []persistedTable
 	if err := json.Unmarshal([]byte(raw), &tables); err != nil {
 		return fmt.Errorf("projection: unmarshal schema_tables: %w", err)
 	}
-	d.desc = descriptorFromPersisted(tables)
+	queryShapesJSON, _ := loadMetaString(d.db, "schema_query_shapes")
+	desc, err := descriptorFromPersisted(tables, queryShapesJSON)
+	if err != nil {
+		return err
+	}
+	d.desc = desc
 	return nil
 }
 
@@ -286,15 +299,37 @@ func tableHasRows(tx *sql.Tx, table string) (bool, error) {
 // an already-merged, already-validated index) and reconciles it against
 // whatever generated tables exist on disk.
 //
-// Equal digest is a no-op: the schema has not changed since the last apply,
-// generated tables already hold correctly-shaped rows, nothing is dropped or
-// recreated. A different digest drops every table named in the previously
-// recorded descriptor, plus any stray o_-prefixed table not in the new one
-// (catches a torn write), emits the new DDL, truncates anchor_resolutions
-// (which targets are anchor-valued is a function of the schema), and sets
-// needs_rebuild so the next Refresh takes the full-rebuild path exactly as a
-// rewound tip does today — the droppable-cache answer to a schema change is
-// drop and rebuild, never migrate (ARCHITECTURE.md, AGENTS.md).
+// The meta keys (schema_digest, schema_tables, schema_descriptor,
+// schema_query_shapes) are written every call, regardless of whether the
+// digest changed. They must not be gated on the digest: the digest
+// (buildSnapshot) covers only column name/SQL type/indexed/PK, so a schema
+// change that leaves it unchanged — a strategy change alone (lww,
+// create-once, lattice and tombstone all emit the same ddlColumn), or a
+// value_type change that sqlType collapses to the same SQL type (string,
+// text, enum, timestamp, person-ref, object-ref and git-oid all land in
+// TEXT) — used to skip this write entirely under the old equal-digest early
+// return. schema_query_shapes carries exactly ValueType and Strategy per
+// target, so it went stale on precisely the changes the digest cannot see:
+// the in-process descriptor was correct (d.desc = newDesc always ran), but
+// the persisted copy a warm reopen rehydrates from
+// (descriptorFromPersisted) kept answering with the old strategy/value_type
+// forever, with nothing to repair it — the same symptom round 2's MAJOR-1
+// fixed, reintroduced on a new trigger (WRIT-192 round 3 MAJOR). Writing the
+// meta keys unconditionally is the fix; folding value_type/strategy into the
+// digest itself was considered and rejected as widening blast radius into
+// needs_rebuild's pre-existing gap (see the comment below) — that belongs to
+// its own change, if anyone wants it.
+//
+// Equal digest still means no DDL is needed: generated tables already hold
+// correctly-shaped rows, so nothing is dropped or recreated and
+// needs_rebuild is not set. A different digest drops every table named in
+// the previously recorded descriptor, plus any stray o_-prefixed table not
+// in the new one (catches a torn write), emits the new DDL, truncates
+// anchor_resolutions (which targets are anchor-valued is a function of the
+// schema), and sets needs_rebuild so the next Refresh takes the
+// full-rebuild path exactly as a rewound tip does today — the
+// droppable-cache answer to a schema change is drop and rebuild, never
+// migrate (ARCHITECTURE.md, AGENTS.md).
 func (d *DB) ApplySchema(rules map[string][]state.Rule) error {
 	if d == nil || d.db == nil {
 		return fmt.Errorf("projection: database is closed")
@@ -309,10 +344,7 @@ func (d *DB) ApplySchema(rules map[string][]state.Rule) error {
 	defer d.descMu.Unlock()
 
 	storedDigest, hadPrior := loadMetaString(d.db, "schema_digest")
-	if storedDigest == newDesc.digest {
-		d.desc = newDesc
-		return nil
-	}
+	sameDigest := storedDigest == newDesc.digest
 
 	tx, err := d.db.Begin()
 	if err != nil {
@@ -320,95 +352,105 @@ func (d *DB) ApplySchema(rules map[string][]state.Rule) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	drop := make(map[string]bool)
-	if raw, ok := loadMetaString(tx, "schema_tables"); ok && raw != "" {
-		var oldTables []persistedTable
-		if err := json.Unmarshal([]byte(raw), &oldTables); err == nil {
-			for _, t := range oldTables {
-				drop[t.Name] = true
+	metaWrites := map[string]string{}
+
+	if !sameDigest {
+		drop := make(map[string]bool)
+		if raw, ok := loadMetaString(tx, "schema_tables"); ok && raw != "" {
+			var oldTables []persistedTable
+			if err := json.Unmarshal([]byte(raw), &oldTables); err == nil {
+				for _, t := range oldTables {
+					drop[t.Name] = true
+				}
 			}
 		}
-	}
 
-	newNames := make(map[string]bool, len(newDesc.tables))
-	for _, t := range newDesc.tables {
-		newNames[t.Name] = true
-	}
-
-	strayRows, err := tx.Query(`SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'o\_%' ESCAPE '\'`)
-	if err != nil {
-		return fmt.Errorf("projection: query generated tables: %w", err)
-	}
-	var strayNames []string
-	for strayRows.Next() {
-		var name string
-		if err := strayRows.Scan(&name); err != nil {
-			_ = strayRows.Close()
-			return fmt.Errorf("projection: scan generated table name: %w", err)
+		newNames := make(map[string]bool, len(newDesc.tables))
+		for _, t := range newDesc.tables {
+			newNames[t.Name] = true
 		}
-		strayNames = append(strayNames, name)
-	}
-	_ = strayRows.Close()
-	if err := strayRows.Err(); err != nil {
-		return fmt.Errorf("projection: iterate generated tables: %w", err)
-	}
-	for _, name := range strayNames {
-		if !newNames[name] {
-			drop[name] = true
-		}
-	}
 
-	dropNames := make([]string, 0, len(drop))
-	for name := range drop {
-		dropNames = append(dropNames, name)
-	}
-	sort.Strings(dropNames)
-	for _, name := range dropNames {
-		if _, err := tx.Exec("DROP TABLE IF EXISTS " + name); err != nil {
-			return fmt.Errorf("projection: drop table %s: %w", name, err)
+		strayRows, err := tx.Query(`SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'o\_%' ESCAPE '\'`)
+		if err != nil {
+			return fmt.Errorf("projection: query generated tables: %w", err)
 		}
-	}
-
-	if ddl := newDesc.createSQL(); ddl != "" {
-		if _, err := tx.Exec(ddl); err != nil {
-			return fmt.Errorf("projection: exec generated schema: %w", err)
+		var strayNames []string
+		for strayRows.Next() {
+			var name string
+			if err := strayRows.Scan(&name); err != nil {
+				_ = strayRows.Close()
+				return fmt.Errorf("projection: scan generated table name: %w", err)
+			}
+			strayNames = append(strayNames, name)
 		}
-	}
+		_ = strayRows.Close()
+		if err := strayRows.Err(); err != nil {
+			return fmt.Errorf("projection: iterate generated tables: %w", err)
+		}
+		for _, name := range strayNames {
+			if !newNames[name] {
+				drop[name] = true
+			}
+		}
 
-	if _, err := tx.Exec("DELETE FROM anchor_resolutions"); err != nil {
-		return fmt.Errorf("projection: truncate anchor_resolutions: %w", err)
+		dropNames := make([]string, 0, len(drop))
+		for name := range drop {
+			dropNames = append(dropNames, name)
+		}
+		sort.Strings(dropNames)
+		for _, name := range dropNames {
+			if _, err := tx.Exec("DROP TABLE IF EXISTS " + name); err != nil {
+				return fmt.Errorf("projection: drop table %s: %w", name, err)
+			}
+		}
+
+		if ddl := newDesc.createSQL(); ddl != "" {
+			if _, err := tx.Exec(ddl); err != nil {
+				return fmt.Errorf("projection: exec generated schema: %w", err)
+			}
+		}
+
+		if _, err := tx.Exec("DELETE FROM anchor_resolutions"); err != nil {
+			return fmt.Errorf("projection: truncate anchor_resolutions: %w", err)
+		}
+
+		// needs_rebuild must be set whenever there is already-materialized
+		// data that could be stale under the schema just applied — not only
+		// when a prior digest was recorded. hadPrior is the common case: a
+		// real schema change invalidates rows folded under the old
+		// descriptor. But a first-ever ApplySchema (no prior digest) is not
+		// automatically nothing-to-invalidate: a schema-less Refresh may
+		// already have run on this cache — every op it touched had no
+		// installed rules to fold against, so it folded to unknown_ops
+		// rather than the generated tables this ApplySchema is creating for
+		// the first time (MEDIUM-4, WRIT-189 round 1). Only an ApplySchema
+		// that finds the objects table genuinely empty — nothing yet
+		// folded, schema-less or otherwise — can safely leave Refresh on
+		// the incremental path it was already taking
+		// (TestIncrementalRefoldMatchesColdRebuild): there is nothing for
+		// it to have gotten wrong yet.
+		hasPriorData, err := tableHasRows(tx, "objects")
+		if err != nil {
+			return fmt.Errorf("projection: check existing objects: %w", err)
+		}
+		if hadPrior || hasPriorData {
+			metaWrites["needs_rebuild"] = "1"
+		}
 	}
 
 	tablesJSON, err := json.Marshal(persistedTables(newDesc))
 	if err != nil {
 		return fmt.Errorf("projection: marshal persisted tables: %w", err)
 	}
-	metaWrites := map[string]string{
-		"schema_digest":     newDesc.digest,
-		"schema_tables":     string(tablesJSON),
-		"schema_descriptor": string(newDesc.canonicalJSON),
-	}
-	// needs_rebuild must be set whenever there is already-materialized data
-	// that could be stale under the schema just applied — not only when a
-	// prior digest was recorded. hadPrior is the common case: a real schema
-	// change invalidates rows folded under the old descriptor. But a
-	// first-ever ApplySchema (no prior digest) is not automatically
-	// nothing-to-invalidate: a schema-less Refresh may already have run on
-	// this cache — every op it touched had no installed rules to fold
-	// against, so it folded to unknown_ops rather than the generated tables
-	// this ApplySchema is creating for the first time (MEDIUM-4, WRIT-189
-	// round 1). Only an ApplySchema that finds the objects table genuinely
-	// empty — nothing yet folded, schema-less or otherwise — can safely
-	// leave Refresh on the incremental path it was already taking
-	// (TestIncrementalRefoldMatchesColdRebuild): there is nothing for it to
-	// have gotten wrong yet.
-	hasPriorData, err := tableHasRows(tx, "objects")
+	queryShapesJSON, err := json.Marshal(persistedQueryShapes(newDesc))
 	if err != nil {
-		return fmt.Errorf("projection: check existing objects: %w", err)
+		return fmt.Errorf("projection: marshal persisted query shapes: %w", err)
 	}
-	if hadPrior || hasPriorData {
-		metaWrites["needs_rebuild"] = "1"
-	}
+	metaWrites["schema_digest"] = newDesc.digest
+	metaWrites["schema_tables"] = string(tablesJSON)
+	metaWrites["schema_descriptor"] = string(newDesc.canonicalJSON)
+	metaWrites["schema_query_shapes"] = string(queryShapesJSON)
+
 	for key, value := range metaWrites {
 		if _, err := tx.Exec("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", key, value); err != nil {
 			return fmt.Errorf("projection: record %s: %w", key, err)
@@ -570,4 +612,3 @@ func formatDSN(path string) string {
 func isMemory(path string) bool {
 	return path == ":memory:" || strings.Contains(path, ":memory:") || strings.Contains(path, "mode=memory")
 }
-
