@@ -1096,8 +1096,12 @@ type SchemaTypeInfo struct {
 	Ops         []SchemaTypeOp    `json:"ops,omitempty"`
 }
 
-// FromSchemaTypeInfo converts one Store.Types entry to wire form.
-// Collections are always non-nil so they serialize as `[]`.
+// FromSchemaTypeInfo converts one Store.Types entry to wire form. Fields
+// and Ops are built as non-nil (possibly empty) slices, but -- unlike this
+// file's other From* converters -- SchemaTypeInfo declares both
+// `omitempty`, so a field-less or op-less type's empty slice is omitted
+// from the wire output entirely rather than serializing as `[]`. See
+// docs/cli-json.md's schema.show table ("Omitted when empty").
 func FromSchemaTypeInfo(t writ.SchemaType) SchemaTypeInfo {
 	fields := make([]SchemaTypeField, len(t.Fields))
 	for i, f := range t.Fields {
@@ -1129,8 +1133,8 @@ func FromSchemaTypeInfo(t writ.SchemaType) SchemaTypeInfo {
 	}
 }
 
-// FromSchemaTypeInfos converts Store.Types' result to wire form.
-// Collections are always non-nil so they serialize as `[]`.
+// FromSchemaTypeInfos converts Store.Types' result to wire form. Each
+// entry's Fields/Ops omit when empty -- see FromSchemaTypeInfo.
 func FromSchemaTypeInfos(types []writ.SchemaType) []SchemaTypeInfo {
 	out := make([]SchemaTypeInfo, len(types))
 	for i, t := range types {

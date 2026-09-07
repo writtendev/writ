@@ -270,6 +270,33 @@ func TestObjectCLI_List_UnknownType(t *testing.T) {
 	}
 }
 
+// TestObjectCLI_List_SchemaType pins the round-3 finding: "schema" is
+// Store.Types' one deliberate omission (it is writ's hard-coded object
+// type, not schema-declared), but `writ schema apply` leaves real "schema"
+// rows in the projection, so `object list schema` must list them rather
+// than refusing "schema" as undeclared the way TestObjectCLI_List_UnknownType
+// expects for an actual typo.
+func TestObjectCLI_List_SchemaType(t *testing.T) {
+	env := initTestRepo(t)
+	applyTicketObjectSchema(t, env.repoDir)
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"object", "list", "-C", env.repoDir, "schema", "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("object list schema failed with %d; stderr: %s", code, stderr.String())
+	}
+	var summaries []wire.ObjectSummary
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectList, &summaries)
+	if len(summaries) == 0 {
+		t.Fatalf("expected at least one schema object, got none")
+	}
+	for _, s := range summaries {
+		if s.ObjectType != "schema" {
+			t.Errorf("object_type = %q, want schema", s.ObjectType)
+		}
+	}
+}
+
 // TestObjectCLI_ExplicitOpVersion_Undeclared pins the minor finding from
 // round 1: an explicit -op-version the vocabulary doesn't declare must be
 // refused by resolveOpVersion itself, naming the versions ticket create
@@ -467,6 +494,40 @@ func TestSchemaShowCLI_FieldTable_Target(t *testing.T) {
 				t.Errorf("rename's label targets label_v2, want it named in the row: %q", line)
 			}
 		}
+	}
+}
+
+// TestSchemaShowCLI_SchemaType pins the round-3 finding's second surface:
+// `schema show schema` must not fail as "not declared" either, even though
+// Store.Types never returns a "schema" entry (its vocabulary is
+// hard-coded, not schema-declared) -- it reports the bare type name with
+// no fields/ops, rather than inventing data this API has no source for.
+func TestSchemaShowCLI_SchemaType(t *testing.T) {
+	env := initTestRepo(t)
+	applyTicketObjectSchema(t, env.repoDir)
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"schema", "show", "-C", env.repoDir, "schema", "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("schema show schema failed with %d; stderr: %s", code, stderr.String())
+	}
+	var typeInfo wire.SchemaTypeInfo
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindSchemaShow, &typeInfo)
+	if typeInfo.Name != "schema" {
+		t.Errorf("type = %q, want schema", typeInfo.Name)
+	}
+	if len(typeInfo.Fields) != 0 || len(typeInfo.Ops) != 0 {
+		t.Errorf("expected no fields/ops for schema, got fields=%v ops=%v", typeInfo.Fields, typeInfo.Ops)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run(context.Background(), []string{"schema", "show", "-C", env.repoDir, "schema"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("schema show schema (human) failed with %d; stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "schema") {
+		t.Errorf("stdout does not name the type: %q", stdout.String())
 	}
 }
 

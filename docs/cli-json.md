@@ -630,6 +630,8 @@ Reports the vocabulary `Store.Types` resolves right now — built-in types overl
 - **Envelope `kind`**: `"schema.show"`
 - **`data` Type**: with `<type>`, one `SchemaType` object; with no `<type>`, an array of `SchemaType` objects (`[]SchemaType`) — every installed type, sorted by name.
 
+`<type>` also accepts `schema` itself, even though it never appears in the no-argument array and would not be "declared by the installed vocabulary" in the sense every other name here is: `schema` is writ's one hard-coded object type (`spec/schema-ops.md`), not resolved by `Store.Types`. `schema show schema --json` reports `{"type": "schema"}` with no `fields`/`ops` keys, since neither is resolved for it by this API.
+
 #### `SchemaType` Fields
 
 | Field | Type | Description |
@@ -781,6 +783,8 @@ Lists collaborative objects across every schema-declared type, or within one, fr
 
 - **Envelope `kind`**: `"object.list"`
 - **`data` Type**: Array of `ObjectSummary` objects (`[]ObjectSummary`)
+
+`<type>` also accepts `schema`, as the one exception to "an undeclared `<type>` is refused by name": `Store.Types` never resolves `schema` (writ's one hard-coded object type, not schema-declared), but `writ schema apply` leaves real `schema` rows in the projection, and this filter finds them rather than refusing the one type that demonstrably has objects.
 
 #### `ObjectSummary` Fields
 

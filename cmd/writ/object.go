@@ -69,6 +69,28 @@ func declaredTypeNames(types []writ.SchemaType) []string {
 	return names
 }
 
+// typeIsQueryable reports whether name may be used as the <type> positional
+// to `object list` or `schema show`: every type Store.Types declares, plus
+// "schema" itself. Store.Types deliberately excludes "schema" (engine/
+// schema.go: it is writ's one hard-coded object type, folded by FoldSchema
+// rather than by ordinary schema-declared rules -- spec/schema-ops.md §1),
+// but the projection's objects table carries real "schema" rows once
+// `writ schema apply` has run. Refusing "schema" here as "not declared"
+// would contradict object list's own rationale (never a silent empty
+// result for a type that does have objects) for the one type that
+// demonstrably does.
+func typeIsQueryable(types []writ.SchemaType, name string) bool {
+	if name == "schema" {
+		return true
+	}
+	for _, t := range types {
+		if t.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 // declaredOpNames lists the op types objectType declares, sorted and
 // deduplicated across versions, for use in an "unknown op" error message.
 func declaredOpNames(td *writ.SchemaType) []string {
@@ -650,14 +672,7 @@ func runObjectList(ctx context.Context, defaultDir string, args []string, stdout
 		if err != nil {
 			return renderErr(stderr, err)
 		}
-		declared := false
-		for _, t := range types {
-			if t.Name == posArgs[0] {
-				declared = true
-				break
-			}
-		}
-		if !declared {
+		if !typeIsQueryable(types, posArgs[0]) {
 			fmt.Fprintf(stderr, "writ object list: object type %q is not declared by the installed vocabulary (declares: %s)\n", posArgs[0], strings.Join(declaredTypeNames(types), ", "))
 			return 1
 		}
@@ -778,6 +793,15 @@ func runSchemaShow(ctx context.Context, defaultDir string, args []string, stdout
 			found = &types[i]
 			break
 		}
+	}
+	if found == nil && name == "schema" {
+		// "schema" is queryable (typeIsQueryable) but never a Store.Types
+		// entry: its own vocabulary is hard-coded (spec/schema-ops.md),
+		// not resolved into a SchemaType's Fields/Ops the way every
+		// other type's is, so there is nothing to report beyond the bare
+		// name -- printing "not declared" here would be as wrong as it is
+		// for `object list schema`.
+		found = &writ.SchemaType{Name: "schema"}
 	}
 	if found == nil {
 		return renderErr(stderr, fmt.Errorf("object type %q is not declared by the installed vocabulary", name))
