@@ -96,7 +96,7 @@ func TestParseDeprecatedChainStaysLinear(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		Parse("writ.schema", []byte(src))
+		_, _ = Parse("writ.schema", []byte(src))
 		close(done)
 	}()
 	select {
