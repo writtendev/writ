@@ -786,7 +786,6 @@ Lists collaborative objects across every schema-declared type, or within one, fr
 | `created_at` | string | Creation timestamp in RFC 3339 UTC (`...Z`). |
 | `updated_at` | string | Last modification timestamp in RFC 3339 UTC (`...Z`). |
 | `op_count` | integer | Number of ops folded into this object. |
-| `last_op_id` | string | Commit id of the most recently folded op. |
 
 #### Example Output
 
@@ -801,8 +800,7 @@ Lists collaborative objects across every schema-declared type, or within one, fr
       "author": { "name": "Alice", "email": "alice@example.com" },
       "created_at": "2026-01-01T00:00:00Z",
       "updated_at": "2026-01-01T00:00:00Z",
-      "op_count": 1,
-      "last_op_id": "abc123"
+      "op_count": 1
     }
   ]
 }

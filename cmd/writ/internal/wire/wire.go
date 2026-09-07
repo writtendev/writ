@@ -1024,6 +1024,10 @@ func FromObject(o writ.Object) Object {
 }
 
 // ObjectSummary is a single row in the `object list` cross-type output.
+// It carries no op id: ARCHITECTURE.md §Public API shape keeps the wire
+// layer schema-shaped, never git-shaped -- callers see no SHAs unless they
+// ask, and a list row is not asking. op_count is fine, since it is a count,
+// not an identifier.
 type ObjectSummary struct {
 	ObjectID   string    `json:"object_id"`
 	ObjectType string    `json:"object_type"`
@@ -1031,7 +1035,6 @@ type ObjectSummary struct {
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 	OpCount    int       `json:"op_count"`
-	LastOpID   string    `json:"last_op_id"`
 }
 
 // FromObjectResultSummary converts one cross-type object query row to wire form.
@@ -1043,7 +1046,6 @@ func FromObjectResultSummary(r writ.ObjectResult) ObjectSummary {
 		CreatedAt:  r.CreatedAt,
 		UpdatedAt:  r.UpdatedAt,
 		OpCount:    r.OpCount,
-		LastOpID:   r.LastOpID,
 	}
 }
 
