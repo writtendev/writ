@@ -24,7 +24,7 @@ import (
 // this cross-checks it directly against state.Fold over a schema-declared
 // type the engine has never heard of ("ticket"), built from two independent
 // writer identities' concurrent and causally-ordered ops, exactly as
-// makeReviewOp/makeWidgetOp build ops elsewhere in this package: hand-built
+// makeReviewEnv/makeWidgetOp build ops elsewhere in this package: hand-built
 // codec.Op values with an explicit parent DAG, reaching Refresh through
 // WithEnumOverrideForTest with no producer-validation gate to route around
 // (op-envelope's producer validation lives in dag.Store.Append/codec.BuildCommit,

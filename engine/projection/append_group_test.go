@@ -14,8 +14,8 @@ import (
 )
 
 // makeWidgetEnv and makeWidgetOp build ops for a synthetic "widget" object
-// type directly, the same way makeReviewEnv/makeReviewOp do for "review" in
-// revision_pairing_test.go: no schema validates a "widget" op body, so this
+// type directly, the same way makeReviewEnv does for "review" in
+// refresh_test.go: no schema validates a "widget" op body, so this
 // reaches Refresh with no producer-validation gate to route around,
 // regardless of whether the body shape below is one a real schema would
 // ever declare.
@@ -235,8 +235,8 @@ func TestAppendGroupTargetDiffersFromField(t *testing.T) {
 }
 
 // TestAppendGroupOmittedFieldPairing restores, generically, the coverage
-// WRIT-189 round 2's MAJOR-1 finding pinned in the now-deleted
-// revision_pairing_test.go (WRIT-195 round 1 MEDIUM finding): a multi-field
+// WRIT-189 round 2's MAJOR-1 finding pinned in a since-deleted per-type
+// test (WRIT-195 round 1 MEDIUM finding): a multi-field
 // append group where one op writes only one of the group's fields, the
 // other field entirely absent rather than written empty.
 //

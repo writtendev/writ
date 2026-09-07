@@ -434,7 +434,7 @@ Lists collaborative objects across every schema-declared type, or within one, fr
 
 ## 4. Worked `jq` Examples
 
-### List every object of one type, with its title field
+### List every object of one type
 ```bash
 writ object list ticket --json | jq -r '.data[] | "\(.object_id) \(.object_type)"'
 ```

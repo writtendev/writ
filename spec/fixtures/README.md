@@ -61,13 +61,18 @@ Fixture YAML descriptions under `testdata/descriptions/` support the following c
   `workflow-state-ordering`, `project-membership-races`,
   `cycle-dates-and-membership`, `document-sections-concurrent`, and
   `review-mixed-signals`. Two of those pull weight beyond the deleted
-  vocabulary: `label-forward-compat` and `settings-unknown-keys` are the only
-  corpus-level exercises of the "unknown fields preserved and ignored"
-  invariant, and `document-sections-concurrent` is the only corpus-level
-  `multi-value` history — strategy-level coverage for both survives via the
-  abstract merge vectors in `spec/testdata/fold/merge/` (`multi-value-*.json`,
-  `uninterpretable-*.json`, run by `spec/fold_test.go` and
-  `engine/fold_test.go`), so this is a narrowing of corpus-level coverage,
+  vocabulary: `label-forward-compat` and `settings-unknown-keys` were the
+  only per-type exercises of the "unknown fields preserved and ignored"
+  invariant against these now-orphaned typed families — the `forward-compat`
+  family above already covers that same invariant at corpus level
+  generically (`forward-compat-unknown-ops`, `forward-compat-future-versions`,
+  `forward-compat-mixed-dag`, untouched by this PR), so orphaning these two
+  narrows type-specific coverage rather than opening a corpus-level hole in
+  the invariant itself. `document-sections-concurrent` is the only
+  corpus-level `multi-value` history — strategy-level coverage for it
+  survives via the abstract merge vectors in `spec/testdata/fold/merge/`
+  (`multi-value-*.json`, `uninterpretable-*.json`, run by `spec/fold_test.go`
+  and `engine/fold_test.go`), so this is a narrowing of corpus-level coverage,
   not a hole, but a real one. These families await WRIT-194 (which removes
   the built-in review/issue/etc. vocabulary these descriptions were written
   against): either that ticket re-wires them onto the generic schema-driven

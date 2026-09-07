@@ -34,12 +34,12 @@ is derived, by deterministically folding an object's operations in causal
 order.
 
 ```console
-$ writ init                       # writes fetch refspecs into .git/config
-$ writ schema apply                # installs the review/issue/comment types your writ.schema declares
-$ writ object create review create -field title="Add rate limiting" -field base=main -field head=rate-limit
-$ writ object apply <id> comment -field text="this allocates in the hot path"
-$ writ object apply <id> approve
-$ writ sync                       # git push, to your own ref namespace
+$ writ init                        # writes fetch refspecs into .git/config
+$ writ schema apply                 # appends the schema op; review/issue/comment ship as engine built-ins, not from this file
+$ writ object create review create -field title="Add rate limiting"
+$ writ object apply <id> revision -field base=<base-sha> -field head=<head-sha>
+$ writ object apply <id> approval -field revision=<head-sha> -field verdict=approve
+$ writ sync                        # git push, to your own ref namespace
 ```
 
 That is the whole deployment story. No server, no database, no webhook, no

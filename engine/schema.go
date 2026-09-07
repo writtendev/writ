@@ -104,9 +104,10 @@ func (s *Store) Schema(ctx context.Context) ([]state.Schema, error) {
 // this function's own comparison below does the (correctly expensive)
 // re-resolve.
 //
-// This is what dag.WithProducerVocabularies's resolver and
-// checkBeforeAppend both call, so Append and the multi-append callers that
-// guard it always see the same vocabularies (TestCheckBeforeAppendAgreesWithAppend).
+// This is what dag.WithProducerVocabularies's resolver calls for Append's
+// own producer validation, and what Store.rules/Store.declaredTypes call
+// to resolve the fold-rule index and declared types, so every consumer
+// sees the same vocabularies from the same cache.
 func (s *Store) vocabularies(ctx context.Context) (codec.Vocabularies, error) {
 	if s == nil {
 		return nil, fmt.Errorf("writ: store is nil")
@@ -292,69 +293,33 @@ func fingerprintChains(chains map[string]dag.DiscoveredChain) string {
 }
 
 // checkBeforeAppend validates every op body a multi-append operation is about
-// to write, before the first of them is appended, against the same
-// log-sourced vocabularies s.dagStore.Append will consult for the actual
-// appends (Store.vocabularies): using anything else here — the embedded
-// tables alone, say — could pass an op Append itself then refuses,
-// reintroducing the half-written state this check exists to prevent
-// (TestCheckBeforeAppendAgreesWithAppend).
-//
-// An op is a signed commit in an append-only log. A sequence that appends one
-// op, is refused on the next, and returns an error to its caller has still
-// written the first one permanently — leaving state no caller holds a handle
-// to. Checking the whole sequence up front makes those operations all-or-
+// to write, before the first of them is appended, so a sequence that would
+// fail part-way never writes its earlier ops either. An op is a signed
+// commit in an append-only log: a sequence that appends one op, is refused
+// on the next, and returns an error to its caller has still written the
+// first one permanently — leaving state no caller holds a handle to.
+// Checking the whole sequence up front makes those operations all-or-
 // nothing against the producer check, which is the only failure mode the
 // engine can see coming.
 //
-// A sequence made up entirely of "schema" envelopes (ApplySchema's only
-// caller) never resolves vocabularies at all: codec.ValidateBody ignores
-// them for object_type "schema" regardless (spec/schema-ops.md §7's
-// bootstrap exception), and dag.Store.Append applies the same skip for the
-// same reason, so a resolver failure elsewhere in the log must not be able
-// to block writing the very "schema" ops that could fix it.
-//
-// checkBeforeAppend exists for multi-op sequences only. Before WRIT-195,
-// Reviews.Create (two ops: create, then an optional initial revision) and
-// ApplySchema (a whole compiled delta) were its two callers; the generic
-// Objects.Create/Apply each append exactly one envelope, so ApplySchema is
-// the only caller left. Every envelope ApplySchema passes carries
-// object_type "schema", which needsLogVocabularies always short-circuits on
-// (see its own doc comment), so this function's log-sourced-vocabulary
-// branch below has no production caller left at all — it is reachable only
-// through the CheckBeforeAppend shim engine/export_test.go exposes for
-// testing (TestCheckBeforeAppendAgreesWithAppend). A single-op append
-// (Objects.Create, Objects.Apply) needs no pre-flight check of its own:
-// dagStore.Append already runs the identical producer validation against
-// the identical log-sourced vocabulary before it writes anything, so there
-// is nothing left for a second look to catch.
+// ApplySchema is checkBeforeAppend's only caller, and every envelope it
+// passes carries object_type "schema" (ApplySchema itself refuses any
+// other object_type before calling this). codec.ValidateBody ignores
+// vocabularies entirely for object_type "schema", validating against the
+// engine's built-in bootstrap table instead regardless of what is passed
+// (spec/schema-ops.md §7's bootstrap exception), so this validates
+// against nil rather than resolving Store.vocabularies for a value no
+// envelope here will ever consult. A single-op append (Objects.Create,
+// Objects.Apply) needs no pre-flight check of its own: dagStore.Append
+// already runs the identical producer validation before it writes
+// anything, so there is nothing left for a second look to catch.
 func (s *Store) checkBeforeAppend(ctx context.Context, envs ...codec.Envelope) error {
-	var vocabularies codec.Vocabularies
-	if needsLogVocabularies(envs) {
-		var err error
-		vocabularies, err = s.vocabularies(ctx)
-		if err != nil {
-			return err
-		}
-	}
 	for _, env := range envs {
-		if err := codec.ValidateBody(env, vocabularies); err != nil {
+		if err := codec.ValidateBody(env, nil); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-// needsLogVocabularies reports whether envs contains anything other than
-// "schema" envelopes: "schema" always validates against the engine's
-// built-in bootstrap table, never the log, so a sequence made entirely of
-// "schema" ops has no use for a log-sourced vocabularies resolution at all.
-func needsLogVocabularies(envs []codec.Envelope) bool {
-	for _, env := range envs {
-		if env.ObjectType != "schema" {
-			return true
-		}
-	}
-	return false
 }
 
 // Types returns the vocabulary actually in effect right now: every declared
@@ -534,9 +499,9 @@ func schemaTypeFromRules(name string, rules []Rule) SchemaType {
 
 // ApplySchema appends a compiled `schema` op sequence (schemasrc.Compile's
 // output, ordinarily) through the ordinary signed producer path, exactly as
-// any other multi-op write does (Reviews.Create is the model): every
-// envelope is validated before the first is appended, so a sequence that
-// would fail part-way never writes its earlier ops either.
+// any other multi-op write does: every envelope is validated before the
+// first is appended, so a sequence that would fail part-way never writes
+// its earlier ops either.
 //
 // Every envelope in envs must share one ObjectID and be ObjectType
 // "schema", OpVersion 1 — cmd/writ's `schema apply` is the only caller
@@ -546,14 +511,13 @@ func schemaTypeFromRules(name string, rules []Rule) SchemaType {
 //
 // The first append carries the target object's current frontier (the ops
 // with no child within that object, across every writer, exactly what
-// Reviews.Update and friends pass via projection.Frontier — schema has no
-// projection support, so this is computed directly from the DAG) as causal
-// parents, so a fresh sequence extending an object other writers have
-// already written to causally follows their ops rather than racing them
-// blind. Every later append in the same call passes no causal parents: it
-// inherits causality through its own writer-chain parent, which Append sets
-// automatically to the op this same call just wrote — the same construction
-// Reviews.Create uses for its two-op sequence.
+// Objects.Apply passes via projection.Frontier — schema has no projection
+// support, so this is computed directly from the DAG) as causal parents,
+// so a fresh sequence extending an object other writers have already
+// written to causally follows their ops rather than racing them blind.
+// Every later append in the same call passes no causal parents: it
+// inherits causality through its own writer-chain parent, which Append
+// sets automatically to the op this same call just wrote.
 //
 // An empty envs appends nothing and returns nil. A failure part-way through
 // leaves a partially applied schema, which is additive and not corrupt

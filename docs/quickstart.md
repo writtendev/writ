@@ -217,7 +217,7 @@ title        Add main entry point (ready for review)
 ## Where to go next
 
 `writ object` and `writ schema` are deliberately plumbing, not porcelain —
-see `docs/content/docs/object.md`. Everything here works the same for any
+see the [object reference](../object/). Everything here works the same for any
 type your `writ.schema` declares; `writ schema show <type>` is always the
 authoritative answer for what ops and fields exist, whatever this guide's
 example drifts from.

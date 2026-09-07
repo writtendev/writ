@@ -133,8 +133,7 @@ func (o *Objects) Create(ctx context.Context, objectType string, op NewOp) (stri
 }
 
 // Apply appends a further op against an existing object, causally following
-// its current frontier — the same construction Labels.Update and the rest
-// of the typed write services already use.
+// its current frontier.
 func (o *Objects) Apply(ctx context.Context, objectID string, op NewOp) error {
 	if o == nil || o.store == nil {
 		return fmt.Errorf("writ: store is nil")

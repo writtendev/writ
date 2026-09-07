@@ -144,23 +144,28 @@ func (d *Drafts) Discard(ctx context.Context, id string) error {
 // real ObjectType for one that is, so Publish never has to guess or
 // hardcode which schema-declared types a draft may target.
 //
-// Unlike the review/issue-specific comment writers this replaced, Publish
-// no longer threads the subject's (or reply's) frontier in as the new
-// comment's causal DAG parents: nothing folds, queries, or threads (all of
-// which group by the "subject"/"in_reply_to" fields, not DAG ancestry)
-// depended on that link, so fold determinism is genuinely unaffected (t*
-// and the total order are computed over the per-object_id restricted DAG,
+// Unlike the type-specific comment writers this replaced, Publish no longer
+// threads the subject's (or reply's) frontier in as the new comment's
+// causal DAG parents: nothing folds, queries, or threads (all of which
+// group by the "subject"/"in_reply_to" fields, not DAG ancestry) depended
+// on that link, so fold determinism is genuinely unaffected (t* and the
+// total order are computed over the per-object_id restricted DAG,
 // spec/fold.md §1-§4). What is affected is reachability: ARCHITECTURE.md
 // §Ref layout names that edge as the reason an op someone built on stays
 // reachable from the referencing writer's ref even if its origin ref rolls
 // back, and spec/ref-layout.md §Producer requirements is the normative
 // half requiring observed cross-object causal dependencies to follow at
-// parents[1:]. After this change writ emits no parents[1:] edge anywhere:
-// a review or issue commented on by another writer is no longer kept
-// reachable by that comment once its own ref rolls back or is only
-// partially fetched. Objects.Create has no parameter for observed causal
-// parents, so restoring this is out of scope here — recorded as a
-// deliberate, disclosed loss, not fixed.
+// parents[1:]. Cross-writer causal edges within one object are unaffected —
+// Objects.Apply still passes projection.Frontier(objectID) and ApplySchema
+// still passes schemaFrontier(...) as parents[1:] (schema.go:547-555) — so
+// this loss is narrower than "no parents[1:] edge anywhere": what's gone is
+// specifically the cross-object edge from a comment to its subject. An
+// object commented on by another writer is no longer kept reachable by
+// that comment once its own ref rolls back or is only partially fetched.
+// Objects.Create has no parameter for observed causal parents, so
+// restoring this is out of scope here — recorded as a deliberate,
+// disclosed loss, not fixed (see CHANGELOG.md's "Known consequence, not
+// fixed here" note under ### Removed).
 func (d *Drafts) Publish(ctx context.Context, id string) (string, error) {
 	if d == nil || d.store == nil {
 		return "", fmt.Errorf("writ: store is nil")
