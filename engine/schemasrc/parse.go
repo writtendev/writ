@@ -467,14 +467,33 @@ func (p *parser) parseField() *Field {
 	return p.parseFieldBody(nameTok)
 }
 
+// checkValueTypeStrategyCompat reports [T]/strategy mismatches: [T] is
+// required with a collection strategy and forbidden otherwise
+// (spec/schema-source.md: exactly one spelling per rule, so parse and
+// render stay inverse by construction). untyped fields carry no name to
+// bracket either way, so they are exempt. Shared by parseFieldBody's
+// real field-body parse and deprecatedTrialLooksLikeField's trial below,
+// which needs the same compatibility check but none of the rest of a
+// field body.
+func checkValueTypeStrategyCompat(p *parser, vt ValueType, vtPos Position, strategy string, stratPos Position) {
+	if vt.Kind == ValueTypeNone {
+		return
+	}
+	isCollectionStrategy := strategy == "set-union" || strategy == "set-observed-remove"
+	if isCollectionStrategy && vt.Kind != ValueTypeCollection {
+		p.errorf(vtPos, "strategy %q needs a collection element type '[%s]', not a bare value type", strategy, vt.Name)
+	}
+	if !isCollectionStrategy && vt.Kind == ValueTypeCollection {
+		p.errorf(stratPos, "'[%s]' is only valid with set-union or set-observed-remove, not strategy %q", vt.Name, strategy)
+	}
+}
+
 // parseFieldBody parses everything after a field's name token — value
 // type, strategy, and modifiers — given that nameTok has already been
 // consumed (and, for a real field, already name-validated by the
-// caller). It is split out from parseField so the modifier loop's
-// "deprecated" case below can run it speculatively: a trial parse of the
-// tokens after a bare `deprecated`, treating `deprecated` itself as the
-// name being tried, is how that case tells whether the token was this
-// field's modifier or the next field's own (reserved) name.
+// caller). It is split out from parseField only for readability; unlike
+// before WRIT-204 round 2, nothing calls it speculatively any more (see
+// deprecatedTrialLooksLikeField below).
 func (p *parser) parseFieldBody(nameTok token) *Field {
 	f := &Field{Name: nameTok.Text, Pos: nameTok.Pos}
 
@@ -491,19 +510,7 @@ func (p *parser) parseFieldBody(nameTok token) *Field {
 	f.Strategy = strategy
 	f.Lattice = lattice
 
-	// [T] is required with a collection strategy and forbidden otherwise
-	// (spec/schema-source.md: exactly one spelling per rule, so parse and
-	// render stay inverse by construction). untyped fields carry no name
-	// to bracket either way, so they are exempt.
-	isCollectionStrategy := strategy == "set-union" || strategy == "set-observed-remove"
-	if vt.Kind != ValueTypeNone {
-		if isCollectionStrategy && vt.Kind != ValueTypeCollection {
-			p.errorf(vtPos, "strategy %q needs a collection element type '[%s]', not a bare value type", strategy, vt.Name)
-		}
-		if !isCollectionStrategy && vt.Kind == ValueTypeCollection {
-			p.errorf(stratPos, "'[%s]' is only valid with set-union or set-observed-remove, not strategy %q", vt.Name, strategy)
-		}
-	}
+	checkValueTypeStrategyCompat(p, vt, vtPos, strategy, stratPos)
 
 	// Each modifier has exactly one spelling per field (spec/schema-source.md
 	// §3.3), which is what keeps parsing and rendering inverse operations:
@@ -542,8 +549,9 @@ modifiers:
 			// field cannot be told apart from a following field's own
 			// (reserved) name by any single token (spec/schema-source.md
 			// §2, fieldReserved above). Rather than guess, try the other
-			// reading: parse what follows as a field named "deprecated"
-			// (its reserved-word check suppressed for the trial) into a
+			// reading: check whether what follows reads as a field named
+			// "deprecated" — its value-type-expr and strategy-expr,
+			// specifically (deprecatedTrialLooksLikeField), checked into a
 			// scratch error sink. If that trial comes back clean, the
 			// input has a reading where the only thing wrong with it is
 			// the reserved name, so report exactly that, pointing at
@@ -553,13 +561,23 @@ modifiers:
 			// the modifier reading, unchanged from before, and let
 			// whatever is actually wrong with the next field surface
 			// normally.
+			//
+			// The trial deliberately stops at the strategy-expr and never
+			// reaches this modifier loop again: a run of bare
+			// "deprecated" tokens once made a recursive trial (via
+			// parseFieldBody, which re-entered this same case) cost
+			// exponential time — 45 tokens took 42s (WRIT-204 round 2).
+			// Whether the tried field goes on to declare its own
+			// modifiers, or nests a reserved-word question of its own, is
+			// irrelevant to the one thing this trial needs to answer:
+			// name or modifier.
 			deprecatedTok := p.peek()
 			savedPos, savedLine := p.pos, p.lastLine
 			p.advanceTok() // tentatively: 'deprecated' as the next field's name
 			savedErrs := p.errs
 			p.errs = nil
-			trial := p.parseFieldBody(deprecatedTok)
-			trialClean := trial != nil && len(p.errs) == 0
+			looksLikeField := p.deprecatedTrialLooksLikeField()
+			trialClean := looksLikeField && len(p.errs) == 0
 			p.errs = savedErrs
 			if trialClean {
 				validateName(p, deprecatedTok, fieldNamePattern, "field name", fieldReserved, fieldNameReservedReason)
@@ -588,6 +606,37 @@ modifiers:
 
 	f.TrailingComment = p.trailingCommentSameLine()
 	return f
+}
+
+// deprecatedTrialLooksLikeField reports whether the tokens starting at
+// the parser's current position read as a value-type-expr followed by a
+// strategy-expr — exactly the lookahead the modifier loop's
+// "deprecated" case above needs to tell whether a bare "deprecated" is
+// this field's modifier or the next field's own (reserved) name.
+//
+// It deliberately does not parse modifiers the way parseFieldBody does:
+// doing so once meant calling parseFieldBody itself, whose modifier loop
+// contains this same "deprecated" case, so a run of bare "deprecated"
+// tokens made the trial recurse into itself, and a failing trial at
+// depth k re-parsed the same tail again at depth k-1 — the textbook
+// M(k) = M(k-1) + M(k-3) shape, exponential in the run length
+// (WRIT-204 round 2: 45 tokens, 42s). Modifiers, and any deeper
+// reserved-word question a candidate field's own modifiers might raise,
+// don't change whether *this* "deprecated" reads as a name or a
+// modifier, so this trial never engages the modifier loop at all: every
+// call does a fixed, non-recursive amount of work, which is what keeps
+// Parse linear.
+func (p *parser) deprecatedTrialLooksLikeField() bool {
+	vt, vtPos, ok := p.parseValueTypeExpr()
+	if !ok {
+		return false
+	}
+	strategy, _, stratPos, ok := p.parseStrategyExpr()
+	if !ok {
+		return false
+	}
+	checkValueTypeStrategyCompat(p, vt, vtPos, strategy, stratPos)
+	return true
 }
 
 func (p *parser) parseValueTypeExpr() (ValueType, Position, bool) {

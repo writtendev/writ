@@ -4,7 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 )
 
 // FuzzParse asserts Parse never panics on any input, that any *File it
@@ -70,6 +72,42 @@ func FuzzParse(f *testing.F) {
 			t.Fatalf("Format did not preserve the comment multiset\nbefore: %v\nafter:  %v\nsrc:\n%s\nformatted:\n%s", before, after, src, formatted)
 		}
 	})
+}
+
+// TestParseDeprecatedChainStaysLinear is the regression net for WRIT-204
+// round 2: the round-1 fix taught parseFieldBody's modifier loop to try a
+// bare "deprecated" as the next field's own name via a speculative call
+// to parseFieldBody itself — which contains that same modifier loop, so
+// a run of bare "deprecated" tokens made a failing trial at depth k
+// re-parse the same tail again at depth k-1, the textbook
+// M(k) = M(k-1) + M(k-3) shape. That measured as exponential: 45 tokens
+// (563 bytes) took 42.4s, ~6.9x for every 5 tokens added, while
+// FuzzParse's random mutation cannot stumble onto forty consecutive
+// "deprecated" tokens to catch it (Go's fuzzer fails on panics, not slow
+// inputs). deprecatedTrialLooksLikeField replaced the recursive trial
+// with a non-recursive one that never revisits the modifier loop, which
+// is what this test pins: Parse must return well within a generous
+// bound on a run long enough that the old exponential behavior would
+// have taken longer than a CI run, rather than merely hoping nobody
+// reintroduces the recursion.
+func TestParseDeprecatedChainStaysLinear(t *testing.T) {
+	src := "namespace acme\n\ntype thing {\n  op create 1 {\n    a string lww " +
+		strings.TrimSpace(strings.Repeat("deprecated ", 50)) + "\n  }\n}\n"
+
+	done := make(chan struct{})
+	go func() {
+		Parse("writ.schema", []byte(src))
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		// A leaked goroutine may keep running after this fires, but the
+		// test binary does not wait for it to exit.
+		t.Fatal("Parse did not return within 5s on \"a string lww\" followed by 50 bare " +
+			"\"deprecated\" tokens; this is the shape of the WRIT-204 round 2 exponential " +
+			"blowup (45 tokens took 42.4s on the unfixed parser)")
+	}
 }
 
 // commentMultiset returns every comment token's body (the text after '#',
