@@ -1485,3 +1485,172 @@ func TestVocabulariesCacheStaysWarmAcrossNonSchemaAppends(t *testing.T) {
 		t.Fatalf("a \"schema\" append did not invalidate the vocabularies cache")
 	}
 }
+
+// findSchemaType returns the SchemaType named name from types, or the zero
+// SchemaType and false if absent.
+func findSchemaType(types []writ.SchemaType, name string) (writ.SchemaType, bool) {
+	for _, ty := range types {
+		if ty.Name == name {
+			return ty, true
+		}
+	}
+	return writ.SchemaType{}, false
+}
+
+// TestStoreTypes_IncludesBuiltinsAndLogDeclaredTypes pins Store.Types'
+// basic contract: on a repository that has never run `writ schema apply`,
+// it still returns every built-in type (Store.Schema, by contrast, would
+// return nothing at all here — that is the difference between the two
+// documented on Types' doc comment). Once a log schema declares a type
+// writ has never heard of, Types reflects it too, with the declared field
+// and op — the same data Objects.Create's zero-Version resolution consumes.
+func TestStoreTypes_IncludesBuiltinsAndLogDeclaredTypes(t *testing.T) {
+	store, ctx := openWritableStore(t)
+
+	before, err := store.Types(ctx)
+	if err != nil {
+		t.Fatalf("Store.Types failed: %v", err)
+	}
+	if _, ok := findSchemaType(before, "review"); !ok {
+		t.Fatalf("Store.Types on a repository with no schema objects at all: built-in type %q missing from %+v", "review", before)
+	}
+	if _, ok := findSchemaType(before, "gizmo"); ok {
+		t.Fatalf("Store.Types found undeclared type %q before any schema was applied", "gizmo")
+	}
+
+	if err := store.ApplySchema(ctx, []codec.Envelope{
+		schemaEnv(t, "sch-gizmo", "create", map[string]any{"namespace": "acme"}),
+		schemaEnv(t, "sch-gizmo", "define-type", map[string]any{"type": "gizmo"}),
+		schemaEnv(t, "sch-gizmo", "define-op", map[string]any{"type": "gizmo", "op_type": "spin", "op_version": "1"}),
+		schemaEnv(t, "sch-gizmo", "define-field", map[string]any{
+			"type": "gizmo", "op_type": "spin", "op_version": "1",
+			"field": "speed", "value_type": "int", "strategy": "lww",
+		}),
+	}); err != nil {
+		t.Fatalf("ApplySchema failed: %v", err)
+	}
+
+	after, err := store.Types(ctx)
+	if err != nil {
+		t.Fatalf("Store.Types after ApplySchema failed: %v", err)
+	}
+	if _, ok := findSchemaType(after, "review"); !ok {
+		t.Fatalf("Store.Types after ApplySchema: built-in type %q missing from %+v", "review", after)
+	}
+	gizmo, ok := findSchemaType(after, "gizmo")
+	if !ok {
+		t.Fatalf("Store.Types after ApplySchema: declared type %q missing from %+v", "gizmo", after)
+	}
+	if len(gizmo.Fields) != 1 || gizmo.Fields[0].Name != "speed" || gizmo.Fields[0].OpType != "spin" || gizmo.Fields[0].ValueType != "int" {
+		t.Fatalf("gizmo.Fields = %+v, want one field {speed, spin, int}", gizmo.Fields)
+	}
+	if len(gizmo.Ops) != 1 || gizmo.Ops[0].OpType != "spin" || gizmo.Ops[0].OpVersion != 1 {
+		t.Fatalf("gizmo.Ops = %+v, want one op {spin, 1}", gizmo.Ops)
+	}
+}
+
+// TestStoreTypes_LogWinsPerType pins the "log wins per type" precedence
+// Store.Types shares with Store.rules (mergeRules): a log schema
+// redeclaring a built-in type's name replaces its field list entirely,
+// never merges with the embedded one.
+func TestStoreTypes_LogWinsPerType(t *testing.T) {
+	store, ctx := openWritableStore(t)
+
+	if err := store.ApplySchema(ctx, []codec.Envelope{
+		schemaEnv(t, "sch-issue", "create", map[string]any{"namespace": "acme"}),
+		schemaEnv(t, "sch-issue", "define-type", map[string]any{"type": "issue"}),
+		schemaEnv(t, "sch-issue", "define-op", map[string]any{"type": "issue", "op_type": "create", "op_version": "1"}),
+		schemaEnv(t, "sch-issue", "define-field", map[string]any{
+			"type": "issue", "op_type": "create", "op_version": "1",
+			"field": "title", "value_type": "string", "strategy": "lww",
+		}),
+	}); err != nil {
+		t.Fatalf("ApplySchema failed: %v", err)
+	}
+
+	types, err := store.Types(ctx)
+	if err != nil {
+		t.Fatalf("Store.Types failed: %v", err)
+	}
+	issue, ok := findSchemaType(types, "issue")
+	if !ok {
+		t.Fatal("Store.Types: redeclared type \"issue\" missing")
+	}
+	if len(issue.Fields) != 1 || issue.Fields[0].Name != "title" {
+		t.Fatalf("issue.Fields = %+v, want exactly the log's one declared field (title) — log must replace the built-in list, not merge with it", issue.Fields)
+	}
+}
+
+// TestStoreTypes_DescriptionAndDeprecated pins round 1 MEDIUM-2's fix
+// (schemaTypeFromResolved carrying Description/Deprecated through from
+// resolveSchemaTypes, rather than leaving them structurally zero): the
+// entire point of that fix had no test of its own until round 2's MEDIUM-1
+// finding, and deleting the two lines that set them left the whole suite
+// green. Covers a type description, an op description, and deprecate-type
+// together on an ordinary log-declared type; a define-op-only type
+// (schema_test.go's own TestDeclaredTypeWithNoFieldsIsWritable /
+// objects_test.go's TestObjectsCreate_DeclaredTypeWithNoFieldsIsCreatable
+// shape) to confirm the fieldless path carries them too; and a built-in
+// type, which must stay zero on both since built-ins are synthesized from
+// Go rule tables that carry neither.
+func TestStoreTypes_DescriptionAndDeprecated(t *testing.T) {
+	store, ctx := openWritableStore(t)
+
+	if err := store.ApplySchema(ctx, []codec.Envelope{
+		schemaEnv(t, "sch-widget", "create", map[string]any{"namespace": "acme"}),
+		schemaEnv(t, "sch-widget", "define-type", map[string]any{"type": "widget", "description": "A widget type"}),
+		schemaEnv(t, "sch-widget", "define-op", map[string]any{"type": "widget", "op_type": "spin", "op_version": "1", "description": "spin it"}),
+		schemaEnv(t, "sch-widget", "define-field", map[string]any{
+			"type": "widget", "op_type": "spin", "op_version": "1",
+			"field": "speed", "value_type": "int", "strategy": "lww",
+		}),
+		schemaEnv(t, "sch-widget", "deprecate-type", map[string]any{"type": "widget", "deprecated": true}),
+	}); err != nil {
+		t.Fatalf("ApplySchema (widget) failed: %v", err)
+	}
+	if err := store.ApplySchema(ctx, []codec.Envelope{
+		schemaEnv(t, "sch-beacon", "create", map[string]any{"namespace": "acme"}),
+		schemaEnv(t, "sch-beacon", "define-type", map[string]any{"type": "beacon", "description": "A fieldless beacon type"}),
+		schemaEnv(t, "sch-beacon", "define-op", map[string]any{"type": "beacon", "op_type": "ping", "op_version": "1"}),
+	}); err != nil {
+		t.Fatalf("ApplySchema (beacon) failed: %v", err)
+	}
+
+	types, err := store.Types(ctx)
+	if err != nil {
+		t.Fatalf("Store.Types failed: %v", err)
+	}
+
+	widget, ok := findSchemaType(types, "widget")
+	if !ok {
+		t.Fatal("Store.Types: declared type \"widget\" missing")
+	}
+	if widget.Description != "A widget type" {
+		t.Errorf("widget.Description = %q, want %q", widget.Description, "A widget type")
+	}
+	if !widget.Deprecated {
+		t.Errorf("widget.Deprecated = false, want true (deprecate-type ran)")
+	}
+	if len(widget.Ops) != 1 || widget.Ops[0].Description != "spin it" {
+		t.Errorf("widget.Ops = %+v, want exactly one op carrying description %q", widget.Ops, "spin it")
+	}
+
+	beacon, ok := findSchemaType(types, "beacon")
+	if !ok {
+		t.Fatal("Store.Types: define-op-only type \"beacon\" missing")
+	}
+	if beacon.Description != "A fieldless beacon type" {
+		t.Errorf("beacon.Description = %q, want %q", beacon.Description, "A fieldless beacon type")
+	}
+	if beacon.Deprecated {
+		t.Errorf("beacon.Deprecated = true, want false (never deprecated)")
+	}
+
+	review, ok := findSchemaType(types, "review")
+	if !ok {
+		t.Fatal("Store.Types: built-in type \"review\" missing")
+	}
+	if review.Description != "" || review.Deprecated {
+		t.Errorf("built-in review: Description=%q Deprecated=%v, want \"\"/false — built-ins are synthesized from Go rule tables, which carry neither", review.Description, review.Deprecated)
+	}
+}

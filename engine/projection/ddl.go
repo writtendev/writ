@@ -314,6 +314,60 @@ type schemaDescriptor struct {
 	// so no types) — so DumpTables and Rebuild's truncate step work
 	// identically whichever way desc came to exist.
 	tables []ddlTable
+
+	// queryShapes and queryOrder are objectsTextClause/objectsNotDeletedClause's
+	// own view of the descriptor (query.go): table name plus scalar target
+	// columns (Column, ValueType, Strategy), for every declared type with
+	// installed tables. Deliberately kept apart from types/order rather than
+	// read from them directly, so that a name-only reopen (descriptorFromPersisted)
+	// can populate this — from meta, with no DAG walk — while leaving
+	// types nil: requireMaterializationPlan's `desc.types == nil` check
+	// (WRIT-189 round 2 MINOR-6) depends on types staying nil until a real
+	// materialization plan (Children, AppendGroups, and the rest a
+	// materializeObject call needs) exists for this process, and populating
+	// types with the query-only subset would silently satisfy that guard
+	// with a plan incapable of materializing anything (WRIT-192 round 2
+	// MAJOR-1). A live (buildDescriptor) descriptor populates both this and
+	// types/order from the same typeDescriptor, so the two clause builders
+	// see identical answers either way.
+	queryShapes map[string]objectQueryShape
+	queryOrder  []string
+}
+
+// objectQueryTarget is the minimal shape objectsTextClause and
+// objectsNotDeletedClause need for one declared type's scalar target: which
+// column, what value type (a string/text column is a text-search
+// candidate), what merge strategy (a tombstone column is a soft-delete
+// candidate).
+type objectQueryTarget struct {
+	Column    string `json:"column"`
+	ValueType string `json:"value_type"`
+	Strategy  string `json:"strategy"`
+}
+
+// objectQueryShape is one declared type's table name plus its scalar
+// targets — everything objectsTextClause/objectsNotDeletedClause consume.
+// Collection, keyed-lww, and append targets carry no scalar Column (their
+// data lives in a child table) and so contribute nothing here.
+type objectQueryShape struct {
+	Table   string              `json:"table"`
+	Targets []objectQueryTarget `json:"targets,omitempty"`
+}
+
+// objectQueryShapeFromType derives one type's query shape from its full
+// typeDescriptor — used both when buildDescriptor has one freshly built and
+// when descriptorFromPersisted rehydrates a lighter-weight equivalent from
+// meta.
+func objectQueryShapeFromType(td *typeDescriptor) objectQueryShape {
+	var targets []objectQueryTarget
+	for _, plan := range td.Targets {
+		if plan.Column == "" {
+			continue
+		}
+		targets = append(targets, objectQueryTarget{Column: plan.Column, ValueType: plan.ValueType, Strategy: plan.Strategy})
+	}
+	sort.Slice(targets, func(i, j int) bool { return targets[i].Column < targets[j].Column })
+	return objectQueryShape{Table: td.Table.Name, Targets: targets}
 }
 
 func sqlType(valueType string) string {
@@ -396,13 +450,16 @@ func buildDescriptor(rules map[string][]state.Rule) (*schemaDescriptor, error) {
 	}
 
 	var tables []ddlTable
+	desc.queryShapes = make(map[string]objectQueryShape, len(desc.order))
 	for _, objectType := range desc.order {
 		td := desc.types[objectType]
 		tables = append(tables, td.Table)
 		tables = append(tables, td.Children...)
+		desc.queryShapes[objectType] = objectQueryShapeFromType(td)
 	}
 	sort.Slice(tables, func(i, j int) bool { return tables[i].Name < tables[j].Name })
 	desc.tables = tables
+	desc.queryOrder = desc.order
 
 	snapshot := buildSnapshot(desc)
 	js, err := json.Marshal(snapshot)
@@ -423,14 +480,76 @@ func buildDescriptor(rules map[string][]state.Rule) (*schemaDescriptor, error) {
 // truncated, but nothing can be freshly materialized into it until
 // ApplySchema runs (Store.Open calls it immediately after opening the
 // projection, so this path exists only for callers driving the projection
-// package directly without going through package writ).
-func descriptorFromPersisted(persisted []persistedTable) *schemaDescriptor {
+// package directly without going through package writ). types/order stay
+// nil deliberately (requireMaterializationPlan's guard, see schemaDescriptor's
+// own doc comment on queryShapes) — but queryShapes/queryOrder are rehydrated
+// from queryShapesJSON (meta key "schema_query_shapes") so
+// objectsTextClause/objectsNotDeletedClause still answer correctly on this
+// path, instead of silently emitting no clause at all (WRIT-192 round 2
+// MAJOR-1). queryShapesJSON is empty exactly when persisted is: a cache that
+// has never had ApplySchema run in any process, where queryShapes/queryOrder
+// staying nil is correct because tables stays empty too. persisted non-empty
+// with queryShapesJSON empty is a hazard, not a legitimate state — ApplySchema
+// always writes schema_tables and schema_query_shapes together — and left
+// unchecked it would answer objectsTextClause/objectsNotDeletedClause wrong
+// forever with nothing to repair it. requireMaterializationPlan treats the
+// structurally identical types-vs-tables shape as an error; this matches it
+// rather than silently degrading.
+func descriptorFromPersisted(persisted []persistedTable, queryShapesJSON string) (*schemaDescriptor, error) {
 	tables := make([]ddlTable, len(persisted))
 	for i, p := range persisted {
 		tables[i] = ddlTable{Name: p.Name, PrimaryKey: p.PrimaryKey}
 	}
 	sort.Slice(tables, func(i, j int) bool { return tables[i].Name < tables[j].Name })
-	return &schemaDescriptor{tables: tables}
+
+	desc := &schemaDescriptor{tables: tables}
+	if queryShapesJSON == "" {
+		if len(persisted) > 0 {
+			return nil, fmt.Errorf("projection: meta has schema_tables but no schema_query_shapes; the cache is in an inconsistent state and must be rebuilt")
+		}
+		return desc, nil
+	}
+	var persistedShapes []persistedQueryShape
+	if err := json.Unmarshal([]byte(queryShapesJSON), &persistedShapes); err != nil {
+		return nil, fmt.Errorf("projection: unmarshal schema_query_shapes: %w", err)
+	}
+	desc.queryShapes = make(map[string]objectQueryShape, len(persistedShapes))
+	desc.queryOrder = make([]string, 0, len(persistedShapes))
+	for _, ps := range persistedShapes {
+		desc.queryShapes[ps.ObjectType] = objectQueryShape{Table: ps.Table, Targets: ps.Targets}
+		desc.queryOrder = append(desc.queryOrder, ps.ObjectType)
+	}
+	sort.Strings(desc.queryOrder)
+	return desc, nil
+}
+
+// persistedQueryShape and its Targets are objectQueryShape's on-disk form:
+// what ApplySchema records in meta (key "schema_query_shapes") so a
+// reopened cache, before this process's own first ApplySchema/Refresh call,
+// can still answer Objects' f.Text and !IncludeDeleted filters correctly
+// (WRIT-192 round 2 MAJOR-1) — descriptorFromPersisted's counterpart to
+// persistedTable/persistedTables, but carrying the per-target Column,
+// ValueType, and Strategy those two clause builders read, which
+// persistedTable's bare table name/primary key cannot supply.
+type persistedQueryShape struct {
+	ObjectType string              `json:"object_type"`
+	Table      string              `json:"table"`
+	Targets    []objectQueryTarget `json:"targets,omitempty"`
+}
+
+// persistedQueryShapes converts desc's live queryShapes/queryOrder into the
+// on-disk form ApplySchema writes to meta.
+func persistedQueryShapes(desc *schemaDescriptor) []persistedQueryShape {
+	out := make([]persistedQueryShape, 0, len(desc.queryOrder))
+	for _, objectType := range desc.queryOrder {
+		shape := desc.queryShapes[objectType]
+		out = append(out, persistedQueryShape{
+			ObjectType: objectType,
+			Table:      shape.Table,
+			Targets:    shape.Targets,
+		})
+	}
+	return out
 }
 
 // buildTypeDescriptor generates one object type's tables. ok is false (with

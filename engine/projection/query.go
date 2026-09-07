@@ -473,7 +473,8 @@ func (d *DB) Issues(f IssueFilter) ([]IssueResult, error) {
 		// literal and turns a state-filtered Issues call into a raw SQLite
 		// "no such column: ws.f_name" instead of the named error this guard
 		// exists to produce (WRIT-189 round 5 MAJOR-2, the same class round
-		// 3 MAJOR-2 already closed for Objects via objectsHardcodedTypes).
+		// 3 MAJOR-2 closed for Objects, since made descriptor-driven
+		// instead of guarded — WRIT-192).
 		if err := d.requireBuiltinShape("workflow-state"); err != nil {
 			return nil, err
 		}
@@ -940,39 +941,143 @@ func (d *DB) Comments(f CommentFilter) ([]CommentResult, error) {
 	return results, nil
 }
 
-// objectsHardcodedTypes is every built-in object type Objects' SQL below
-// hard-codes a table/column literal for — its text-search EXISTS clauses
-// (o_review.f_title, o_issue.f_description, ...), reached only when f.Text
-// is set, and its default !IncludeDeleted filter (o_comment.f_deleted),
-// which is the one clause among these that fires on every call regardless
-// of which filters are set. Objects checks all five unconditionally,
-// before it knows which filters f actually carries — not because every
-// type's literal is always reached (only comment's is), but because
-// working out in advance which of the five this particular filter
-// combination would touch is exactly the per-filter bookkeeping the
-// generic fallback is meant to avoid, so the guard stays simple at the
-// cost of over-refusing: a repo redeclaring only, say, "cycle" loses even
-// a plain no-filter listing that never touches o_cycle at all. Objects is
-// exactly the generic fallback requireBuiltinShape's own error message
-// used to point a caller at, but requireBuiltinShape's coverage never
-// reached it — a log-declared schema reshaping any of these five types the
-// same way it reshapes o_review bricks Objects with a raw SQLite "no such
-// column" too (WRIT-189 round 3 MAJOR-2). Guarded here the same way every
-// other typed reader in this file is, rather than rewritten off
-// hard-coded columns — WRIT-192 deletes this whole surface, so the
-// smaller fix is the one that belongs in this ticket.
-var objectsHardcodedTypes = []string{"review", "issue", "comment", "project", "cycle"}
+// objectTextColumns returns shape's generated table name and the sorted
+// "f_"-prefixed columns of its scalar targets whose declared value_type is
+// "string" or "text" — every column Objects' full-text search below can
+// usefully LIKE against. Only lww/create-once/lattice/tombstone targets
+// carry a Column at all (a collection or keyed-lww target materializes into
+// a child table instead), so shape.Targets already holds exactly the scalar
+// ones (objectQueryShapeFromType, ddl.go).
+func objectTextColumns(shape objectQueryShape) (table string, columns []string) {
+	for _, target := range shape.Targets {
+		if target.ValueType != "string" && target.ValueType != "text" {
+			continue
+		}
+		columns = append(columns, target.Column)
+	}
+	sort.Strings(columns)
+	return shape.Table, columns
+}
+
+// objectsTextClause builds Objects' f.Text filter directly from the
+// installed schema descriptor: one EXISTS per declared type (restricted to
+// restrictTypes when non-empty, the types f.Type itself already narrows the
+// query to) over that type's own string/text scalar columns, replacing the
+// five built-in table/column literals WRIT-189 round 3 MAJOR-2 hard-coded
+// here (WRIT-192). A type with no string/text scalar column at all — every
+// declared type, immediately after ApplySchema installs an empty
+// descriptor, or a type whose only text fields are collection- or
+// keyed-lww-valued — contributes no clause; Objects falls through to
+// "found nothing" for f.Text rather than referencing a table it has no
+// column to search.
+//
+// Reads desc.queryShapes/queryOrder, not desc.types/order: those two stay
+// nil on a name-only reopen (requireMaterializationPlan's guard depends on
+// it — see schemaDescriptor's doc comment in ddl.go), but queryShapes is
+// rehydrated from meta in exactly that state (descriptorFromPersisted), so
+// this clause is correct whether desc came from a live buildDescriptor call
+// or a warm reopen that has not run ApplySchema in this process yet
+// (WRIT-192 round 2 MAJOR-1).
+func objectsTextClause(desc *schemaDescriptor, restrictTypes []string) (clause string, params int) {
+	if desc == nil {
+		return "", 0
+	}
+
+	var allow map[string]bool
+	if len(restrictTypes) > 0 {
+		allow = make(map[string]bool, len(restrictTypes))
+		for _, t := range restrictTypes {
+			allow[t] = true
+		}
+	}
+
+	var parts []string
+	for _, objectType := range desc.queryOrder {
+		if allow != nil && !allow[objectType] {
+			continue
+		}
+		table, columns := objectTextColumns(desc.queryShapes[objectType])
+		if len(columns) == 0 {
+			continue
+		}
+
+		var colParts []string
+		for _, col := range columns {
+			colParts = append(colParts, "x."+col+" LIKE ? ESCAPE '\\'")
+		}
+		parts = append(parts, "EXISTS (SELECT 1 FROM "+table+" x WHERE x.object_id = o.object_id AND ("+strings.Join(colParts, " OR ")+"))")
+		params += len(columns)
+	}
+	if len(parts) == 0 {
+		return "", 0
+	}
+	return "(" + strings.Join(parts, " OR ") + ")", params
+}
+
+// objectsNotDeletedClause builds Objects' default !IncludeDeleted filter
+// directly from the installed schema descriptor: "no tombstone-strategy
+// target folded true", over every declared type that has one (restricted to
+// restrictTypes when non-empty, the same restriction objectsTextClause
+// applies — the types f.Type itself already narrows the query to, so a
+// clause for any other type would be dead weight), replacing the single
+// built-in literal (o_comment.f_deleted) WRIT-189 round 3 MAJOR-2
+// hard-coded here (WRIT-192). A type with more than one tombstone-strategy
+// target — none exist in the shipped vocabulary, but the schema DSL does
+// not forbid it — is excluded when any one of its tombstone targets folded
+// true (the generated clause is an AND of "not deleted" per column, so a
+// single deleted-true column fails it).
+//
+// Reads desc.queryShapes/queryOrder for the same reason objectsTextClause
+// does — see its doc comment (WRIT-192 round 2 MAJOR-1).
+func objectsNotDeletedClause(desc *schemaDescriptor, restrictTypes []string) string {
+	if desc == nil {
+		return ""
+	}
+
+	var allow map[string]bool
+	if len(restrictTypes) > 0 {
+		allow = make(map[string]bool, len(restrictTypes))
+		for _, t := range restrictTypes {
+			allow[t] = true
+		}
+	}
+
+	var parts []string
+	for _, objectType := range desc.queryOrder {
+		if allow != nil && !allow[objectType] {
+			continue
+		}
+		shape := desc.queryShapes[objectType]
+		var cols []string
+		for _, target := range shape.Targets {
+			if target.Strategy == "tombstone" {
+				cols = append(cols, target.Column)
+			}
+		}
+		if len(cols) == 0 {
+			continue
+		}
+		sort.Strings(cols)
+
+		var notDeleted []string
+		for _, col := range cols {
+			notDeleted = append(notDeleted, "(x."+col+" = 0 OR x."+col+" IS NULL)")
+		}
+		parts = append(parts, "(o.object_type != '"+objectType+"' OR EXISTS (SELECT 1 FROM "+shape.Table+" x WHERE x.object_id = o.object_id AND "+strings.Join(notDeleted, " AND ")+"))")
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " AND ")
+}
 
 // Objects executes a cross-type summary query over collaborative objects.
 func (d *DB) Objects(f ObjectFilter) ([]ObjectResult, error) {
 	if d == nil || d.db == nil {
 		return nil, fmt.Errorf("projection: database is closed")
 	}
-	for _, t := range objectsHardcodedTypes {
-		if err := d.requireBuiltinShape(t); err != nil {
-			return nil, err
-		}
-	}
+
+	desc := d.descriptor()
 
 	var sb strings.Builder
 	var args []any
@@ -999,19 +1104,24 @@ func (d *DB) Objects(f ObjectFilter) ([]ObjectResult, error) {
 	}
 
 	if f.Text != "" {
-		escaped := "%" + escapeLike(f.Text) + "%"
-		sb.WriteString(" AND (")
-		sb.WriteString("EXISTS (SELECT 1 FROM o_review r WHERE r.object_id = o.object_id AND (r.f_title LIKE ? ESCAPE '\\' OR r.f_description LIKE ? ESCAPE '\\'))")
-		sb.WriteString(" OR EXISTS (SELECT 1 FROM o_issue i WHERE i.object_id = o.object_id AND (i.f_title LIKE ? ESCAPE '\\' OR i.f_description LIKE ? ESCAPE '\\'))")
-		sb.WriteString(" OR EXISTS (SELECT 1 FROM o_comment c WHERE c.object_id = o.object_id AND c.f_text LIKE ? ESCAPE '\\')")
-		sb.WriteString(" OR EXISTS (SELECT 1 FROM o_project p WHERE p.object_id = o.object_id AND (p.f_title LIKE ? ESCAPE '\\' OR p.f_description LIKE ? ESCAPE '\\'))")
-		sb.WriteString(" OR EXISTS (SELECT 1 FROM o_cycle cy WHERE cy.object_id = o.object_id AND (cy.f_title LIKE ? ESCAPE '\\' OR cy.f_description LIKE ? ESCAPE '\\'))")
-		sb.WriteString(")")
-		args = append(args, escaped, escaped, escaped, escaped, escaped, escaped, escaped, escaped, escaped)
+		clause, params := objectsTextClause(desc, f.Type)
+		if clause != "" {
+			escaped := "%" + escapeLike(f.Text) + "%"
+			sb.WriteString(" AND " + clause)
+			for i := 0; i < params; i++ {
+				args = append(args, escaped)
+			}
+		} else {
+			// No declared type has a string/text scalar column to search
+			// (restricted to f.Type, when set): nothing can match.
+			sb.WriteString(" AND 0")
+		}
 	}
 
 	if !f.IncludeDeleted {
-		sb.WriteString(" AND (o.object_type != 'comment' OR EXISTS (SELECT 1 FROM o_comment c WHERE c.object_id = o.object_id AND (c.f_deleted = 0 OR c.f_deleted IS NULL)))")
+		if clause := objectsNotDeletedClause(desc, f.Type); clause != "" {
+			sb.WriteString(" AND " + clause)
+		}
 	}
 
 	switch f.OrderBy {
@@ -2039,14 +2149,14 @@ func (d *DB) Documents(f DocumentFilter) ([]DocumentResult, error) {
 	var args []any
 
 	if len(f.Labels) > 0 {
-		placeholders := make([]string, len(f.Labels))
+		qmarks := make([]string, len(f.Labels))
 		for i, label := range f.Labels {
-			placeholders[i] = "?"
+			qmarks[i] = "?"
 			args = append(args, label)
 		}
 		conditions = append(conditions, fmt.Sprintf(
 			"d.object_id IN (SELECT object_id FROM o_document__labels WHERE item IN (%s) GROUP BY object_id HAVING COUNT(DISTINCT item) = %d)",
-			strings.Join(placeholders, ", "), len(f.Labels),
+			strings.Join(qmarks, ", "), len(f.Labels),
 		))
 	}
 
@@ -2177,10 +2287,10 @@ func (d *DB) loadSectionsForDocuments(docIDs []string) (map[string][]SectionResu
 		return sectionsByDoc, nil
 	}
 
-	placeholders := make([]string, len(docIDs))
+	qmarks := make([]string, len(docIDs))
 	args := make([]any, len(docIDs))
 	for i, id := range docIDs {
-		placeholders[i] = "?"
+		qmarks[i] = "?"
 		args[i] = id
 	}
 
@@ -2190,7 +2300,7 @@ func (d *DB) loadSectionsForDocuments(docIDs []string) (map[string][]SectionResu
 			"FROM o_section s JOIN objects o ON o.object_id = s.object_id "+
 			"WHERE s.f_document_id IN (%s) AND (s.f_deleted = 0 OR s.f_deleted IS NULL) "+
 			"ORDER BY COALESCE(s.f_position, '') ASC, COALESCE(s.f_position__op_id, '') ASC",
-		strings.Join(placeholders, ", "),
+		strings.Join(qmarks, ", "),
 	)
 
 	rows, err := d.db.Query(query, args...)

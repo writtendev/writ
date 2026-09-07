@@ -248,6 +248,7 @@ func Open(path string, opts ...Option) (*Store, error) {
 	s.Reviews = &Reviews{store: s}
 	s.Issues = &Issues{store: s}
 	s.Comments = &Comments{store: s}
+	s.Objects = &Objects{store: s}
 	s.Drafts = &Drafts{store: s}
 	s.ReadState = &ReadState{store: s}
 	s.Query = &Query{store: s}

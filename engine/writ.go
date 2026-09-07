@@ -1,9 +1,10 @@
-// Package writ provides the public Go API for Writ: a git-native collaborative
-// SDLC engine for code reviews, issues, and discussions.
+// Package writ provides the public Go API for Writ: git-native, signed,
+// append-only, mergeable state stored under refs/writ/* in a git repository.
 //
-// The API is domain-shaped, never git-shaped — callers interact with high-level
-// operations and queries without dealing with git commit SHAs, refspecs, or
-// internal transport machinery unless explicitly requested.
+// The API is schema-shaped, never git-shaped — the shapes callers see come
+// from the schema declared in the log (writ.schema), not from Go structs
+// writ ships, and callers see no SHAs or refspecs unless they explicitly
+// ask for one.
 //
 // All client layers — CLI, downstream TUIs/viewers, GitHub bridges, and hosted services — build
 // on this single interface.
@@ -16,17 +17,21 @@
 //	}
 //	defer store.Close()
 //
-//	// Create a code review. Base and Head are commit OIDs, not ref names —
-//	// resolve refs before calling (git rev-parse, or go-git's ResolveRevision).
-//	reviewID, err := store.Reviews.Create(ctx, writ.NewReview{
-//	    Title: "Add OAuth2 authentication provider",
-//	    Base:  "e83c5163316f89bfbde7d9ab23ca2e25604af290",
-//	    Head:  "1f7a7a472abf3dd9643fd615f6da379c4acb3e3a",
+//	// Create an object of a schema-declared type. objectType and the op's
+//	// Type both come from the schema in the log (writ.schema) — writ itself
+//	// has no built-in notion of "review" beyond what a schema declares.
+//	objectID, err := store.Objects.Create(ctx, "review", writ.NewOp{
+//	    Type:   "create",
+//	    Fields: map[string]any{"title": "Add OAuth2 authentication provider"},
 //	})
 //
-//	// Query reviews
-//	reviews, err := store.Query.Reviews(writ.ReviewFilter{
-//	    Status: []string{"open"},
+//	// Fold and read an object's current state, keyed by the schema's own
+//	// field or target names.
+//	obj, err := store.Objects.Get(ctx, objectID)
+//
+//	// Query across every declared type
+//	objects, err := store.Query.Objects(writ.ObjectFilter{
+//	    Type: []string{"review"},
 //	})
 //
 //	// Synchronize with git remote

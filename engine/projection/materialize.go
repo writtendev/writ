@@ -194,8 +194,8 @@ func writeTypeRow(tx *sql.Tx, td *typeDescriptor, objectID string, folded map[st
 		vals = append(vals, unknownFields)
 	}
 
-	placeholders := strings.Repeat("?, ", len(cols)-1) + "?"
-	insertSQL := "INSERT INTO " + td.Table.Name + " (" + strings.Join(cols, ", ") + ") VALUES (" + placeholders + ")"
+	qmarks := strings.Repeat("?, ", len(cols)-1) + "?"
+	insertSQL := "INSERT INTO " + td.Table.Name + " (" + strings.Join(cols, ", ") + ") VALUES (" + qmarks + ")"
 	if _, err := tx.Exec(insertSQL, vals...); err != nil {
 		return fmt.Errorf("projection: insert %s row %s: %w", td.Table.Name, objectID, err)
 	}

@@ -50,6 +50,65 @@ func ExampleReviews_Create() {
 	fmt.Printf("Created review: %s\n", reviewID)
 }
 
+func ExampleObjects_Create() {
+	ctx := context.Background()
+	store, err := writ.Open(".")
+	if err != nil {
+		log.Printf("open repo: %v", err)
+		return
+	}
+	defer store.Close()
+
+	// Create an object of a schema-declared type. objectType and the op's
+	// Type both come from the schema in the log (writ.schema) — writ has no
+	// built-in notion of "review" beyond what a schema declares. Version 0
+	// resolves the op's version from the installed vocabulary; it must be
+	// set explicitly when a type declares more than one version of the op.
+	objectID, err := store.Objects.Create(ctx, "review", writ.NewOp{
+		Type: "create",
+		Fields: map[string]any{
+			"title":       "Add OAuth2 authentication provider",
+			"description": "Implements Google and GitHub OAuth2 flows",
+		},
+	})
+	if err != nil {
+		log.Printf("create object: %v", err)
+		return
+	}
+
+	fmt.Printf("Created object: %s\n", objectID)
+}
+
+func ExampleObjects_Get() {
+	ctx := context.Background()
+	store, err := writ.Open(".")
+	if err != nil {
+		log.Printf("open repo: %v", err)
+		return
+	}
+	defer store.Close()
+
+	objectID, err := store.Objects.Create(ctx, "review", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Add OAuth2 authentication provider"},
+	})
+	if err != nil {
+		log.Printf("create object: %v", err)
+		return
+	}
+
+	// Get folds the object's state directly from the DAG. Fields is keyed
+	// by the schema's TARGET key, which is not always the field name the
+	// creating op wrote it under — see NewOp.Fields and Object.Fields.
+	obj, err := store.Objects.Get(ctx, objectID)
+	if err != nil {
+		log.Printf("get object: %v", err)
+		return
+	}
+
+	fmt.Printf("Object %s (%s): %v\n", obj.ObjectID, obj.ObjectType, obj.Fields["title"])
+}
+
 func ExampleQuery_Reviews() {
 	store, err := writ.Open(".")
 	if err != nil {

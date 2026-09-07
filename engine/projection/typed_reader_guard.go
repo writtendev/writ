@@ -53,11 +53,11 @@ var builtinShapeDigestsOnce = sync.OnceValue(func() map[string][]byte {
 // literals (r.f_title and the rest), so a reshaped o_review makes every
 // call fail with an opaque "no such column" — reachable through the
 // shipped `writ schema apply` and, once applied, permanent (nothing about
-// the schema log ever reverts a redeclaration on its own). WRIT-192 deletes
-// every typed reader in this file, so the fix here stays small and
-// obvious: detect the mismatch before running the hand-written SQL and fail
-// with a clear, named error instead — never adapt the query to whatever
-// shape happens to be installed.
+// the schema log ever reverts a redeclaration on its own). WRIT-195 deletes
+// every typed reader in this file, and this guard along with them, so the
+// fix here stays small and obvious: detect the mismatch before running the
+// hand-written SQL and fail with a clear, named error instead — never adapt
+// the query to whatever shape happens to be installed.
 func (d *DB) requireBuiltinShape(objectType string) error {
 	if d == nil {
 		return nil

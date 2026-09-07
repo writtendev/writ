@@ -133,10 +133,12 @@ func (s *Store) vocabularies(ctx context.Context) (codec.Vocabularies, error) {
 	vocabularies, _ := VocabulariesFromSchemas(schemas)
 	logRules, _ := RulesFromSchemas(schemas)
 	rules := mergeRules(builtinRules(), logRules)
+	res := resolveSchemaTypes(schemas)
 
 	s.vocabMu.Lock()
 	s.vocabCache = vocabularies
 	s.ruleCache = rules
+	s.typesCache = res
 	s.vocabChains = chains
 	s.vocabFingerprint = fp
 	s.vocabMu.Unlock()
@@ -163,6 +165,22 @@ func (s *Store) rules(ctx context.Context) (map[string][]Rule, error) {
 	}
 	s.vocabMu.Lock()
 	cached := s.ruleCache
+	s.vocabMu.Unlock()
+	return cached, nil
+}
+
+// declaredTypes resolves resolveSchemaTypes's own result — the type-level
+// Description/Deprecated and the fields/ops resolution Store.Types builds
+// SchemaType values from — memoised alongside vocabularies and rules (same
+// cache-miss branch, same dag.Chains fingerprint, same invalidation via
+// noteAppend). A call here costs whatever a Store.vocabularies cache hit
+// already costs, never a second Schema/Enumerate fold.
+func (s *Store) declaredTypes(ctx context.Context) (resolvedSchemaTypes, error) {
+	if _, err := s.vocabularies(ctx); err != nil {
+		return resolvedSchemaTypes{}, err
+	}
+	s.vocabMu.Lock()
+	cached := s.typesCache
 	s.vocabMu.Unlock()
 	return cached, nil
 }
@@ -271,6 +289,240 @@ func fingerprintChains(chains map[string]dag.DiscoveredChain) string {
 		b.WriteByte('\n')
 	}
 	return b.String()
+}
+
+// checkBeforeAppend validates every op body a multi-append operation is about
+// to write, before the first of them is appended, against the same
+// log-sourced vocabularies s.dagStore.Append will consult for the actual
+// appends (Store.vocabularies): using anything else here — the embedded
+// tables alone, say — could pass an op Append itself then refuses,
+// reintroducing the half-written state this check exists to prevent
+// (TestCheckBeforeAppendAgreesWithAppend).
+//
+// An op is a signed commit in an append-only log. A sequence that appends one
+// op, is refused on the next, and returns an error to its caller has still
+// written the first one permanently — leaving state no caller holds a handle
+// to. Checking the whole sequence up front makes those operations all-or-
+// nothing against the producer check, which is the only failure mode the
+// engine can see coming.
+//
+// A sequence made up entirely of "schema" envelopes (ApplySchema's only
+// caller) never resolves vocabularies at all: codec.ValidateBody ignores
+// them for object_type "schema" regardless (spec/schema-ops.md §7's
+// bootstrap exception), and dag.Store.Append applies the same skip for the
+// same reason, so a resolver failure elsewhere in the log must not be able
+// to block writing the very "schema" ops that could fix it.
+//
+// checkBeforeAppend exists for multi-op sequences only — Reviews.Create (two
+// ops: create, then an optional initial revision) and ApplySchema (a whole
+// compiled delta) are its two callers. A single-op append (Objects.Create,
+// Objects.Apply, every other typed write service) needs no pre-flight check
+// of its own: dagStore.Append already runs the identical producer
+// validation against the identical log-sourced vocabulary before it writes
+// anything, so there is nothing left for a second look to catch.
+func (s *Store) checkBeforeAppend(ctx context.Context, envs ...codec.Envelope) error {
+	var vocabularies codec.Vocabularies
+	if needsLogVocabularies(envs) {
+		var err error
+		vocabularies, err = s.vocabularies(ctx)
+		if err != nil {
+			return err
+		}
+	}
+	for _, env := range envs {
+		if err := codec.ValidateBody(env, vocabularies); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// needsLogVocabularies reports whether envs contains anything other than
+// "schema" envelopes: "schema" always validates against the engine's
+// built-in bootstrap table, never the log, so a sequence made entirely of
+// "schema" ops has no use for a log-sourced vocabularies resolution at all.
+func needsLogVocabularies(envs []codec.Envelope) bool {
+	for _, env := range envs {
+		if env.ObjectType != "schema" {
+			return true
+		}
+	}
+	return false
+}
+
+// Types returns the vocabulary actually in effect right now: every declared
+// object type, its fields, and its ops — the built-in vocabulary overlaid by
+// whatever the log declares for the same object_type, log wins per type,
+// exactly the precedence Store.rules already applies to build the fold-rule
+// index (mergeRules). Types is memoised behind the same dag.Chains
+// fingerprint Store.rules already is, by reusing Store.declaredTypes: a
+// call here costs whatever a cache hit already costs there, never a second
+// Schema/Enumerate fold.
+//
+// Types differs from Store.Schema in what it answers: Schema returns only
+// the `schema` objects present in the log (what `writ schema plan`/`apply`
+// reason about), which is empty on a repository that has never run `writ
+// schema apply` even though the built-in vocabulary is installed and
+// folding right now. Types answers "what is installed and folding this
+// moment" — on that same fresh repository, it still returns every built-in
+// type.
+//
+// A log-declared type's Fields, Ops, Description, and Deprecated come
+// straight from resolveSchemaTypes's own resolved shape — descriptions and
+// Deprecated included, and Ops the union of every explicit define-op
+// declaration with the (op_type, op_version) pairs its Fields imply, so a
+// type declared with define-op and no fields at all
+// (TestDeclaredTypeWithNoFieldsIsWritable) is not invisible here the way it
+// would be from field rules alone. A built-in type has no state.Schema
+// object in the log to carry a description from, so it stays synthesised
+// from its Go rule table exactly as before, with Description and
+// Deprecated left zero.
+func (s *Store) Types(ctx context.Context) ([]SchemaType, error) {
+	if s == nil {
+		return nil, fmt.Errorf("writ: store is nil")
+	}
+
+	res, err := s.declaredTypes(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("writ: resolve types: %w", err)
+	}
+	builtin := builtinRules()
+
+	names := make(map[string]bool, len(builtin)+len(res.declared))
+	for name := range builtin {
+		names[name] = true
+	}
+	for name := range res.declared {
+		if name == "schema" || res.contested[name] {
+			continue
+		}
+		names[name] = true
+	}
+
+	sortedNames := make([]string, 0, len(names))
+	for name := range names {
+		sortedNames = append(sortedNames, name)
+	}
+	sort.Strings(sortedNames)
+
+	types := make([]SchemaType, 0, len(sortedNames))
+	for _, name := range sortedNames {
+		if res.declared[name] && !res.contested[name] {
+			types = append(types, schemaTypeFromResolved(name, res))
+			continue
+		}
+		types = append(types, schemaTypeFromRules(name, builtin[name]))
+	}
+	return types, nil
+}
+
+// schemaOpKey identifies one (op_type, op_version) pair for deduplicating
+// SchemaOp entries drawn from two sources (explicit define-op declarations
+// and the pairs a type's Fields imply) that may name the same op.
+type schemaOpVersionKey struct {
+	OpType    string
+	OpVersion int64
+}
+
+// schemaTypeFromResolved converts one non-contested, log-declared object
+// type's resolveSchemaTypes result into the SchemaType shape Store.Types
+// returns. Ops is the union of res.ops[name] (explicit define-op
+// declarations, which is where a description comes from) with the
+// (op_type, op_version) pairs res.fields[name] imply (a field targeting an
+// op nobody ran define-op for still means that op exists) — explicit
+// declarations win the description on a collision since they are visited
+// first. Both Fields and Ops are sorted for a deterministic, order-
+// independent result regardless of resolveSchemaTypes's own accumulation
+// order.
+func schemaTypeFromResolved(name string, res resolvedSchemaTypes) SchemaType {
+	fields := append([]SchemaField(nil), res.fields[name]...)
+	sort.Slice(fields, func(i, j int) bool {
+		if fields[i].OpType != fields[j].OpType {
+			return fields[i].OpType < fields[j].OpType
+		}
+		if fields[i].OpVersion != fields[j].OpVersion {
+			return fields[i].OpVersion < fields[j].OpVersion
+		}
+		return fields[i].Name < fields[j].Name
+	})
+
+	seen := make(map[schemaOpVersionKey]bool)
+	var ops []SchemaOp
+	for _, o := range res.ops[name] {
+		key := schemaOpVersionKey{o.OpType, o.OpVersion}
+		if !seen[key] {
+			seen[key] = true
+			ops = append(ops, o)
+		}
+	}
+	for _, f := range fields {
+		key := schemaOpVersionKey{f.OpType, f.OpVersion}
+		if !seen[key] {
+			seen[key] = true
+			ops = append(ops, SchemaOp{OpType: f.OpType, OpVersion: f.OpVersion})
+		}
+	}
+	sort.Slice(ops, func(i, j int) bool {
+		if ops[i].OpType != ops[j].OpType {
+			return ops[i].OpType < ops[j].OpType
+		}
+		return ops[i].OpVersion < ops[j].OpVersion
+	})
+
+	return SchemaType{
+		Name:        name,
+		Description: res.descriptions[name],
+		Deprecated:  res.deprecatedTypes[name],
+		Fields:      fields,
+		Ops:         ops,
+	}
+}
+
+// schemaTypeFromRules converts one object type's resolved rule list (a
+// Store.rules(ctx) entry) into the SchemaType shape Store.Types returns:
+// one SchemaField per rule, and an Ops list derived from the distinct
+// (op_type, op_version) pairs those rules declare, sorted for a
+// deterministic, order-independent result regardless of the input rule
+// slice's own order.
+func schemaTypeFromRules(name string, rules []Rule) SchemaType {
+	fields := make([]SchemaField, len(rules))
+	for i, r := range rules {
+		fields[i] = SchemaField{
+			Name:       r.Field,
+			OpType:     r.OpType,
+			OpVersion:  r.OpVersion,
+			ValueType:  r.ValueType,
+			Enum:       r.Enum,
+			MaxLength:  r.MaxLength,
+			Strategy:   r.Strategy,
+			Key:        r.Key,
+			KeyTypes:   r.KeyTypes,
+			Lattice:    r.Lattice,
+			Target:     r.Target,
+			Deprecated: r.Deprecated,
+		}
+	}
+	sort.Slice(fields, func(i, j int) bool {
+		if fields[i].OpType != fields[j].OpType {
+			return fields[i].OpType < fields[j].OpType
+		}
+		if fields[i].OpVersion != fields[j].OpVersion {
+			return fields[i].OpVersion < fields[j].OpVersion
+		}
+		return fields[i].Name < fields[j].Name
+	})
+
+	seen := make(map[SchemaOp]bool)
+	var ops []SchemaOp
+	for _, f := range fields {
+		op := SchemaOp{OpType: f.OpType, OpVersion: f.OpVersion}
+		if !seen[op] {
+			seen[op] = true
+			ops = append(ops, op)
+		}
+	}
+
+	return SchemaType{Name: name, Fields: fields, Ops: ops}
 }
 
 // ApplySchema appends a compiled `schema` op sequence (schemasrc.Compile's
@@ -565,6 +817,14 @@ type resolvedSchemaTypes struct {
 	// ops holds, per non-contested non-"schema" object type, every
 	// define-op declaration that survived the same grammar check.
 	ops map[string][]state.SchemaOp
+	// descriptions holds, per non-contested non-"schema" object type, the
+	// type's own Description (set on define-type, empty when never given
+	// one) — the metadata Store.Types (WRIT-192 MEDIUM-1) needs and that
+	// fields/ops alone cannot carry.
+	descriptions map[string]string
+	// deprecatedTypes holds, per non-contested non-"schema" object type,
+	// the type's own Deprecated (set by deprecate-type).
+	deprecatedTypes map[string]bool
 	// boundBy maps a non-contested object type to the ObjectID of the one
 	// schema object that binds it, so a producer rejection
 	// (VocabulariesFromSchemas -> codec.Vocabularies) can name which
@@ -650,11 +910,20 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 
 	fields := make(map[string][]state.SchemaField)
 	ops := make(map[string][]state.SchemaOp)
+	descriptions := make(map[string]string)
+	deprecatedTypes := make(map[string]bool)
 	for _, sch := range sorted {
 		for _, t := range sch.Types {
 			if t.Name == "schema" || contested[t.Name] {
 				continue
 			}
+
+			// A non-contested type is, by construction, declared by
+			// exactly one schema object, so this runs at most once per
+			// type name: no last-writer-wins ambiguity to resolve here,
+			// unlike fields[t.Name]/ops[t.Name] below.
+			descriptions[t.Name] = t.Description
+			deprecatedTypes[t.Name] = t.Deprecated
 
 			targetBindings := make(map[string][]spec.FieldRule)
 			var typeFields []state.SchemaField
@@ -715,12 +984,14 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 	}
 
 	return resolvedSchemaTypes{
-		declared:  declared,
-		contested: contested,
-		fields:    fields,
-		ops:       ops,
-		boundBy:   boundBy,
-		conflicts: conflicts,
+		declared:        declared,
+		contested:       contested,
+		fields:          fields,
+		ops:             ops,
+		descriptions:    descriptions,
+		deprecatedTypes: deprecatedTypes,
+		boundBy:         boundBy,
+		conflicts:       conflicts,
 	}
 }
 

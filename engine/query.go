@@ -24,12 +24,6 @@ type (
 	// OrderBy specifies the sort order for query results.
 	OrderBy = projection.OrderBy
 
-	// GroupKey represents a grouping dimension for issues.
-	GroupKey = projection.GroupKey
-
-	// Group represents a collection of issues belonging to a single group key.
-	Group = projection.Group
-
 	// ReviewResult represents a code review object along with its authorship and timestamps.
 	ReviewResult = projection.ReviewResult
 
@@ -115,15 +109,6 @@ const (
 
 	// OrderByEstimateDesc sorts results by estimate descending.
 	OrderByEstimateDesc = projection.OrderByEstimateDesc
-
-	// GroupByState groups issues by their state string.
-	GroupByState = projection.GroupByState
-
-	// GroupByAssignee groups issues by assignee.
-	GroupByAssignee = projection.GroupByAssignee
-
-	// GroupByPriority groups issues by priority.
-	GroupByPriority = projection.GroupByPriority
 )
 
 // Query provides read queries over collaborative objects, served from the projection SQLite cache.
@@ -184,17 +169,6 @@ func (q *Query) Threads(subjectType, subjectID string) ([]CommentThread, error) 
 		return nil, err
 	}
 	return q.store.projection.Threads(subjectType, subjectID)
-}
-
-// GroupIssues partitions issues matching the filter by the specified grouping key.
-func (q *Query) GroupIssues(by GroupKey, f IssueFilter) ([]Group, error) {
-	if q == nil || q.store == nil {
-		return nil, fmt.Errorf("writ: store is nil")
-	}
-	if err := q.store.maybeAutoRefresh(context.Background()); err != nil {
-		return nil, err
-	}
-	return q.store.projection.GroupIssues(by, f)
 }
 
 // Review fetches a single review by its object ID, returning ErrNotFound if not found.

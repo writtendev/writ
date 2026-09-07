@@ -16,9 +16,6 @@ const DefaultSettingsObjectID = state.DefaultSettingsObjectID
 const EventChanged EventKind = "changed"
 const EventCreated EventKind = "created"
 const EventReset EventKind = "reset"
-const GroupByAssignee = projection.GroupByAssignee
-const GroupByPriority = projection.GroupByPriority
-const GroupByState = projection.GroupByState
 const OrderByCreatedAtAsc = projection.OrderByCreatedAtAsc
 const OrderByCreatedAtDesc = projection.OrderByCreatedAtDesc
 const OrderByEstimateAsc = projection.OrderByEstimateAsc
@@ -184,10 +181,6 @@ type GitDirInfo struct {
 	CommonDir string
 }
 
-type Group = projection.Group
-
-type GroupKey = projection.GroupKey
-
 type Issue = state.Issue
 
 type IssueEdit struct {
@@ -265,6 +258,12 @@ type NewLabel struct {
 	Description string `json:"description,omitempty"`
 }
 
+type NewOp struct {
+	Type string
+	Version int64
+	Fields map[string]any
+}
+
 type NewReview struct {
 	Title string `json:"title"`
 	Description string `json:"description,omitempty"`
@@ -288,6 +287,13 @@ type NewWorkflowState struct {
 	Description string `json:"description,omitempty"`
 }
 
+type Object struct {
+	ObjectID string
+	ObjectType string
+	Fields map[string]any
+	UnknownOps []UnknownOp
+}
+
 type ObjectChange = projection.ObjectChange
 
 type ObjectFilter = projection.ObjectFilter
@@ -295,6 +301,13 @@ type ObjectFilter = projection.ObjectFilter
 type ObjectResult = projection.ObjectResult
 
 type ObjectState = state.ObjectState
+
+type Objects struct {
+	// unexported fields
+}
+func (*Objects) Apply(ctx context.Context, objectID string, op NewOp) error
+func (*Objects) Create(ctx context.Context, objectType string, op NewOp) (string, error)
+func (*Objects) Get(ctx context.Context, objectID string) (Object, error)
 
 type OpRef = state.OpRef
 
@@ -310,7 +323,6 @@ type Query struct {
 func (*Query) Comments(f CommentFilter) ([]CommentResult, error)
 func (*Query) Document(id string) (DocumentResult, error)
 func (*Query) Documents(f DocumentFilter) ([]DocumentResult, error)
-func (*Query) GroupIssues(by GroupKey, f IssueFilter) ([]Group, error)
 func (*Query) Issue(id string) (IssueResult, error)
 func (*Query) Issues(f IssueFilter) ([]IssueResult, error)
 func (*Query) Label(id string) (LabelResult, error)
@@ -424,6 +436,7 @@ type Store struct {
 	Reviews *Reviews
 	Issues *Issues
 	Comments *Comments
+	Objects *Objects
 	Drafts *Drafts
 	ReadState *ReadState
 	Query *Query
@@ -442,6 +455,7 @@ func (*Store) Schema(ctx context.Context) ([]state.Schema, error)
 func (*Store) SchemaAfterApply(ctx context.Context, objectID string, delta []codec.Envelope) (Schema, error)
 func (*Store) Sync(ctx context.Context, remote string) (SyncResult, error)
 func (*Store) SyncStatus(ctx context.Context, remote string) (SyncStatus, error)
+func (*Store) Types(ctx context.Context) ([]SchemaType, error)
 func (*Store) Watch(ctx context.Context) <-chan Event
 func (*Store) Writer() Writer
 
@@ -840,9 +854,6 @@ func Validate(key string) error
 
 package projection // github.com/writtendev/writ/engine/projection
 
-const GroupByAssignee GroupKey = "assignee"
-const GroupByPriority GroupKey = "priority"
-const GroupByState GroupKey = "state"
 const OrderByCreatedAtAsc OrderBy = "created_at_asc"
 const OrderByCreatedAtDesc OrderBy = "created_at_desc"
 const OrderByEstimateAsc OrderBy = "estimate_asc"
@@ -907,7 +918,6 @@ func (*DB) Draft(draftID string) (Draft, error)
 func (*DB) DumpLocalTables() (map[string][]map[string]any, error)
 func (*DB) DumpTables() (map[string][]map[string]any, error)
 func (*DB) Frontier(objectID string) ([]string, error)
-func (*DB) GroupIssues(by GroupKey, f IssueFilter) ([]Group, error)
 func (*DB) HasGeneratedTables() bool
 func (*DB) Issue(objectID string) (IssueResult, error)
 func (*DB) Issues(f IssueFilter) ([]IssueResult, error)
@@ -961,14 +971,6 @@ type DraftFilter struct {
 	SubjectID string `json:"subject_id,omitempty"`
 	SubjectType string `json:"subject_type,omitempty"`
 }
-
-type Group struct {
-	Key string `json:"key"`
-	Count int `json:"count"`
-	Issues []IssueResult `json:"issues"`
-}
-
-type GroupKey string
 
 type IssueFilter struct {
 	State []string
