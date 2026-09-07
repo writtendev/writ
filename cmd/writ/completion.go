@@ -38,15 +38,6 @@ func escapeFishDesc(s string) string {
 	return s
 }
 
-func flagEnumChoices(flagName string, cmdPath []string) string {
-	switch flagName {
-	case "sort":
-		return "created_at_asc created_at_desc updated_at_asc updated_at_desc"
-	default:
-		return ""
-	}
-}
-
 func emitBashCompletion(w io.Writer) {
 	fmt.Fprintln(w, `# bash completion for writ                          -*- shell-script -*-
 
@@ -548,9 +539,6 @@ complete -c writ -n '__fish_writ_using_command schema show' -f -a '(writ schema 
 			}
 			desc := escapeFishDesc(f.Usage)
 			enumChoices := strings.Join(f.Values, " ")
-			if enumChoices == "" {
-				enumChoices = flagEnumChoices(f.Name, path)
-			}
 
 			if enumChoices != "" {
 				fmt.Fprintf(w, "complete -c writ -n '%s' %s -d '%s' -r -f -a '%s'\n",

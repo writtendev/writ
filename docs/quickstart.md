@@ -4,12 +4,19 @@ This guide walks you through setting up Writ in a git repository, declaring a
 schema-backed object type, creating and updating an object of that type, and
 syncing operations to a collaborator across a remote repository.
 
-Writ itself knows no SDLC vocabulary — no "review", no "issue" — only merge
-types and value types (see `AGENTS.md`). What you call your objects and what
-fields they carry is something *you* declare, in a `writ.schema` file, the
-same way a git repository knows nothing about GitHub's issues until GitHub
-tells it what an issue looks like. This walkthrough is therefore a
-schema-authoring tutorial first, and an object tutorial second.
+Writ's engine knows merge types and value types, not SDLC types (see
+`AGENTS.md`) — no built-in idea of what a "review" or an "issue" *means*.
+What you call your objects and what fields they carry is something *you*
+declare, in a `writ.schema` file, the same way a git repository knows
+nothing about GitHub's issues until GitHub tells it what an issue looks
+like. This walkthrough is therefore a schema-authoring tutorial first, and
+an object tutorial second.
+
+(This repository still ships a few built-in types — `review`, `issue`, and
+the rest that `writ schema show` lists alongside whatever you declare below
+— left over from before the engine's per-type code was deleted. They are
+on their way out; treat their continued presence as an implementation
+detail, not a promise.)
 
 ## 1. Set Up Your Repository & SSH Signing Key
 
@@ -55,8 +62,10 @@ No git remotes configured; fetch refspec will be added when a remote is configur
 Wrote starter /path/to/repo/writ.schema
 ```
 
-The starter file `writ init` wrote has a namespace and nothing else — Writ
-declares no types of its own:
+The starter file `writ init` wrote has a namespace and nothing else — it
+declares no types of its own (see the note above on this repository's own
+still-built-in types, which live in the engine rather than in any
+`writ.schema` file):
 
 ```
 namespace my-project

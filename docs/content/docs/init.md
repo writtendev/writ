@@ -15,16 +15,4 @@ writ init [remote...]
 
 `writ init` prepares a repository for writ operations. It writes fetch refspecs into `.git/config` so that `git fetch` carries writ data into remote-tracking refs.
 
-## Public intake and bot attribution
-
-Writ operations require push access to `refs/writ/<writer-id>/*`. Unauthenticated
-public contributors cannot write ops directly into the repository.
-
-For open-source projects or public intake of any kind, teams run an **intake
-bot**: a designated writer with push credentials that bridges incoming
-webhooks, web forms, email, or an external tracker into writ operations.
-
-To attribute external reporters truthfully without synthesizing fake email
-addresses, intake bots use the `user:` person identifier scheme
-(`user:<service>-<id>`, such as `user:github-octocat`). This accurately records
-the reporter's origin identity while the bot signs the operation commit.
+For public issue intake (a stranger without push access to `refs/writ/<writer-id>/*` filing a bug), and how an intake bot attributes external reporters truthfully, see ["What's hard, and what isn't solved"](../why/#whats-hard-and-what-isnt-solved) in [Why Writ](../why/).

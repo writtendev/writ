@@ -98,9 +98,12 @@ func parseOrderBy(sortOrder string) (writ.OrderBy, error) {
 // A full 32-hex-character id passes straight through, unresolved: it goes
 // directly to Objects.Get, which folds from the DAG and needs the exact id,
 // not a prefix. Anything shorter is resolved through
-// Query.Objects{IncludeDeleted: true} instead, the same way every other
-// resolveXID helper above resolves a prefix -- prefix matching needs an
-// index to search, and the projection is that index.
+// Query.Objects{IncludeDeleted: true} instead: prefix matching needs an
+// index to search, and the projection is that index. This is now the only
+// id-resolving helper in this file — the six typed resolveXID helpers
+// (resolveReviewID, resolveCommentID, resolveIssueID, resolveIssueRef,
+// resolveDocumentID, resolveSectionID) this comment used to compare itself
+// against are gone along with the per-type commands they served.
 func resolveObjectID(ctx context.Context, store *writ.Store, prefix string) (string, error) {
 	if prefix == "" {
 		return "", fmt.Errorf("object ID required")
