@@ -643,8 +643,14 @@ Reports the vocabulary `Store.Types` resolves right now — built-in types overl
 | `fields[].op_type` | string | The op type that writes this field. |
 | `fields[].op_version` | integer | The op version that writes this field. |
 | `fields[].value_type` | string | Declared value type (`string`, `int`, `number`, `bool`, `anchor`, ...). Omitted when the field declares none. |
+| `fields[].enum` | array | Declared enum member strings, when `value_type` is `enum`. Omitted otherwise. `writ object create`/`apply` do not check enum membership at the CLI; this is how a client pre-validates it. |
+| `fields[].max_length` | integer | Declared maximum length for a `string`/`text` field. Omitted when unset. `writ object create`/`apply` do not check this at the CLI either — same reason as `enum`. |
 | `fields[].strategy` | string | Merge strategy (`lww`, `set-union`, ...). Omitted when unset. |
+| `fields[].key` | array | Declared key column name(s), when `strategy` is `keyed-lww`. Omitted otherwise. |
+| `fields[].key_types` | object | Map of key column name to its value type, when `strategy` is `keyed-lww`. Omitted otherwise. |
+| `fields[].lattice` | array | Declared semilattice element strings, when `strategy` is `lattice`. Omitted otherwise. |
 | `fields[].target` | string | Target key this field folds into, when it differs from `field`. Omitted otherwise. |
+| `fields[].deprecated` | boolean | `true` if this field declaration is deprecated. Omitted when `false`. |
 | `ops[].op_type` | string | Op type name. |
 | `ops[].op_version` | integer | Op version. |
 | `ops[].description` | string | Optional op description. Omitted when empty. |

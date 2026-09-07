@@ -66,7 +66,7 @@ Lists objects across every schema-declared type, or within one when `<type>` is 
 
 ```console
 $ writ object list ticket -text urgent
-0123456789 ticket  Alice <alice@example.com>  2026-01-01 00:00:00
+01234567 ticket  Alice <alice@example.com>  2026-01-01 00:00:00
 ```
 
 ## JSON output
