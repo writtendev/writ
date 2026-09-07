@@ -168,23 +168,79 @@ invalid. Before the op commit is built, the producer MUST verify that:
 1. The payload satisfies this document's envelope schema
    (`spec/schemas/op-envelope.schema.json`).
 2. The payload is byte-canonical per the byte-equality rule above.
-3. The payload satisfies the vocabulary schema for its `object_type`,
-   for **every object type the producer itself emits**. A producer is
-   not required to hold a schema for an object type it never writes; it
-   is required to hold one for every type it does.
-4. The `op_type` and `op_version` are ones the producer itself defines
-   for that `object_type`. A producer never legitimately authors an op
+3. The payload satisfies the declared fields for its `(object_type,
+   op_type, op_version)`: every key present in `body` has a rule the
+   schema object governing `object_type` declares, and every field whose
+   rule declares a `value_type` ([`spec/value-types.md`](value-types.md))
+   holds a value conforming to it.
+4. The `op_type` and `op_version` are ones the schema object governing
+   `object_type` declares. A producer never legitimately authors an op
    type or an op version it cannot interpret; where it appears to, the
    cause is a typo, and the op it would write is one no reader will ever
    interpret either.
 
-Rule 3 is the one this document previously left unstated, and the gap is
-not academic: the reader rules below constrain what an implementation
-accepts, so an implementation that only implemented those could — and
-one did — write ops that its own reader would reject.
+"The schema object governing `object_type`" resolves through a fixed,
+exclusive precedence — exactly one tier ever applies to a given op, so no
+two sources of truth ever run on the same op and neither can disagree with
+the other silently ([`spec/schema-ops.md`](schema-ops.md) is the normative
+description; this is the producer-side consequence of it):
+
+1. `object_type == "schema"` resolves against the engine's built-in
+   bootstrap table, always, never the log
+   ([`spec/schema-ops.md`](schema-ops.md) §7). This is the one permitted
+   exception.
+2. Otherwise, a `schema` object present in the repository's log declares
+   `object_type` and it is not contested (see tier 4) — the log-sourced
+   declaration, and only it.
+3. Otherwise, the producer still embeds a hand-written vocabulary for
+   `object_type` — that vocabulary, unchanged from how this document
+   described rules 3 and 4 before schema objects existed. This tier is
+   interim: a producer that embeds no vocabularies at all simply never
+   reaches it.
+4. Otherwise, `object_type` is **contested** — two or more `schema`
+   objects in the log bind the same bare `object_type`
+   ([`spec/schema-ops.md`](schema-ops.md) §6) — the write is **permitted,
+   unvalidated**. Nothing is ever removed from the log, so a contested
+   `object_type` is contested *forever*: there is no step that resolves
+   it. Refusing to write would therefore be a *permanent* write outage,
+   not a transient availability dip, and the realistic cause is not
+   malice — writ has no anonymous write path, so a peer able to push a
+   colliding `schema` object is already a collaborator with push access —
+   but two writers each minting a repository's first `schema` object while
+   offline. This tier's cost, stated plainly rather than left to be
+   discovered: a producer may write ops here that **no conforming reader
+   will interpret** — a reader also withholds interpretation from a
+   contested `object_type` ([`spec/schema-ops.md`](schema-ops.md) §6) —
+   and those ops are just as permanent as any other. That is accepted
+   because it is recoverable in principle if the contest itself ever
+   becomes recoverable, where a write refusal is a hard stop today with no
+   such path. This tier is interim in the same sense as tier 3: it exists
+   only because the contest has no resolution step yet, and disappears
+   the day one is defined.
+5. Otherwise — no schema in the log declares `object_type` and the
+   producer embeds no vocabulary for it either — the producer MUST
+   refuse, naming `object_type` and stating that nothing declares it.
+
+Rule 3 deliberately checks less than the hand-written vocabulary schemas
+tier 3 falls back to once did: **required fields are not checked.** The
+schema DSL a `schema` object's `define-field`/`define-op` vocabulary draws
+from declares types, value types, merge strategies, and relations, and
+nothing else — no requiredness, no computed fields, no hooks, no
+permissions. A body missing a field its schema would otherwise want is not
+corruption; it is an absent register at fold time, exactly like any other
+field a producer chooses not to write. Widening rule 3 to check
+requiredness would mean adding it to the schema DSL first, which is
+framework-building and out of bounds.
+
+Rule 3 is the one this document previously left unstated (before schema
+objects existed, when the only source of body rules was a hand-written
+vocabulary schema), and the gap is not academic: the reader rules below
+constrain what an implementation accepts, so an implementation that only
+implemented those could — and one did — write ops that its own reader
+would reject.
 
 Rules 3 and 4 are distinct, and the difference is why rule 4 is written
-out rather than folded into rule 3. The **vocabulary schemas in
+out rather than folded into rule 3. At tier 3, the **vocabulary schemas in
 `spec/schemas/` are reader-safe by construction**: they gate their body
 rules on the `op_version` they specify, so an op carrying an unknown
 `op_type` or a future `op_version` is a *valid instance* of them. That
@@ -192,12 +248,21 @@ is deliberate — a reader must tolerate both
 ([`spec/forward-compatibility.md`](forward-compatibility.md)), and any
 implementation that validates incoming ops against a published
 vocabulary schema must not thereby break forward compatibility. Rule 4
-is therefore a producer obligation that the schemas do not and should
-not express; a producer satisfies it from its own vocabulary table, not
-by schema validation alone. All six shipped vocabularies are built this
-way, and each of their corpora carries vectors under `valid/` pinning an
-unknown `op_type` and a future `op_version` as instances every one of
-them accepts.
+is therefore a producer obligation those schemas do not and should not
+express; a producer satisfies it from its own vocabulary table, not by
+schema validation alone. All ten non-`schema` shipped vocabularies are
+built this way, though not every corpus carries a vector pinning it:
+seven (`comments`, `cycle`, `issue-ops`, `project`, `review-ops`,
+`schema-ops`, `settings`) carry `valid/unknown-op-type.json`, and three
+of those (`cycle`, `project`, `settings`) also carry
+`valid/future-version.json`, each an instance the vocabulary schema
+still accepts despite the unknown `op_type` or future `op_version`. At
+tier 2, the same distinction holds for a different
+reason: a `define-op` list — or a `define-field` list, which is equally a
+declaration of which op types exist (`spec/schema-ops.md` §4.2) — is
+exactly the kind of thing a *reader* must not enforce (unknown `op_type`
+and future `op_version` stay tolerated on the read path regardless of
+what any schema declares); it binds the producer only.
 
 The asymmetry with reader validation is deliberate. An op is a signed
 commit in an append-only log: a producer that writes an invalid op
@@ -271,3 +336,16 @@ cannot live in fold, and this document does not define when it runs.
   `spec/fixtures/testdata/golden/envelope/`), covering valid envelopes, bad
   signatures, malformed payloads, and malformed trees. Per-op-type body
   schemas and vocabularies defer to WRIT-8–11.
+- `spec/testdata/producer/` (WRIT-188) — tiers 2, 4, and 5 of the five-tier
+  producer precedence above, exercised as paired verdicts: `index.json`
+  names, per case under `cases/`, the producer's verdict (with a reason
+  code where rule 3 or the envelope schema is the cause) and the
+  disposition a reader gives the identical op if it reached the log by
+  another path. Every rejected case is accepted by a reader — the corpus's
+  whole point is that producer validation tightens the write path only,
+  never the read path
+  ([`spec/forward-compatibility.md`](forward-compatibility.md) is
+  unchanged by this tightening, and its own corpus is the regression net
+  for that). Tiers 1 and 3 are covered in Go instead, by
+  `TestSchemaObjectAlwaysValidatesAgainstBootstrapTable` and
+  `TestLogSchemaSupersedesEmbeddedVocabulary`.

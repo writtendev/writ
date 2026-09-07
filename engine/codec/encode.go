@@ -63,13 +63,21 @@ func EncodePayload(env Envelope) ([]byte, error) {
 // at mode 100644, committer byte-identical to author, and timestamp recorded in UTC (+0000).
 //
 // BuildCommit is the producer boundary, so it is where the op is checked
-// against the vocabulary registered for its object type: its op_type and
-// op_version are ones this build defines, and its payload satisfies the
-// vocabulary schema (spec/op-envelope.md §Producer validation, rules 3 and 4).
-// The check belongs here and not in EncodePayload:
-// EncodePayload is also on the read path — the projection re-encodes ops it
-// fetched from the log whose raw bytes it did not keep — and a foreign op writ
-// reads perfectly well today must keep projecting.
+// against the vocabulary that applies to its object type under the
+// five-tier precedence spec/op-envelope.md §Producer validation defines:
+// its op_type and op_version are ones that tier defines (rule 4), and its
+// payload satisfies that tier's field rules (rule 3). The check belongs
+// here and not in EncodePayload: EncodePayload is also on the read path —
+// the projection re-encodes ops it fetched from the log whose raw bytes it
+// did not keep — and a foreign op writ reads perfectly well today must
+// keep projecting.
+//
+// vocabularies is the log-sourced declarations resolved once per
+// dag.Store.Append, before its CAS retry loop — not once per BuildCommit,
+// which that loop can call up to 16 times on one contended append. nil
+// means the log declares nothing (a bare dag.Store, or a scenario harness
+// that never resolves it); tiers 1, 3, and 5 of the precedence decide the
+// same regardless.
 //
 // The cost is one JSON Schema validation per appended op — roughly 17 µs,
 // against the 22 µs the canonical encoding directly above it already costs
@@ -78,13 +86,13 @@ func EncodePayload(env Envelope) ([]byte, error) {
 // It is paid once per write and never on a read, and it buys the one failure
 // mode that cannot be repaired afterwards, which is the trade this check is
 // worth.
-func BuildCommit(env Envelope, author Identity, parents []string) (*Commit, error) {
+func BuildCommit(env Envelope, author Identity, parents []string, vocabularies Vocabularies) (*Commit, error) {
 	raw, err := EncodePayload(env)
 	if err != nil {
 		return nil, fmt.Errorf("codec: build commit payload: %w", err)
 	}
 
-	if err := validateProducerOp(env, raw); err != nil {
+	if err := validateProducerOp(env, raw, vocabularies); err != nil {
 		return nil, fmt.Errorf("codec: build commit body: %w", err)
 	}
 

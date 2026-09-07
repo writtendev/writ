@@ -87,7 +87,7 @@ func TestInterop_EngineToSystemGit(t *testing.T) {
 		Body:       json.RawMessage(`{"title":"Initial"}`),
 	}
 
-	commit, err := codec.BuildCommit(env, author, nil)
+	commit, err := codec.BuildCommit(env, author, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildCommit: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestDeterminism(t *testing.T) {
 		Body:       json.RawMessage(`{"title":"Initial"}`),
 	}
 
-	commit1, err := codec.BuildCommit(env, author, nil)
+	commit1, err := codec.BuildCommit(env, author, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +276,7 @@ func TestDeterminism(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	commit2, err := codec.BuildCommit(env, author, nil)
+	commit2, err := codec.BuildCommit(env, author, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

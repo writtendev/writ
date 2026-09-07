@@ -1,0 +1,49 @@
+{
+  "conforming-control.json": {
+    "producer_verdict": "accept",
+    "reader_disposition": "interpretable",
+    "reason": "a body fully covered by the declared schema is accepted at the producer (tiers 1-4 all pass) and interpretable by the reader"
+  },
+  "undeclared-field.json": {
+    "producer_verdict": "reject",
+    "reason_code": "schema-violation",
+    "reader_disposition": "interpretable",
+    "reason": "rule 3: a field the schema declares no rule for is a producer rejection; a reader tolerates it, folding the op and ignoring the unrecognized field"
+  },
+  "value-type-mismatch.json": {
+    "producer_verdict": "reject",
+    "reason_code": "schema-violation",
+    "reader_disposition": "interpretable",
+    "reason": "rule 3: a value failing its declared value_type is a producer rejection; the read path does no value typing (spec/value-types.md), so the reader folds the op with the value intact"
+  },
+  "undeclared-op-type.json": {
+    "producer_verdict": "reject",
+    "reader_disposition": "unknown-op",
+    "reason": "rule 4: an op_type the schema does not declare for this object_type is a producer rejection; a reader has no matching rule and reports UnknownOp"
+  },
+  "undeclared-op-version.json": {
+    "producer_verdict": "reject",
+    "reader_disposition": "unknown-op",
+    "reason": "rule 4: an op_version the schema does not declare for this op_type is a producer rejection; a reader has no matching rule and reports UnknownOp"
+  },
+  "undeclared-object-type.json": {
+    "producer_verdict": "reject",
+    "reader_disposition": "unknown-op",
+    "reason": "tier 5: an object_type no schema declares, and this build embeds no vocabulary for, is refused at the producer; a reader falls through the absent-schema path to UnknownOp (FC-1, spec/schema-ops.md 7.1)"
+  },
+  "contested-object-type.json": {
+    "producer_verdict": "accept",
+    "reader_disposition": "unknown-op",
+    "reason": "tier 4 (the ruling's carve-out): two schema objects binding the same bare object_type install no rules (spec/schema-ops.md 6), so the write is permitted unvalidated while the reader still reports UnknownOp -- the write/read asymmetry is the point"
+  },
+  "declared-type-with-no-fields.json": {
+    "producer_verdict": "accept",
+    "reader_disposition": "unknown-op",
+    "reason": "tier 2 is decided from the declared-type set, not from a non-empty rules slice: a type declared by define-op alone (no define-field) accepts an op of its declared op type with an empty body; with no field rules installed at all, a reader has nothing to fold and reports UnknownOp"
+  },
+  "deprecated-field-still-writable.json": {
+    "producer_verdict": "accept",
+    "reader_disposition": "interpretable",
+    "reason": "deprecated is metadata discouraging new writes, never a filter (spec/schema-ops.md 5, 8): the field rule stays installed and active for both the producer and the fold"
+  }
+}

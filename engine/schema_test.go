@@ -3,8 +3,10 @@ package writ_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	writ "github.com/writtendev/writ/engine"
@@ -199,6 +201,91 @@ func TestRulesFromSchemas_InvalidRuleDroppedNotInstalled(t *testing.T) {
 	objState, err := writ.Fold([]codec.Op{dataOp}, rules["standup"])
 	if err != nil {
 		t.Fatalf("Fold must never see an unknown-strategy rule, got error: %v", err)
+	}
+	if len(objState.UnknownOps) != 1 || objState.UnknownOps[0].Commit != "op-1" {
+		t.Fatalf("expected op-1 to fall through to UnknownOps, got %+v", objState)
+	}
+}
+
+// TestRulesFromSchemas_InvalidOpTypeGrammarDroppedNotInstalled pins
+// spec/schema-ops.md §11's grammar gate: a define-field's or define-op's
+// declared op_type must satisfy the same wire grammar
+// spec/op-envelope.md pins for an envelope's own op_type
+// (^[a-z][a-z0-9-]*$, at most opTypeMaxLength characters), or the
+// candidate rule/op is dropped and reported as a SchemaConflict, never
+// installed — exactly like an invalid strategy or value_type already is.
+//
+// A conforming producer can never actually reach this through
+// Store.ApplySchema: spec/schemas/schema-ops.schema.json's op_type_name
+// pattern already enforces the identical grammar on a
+// define-field/define-op body's own op_type field, so ApplySchema
+// refuses a bad op_type before state.FoldSchema ever sees it. This gate
+// is for a non-conforming peer's schema object that bypassed producer
+// validation and still folds cleanly — the same "rogue schema" scenario
+// TestSchemaObjectAlwaysValidatesAgainstBootstrapTable covers for a
+// different rule — which is why this is exercised directly against
+// resolveSchemaTypes's inputs (state.Schema Go values) rather than
+// through the envelope path.
+func TestRulesFromSchemas_InvalidOpTypeGrammarDroppedNotInstalled(t *testing.T) {
+	sch := state.Schema{
+		ObjectID: "sch-a",
+		Types: []state.SchemaType{
+			{
+				Name: "standup",
+				Fields: []state.SchemaField{
+					mkField("standup", "Bad_Type", 1, "summary", "lww"),            // uppercase/underscore - invalid
+					mkField("standup", strings.Repeat("a", 65), 1, "notes", "lww"), // over opTypeMaxLength - invalid
+					mkField("standup", "create", 1, "owner", "lww"),                // valid, control
+				},
+				Ops: []state.SchemaOp{
+					{OpType: "UPPER", OpVersion: 1},
+					{OpType: strings.Repeat("b", 65), OpVersion: 1},
+					{OpType: "define-me", OpVersion: 1}, // valid, control
+				},
+			},
+		},
+	}
+
+	rules, conflicts := writ.RulesFromSchemas([]state.Schema{sch})
+	got := rules["standup"]
+	if len(got) != 1 || got[0].Field != "owner" {
+		t.Fatalf("expected only the grammatically valid field rule installed, got %+v", got)
+	}
+	if len(conflicts) != 4 {
+		t.Fatalf("expected 4 conflicts for the two grammar-invalid define-field op_types and the two grammar-invalid define-op op_types, got %+v", conflicts)
+	}
+	for _, c := range conflicts {
+		if !strings.Contains(c.Reason, "not a valid op type") {
+			t.Errorf("conflict reason does not name the grammar violation: %+v", c)
+		}
+	}
+
+	vocabularies, _ := writ.VocabulariesFromSchemas([]state.Schema{sch})
+	voc, ok := vocabularies["standup"]
+	if !ok || !voc.Declared {
+		t.Fatalf("expected standup Declared, got %+v", voc)
+	}
+	wantOpTypes := map[codec.OpVersionKey]bool{
+		{OpType: "create", OpVersion: 1}:    true, // from the valid define-field
+		{OpType: "define-me", OpVersion: 1}: true, // from the valid define-op
+	}
+	if !reflect.DeepEqual(voc.OpTypes, wantOpTypes) {
+		t.Fatalf("expected only the grammatically valid op types installed, got %+v", voc.OpTypes)
+	}
+
+	// The same §9 security boundary as TestRulesFromSchemas_InvalidRuleDroppedNotInstalled:
+	// an op signed under the grammar-invalid define-op's op_type falls
+	// through to UnknownOps, never a hard fold error.
+	dataOp := codec.Op{
+		Envelope: codec.Envelope{
+			ObjectID: "obj-1", ObjectType: "standup", OpType: "UPPER", OpVersion: 1,
+			Body: json.RawMessage(`{}`),
+		},
+		ID: "op-1",
+	}
+	objState, err := writ.Fold([]codec.Op{dataOp}, rules["standup"])
+	if err != nil {
+		t.Fatalf("Fold must never see a rule for a grammar-invalid op_type, got error: %v", err)
 	}
 	if len(objState.UnknownOps) != 1 || objState.UnknownOps[0].Commit != "op-1" {
 		t.Fatalf("expected op-1 to fall through to UnknownOps, got %+v", objState)
@@ -1016,5 +1103,385 @@ func TestSchemaAfterApply_HonestFoldDivergesFromFileAloneFold(t *testing.T) {
 	_, plannedConflicts := writ.RulesFromSchemas([]state.Schema{planned})
 	if len(plannedConflicts) != 0 {
 		t.Fatalf("expected RulesFromSchemas to report no conflicts for the clean file-alone fold, got %+v", plannedConflicts)
+	}
+}
+
+// --- WRIT-188: producer validation drives off the schema in the log ---
+
+// openWritableStore is the common setup for the producer-precedence tests
+// below: a configured, signable repo with a real writ.Store, so
+// Store.ApplySchema and the store's own wired dag.Store (writ.StoreDAGStore)
+// exercise the exact same producer path a real caller would.
+func openWritableStore(t *testing.T) (*writ.Store, context.Context) {
+	t.Helper()
+	dir, _ := setupConfiguredRepo(t)
+	store, err := writ.Open(dir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("writ.Open failed: %v", err)
+	}
+	t.Cleanup(func() { store.Close() })
+	return store, context.Background()
+}
+
+// TestDeclaredTypeWithNoFieldsIsWritable pins the len(typeRules) > 0 hole
+// named in the WRIT-188 ticket's plan: a type declared by define-op alone
+// (no define-field at all) is still Declared in
+// writ.VocabulariesFromSchemas, so tier 2 of spec/op-envelope.md's
+// producer precedence must accept an op of that declared op type with an
+// empty body — not fall through to tier 5's refusal because rules[t]
+// happens to be empty.
+func TestDeclaredTypeWithNoFieldsIsWritable(t *testing.T) {
+	store, ctx := openWritableStore(t)
+
+	schemaEnvs := []codec.Envelope{
+		schemaEnv(t, "sch-widget", "create", map[string]any{"namespace": "acme"}),
+		schemaEnv(t, "sch-widget", "define-type", map[string]any{"type": "widget"}),
+		schemaEnv(t, "sch-widget", "define-op", map[string]any{"type": "widget", "op_type": "create", "op_version": "1"}),
+	}
+	if err := store.ApplySchema(ctx, schemaEnvs); err != nil {
+		t.Fatalf("ApplySchema failed: %v", err)
+	}
+
+	dagStore := writ.StoreDAGStore(store)
+	env := codec.Envelope{
+		ObjectID:   "widget-1",
+		ObjectType: "widget",
+		OpType:     "create",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{}`),
+	}
+	if _, err := dagStore.Append(ctx, env, nil); err != nil {
+		t.Fatalf("Append refused a declared op type on a fieldless declared type: %v", err)
+	}
+}
+
+// TestContestedObjectTypeStaysWritable is the ruling's carve-out
+// (spec/op-envelope.md §Producer validation, tier 4), pinned at the
+// engine/dag.Store.Append level: two schema objects binding the same bare
+// object_type install no rules (spec/schema-ops.md §6) and the type is
+// Contested in writ.VocabulariesFromSchemas, but the write must still
+// succeed, unvalidated — the opposite of what an earlier draft of this
+// ticket proposed (fail-closed on a contested type would be a *permanent*
+// write outage, since nothing is ever removed from the log and there is no
+// resolution step; see the ticket's RULED block). The reader still
+// degrades a contested type's ops to UnknownOp (spec/schema-ops.md §6),
+// unaffected by this test — the write/read asymmetry is the point.
+func TestContestedObjectTypeStaysWritable(t *testing.T) {
+	store, ctx := openWritableStore(t)
+
+	if err := store.ApplySchema(ctx, []codec.Envelope{
+		schemaEnv(t, "sch-a", "create", map[string]any{"namespace": "alpha"}),
+		schemaEnv(t, "sch-a", "define-type", map[string]any{"type": "standup"}),
+	}); err != nil {
+		t.Fatalf("ApplySchema sch-a failed: %v", err)
+	}
+	if err := store.ApplySchema(ctx, []codec.Envelope{
+		schemaEnv(t, "sch-b", "create", map[string]any{"namespace": "beta"}),
+		schemaEnv(t, "sch-b", "define-type", map[string]any{"type": "standup"}),
+	}); err != nil {
+		t.Fatalf("ApplySchema sch-b failed: %v", err)
+	}
+
+	// Confirm the type really is contested before relying on that to test
+	// tier 4: RulesFromSchemas installs no rules for it.
+	schemas, err := store.Schema(ctx)
+	if err != nil {
+		t.Fatalf("Store.Schema failed: %v", err)
+	}
+	rules, conflicts := writ.RulesFromSchemas(schemas)
+	if _, ok := rules["standup"]; ok {
+		t.Fatalf("expected no rules installed for the contested type, got %+v", rules["standup"])
+	}
+	if len(conflicts) == 0 {
+		t.Fatalf("expected a conflict for the contested object_type, got none")
+	}
+
+	dagStore := writ.StoreDAGStore(store)
+	env := codec.Envelope{
+		ObjectID:   "standup-1",
+		ObjectType: "standup",
+		OpType:     "anything-at-all",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"unvalidated":true}`),
+	}
+	if _, err := dagStore.Append(ctx, env, nil); err != nil {
+		t.Fatalf("Append refused a write to a contested object_type; it must be permitted unvalidated: %v", err)
+	}
+}
+
+// TestUndeclaredObjectTypeIsRefused is the genuine-absence tier (5): an
+// object_type no schema in the log declares, and this build embeds no
+// vocabulary for, is refused — distinct from TestContestedObjectTypeStaysWritable's
+// tier 4, so the two cannot be collapsed by accident.
+func TestUndeclaredObjectTypeIsRefused(t *testing.T) {
+	store, ctx := openWritableStore(t)
+
+	dagStore := writ.StoreDAGStore(store)
+	env := codec.Envelope{
+		ObjectID:   "w-1",
+		ObjectType: "widget",
+		OpType:     "sprocket",
+		OpVersion:  7,
+		Body:       json.RawMessage(`{"anything":[1,2,3]}`),
+	}
+	if _, err := dagStore.Append(ctx, env, nil); err == nil {
+		t.Fatal("Append accepted an object_type declared by no schema and embedded by no vocabulary")
+	}
+}
+
+// TestLogSchemaSupersedesEmbeddedVocabulary pins the precedence's tier 2
+// winning outright over tier 3: "issue" is one of the ten still-embedded
+// SDLC types, but a repo whose log narrowly declares "issue" (title only,
+// no description) must have that declaration govern exclusively — a body
+// the embedded issue-ops.schema.json would happily accept (an extra
+// "description" field) is refused, and the error names the schema object
+// responsible.
+func TestLogSchemaSupersedesEmbeddedVocabulary(t *testing.T) {
+	store, ctx := openWritableStore(t)
+
+	if err := store.ApplySchema(ctx, []codec.Envelope{
+		schemaEnv(t, "sch-issue", "create", map[string]any{"namespace": "acme"}),
+		schemaEnv(t, "sch-issue", "define-type", map[string]any{"type": "issue"}),
+		schemaEnv(t, "sch-issue", "define-op", map[string]any{"type": "issue", "op_type": "create", "op_version": "1"}),
+		schemaEnv(t, "sch-issue", "define-field", map[string]any{
+			"type": "issue", "op_type": "create", "op_version": "1",
+			"field": "title", "value_type": "string", "strategy": "lww",
+		}),
+	}); err != nil {
+		t.Fatalf("ApplySchema failed: %v", err)
+	}
+
+	dagStore := writ.StoreDAGStore(store)
+
+	// A body the narrow log schema fully covers: accepted.
+	if _, err := dagStore.Append(ctx, codec.Envelope{
+		ObjectID:   "iss-1",
+		ObjectType: "issue",
+		OpType:     "create",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"title":"Initial"}`),
+	}, nil); err != nil {
+		t.Fatalf("Append refused a body the log schema fully declares: %v", err)
+	}
+
+	// A body the embedded issue-ops.schema.json accepts (description is a
+	// valid create field there) but the narrow log schema does not declare
+	// at all: refused, naming the schema object.
+	_, err := dagStore.Append(ctx, codec.Envelope{
+		ObjectID:   "iss-2",
+		ObjectType: "issue",
+		OpType:     "create",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"title":"Initial","description":"extra"}`),
+	}, nil)
+	if err == nil {
+		t.Fatal("Append accepted a field the log schema does not declare, using the embedded vocabulary instead")
+	}
+	if !strings.Contains(err.Error(), "sch-issue") {
+		t.Errorf("error does not name the responsible schema object (sch-issue): %v", err)
+	}
+}
+
+// TestSchemaObjectAlwaysValidatesAgainstBootstrapTable pins
+// spec/schema-ops.md §7's single permitted exception: object_type
+// "schema" always validates against the engine's built-in table, never
+// the log, even when a schema object in the log attempts to redefine it
+// (RulesFromSchemas/VocabulariesFromSchemas already refuse to install
+// anything for that attempt — engine/schema.go's
+// resolveSchemaTypes — but this pins that the *producer path* never even
+// consults the log for it in the first place). Checked through both
+// Store.ApplySchema and the store's own dag.Store.Append, since both are
+// producer-boundary callers.
+func TestSchemaObjectAlwaysValidatesAgainstBootstrapTable(t *testing.T) {
+	store, ctx := openWritableStore(t)
+
+	// A schema object that attempts to redefine "schema" itself: folds
+	// fine (state.FoldSchema has no opinion), and is reported as a
+	// permanent conflict by the resolver, but ApplySchema itself — which
+	// writes only object_type "schema" ops — must not be disrupted by it.
+	if err := store.ApplySchema(ctx, []codec.Envelope{
+		schemaEnv(t, "sch-rogue", "create", map[string]any{"namespace": "rogue"}),
+		schemaEnv(t, "sch-rogue", "define-type", map[string]any{"type": "schema"}),
+	}); err != nil {
+		t.Fatalf("ApplySchema (attempted schema redefinition) failed: %v", err)
+	}
+
+	schemas, err := store.Schema(ctx)
+	if err != nil {
+		t.Fatalf("Store.Schema failed: %v", err)
+	}
+	vocabularies, conflicts := writ.VocabulariesFromSchemas(schemas)
+	if len(conflicts) == 0 {
+		t.Fatalf("expected a conflict for the attempted redefinition of \"schema\", got none")
+	}
+	if _, ok := vocabularies["schema"]; ok {
+		t.Fatalf("VocabulariesFromSchemas must never key \"schema\" at all, got %+v", vocabularies["schema"])
+	}
+
+	// A second, ordinary schema object write must still succeed: it is
+	// itself object_type "schema", validated at tier 1 regardless of the
+	// rogue redefinition attempt sitting in the log.
+	if err := store.ApplySchema(ctx, []codec.Envelope{
+		schemaEnv(t, "sch-ok", "create", map[string]any{"namespace": "ok"}),
+	}); err != nil {
+		t.Fatalf("ApplySchema (ordinary schema write) failed after a rogue redefinition attempt: %v", err)
+	}
+
+	// And a direct Append of a "schema" op through the store's own dag.Store
+	// succeeds the same way.
+	dagStore := writ.StoreDAGStore(store)
+	if _, err := dagStore.Append(ctx, schemaEnv(t, "sch-ok", "define-type", map[string]any{"type": "widget"}), nil); err != nil {
+		t.Fatalf("Append of an ordinary schema op failed after a rogue redefinition attempt: %v", err)
+	}
+}
+
+// TestCheckBeforeAppendAgreesWithAppend is the multi-append all-or-nothing
+// property (checkBeforeAppend's whole job) exercised against log-sourced
+// vocabularies rather than the embedded tables: Reviews.Create's
+// create-then-revision sequence, with a schema in the log that narrowly
+// declares "review" (create only, no revision op at all). checkBeforeAppend
+// must refuse the sequence before either op is appended — using the exact
+// same vocabularies dag.Store.Append itself would — leaving no partially
+// written review behind. A direct Append of the same refused op afterwards
+// confirms Append agrees with the verdict checkBeforeAppend already gave.
+func TestCheckBeforeAppendAgreesWithAppend(t *testing.T) {
+	store, ctx := openWritableStore(t)
+
+	if err := store.ApplySchema(ctx, []codec.Envelope{
+		schemaEnv(t, "sch-review", "create", map[string]any{"namespace": "acme"}),
+		schemaEnv(t, "sch-review", "define-type", map[string]any{"type": "review"}),
+		schemaEnv(t, "sch-review", "define-op", map[string]any{"type": "review", "op_type": "create", "op_version": "1"}),
+		schemaEnv(t, "sch-review", "define-field", map[string]any{
+			"type": "review", "op_type": "create", "op_version": "1",
+			"field": "title", "value_type": "string", "strategy": "lww",
+		}),
+	}); err != nil {
+		t.Fatalf("ApplySchema failed: %v", err)
+	}
+
+	base := strings.Repeat("a", 40)
+	head := strings.Repeat("b", 40)
+	_, err := store.Reviews.Create(ctx, writ.NewReview{Title: "Initial", Base: base, Head: head})
+	if err == nil {
+		t.Fatal("Reviews.Create accepted a revision op the log schema does not declare an op type for at all")
+	}
+
+	dagStore := writ.StoreDAGStore(store)
+	enumRes, err := dagStore.Enumerate()
+	if err != nil {
+		t.Fatalf("Enumerate failed: %v", err)
+	}
+	for objectID, ops := range enumRes.Ops {
+		for _, op := range ops {
+			if op.ObjectType == "review" {
+				t.Fatalf("checkBeforeAppend's refusal still left a review op written: object %s op %s/%s", objectID, op.OpType, op.ObjectType)
+			}
+		}
+	}
+
+	// Append agrees: a standalone attempt at the same revision op, through
+	// the exact same store, is refused too.
+	if _, err := dagStore.Append(ctx, codec.Envelope{
+		ObjectID:   "some-review-id",
+		ObjectType: "review",
+		OpType:     "revision",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"base":"` + base + `","head":"` + head + `"}`),
+	}, nil); err == nil {
+		t.Fatal("Append accepted the same op type checkBeforeAppend just refused")
+	}
+}
+
+// TestNeedsLogVocabulariesSkipsSchemaOnlySequences pins checkBeforeAppend's
+// half of the MEDIUM-2 fix (engine/dag/append.go's Append carries the other
+// half): a multi-append sequence made up entirely of "schema" envelopes —
+// exactly what Store.ApplySchema ever passes it — must never even attempt
+// a log-sourced vocabularies resolution, because object_type "schema"
+// always validates against the engine's built-in bootstrap table, never
+// the log (spec/schema-ops.md §7). A sequence naming anything else must
+// still resolve them, since a non-"schema" envelope's tier 2 check
+// genuinely needs them.
+func TestNeedsLogVocabulariesSkipsSchemaOnlySequences(t *testing.T) {
+	schemaOnly := []codec.Envelope{
+		{ObjectID: "sch-1", ObjectType: "schema", OpType: "create", OpVersion: 1, Body: json.RawMessage(`{}`)},
+		{ObjectID: "sch-1", ObjectType: "schema", OpType: "define-type", OpVersion: 1, Body: json.RawMessage(`{}`)},
+	}
+	if writ.NeedsLogVocabularies(schemaOnly) {
+		t.Fatalf("expected a schema-only sequence to need no log-sourced vocabularies resolution")
+	}
+
+	mixed := []codec.Envelope{
+		{ObjectID: "rev-1", ObjectType: "review", OpType: "create", OpVersion: 1, Body: json.RawMessage(`{}`)},
+	}
+	if !writ.NeedsLogVocabularies(mixed) {
+		t.Fatalf("expected a sequence containing a non-\"schema\" envelope to need log-sourced vocabularies resolution")
+	}
+
+	if writ.NeedsLogVocabularies(nil) {
+		t.Fatalf("expected an empty sequence to need no log-sourced vocabularies resolution")
+	}
+}
+
+// TestVocabulariesCacheStaysWarmAcrossNonSchemaAppends is the regression
+// net for the MAJOR-1 finding: round 1 measured every Append moving its
+// own writer chain's tip, which the vocabularies cache fingerprinted
+// itself against, so the very next Append always looked like an
+// invalidating change and re-ran a full Schema/Enumerate fold —
+// 0.8ms/append flat on main versus 6.3ms growing to 34.2ms/append on this
+// branch over 400 ops, in a repo with zero schema objects.
+// BenchmarkVocabulariesCache demonstrates the wall-clock fix, but
+// wall-clock timing is not something this suite should gate on; this test
+// asserts the underlying invariant directly and deterministically instead.
+//
+// VocabulariesFromSchemas always builds a fresh map (resolveSchemaTypes ->
+// make(codec.Vocabularies, ...)), so a cache hit is provable without
+// timing anything: it must return the exact same map instance the first
+// resolve produced, never a new one. If a non-"schema" append ever starts
+// invalidating the cache again, this fails on the very first regression
+// rather than on a timing threshold someone has to keep re-tuning.
+func TestVocabulariesCacheStaysWarmAcrossNonSchemaAppends(t *testing.T) {
+	store, ctx := openWritableStore(t)
+	dagStore := writ.StoreDAGStore(store)
+
+	firstVocab, err := writ.StoreVocabularies(store, ctx)
+	if err != nil {
+		t.Fatalf("StoreVocabularies failed: %v", err)
+	}
+	firstAddr := reflect.ValueOf(firstVocab).Pointer()
+
+	for i := 0; i < 20; i++ {
+		env := codec.Envelope{
+			ObjectID:   fmt.Sprintf("rev-%d", i),
+			ObjectType: "review",
+			OpType:     "create",
+			OpVersion:  1,
+			Body:       json.RawMessage(`{"title":"T"}`),
+		}
+		if _, err := dagStore.Append(ctx, env, nil); err != nil {
+			t.Fatalf("Append %d failed: %v", i, err)
+		}
+
+		vocab, err := writ.StoreVocabularies(store, ctx)
+		if err != nil {
+			t.Fatalf("StoreVocabularies after append %d failed: %v", i, err)
+		}
+		if got := reflect.ValueOf(vocab).Pointer(); got != firstAddr {
+			t.Fatalf("append %d of a non-\"schema\" op invalidated the vocabularies cache (map address changed from %#x to %#x): a full Schema/Enumerate re-resolve ran when the fingerprint should have been rolled forward instead", i, firstAddr, got)
+		}
+	}
+
+	// Control: a "schema" append must still invalidate — proves the test
+	// above is not passing merely because nothing ever invalidates.
+	if err := store.ApplySchema(ctx, []codec.Envelope{
+		schemaEnv(t, "sch-a", "create", map[string]any{"namespace": "acme"}),
+	}); err != nil {
+		t.Fatalf("ApplySchema failed: %v", err)
+	}
+	afterSchema, err := writ.StoreVocabularies(store, ctx)
+	if err != nil {
+		t.Fatalf("StoreVocabularies after schema append failed: %v", err)
+	}
+	if reflect.ValueOf(afterSchema).Pointer() == firstAddr {
+		t.Fatalf("a \"schema\" append did not invalidate the vocabularies cache")
 	}
 }

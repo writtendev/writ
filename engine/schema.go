@@ -3,10 +3,14 @@ package writ
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
+	"strings"
 	"time"
 
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/writtendev/writ/engine/codec"
+	"github.com/writtendev/writ/engine/dag"
 	"github.com/writtendev/writ/engine/state"
 	"github.com/writtendev/writ/spec"
 )
@@ -76,6 +80,134 @@ func (s *Store) Schema(ctx context.Context) ([]state.Schema, error) {
 	return schemas, nil
 }
 
+// vocabularies resolves the log-sourced producer vocabularies
+// (VocabulariesFromSchemas), memoised behind a fingerprint over the repo's
+// discovered chains (dag.Chains): a fetch or a local "schema" append moves
+// at least one chain's tip in a way that can change what a schema object
+// resolves to, so it invalidates the cache; nothing else does. A cache
+// hit costs one IterReferences pass (Chains) plus a fingerprint
+// comparison — no fold, no full log walk.
+//
+// The naive version of that statement is false on the write path, which is
+// the only path that calls this: every Append moves the writer's own
+// chain's tip too, so without help every single append would look like an
+// invalidating change and pay for a full Schema/Enumerate fold, the exact
+// per-append cost this cache exists to avoid. Store.noteAppend is the
+// help — dag.WithChainObserver tells this Store, after each successful
+// local append, which chain moved and to what, and Append never accepts a
+// "schema" ObjectType there (checkBeforeAppend and dag.Store.Append both
+// skip the resolver for it, spec/schema-ops.md §7) — so noteAppend can
+// roll a non-"schema" append's chain forward in the cached snapshot
+// in place, keeping the fingerprint in step with reality without
+// re-deriving it, and correctly drop the cache on a "schema" append so
+// this function's own comparison below does the (correctly expensive)
+// re-resolve.
+//
+// This is what dag.WithProducerVocabularies's resolver and
+// checkBeforeAppend both call, so Append and the multi-append callers that
+// guard it always see the same vocabularies (TestCheckBeforeAppendAgreesWithAppend).
+func (s *Store) vocabularies(ctx context.Context) (codec.Vocabularies, error) {
+	if s == nil {
+		return nil, fmt.Errorf("writ: store is nil")
+	}
+
+	chains, err := dag.Chains(s.storer)
+	if err != nil {
+		return nil, fmt.Errorf("writ: resolve vocabularies: chains: %w", err)
+	}
+	fp := fingerprintChains(chains)
+
+	s.vocabMu.Lock()
+	if s.vocabCache != nil && fp == s.vocabFingerprint {
+		cached := s.vocabCache
+		s.vocabMu.Unlock()
+		return cached, nil
+	}
+	s.vocabMu.Unlock()
+
+	schemas, err := s.Schema(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("writ: resolve vocabularies: %w", err)
+	}
+	vocabularies, _ := VocabulariesFromSchemas(schemas)
+
+	s.vocabMu.Lock()
+	s.vocabCache = vocabularies
+	s.vocabChains = chains
+	s.vocabFingerprint = fp
+	s.vocabMu.Unlock()
+
+	return vocabularies, nil
+}
+
+// noteAppend rolls the cached producer-vocabularies fingerprint forward
+// after a local append succeeds (wired as dag.WithChainObserver in Open),
+// instead of leaving Store.vocabularies to notice a stale fingerprint on
+// the very next call and pay for a full Schema/Enumerate fold to
+// re-resolve a chain move that could not have changed the schema.
+//
+// Appending anything other than "schema" to this writer's own chain can
+// never add, remove, or alter a schema object — dag.Store.Append and
+// checkBeforeAppend both refuse to resolve vocabularies for object_type
+// "schema" in the first place (spec/schema-ops.md §7), and every other
+// object type is irrelevant to what a schema object folds to — so the
+// resolved vocabularies themselves stay valid; only the moved chain's tip
+// in the cached snapshot, and the fingerprint derived from it, need to
+// catch up so the next real dag.Chains() comparison agrees and hits.
+//
+// Appending "schema" itself takes the opposite path: it is exactly the
+// case that can change what VocabulariesFromSchemas resolves, so rather
+// than recompute anything here — which would put the very log I/O this
+// cache exists to get off the append hot path right back onto it — this
+// just drops the cached snapshot. The next Store.vocabularies call then
+// sees its own freshly computed fingerprint disagree with the (now
+// absent) cache and pays for one full resolve, correctly, because this
+// append — unlike the many non-"schema" ones surrounding it — really
+// might have moved the schema.
+func (s *Store) noteAppend(objectType string, newTip plumbing.Hash) {
+	s.vocabMu.Lock()
+	defer s.vocabMu.Unlock()
+
+	if objectType == "schema" {
+		s.vocabChains = nil
+		return
+	}
+	if s.vocabChains == nil {
+		// Nothing cached yet to roll forward; the next vocabularies() call
+		// populates it from scratch regardless.
+		return
+	}
+
+	// fingerprintChains reads only Tip, so that is all this needs to set;
+	// Ref is left zero rather than reconstructed for a value nothing consults.
+	refName := dag.LocalRefName(s.identity.WriterID, objectType).String()
+	chain := s.vocabChains[refName]
+	chain.Tip = newTip
+	s.vocabChains[refName] = chain
+	s.vocabFingerprint = fingerprintChains(s.vocabChains)
+}
+
+// fingerprintChains derives a cheap fingerprint string over every
+// discovered writ chain's ref name and tip hash, sorted for determinism:
+// any commit authored locally or fetched from a peer moves at least one
+// chain's tip and so changes this string; nothing else does.
+func fingerprintChains(chains map[string]dag.DiscoveredChain) string {
+	names := make([]string, 0, len(chains))
+	for name := range chains {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	var b strings.Builder
+	for _, name := range names {
+		b.WriteString(name)
+		b.WriteByte('\n')
+		b.WriteString(chains[name].Tip.String())
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
 // ApplySchema appends a compiled `schema` op sequence (schemasrc.Compile's
 // output, ordinarily) through the ordinary signed producer path, exactly as
 // any other multi-op write does (Reviews.Create is the model): every
@@ -127,7 +259,7 @@ func (s *Store) ApplySchema(ctx context.Context, envs []codec.Envelope) error {
 		}
 	}
 
-	if err := checkBeforeAppend(envs...); err != nil {
+	if err := s.checkBeforeAppend(ctx, envs...); err != nil {
 		return fmt.Errorf("writ: apply schema: %w", err)
 	}
 
@@ -321,6 +453,212 @@ func anyOpHasObjectType(ops []codec.Op, objectType string) bool {
 	return false
 }
 
+// opTypeGrammar mirrors the op_type rule spec/schemas/op-envelope.schema.json
+// pins for the wire field (`^[a-z][a-z0-9-]*$`, max opTypeMaxLength
+// characters). Nothing upstream of resolveSchemaTypes enforces this for a
+// log-declared op_type — spec.ValidateFieldRule checks only that OpType is
+// non-empty — so an op authored under a schema-declared op_type failing
+// this grammar could never be written through the ordinary envelope path
+// in the first place; catching it here buys a clearer error and a rule
+// index that cannot be keyed by an unwritable op type, not a new security
+// boundary (spec/schema-ops.md §9).
+var opTypeGrammar = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+
+const opTypeMaxLength = 64
+
+func validOpTypeGrammar(opType string) bool {
+	return opType != "" && len(opType) <= opTypeMaxLength && opTypeGrammar.MatchString(opType)
+}
+
+// resolvedSchemaTypes is the shared collision/validation pass over folded
+// schema objects (spec/schema-ops.md §6, §7, §9), computed once and
+// consumed by both RulesFromSchemas (the fold engine's []Rule shape) and
+// VocabulariesFromSchemas (the producer's codec.Vocabularies shape) so
+// neither call site has to infer "contested" from SchemaConflict's shape,
+// or answer "is this type declared at all" from whether rules[t] happens
+// to be non-empty.
+type resolvedSchemaTypes struct {
+	// declared lists every object type at least one schema object binds,
+	// via define-type, define-field, or define-op — contested or not, and
+	// regardless of whether it ends up with any installed fields or ops.
+	// A type declared with no fields (define-type/define-op alone) is
+	// still declared: VocabulariesFromSchemas must not treat that the same
+	// as "no schema in the log ever named this type"
+	// (TestDeclaredTypeWithNoFieldsIsWritable).
+	declared map[string]bool
+	// contested lists every object type two or more schema objects bind.
+	// Neither schema's rules are installed for it (§6): fields[t] and
+	// ops[t] are absent, and VocabulariesFromSchemas reports
+	// Vocabulary{Contested: true} for it.
+	contested map[string]bool
+	// fields holds, per non-contested non-"schema" object type, every
+	// field declaration that survived grammar, spec.ValidateFieldRule, and
+	// spec.CheckTargetCollision — the original state.SchemaField, not the
+	// spec.FieldRule built from it for validation, so Deprecated and the
+	// rest of its shape are not lost building it back into a Rule.
+	fields map[string][]state.SchemaField
+	// ops holds, per non-contested non-"schema" object type, every
+	// define-op declaration that survived the same grammar check.
+	ops map[string][]state.SchemaOp
+	// boundBy maps a non-contested object type to the ObjectID of the one
+	// schema object that binds it, so a producer rejection
+	// (VocabulariesFromSchemas -> codec.Vocabularies) can name which
+	// schema is responsible.
+	boundBy   map[string]string
+	conflicts []SchemaConflict
+}
+
+// toFieldRule builds the spec.FieldRule form of a schema-declared field,
+// used to run it through spec.ValidateFieldRule and
+// spec.CheckTargetCollision (both defined against that type) and, for a
+// non-contested type, to populate a codec.Vocabulary's Fields directly:
+// spec.FieldRule is the field-rule currency engine/codec already imports
+// spec for.
+func toFieldRule(objectType string, f state.SchemaField) spec.FieldRule {
+	return spec.FieldRule{
+		OpType: f.OpType, OpVersion: f.OpVersion, Field: f.Name, Target: f.Target,
+		Strategy: f.Strategy, Key: f.Key, Lattice: f.Lattice, ValueType: f.ValueType,
+		Enum: f.Enum, MaxLength: f.MaxLength, KeyTypes: f.KeyTypes,
+		ObjectType: objectType,
+	}
+}
+
+// resolveSchemaTypes runs the collision pass (§6) and, for every type that
+// survives it, the per-field validation pass (§7 step 4, §9) exactly once,
+// in ascending schema ObjectID order so two conforming implementations
+// build the same result from the same input regardless of enumeration
+// order. RulesFromSchemas and VocabulariesFromSchemas are thin, disjoint
+// projections of this shared result: neither reruns the pass, and neither
+// can disagree with the other about what is contested or declared.
+func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
+	sorted := append([]state.Schema(nil), schemas...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ObjectID < sorted[j].ObjectID })
+
+	boundBy := make(map[string]string)        // object_type -> owning schema ObjectID
+	namespaceOwner := make(map[string]string) // namespace -> owning schema ObjectID
+	contested := make(map[string]bool)        // object_type -> withheld from installation
+	declared := make(map[string]bool)
+	var conflicts []SchemaConflict
+
+	for _, sch := range sorted {
+		if sch.Namespace != "" {
+			if owner, ok := namespaceOwner[sch.Namespace]; ok {
+				if owner != sch.ObjectID {
+					conflicts = append(conflicts, SchemaConflict{
+						Namespace: sch.Namespace,
+						ObjectIDs: []string{owner, sch.ObjectID},
+						Reason:    fmt.Sprintf("namespace %q is declared by more than one schema object", sch.Namespace),
+					})
+				}
+			} else {
+				namespaceOwner[sch.Namespace] = sch.ObjectID
+			}
+		}
+
+		for _, t := range sch.Types {
+			declared[t.Name] = true
+			if t.Name == "schema" {
+				contested["schema"] = true
+				conflicts = append(conflicts, SchemaConflict{
+					ObjectType: "schema",
+					Namespace:  sch.Namespace,
+					ObjectIDs:  []string{sch.ObjectID},
+					Reason:     "schema is the engine's built-in bootstrap type and cannot be redefined from the log",
+				})
+				continue
+			}
+			owner, bound := boundBy[t.Name]
+			if !bound {
+				boundBy[t.Name] = sch.ObjectID
+				continue
+			}
+			if owner != sch.ObjectID && !contested[t.Name] {
+				contested[t.Name] = true
+				conflicts = append(conflicts, SchemaConflict{
+					ObjectType: t.Name,
+					ObjectIDs:  []string{owner, sch.ObjectID},
+					Reason:     fmt.Sprintf("object_type %q is bound by more than one schema object", t.Name),
+				})
+			}
+		}
+	}
+
+	fields := make(map[string][]state.SchemaField)
+	ops := make(map[string][]state.SchemaOp)
+	for _, sch := range sorted {
+		for _, t := range sch.Types {
+			if t.Name == "schema" || contested[t.Name] {
+				continue
+			}
+
+			targetBindings := make(map[string][]spec.FieldRule)
+			var typeFields []state.SchemaField
+			for _, f := range t.Fields {
+				sr := toFieldRule(t.Name, f)
+
+				if !validOpTypeGrammar(sr.OpType) {
+					conflicts = append(conflicts, SchemaConflict{
+						ObjectType: t.Name,
+						ObjectIDs:  []string{sch.ObjectID},
+						Reason:     fmt.Sprintf("define-field op_type %q is not a valid op type (must match ^[a-z][a-z0-9-]*$, max %d chars) and was not installed", sr.OpType, opTypeMaxLength),
+					})
+					continue
+				}
+
+				if err := spec.ValidateFieldRule(sr); err != nil {
+					conflicts = append(conflicts, SchemaConflict{
+						ObjectType: t.Name,
+						ObjectIDs:  []string{sch.ObjectID},
+						Reason:     fmt.Sprintf("field rule (%s, %d, %s) is invalid and was not installed: %v", sr.OpType, sr.OpVersion, sr.Field, err),
+					})
+					continue
+				}
+
+				if err := spec.CheckTargetCollision(targetBindings, sr); err != nil {
+					conflicts = append(conflicts, SchemaConflict{
+						ObjectType: t.Name,
+						ObjectIDs:  []string{sch.ObjectID},
+						Reason:     err.Error(),
+					})
+					continue
+				}
+				targetBindings[sr.TargetKey()] = append(targetBindings[sr.TargetKey()], sr)
+
+				typeFields = append(typeFields, f)
+			}
+
+			var typeOps []state.SchemaOp
+			for _, o := range t.Ops {
+				if !validOpTypeGrammar(o.OpType) {
+					conflicts = append(conflicts, SchemaConflict{
+						ObjectType: t.Name,
+						ObjectIDs:  []string{sch.ObjectID},
+						Reason:     fmt.Sprintf("define-op op_type %q is not a valid op type (must match ^[a-z][a-z0-9-]*$, max %d chars) and was not installed", o.OpType, opTypeMaxLength),
+					})
+					continue
+				}
+				typeOps = append(typeOps, o)
+			}
+
+			if len(typeFields) > 0 {
+				fields[t.Name] = typeFields
+			}
+			if len(typeOps) > 0 {
+				ops[t.Name] = typeOps
+			}
+		}
+	}
+
+	return resolvedSchemaTypes{
+		declared:  declared,
+		contested: contested,
+		fields:    fields,
+		ops:       ops,
+		boundBy:   boundBy,
+		conflicts: conflicts,
+	}
+}
+
 // RulesFromSchemas is the pure, I/O-free resolver that turns every folded
 // schema object present in a repo into the []Rule shape the generic fold
 // driver (Fold(ops, rules)) already consumes generically — the same shape
@@ -353,122 +691,94 @@ func anyOpHasObjectType(ops []codec.Op, objectType string) bool {
 //
 // Schema objects are visited in ascending ObjectID order so two conforming
 // implementations build the same index from the same input regardless of
-// enumeration order.
+// enumeration order. RulesFromSchemas's signature is unchanged by
+// WRIT-188 — it is now a thin projection of the shared resolveSchemaTypes
+// pass rather than running the pass itself — but its behavior is not: the
+// grammar gate resolveSchemaTypes now applies to every define-field and
+// define-op op_type (spec/schema-ops.md §11) drops a rule RulesFromSchemas
+// used to install and reports a SchemaConflict it used to stay silent on,
+// for any op_type that fails ^[a-z][a-z0-9-]*$ or exceeds opTypeMaxLength.
 func RulesFromSchemas(schemas []state.Schema) (map[string][]Rule, []SchemaConflict) {
-	sorted := append([]state.Schema(nil), schemas...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ObjectID < sorted[j].ObjectID })
-
-	boundBy := make(map[string]string)        // object_type -> owning schema ObjectID
-	namespaceOwner := make(map[string]string) // namespace -> owning schema ObjectID
-	contested := make(map[string]bool)        // object_type -> withheld from installation
-	var conflicts []SchemaConflict
-
-	for _, sch := range sorted {
-		if sch.Namespace != "" {
-			if owner, ok := namespaceOwner[sch.Namespace]; ok {
-				if owner != sch.ObjectID {
-					conflicts = append(conflicts, SchemaConflict{
-						Namespace: sch.Namespace,
-						ObjectIDs: []string{owner, sch.ObjectID},
-						Reason:    fmt.Sprintf("namespace %q is declared by more than one schema object", sch.Namespace),
-					})
-				}
-			} else {
-				namespaceOwner[sch.Namespace] = sch.ObjectID
-			}
-		}
-
-		for _, t := range sch.Types {
-			if t.Name == "schema" {
-				contested["schema"] = true
-				conflicts = append(conflicts, SchemaConflict{
-					ObjectType: "schema",
-					Namespace:  sch.Namespace,
-					ObjectIDs:  []string{sch.ObjectID},
-					Reason:     "schema is the engine's built-in bootstrap type and cannot be redefined from the log",
-				})
-				continue
-			}
-			owner, bound := boundBy[t.Name]
-			if !bound {
-				boundBy[t.Name] = sch.ObjectID
-				continue
-			}
-			if owner != sch.ObjectID && !contested[t.Name] {
-				contested[t.Name] = true
-				conflicts = append(conflicts, SchemaConflict{
-					ObjectType: t.Name,
-					ObjectIDs:  []string{owner, sch.ObjectID},
-					Reason:     fmt.Sprintf("object_type %q is bound by more than one schema object", t.Name),
-				})
-			}
-		}
-	}
+	res := resolveSchemaTypes(schemas)
 
 	rules := make(map[string][]Rule)
-	for _, sch := range sorted {
-		for _, t := range sch.Types {
-			if t.Name == "schema" || contested[t.Name] {
-				continue
-			}
-
-			targetBindings := make(map[string][]spec.FieldRule)
-			var typeRules []Rule
-			for _, f := range t.Fields {
-				// deprecated:true is metadata discouraging new writes, not a
-				// removal (spec/schema-ops.md §5, §8): the rule stays
-				// installed and active for folding so ops already signed
-				// under it keep folding to the same state, with Deprecated
-				// carried onto the resolved Rule for a producer or UI to
-				// read.
-				r := Rule{
-					OpType:     f.OpType,
-					OpVersion:  f.OpVersion,
-					Field:      f.Name,
-					Target:     f.Target,
-					Strategy:   f.Strategy,
-					Key:        f.Key,
-					Lattice:    f.Lattice,
-					ValueType:  f.ValueType,
-					Enum:       f.Enum,
-					MaxLength:  f.MaxLength,
-					KeyTypes:   f.KeyTypes,
-					Deprecated: f.Deprecated,
-					ObjectType: t.Name,
-				}
-
-				sr := spec.FieldRule{
-					OpType: r.OpType, OpVersion: r.OpVersion, Field: r.Field, Target: r.Target,
-					Strategy: r.Strategy, Key: r.Key, Lattice: r.Lattice, ValueType: r.ValueType,
-					Enum: r.Enum, MaxLength: r.MaxLength, KeyTypes: r.KeyTypes,
-				}
-				if err := spec.ValidateFieldRule(sr); err != nil {
-					conflicts = append(conflicts, SchemaConflict{
-						ObjectType: t.Name,
-						ObjectIDs:  []string{sch.ObjectID},
-						Reason:     fmt.Sprintf("field rule (%s, %d, %s) is invalid and was not installed: %v", r.OpType, r.OpVersion, r.Field, err),
-					})
-					continue
-				}
-
-				if err := spec.CheckTargetCollision(targetBindings, sr); err != nil {
-					conflicts = append(conflicts, SchemaConflict{
-						ObjectType: t.Name,
-						ObjectIDs:  []string{sch.ObjectID},
-						Reason:     err.Error(),
-					})
-					continue
-				}
-				targetBindings[sr.TargetKey()] = append(targetBindings[sr.TargetKey()], sr)
-
-				typeRules = append(typeRules, r)
-			}
-
-			if len(typeRules) > 0 {
-				rules[t.Name] = typeRules
-			}
+	for typeName, typeFields := range res.fields {
+		var typeRules []Rule
+		for _, f := range typeFields {
+			// deprecated:true is metadata discouraging new writes, not a
+			// removal (spec/schema-ops.md §5, §8): the rule stays
+			// installed and active for folding so ops already signed
+			// under it keep folding to the same state, with Deprecated
+			// carried onto the resolved Rule for a producer or UI to
+			// read.
+			typeRules = append(typeRules, Rule{
+				OpType:     f.OpType,
+				OpVersion:  f.OpVersion,
+				Field:      f.Name,
+				Target:     f.Target,
+				Strategy:   f.Strategy,
+				Key:        f.Key,
+				Lattice:    f.Lattice,
+				ValueType:  f.ValueType,
+				Enum:       f.Enum,
+				MaxLength:  f.MaxLength,
+				KeyTypes:   f.KeyTypes,
+				Deprecated: f.Deprecated,
+				ObjectType: typeName,
+			})
+		}
+		if len(typeRules) > 0 {
+			rules[typeName] = typeRules
 		}
 	}
 
-	return rules, conflicts
+	return rules, res.conflicts
+}
+
+// VocabulariesFromSchemas resolves every folded schema object present in a
+// repo into the codec.Vocabularies shape the generic producer validator
+// (engine/codec's BuildCommit/ValidateBody) checks tier 2 of
+// spec/op-envelope.md's five-tier precedence against — the log-sourced
+// counterpart to RulesFromSchemas's fold-rule shape, built from the exact
+// same collision/validation pass (resolveSchemaTypes) so the two can never
+// disagree about what is contested or declared.
+//
+// "schema" is never a key in the returned map: spec/schema-ops.md §7's
+// bootstrap exception means it always validates against the engine's
+// built-in table, never the log, and engine/codec enforces that directly
+// (validateProducerOp's unconditional top-level check) rather than
+// consulting this map for it — resolveSchemaTypes already refuses to treat
+// a log schema's attempt to redefine "schema" as anything but a conflict,
+// so it never reaches res.declared with fields or ops installed either.
+func VocabulariesFromSchemas(schemas []state.Schema) (codec.Vocabularies, []SchemaConflict) {
+	res := resolveSchemaTypes(schemas)
+
+	vocabularies := make(codec.Vocabularies, len(res.declared))
+	for typeName := range res.declared {
+		if typeName == "schema" {
+			continue
+		}
+		if res.contested[typeName] {
+			vocabularies[typeName] = codec.Vocabulary{Contested: true}
+			continue
+		}
+
+		v := codec.Vocabulary{
+			Declared:       true,
+			SchemaObjectID: res.boundBy[typeName],
+			OpTypes:        make(map[codec.OpVersionKey]bool),
+			Fields:         make(map[codec.OpVersionKey][]spec.FieldRule),
+		}
+		for _, f := range res.fields[typeName] {
+			key := codec.OpVersionKey{OpType: f.OpType, OpVersion: f.OpVersion}
+			v.OpTypes[key] = true
+			v.Fields[key] = append(v.Fields[key], toFieldRule(typeName, f))
+		}
+		for _, o := range res.ops[typeName] {
+			v.OpTypes[codec.OpVersionKey{OpType: o.OpType, OpVersion: o.OpVersion}] = true
+		}
+		vocabularies[typeName] = v
+	}
+
+	return vocabularies, res.conflicts
 }

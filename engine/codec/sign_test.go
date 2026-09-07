@@ -148,7 +148,7 @@ func TestSignCommit_Integration(t *testing.T) {
 		When:  time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
 
-	commit, err := codec.BuildCommit(env, author, nil)
+	commit, err := codec.BuildCommit(env, author, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

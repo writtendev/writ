@@ -122,7 +122,7 @@ func (r *Reviews) Create(ctx context.Context, n NewReview) (string, error) {
 	if revEnv != nil {
 		envs = append(envs, *revEnv)
 	}
-	if err := checkBeforeAppend(envs...); err != nil {
+	if err := r.store.checkBeforeAppend(ctx, envs...); err != nil {
 		return "", fmt.Errorf("writ: create review: %w", err)
 	}
 
@@ -698,7 +698,12 @@ func (r *Reviews) Approve(ctx context.Context, id string, a Approval) error {
 
 
 // checkBeforeAppend validates every op body a multi-append operation is about
-// to write, before the first of them is appended.
+// to write, before the first of them is appended, against the same
+// log-sourced vocabularies s.dagStore.Append will consult for the actual
+// appends (Store.vocabularies): using anything else here — the embedded
+// tables alone, say — could pass an op Append itself then refuses,
+// reintroducing the half-written state this check exists to prevent
+// (TestCheckBeforeAppendAgreesWithAppend).
 //
 // An op is a signed commit in an append-only log. A sequence that appends one
 // op, is refused on the next, and returns an error to its caller has still
@@ -706,13 +711,41 @@ func (r *Reviews) Approve(ctx context.Context, id string, a Approval) error {
 // to. Checking the whole sequence up front makes those operations all-or-
 // nothing against the producer check, which is the only failure mode the
 // engine can see coming.
-func checkBeforeAppend(envs ...codec.Envelope) error {
+//
+// A sequence made up entirely of "schema" envelopes (ApplySchema's only
+// caller) never resolves vocabularies at all: codec.ValidateBody ignores
+// them for object_type "schema" regardless (spec/schema-ops.md §7's
+// bootstrap exception), and dag.Store.Append applies the same skip for the
+// same reason, so a resolver failure elsewhere in the log must not be able
+// to block writing the very "schema" ops that could fix it.
+func (s *Store) checkBeforeAppend(ctx context.Context, envs ...codec.Envelope) error {
+	var vocabularies codec.Vocabularies
+	if needsLogVocabularies(envs) {
+		var err error
+		vocabularies, err = s.vocabularies(ctx)
+		if err != nil {
+			return err
+		}
+	}
 	for _, env := range envs {
-		if err := codec.ValidateBody(env); err != nil {
+		if err := codec.ValidateBody(env, vocabularies); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// needsLogVocabularies reports whether envs contains anything other than
+// "schema" envelopes: "schema" always validates against the engine's
+// built-in bootstrap table, never the log, so a sequence made entirely of
+// "schema" ops has no use for a log-sourced vocabularies resolution at all.
+func needsLogVocabularies(envs []codec.Envelope) bool {
+	for _, env := range envs {
+		if env.ObjectType != "schema" {
+			return true
+		}
+	}
+	return false
 }
 
 func dedupeAndSort(items []string) []string {

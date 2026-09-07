@@ -57,7 +57,7 @@ func TestVerify_Outcomes(t *testing.T) {
 		Body:       json.RawMessage(`{"title":"Initial"}`),
 	}
 
-	commit, err := codec.BuildCommit(env, author, nil)
+	commit, err := codec.BuildCommit(env, author, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

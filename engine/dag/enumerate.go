@@ -40,12 +40,20 @@ type EnumerateResult struct {
 }
 
 // Enumerate discovers all writ chains and enumerates all ops cold (equivalent to EnumerateSince(nil)).
+//
+// Neither Enumerate nor EnumerateSince may take Store.mu: Append holds it
+// across its resolveVocabularies callback, which — for a caller wired the
+// way writ.Store wires it — re-enters Enumerate/EnumerateSince on this same
+// Store on a cache miss. Taking mu here would deadlock that call, silently,
+// on every cold-cache non-"schema" Append. See the mu field's doc comment.
 func (s *Store) Enumerate() (*EnumerateResult, error) {
 	return s.EnumerateSince(nil)
 }
 
 // EnumerateSince walks every local and remote-tracking writ chain from the provided
 // cursors, decodes new commits through codec, and groups valid ops by ObjectID.
+//
+// Must not take Store.mu — see Enumerate's doc comment.
 func (s *Store) EnumerateSince(cursors CursorSet) (*EnumerateResult, error) {
 	// Step 1: Single IterReferences pass
 	chains, err := Chains(s.storer)

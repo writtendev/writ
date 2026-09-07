@@ -1,0 +1,10 @@
+{
+  "schemas": [],
+  "envelope": {
+    "object_id": "gadget-1",
+    "object_type": "gadget",
+    "op_type": "create",
+    "op_version": 1,
+    "body": { "anything": "goes" }
+  }
+}
