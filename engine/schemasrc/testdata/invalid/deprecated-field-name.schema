@@ -1,0 +1,7 @@
+namespace acme
+
+type thing {
+  op create 1 {
+    deprecated  bool  lww
+  }
+}

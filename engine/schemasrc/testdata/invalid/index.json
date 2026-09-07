@@ -131,5 +131,19 @@
     "col": 13,
     "message": "description must not be empty; omit the description line entirely instead of writing description \"\"",
     "reason": "description \"\" carries no data — it compiles to the same omitted wire field as no description line at all — so it is rejected rather than given 'no description' a second spelling that let a trailing comment on that line be silently discarded as a side effect (WRIT-187 round-2 finding 1a)"
+  },
+  {
+    "file": "deprecated-field-name.schema",
+    "line": 5,
+    "col": 5,
+    "message": "\"deprecated\" is a reserved word and cannot be used as a field name; its modifier is bare, so it cannot be split from a field name with one token of lookahead",
+    "reason": "WRIT-204: description, target and type are only contextual keywords in the field-name and target(...) slots, disambiguated from a following field's name by one token of lookahead — but deprecated's own modifier is bare, with no parenthesized argument to look ahead for, so it alone stays reserved as a field name"
+  },
+  {
+    "file": "reserved-type-name.schema",
+    "line": 3,
+    "col": 6,
+    "message": "\"type\" is a reserved word and cannot be used as a type name",
+    "reason": "WRIT-204: the relaxation is positional, not a general amnesty — a type name (like a namespace or op type name) still reserves all eight words, pinning that 'type type { ... }' stays rejected even though 'type' is now a legal field name"
   }
 ]

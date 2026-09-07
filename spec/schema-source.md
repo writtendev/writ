@@ -108,6 +108,43 @@ language is a deliberate, reviewed act:
 namespace  description  type  op  deprecated  untyped  key  target
 ```
 
+Reservation is **positional**, not global: which of these eight a given
+slot refuses depends on where that slot sits, not on the word alone.
+
+* **Namespace, a type name, an op type name.** All eight remain reserved
+  outright. A file's `namespace` line, a `type`'s own name, and an
+  `op`'s own type name can never be spelled `description`, `type`, `op`,
+  and so on — pinned by `reserved-type-name.schema` in the invalid
+  corpus (`type type { ... }` is still rejected).
+* **A field name, and the argument of `target(...)`.** Only `deprecated`
+  remains reserved; the other seven are *contextual* keywords here, each
+  told apart from a field name by one token of lookahead, total rather
+  than heuristic (§3 marks exactly where):
+  * Inside an op block, `description` heads a description line iff the
+    very next token is a string literal — no `value-type-expr` can begin
+    with one, so a field literally named `description` (followed by its
+    value type) is never mistaken for one.
+  * In a field's modifier list, `key` and `target` are modifiers iff
+    immediately followed by `(` — a field line's own name is never
+    followed by `(`, so a following field literally named `key` or
+    `target` is never swallowed as a bogus modifier of the field before
+    it.
+  * `namespace`, `op`, `type`, and `untyped` begin no production at all
+    inside an op block's field list, so nothing needs to disambiguate
+    them there.
+
+  `deprecated` alone survives as reserved in this slot: its modifier is
+  bare (no parenthesized argument to look ahead for), so a field named
+  `deprecated` immediately followed by another field's bare `deprecated`
+  modifier has no single-token split — pinned by
+  `deprecated-field-name.schema` in the invalid corpus.
+  `contextual-keywords.schema` in the valid corpus is the positive
+  fixture: one file with fields literally named `description`, `target`,
+  `type`, `namespace`, `op`, `key`, and `untyped`, alongside real
+  `description "..."` lines, a `target(...)` field immediately followed
+  by a field named `target`, and a `key(...)` field immediately followed
+  by a field named `key`.
+
 A relation is an `object-ref` value type (`value-types.md`), not a
 separate grammar bolted onto this one: writ has no join engine and no
 reference resolution, so `object-ref` parses exactly like any other value
@@ -123,8 +160,18 @@ alternation):
 file        = "namespace" ident [ description ] type* ;
 description = "description" string ;
 type        = "type" ident [ "deprecated" ] "{" [ description ] op-block* "}" ;
-op-block    = "op" op-ref ("," op-ref)* "{" [ description ] field* "}" ;
+op-block    = "op" op-ref ("," op-ref)* "{" [ op-description ] field* "}" ;
 op-ref      = ident number ;
+
+(* op-description is description read with one token of lookahead: it
+   applies only when "description" is immediately followed by a string
+   literal, so a field literally named "description" (followed by its
+   value-type-expr, never a string literal) falls to field below
+   instead — see §2. file's and type's description have no field
+   production to disambiguate from and need no lookahead. *)
+op-description
+            = "description" string ;
+
 field       = ident value-type-expr strategy-expr modifier* ;
 
 value-type-expr
@@ -137,6 +184,11 @@ strategy-expr
             = "lattice" "(" ident ("," ident)* ")"
             | ident ;
 
+(* key and target are modifiers read with one token of lookahead: each
+   applies only when immediately followed by "(" — a field's own name is
+   never followed by "(" — so a following field literally named "key" or
+   "target" is never swallowed as a bogus modifier of the field before
+   it (§2). *)
 modifier    = "key" "(" ident ident ("," ident ident)* ")"
             | "target" "(" ident ")"
             | "deprecated" ;
@@ -190,7 +242,9 @@ Comments are never data — `description "..."` is (§6).
 * `target(name)` — the state key this field's register lands under
   (`fold.md` §5). Optional on every field; required in practice exactly
   when a version bump changes strategy while a prior version already
-  claimed the default target (§7).
+  claimed the default target (§7). `name` follows the field-name
+  reservation rule (§2), not the closed one: only `deprecated` is off
+  limits, so `target(description)` and `target(type)` are both legal.
 * `deprecated` — marks the field discouraged for new writes without
   removing it (`schema-ops.md` §4, tombstone-style). A type takes the
   same trailing keyword: `type old-thing deprecated { ... }`.

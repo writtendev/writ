@@ -1,0 +1,7 @@
+namespace acme
+
+type type {
+  op create 1 {
+    a  string  lww
+  }
+}

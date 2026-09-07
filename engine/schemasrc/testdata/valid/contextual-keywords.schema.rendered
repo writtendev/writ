@@ -1,0 +1,24 @@
+namespace acme
+description "Exercises every contextually-freed field name (spec/schema-source.md §2)"
+
+type thing {
+  description "A neutral fixture type; names no vocabulary"
+
+  op create 1 {
+    description "The op block's own description, alongside fields sharing every other keyword's spelling"
+    a object-ref keyed-lww key(x person-ref) target(a_v2)
+    b object-ref keyed-lww key(y person-ref)
+    c string lww deprecated
+    description string lww
+    key string lww
+    namespace string lww
+    op string lww
+    target object-ref keyed-lww key(subject person-ref)
+    untyped untyped append
+  }
+
+  op widget 1 {
+    description string keyed-lww key(subject person-ref) target(ci_description)
+    type enum(a, b) lww
+  }
+}

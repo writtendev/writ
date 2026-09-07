@@ -37,6 +37,31 @@ func TestKeywordsAreClosed(t *testing.T) {
 	}
 }
 
+// TestReservationIsPositional pins, per keyword, which slots still refuse
+// it (spec/schema-source.md §2): the namespace/type-name/op-type-name
+// slot (validated against keywords) keeps all eight reserved, while the
+// field-name/target(...) slot (validated against fieldReserved) refuses
+// only deprecated. This is the companion to TestKeywordsAreClosed: that
+// test pins the word list itself; this one pins where each word applies,
+// so the WRIT-204 relaxation (contextual keywords, not a shorter list)
+// cannot silently widen or narrow which slots it touches.
+func TestReservationIsPositional(t *testing.T) {
+	for word := range keywords {
+		if !keywords[word] {
+			t.Errorf("keyword %q missing from keywords itself", word)
+		}
+		wantFieldReserved := word == "deprecated"
+		if fieldReserved[word] != wantFieldReserved {
+			t.Errorf("fieldReserved[%q] = %v, want %v", word, fieldReserved[word], wantFieldReserved)
+		}
+	}
+	for word := range fieldReserved {
+		if !keywords[word] {
+			t.Errorf("fieldReserved contains %q, which is not even in keywords", word)
+		}
+	}
+}
+
 var opVersionPattern = regexp.MustCompile(`^[1-9][0-9]*$`)
 
 // TestEmittedOpVersionIsCanonicalDecimal is the WRIT-186 round-1 bug's

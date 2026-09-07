@@ -1,0 +1,241 @@
+[
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "create",
+    "op_version": 1,
+    "body": {
+      "description": "Exercises every contextually-freed field name (spec/schema-source.md §2)",
+      "namespace": "acme"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-type",
+    "op_version": 1,
+    "body": {
+      "description": "A neutral fixture type; names no vocabulary",
+      "type": "thing"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-op",
+    "op_version": 1,
+    "body": {
+      "description": "The op block's own description, alongside fields sharing every other keyword's spelling",
+      "op_type": "create",
+      "op_version": "1",
+      "type": "thing"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-op",
+    "op_version": 1,
+    "body": {
+      "op_type": "widget",
+      "op_version": "1",
+      "type": "thing"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "a",
+      "key": [
+        "x"
+      ],
+      "key_types": {
+        "x": "person-ref"
+      },
+      "op_type": "create",
+      "op_version": "1",
+      "strategy": "keyed-lww",
+      "target": "a_v2",
+      "type": "thing",
+      "value_type": "object-ref"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "b",
+      "key": [
+        "y"
+      ],
+      "key_types": {
+        "y": "person-ref"
+      },
+      "op_type": "create",
+      "op_version": "1",
+      "strategy": "keyed-lww",
+      "type": "thing",
+      "value_type": "object-ref"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "c",
+      "op_type": "create",
+      "op_version": "1",
+      "strategy": "lww",
+      "type": "thing",
+      "value_type": "string"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "description",
+      "op_type": "create",
+      "op_version": "1",
+      "strategy": "lww",
+      "type": "thing",
+      "value_type": "string"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "key",
+      "op_type": "create",
+      "op_version": "1",
+      "strategy": "lww",
+      "type": "thing",
+      "value_type": "string"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "namespace",
+      "op_type": "create",
+      "op_version": "1",
+      "strategy": "lww",
+      "type": "thing",
+      "value_type": "string"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "op",
+      "op_type": "create",
+      "op_version": "1",
+      "strategy": "lww",
+      "type": "thing",
+      "value_type": "string"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "target",
+      "key": [
+        "subject"
+      ],
+      "key_types": {
+        "subject": "person-ref"
+      },
+      "op_type": "create",
+      "op_version": "1",
+      "strategy": "keyed-lww",
+      "type": "thing",
+      "value_type": "object-ref"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "untyped",
+      "op_type": "create",
+      "op_version": "1",
+      "strategy": "append",
+      "type": "thing"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "field": "description",
+      "key": [
+        "subject"
+      ],
+      "key_types": {
+        "subject": "person-ref"
+      },
+      "op_type": "widget",
+      "op_version": "1",
+      "strategy": "keyed-lww",
+      "target": "ci_description",
+      "type": "thing",
+      "value_type": "string"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "define-field",
+    "op_version": 1,
+    "body": {
+      "enum": [
+        "a",
+        "b"
+      ],
+      "field": "type",
+      "op_type": "widget",
+      "op_version": "1",
+      "strategy": "lww",
+      "type": "thing",
+      "value_type": "enum"
+    }
+  },
+  {
+    "object_id": "sch-acme",
+    "object_type": "schema",
+    "op_type": "deprecate-field",
+    "op_version": 1,
+    "body": {
+      "deprecated": true,
+      "field": "c",
+      "op_type": "create",
+      "op_version": "1",
+      "type": "thing"
+    }
+  }
+]

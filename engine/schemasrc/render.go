@@ -37,7 +37,7 @@ func Render(s state.Schema) ([]byte, error) {
 	// any text naming it is written; otherwise Render emits `type op {`
 	// for a conforming producer's state and Parse rejects it as a
 	// reserved word (round-2 review of WRIT-187 PR #157, finding 2).
-	if err := validateNameForRender(s.Namespace, namespacePattern, "namespace"); err != nil {
+	if err := validateNameForRender(s.Namespace, namespacePattern, "namespace", keywords, ""); err != nil {
 		return nil, err
 	}
 
@@ -59,7 +59,7 @@ func Render(s state.Schema) ([]byte, error) {
 }
 
 func renderType(b *strings.Builder, t state.SchemaType) error {
-	if err := validateNameForRender(t.Name, typeNamePattern, "type name"); err != nil {
+	if err := validateNameForRender(t.Name, typeNamePattern, "type name", keywords, ""); err != nil {
 		return err
 	}
 	if t.Deprecated {
@@ -193,7 +193,7 @@ func sameFieldSet(a, b []state.SchemaField) bool {
 
 func renderOpBlock(b *strings.Builder, g opGroup) error {
 	for _, k := range g.Ops {
-		if err := validateNameForRender(k.opType, opTypeNamePattern, "op type name"); err != nil {
+		if err := validateNameForRender(k.opType, opTypeNamePattern, "op type name", keywords, ""); err != nil {
 			return err
 		}
 	}
@@ -269,14 +269,21 @@ var identLexPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
 // naming pattern (spec/schema-source.md §3.3) — fieldNamePattern for a
 // field name or target(...), namespacePattern for the namespace,
 // typeNamePattern for a type name, opTypeNamePattern for an op type —
-// plus the reserved-word exclusion and the length limit, both shared
-// across every slot. Render must clear this stricter bar (not just
-// identLexPattern) for every one of these five slots, because
+// plus the length limit, shared across every slot, and reserved, the
+// slot's own reserved-word set: keywords for a namespace, type name, or
+// op type name (all eight remain reserved there, with reason ""), or
+// fieldReserved for a field name or target (only deprecated remains
+// reserved there, with reason fieldReservedReason). Render must take the
+// same set validateName would for this slot, not the global keywords
+// table, or a folded field named "description" would render
+// successfully into source Parse then rejects as unparseable. Render
+// must clear this stricter bar (not just identLexPattern) for every one
+// of these five slots, because
 // parseField/parseTargetModifier/parseFile/parseType/parseOpBlock all
 // route through validateName rather than a bare expectIdentAny.
-func validateNameForRender(name string, pattern *regexp.Regexp, what string) error {
-	if isKeyword(name) {
-		return fmt.Errorf("%s %q is a reserved word and would not parse back", what, name)
+func validateNameForRender(name string, pattern *regexp.Regexp, what string, reserved map[string]bool, reason string) error {
+	if reserved[name] {
+		return fmt.Errorf("%s %q is a reserved word and would not parse back%s", what, name, reason)
 	}
 	if len(name) > maxNameLength {
 		return fmt.Errorf("%s %q is %d characters, over the %d-character limit and would not parse back", what, name, len(name), maxNameLength)
@@ -308,7 +315,7 @@ func validateIdentForRender(s, what string) error {
 // `apply` cannot parse back, with no indication of which declaration
 // broke it.
 func validateFieldForRender(f state.SchemaField) error {
-	if err := validateNameForRender(f.Name, fieldNamePattern, "field name"); err != nil {
+	if err := validateNameForRender(f.Name, fieldNamePattern, "field name", fieldReserved, fieldReservedReason); err != nil {
 		return err
 	}
 	if !spec.KnownCatalogueStrategies[f.Strategy] {
@@ -328,7 +335,7 @@ func validateFieldForRender(f state.SchemaField) error {
 		}
 	}
 	if f.Target != "" {
-		if err := validateNameForRender(f.Target, fieldNamePattern, "target"); err != nil {
+		if err := validateNameForRender(f.Target, fieldNamePattern, "target", fieldReserved, fieldReservedReason); err != nil {
 			return err
 		}
 	}
