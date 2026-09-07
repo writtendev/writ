@@ -146,16 +146,16 @@ func TestExtractSynopsisFlags(t *testing.T) {
 			want:      []string{"C"},
 		},
 		{
-			usageLine: "Usage: writ issue create [-C <dir>] -title <t> [-description <d>] [-state open|closed] [-fixes <ref>]... [-relates <ref>]...",
-			want:      []string{"C", "description", "fixes", "relates", "state", "title"},
+			usageLine: "Usage: writ object create [-C <dir>] <type> <op-type> [-field <k>=<v>]... [-op-version <n>] [--json]",
+			want:      []string{"C", "field", "json", "op-version"},
 		},
 		{
 			usageLine: "Usage: writ sync [-C <dir>] [--status] [--json] [remote...]",
 			want:      []string{"C", "json", "status"},
 		},
 		{
-			usageLine: "Usage: writ review comment [-C <dir>] <id> -m <text> [-reply-to <comment-id>]",
-			want:      []string{"C", "m", "reply-to"},
+			usageLine: "Usage: writ object apply [-C <dir>] <object-id> <op-type> [-field <k>=<v>]... [-op-version <n>] [--json]",
+			want:      []string{"C", "field", "json", "op-version"},
 		},
 		{
 			usageLine: "Usage: writ version",

@@ -650,10 +650,11 @@ func positionOpID(orderedOps []codec.Op, objectType, targetKey string, rules []s
 // least one installed rule — an op already fully quarantined in unknownOps
 // contributes nothing here, it is tracked there instead — for body keys no
 // rule bound to that op's (op_type, op_version) names as its Field,
-// last-write-wins per key over the total order. This is the generic
-// expression of settings.FoldSettings's unknown_keys collection: the same
-// semantics, computed once for every declared type instead of one type's
-// hand-written case.
+// last-write-wins per key over the total order. Before WRIT-195 this was
+// the generic expression of the (now-deleted) typed settings reducer's
+// unknown_keys collection — the same semantics, computed once for every
+// declared type instead of one type's hand-written case; that hand-written
+// case is gone, so this is now simply the one implementation.
 func computeUnknownFields(orderedOps []codec.Op, rules []state.Rule, unknownOps []state.UnknownOp) string {
 	skip := make(map[string]bool, len(unknownOps))
 	for _, u := range unknownOps {

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"flag"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -11,8 +12,27 @@ import (
 
 	"github.com/writtendev/writ/cmd/writ/internal/wire"
 	"github.com/writtendev/writ/engine"
-	"github.com/writtendev/writ/spec/fixtures"
+	"github.com/writtendev/writ/internal/textdiff"
 )
+
+// updateGoldenFlag mirrors spec/fixtures' -update-golden convention
+// (engine/schemasrc/helpers_test.go does the same) for this package's own
+// golden files, now that cmd/writ imports neither spec nor spec/fixtures.
+var updateGoldenFlag = flag.Bool("update-golden", false, "update golden files instead of checking against them")
+
+// updateGolden reports whether golden file updates have been requested via
+// -update-golden or the WRIT_UPDATE_GOLDEN / UPDATE_GOLDEN environment
+// variables.
+func updateGolden() bool {
+	if updateGoldenFlag != nil && *updateGoldenFlag {
+		return true
+	}
+	env := os.Getenv("WRIT_UPDATE_GOLDEN")
+	if env == "" {
+		env = os.Getenv("UPDATE_GOLDEN")
+	}
+	return env == "1" || strings.EqualFold(env, "true")
+}
 
 func maskGoldenTimestamps(data []byte) []byte {
 	re := regexp.MustCompile(`"(created_at|updated_at)":"[^"]+"`)
@@ -30,7 +50,7 @@ func compareOrUpdateGolden(t *testing.T, goldenName string, got []byte) {
 	t.Helper()
 	goldenPath := filepath.Join("testdata", "golden", goldenName)
 
-	if fixtures.UpdateGolden() {
+	if updateGolden() {
 		if err := os.MkdirAll(filepath.Dir(goldenPath), 0o755); err != nil {
 			t.Fatalf("mkdir failed: %v", err)
 		}
@@ -50,225 +70,40 @@ func compareOrUpdateGolden(t *testing.T, goldenName string, got []byte) {
 	}
 
 	if !bytes.Equal(got, want) {
-		diff := fixtures.Diff(goldenPath+" (golden)", want, "got (actual output)", got)
+		diff := textdiff.Diff(goldenPath+" (golden)", want, "got (actual output)", got)
 		t.Errorf("output does not match golden file %s\n\n%s", goldenPath, diff)
 	}
-}
-
-func loadFixtureRepo(t *testing.T, descName string) string {
-	t.Helper()
-	corpus, err := fixtures.LoadCorpus()
-	if err != nil {
-		t.Fatalf("load corpus failed: %v", err)
-	}
-	var desc *fixtures.Description
-	for _, d := range corpus {
-		if d.Name == descName {
-			desc = d
-			break
-		}
-	}
-	if desc == nil {
-		t.Fatalf("fixture description %q not found in corpus", descName)
-	}
-
-	repoDir := filepath.Join(t.TempDir(), "repo_"+descName)
-	if _, err := fixtures.Generate(desc, repoDir); err != nil {
-		t.Fatalf("generate fixture %s failed: %v", descName, err)
-	}
-
-	return repoDir
-}
-
-func TestGolden_ReviewList_Empty(t *testing.T) {
-	env := setupTestCLIEnv(t)
-	setupSigningKey(t, env.repoDir)
-
-	var stdout, stderr bytes.Buffer
-	code := run(context.Background(), []string{"init", "-C", env.repoDir}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("init failed: %s", stderr.String())
-	}
-
-	stdout.Reset()
-	stderr.Reset()
-	code = run(context.Background(), []string{"review", "list", "-C", env.repoDir, "--json"}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("review list --json failed with %d; stderr: %s", code, stderr.String())
-	}
-
-	compareOrUpdateGolden(t, "review_list_empty.json", stdout.Bytes())
-}
-
-func TestGolden_ReviewList_Single(t *testing.T) {
-	repoDir := loadFixtureRepo(t, "fold-concurrent-review-edits")
-
-	var stdout, stderr bytes.Buffer
-	code := run(context.Background(), []string{"review", "list", "-C", repoDir, "--json"}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("review list --json failed with %d; stderr: %s", code, stderr.String())
-	}
-
-	compareOrUpdateGolden(t, "review_list_single.json", stdout.Bytes())
-}
-
-func TestGolden_ReviewList_Multi(t *testing.T) {
-	repoDir := loadFixtureRepo(t, "multi-writer-chains")
-
-	var stdout, stderr bytes.Buffer
-	code := run(context.Background(), []string{"review", "list", "-C", repoDir, "--json"}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("review list --json failed with %d; stderr: %s", code, stderr.String())
-	}
-
-	compareOrUpdateGolden(t, "review_list_multi.json", stdout.Bytes())
-}
-
-func TestGolden_ReviewStatus_Detail(t *testing.T) {
-	repoDir := loadFixtureRepo(t, "review-mixed-signals")
-
-	var stdout, stderr bytes.Buffer
-	code := run(context.Background(), []string{"review", "status", "-C", repoDir, "r-mixed", "--json"}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("review status --json failed with %d; stderr: %s", code, stderr.String())
-	}
-
-	compareOrUpdateGolden(t, "review_status_detail.json", stdout.Bytes())
-}
-
-func TestGolden_ReviewStatus_UnknownOps(t *testing.T) {
-	repoDir := loadFixtureRepo(t, "forward-compat-unknown-ops")
-
-	var stdout, stderr bytes.Buffer
-	code := run(context.Background(), []string{"review", "status", "-C", repoDir, "review-01", "--json"}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("review status --json failed with %d; stderr: %s", code, stderr.String())
-	}
-
-	compareOrUpdateGolden(t, "review_status_unknown_ops.json", stdout.Bytes())
-}
-
-func TestGolden_IssueList_Empty(t *testing.T) {
-	env := setupTestCLIEnv(t)
-	setupSigningKey(t, env.repoDir)
-
-	var stdout, stderr bytes.Buffer
-	code := run(context.Background(), []string{"init", "-C", env.repoDir}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("init failed: %s", stderr.String())
-	}
-
-	stdout.Reset()
-	stderr.Reset()
-	code = run(context.Background(), []string{"issue", "list", "-C", env.repoDir, "--json"}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("issue list --json failed with %d; stderr: %s", code, stderr.String())
-	}
-
-	compareOrUpdateGolden(t, "issue_list_empty.json", stdout.Bytes())
-}
-
-func TestGolden_IssueList_Single(t *testing.T) {
-	repoDir := loadFixtureRepo(t, "issue-lifecycle")
-
-	var stdout, stderr bytes.Buffer
-	code := run(context.Background(), []string{"issue", "list", "-C", repoDir, "--json"}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("issue list --json failed with %d; stderr: %s", code, stderr.String())
-	}
-
-	compareOrUpdateGolden(t, "issue_list_single.json", stdout.Bytes())
-}
-
-func TestGolden_IssueStatus_Detail(t *testing.T) {
-	repoDir := loadFixtureRepo(t, "issue-concurrent-triage")
-
-	var stdout, stderr bytes.Buffer
-	code := run(context.Background(), []string{"issue", "status", "-C", repoDir, "i-concurrent", "--json"}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("issue status --json failed with %d; stderr: %s", code, stderr.String())
-	}
-
-	compareOrUpdateGolden(t, "issue_status_detail.json", stdout.Bytes())
-}
-
-func TestGolden_IssueStatus_LinksAndUnknownOps(t *testing.T) {
-	repoDir := loadFixtureRepo(t, "issue-cross-repo-links")
-
-	var stdout, stderr bytes.Buffer
-	code := run(context.Background(), []string{"issue", "status", "-C", repoDir, "i-links", "--json"}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("issue status --json failed with %d; stderr: %s", code, stderr.String())
-	}
-
-	compareOrUpdateGolden(t, "issue_status_links.json", stdout.Bytes())
-}
-
-func TestGolden_IssueLabel(t *testing.T) {
-	repoDir := loadFixtureRepo(t, "issue-concurrent-triage")
-
-	var stdout, stderr bytes.Buffer
-	code := run(context.Background(), []string{"issue", "label", "-C", repoDir, "i-concurrent", "--json"}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("issue label --json failed with %d; stderr: %s", code, stderr.String())
-	}
-
-	compareOrUpdateGolden(t, "issue_labels.json", stdout.Bytes())
-}
-
-func TestGolden_CommentEdit(t *testing.T) {
-	repoDir := loadFixtureRepo(t, "fold-comment-threads")
-	setupSigningKey(t, repoDir)
-
-	var initOut, initErr bytes.Buffer
-	code := run(context.Background(), []string{"init", "-C", repoDir}, &initOut, &initErr)
-	if code != 0 {
-		t.Fatalf("init failed: %s", initErr.String())
-	}
-
-	var stdout, stderr bytes.Buffer
-	code = run(context.Background(), []string{"comment", "edit", "-C", repoDir, "c-root", "-m", "Updated root comment for golden", "--json"}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("comment edit --json failed with %d; stderr: %s", code, stderr.String())
-	}
-
-	compareOrUpdateGolden(t, "comment_edit.json", maskGoldenTimestamps(stdout.Bytes()))
-}
-
-func TestGolden_CommentDelete(t *testing.T) {
-	repoDir := loadFixtureRepo(t, "fold-comment-threads")
-	setupSigningKey(t, repoDir)
-
-	var initOut, initErr bytes.Buffer
-	code := run(context.Background(), []string{"init", "-C", repoDir}, &initOut, &initErr)
-	if code != 0 {
-		t.Fatalf("init failed: %s", initErr.String())
-	}
-
-	var stdout, stderr bytes.Buffer
-	code = run(context.Background(), []string{"comment", "delete", "-C", repoDir, "c-root", "--json"}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("comment delete --json failed with %d; stderr: %s", code, stderr.String())
-	}
-
-	compareOrUpdateGolden(t, "comment_delete.json", maskGoldenTimestamps(stdout.Bytes()))
 }
 
 func TestGolden_SyncStatus(t *testing.T) {
 	_, aliceDir, _ := setupSyncTestHarness(t)
 	ctx := context.Background()
 
-	// Alice creates a review so there is 1 unsynced op
+	// Alice declares and syncs the ticket type first, so it is not itself
+	// the unsynced op this golden captures.
 	sA, err := writ.Open(aliceDir, writ.WithSigner(dummySigner()))
 	if err != nil {
 		t.Fatalf("Open Alice failed: %v", err)
 	}
-	_, err = sA.Reviews.Create(ctx, writ.NewReview{
-		Title: "Unsynced Op Review",
+	applyTicketSchemaViaStore(t, ctx, sA, aliceDir)
+	sA.Close()
+	var stdoutSchema, stderrSchema bytes.Buffer
+	if code := run(ctx, []string{"-C", aliceDir, "sync"}, &stdoutSchema, &stderrSchema); code != 0 {
+		t.Fatalf("Alice schema sync exited with %d; stderr: %s", code, stderrSchema.String())
+	}
+
+	// Alice creates an object so there is 1 unsynced op.
+	sA, err = writ.Open(aliceDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Reopen Alice failed: %v", err)
+	}
+	_, err = sA.Objects.Create(ctx, "ticket", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Unsynced Op Ticket"},
 	})
 	if err != nil {
 		sA.Close()
-		t.Fatalf("Alice create review: %v", err)
+		t.Fatalf("Alice create object: %v", err)
 	}
 	sA.Close()
 
@@ -285,17 +120,31 @@ func TestGolden_SyncResult(t *testing.T) {
 	_, aliceDir, _ := setupSyncTestHarness(t)
 	ctx := context.Background()
 
-	// Alice creates a review and then syncs
+	// Alice declares and syncs the ticket type first, so it is not itself
+	// the op this golden captures being pushed.
 	sA, err := writ.Open(aliceDir, writ.WithSigner(dummySigner()))
 	if err != nil {
 		t.Fatalf("Open Alice failed: %v", err)
 	}
-	_, err = sA.Reviews.Create(ctx, writ.NewReview{
-		Title: "Sync Result Review",
+	applyTicketSchemaViaStore(t, ctx, sA, aliceDir)
+	sA.Close()
+	var stdoutSchema, stderrSchema bytes.Buffer
+	if code := run(ctx, []string{"-C", aliceDir, "sync"}, &stdoutSchema, &stderrSchema); code != 0 {
+		t.Fatalf("Alice schema sync exited with %d; stderr: %s", code, stderrSchema.String())
+	}
+
+	// Alice creates an object and then syncs.
+	sA, err = writ.Open(aliceDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Reopen Alice failed: %v", err)
+	}
+	_, err = sA.Objects.Create(ctx, "ticket", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Sync Result Ticket"},
 	})
 	if err != nil {
 		sA.Close()
-		t.Fatalf("Alice create review: %v", err)
+		t.Fatalf("Alice create object: %v", err)
 	}
 	sA.Close()
 
@@ -450,28 +299,37 @@ func TestGolden_ObjectList(t *testing.T) {
 }
 
 func TestDeterminism_AllReadVerbs(t *testing.T) {
-	repoDir := loadFixtureRepo(t, "review-mixed-signals")
-	ctx := context.Background()
+	env := initTestRepo(t)
+	applyTicketObjectSchema(t, env.repoDir)
 
-	issueRepoDir := loadFixtureRepo(t, "issue-concurrent-triage")
+	var created bytes.Buffer
+	var createErr bytes.Buffer
+	code := run(context.Background(), []string{
+		"object", "create", "-C", env.repoDir, "ticket", "create",
+		"-field", "title=Fix the thing",
+		"--json",
+	}, &created, &createErr)
+	if code != 0 {
+		t.Fatalf("object create failed with %d; stderr: %s", code, createErr.String())
+	}
+	var createdObj wire.ObjectCreated
+	unmarshalEnvelopeData(t, created.Bytes(), wire.KindObjectCreate, &createdObj)
 
 	readCommands := [][]string{
-		{"review", "list", "-C", repoDir, "--json"},
-		{"review", "status", "-C", repoDir, "r-mixed", "--json"},
-		{"issue", "list", "-C", issueRepoDir, "--json"},
-		{"issue", "status", "-C", issueRepoDir, "i-concurrent", "--json"},
-		{"issue", "label", "-C", issueRepoDir, "i-concurrent", "--json"},
+		{"object", "list", "-C", env.repoDir, "ticket", "--json"},
+		{"object", "show", "-C", env.repoDir, createdObj.ObjectID, "--json"},
+		{"schema", "show", "-C", env.repoDir, "ticket", "--json"},
 	}
 
 	for _, cmd := range readCommands {
 		var out1, err1 bytes.Buffer
-		code1 := run(ctx, cmd, &out1, &err1)
+		code1 := run(context.Background(), cmd, &out1, &err1)
 		if code1 != 0 {
 			t.Fatalf("run 1 for %v failed: %s", cmd, err1.String())
 		}
 
 		var out2, err2 bytes.Buffer
-		code2 := run(ctx, cmd, &out2, &err2)
+		code2 := run(context.Background(), cmd, &out2, &err2)
 		if code2 != 0 {
 			t.Fatalf("run 2 for %v failed: %s", cmd, err2.String())
 		}
@@ -487,11 +345,9 @@ func TestEveryReadVerbHasJSON(t *testing.T) {
 		name string
 		args []string
 	}{
-		{name: "review list", args: []string{"review", "list", "-h"}},
-		{name: "review status", args: []string{"review", "status", "-h"}},
-		{name: "issue list", args: []string{"issue", "list", "-h"}},
-		{name: "issue status", args: []string{"issue", "status", "-h"}},
-		{name: "issue label", args: []string{"issue", "label", "-h"}},
+		{name: "object list", args: []string{"object", "list", "-h"}},
+		{name: "object show", args: []string{"object", "show", "-h"}},
+		{name: "schema show", args: []string{"schema", "show", "-h"}},
 		{name: "sync", args: []string{"sync", "-h"}},
 	}
 

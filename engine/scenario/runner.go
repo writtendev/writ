@@ -18,10 +18,11 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/go-git/go-git/v5/storage"
 	"github.com/writtendev/writ/engine"
-	"github.com/writtendev/writ/engine/codec"
 	"github.com/writtendev/writ/engine/dag"
 	"github.com/writtendev/writ/engine/identity"
+	"github.com/writtendev/writ/engine/internal/fold"
 	"github.com/writtendev/writ/engine/resolve"
+	"github.com/writtendev/writ/engine/state"
 	writsync "github.com/writtendev/writ/engine/sync"
 	"github.com/writtendev/writ/spec/fixtures"
 )
@@ -416,115 +417,43 @@ func buildSnapshot(t TestReporter, rt *deviceRuntime, checks []AnchorCheck) (Sna
 		return Snapshot{}, fmt.Errorf("enumerate: %w", err)
 	}
 
-	reviewsOps := make(map[string][]codec.Op)
-	var allCommentOps []codec.Op
-	issuesOps := make(map[string][]codec.Op)
-	projectsOps := make(map[string][]codec.Op)
-	cyclesOps := make(map[string][]codec.Op)
-
-	for objID, ops := range enumRes.Ops {
-		for _, op := range ops {
-			switch op.ObjectType {
-			case "review":
-				reviewsOps[objID] = append(reviewsOps[objID], op)
-			case "comment":
-				allCommentOps = append(allCommentOps, op)
-			case "issue":
-				issuesOps[objID] = append(issuesOps[objID], op)
-			case "project":
-				projectsOps[objID] = append(projectsOps[objID], op)
-			case "cycle":
-				cyclesOps[objID] = append(cyclesOps[objID], op)
-			}
-		}
+	rules, err := state.BuiltinRules()
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("resolve builtin rules: %w", err)
 	}
+
+	var objectIDs []string
+	for objID := range enumRes.Ops {
+		objectIDs = append(objectIDs, objID)
+	}
+	sort.Strings(objectIDs)
 
 	var snapshot Snapshot
-
-	// Fold reviews
-	var reviewIDs []string
-	for id := range reviewsOps {
-		reviewIDs = append(reviewIDs, id)
-	}
-	sort.Strings(reviewIDs)
-	for _, id := range reviewIDs {
-		rev, err := writ.FoldReview(reviewsOps[id])
-		if err != nil {
-			return Snapshot{}, fmt.Errorf("fold review %s: %w", id, err)
+	for _, id := range objectIDs {
+		ops := enumRes.Ops[id]
+		if len(ops) == 0 {
+			continue
 		}
-		snapshot.Reviews = append(snapshot.Reviews, ReviewRecord{
-			ObjectID: id,
-			Review:   rev,
-		})
-	}
-
-	// Fold comments
-	if len(allCommentOps) > 0 {
-		threads, err := writ.FoldComments(allCommentOps)
+		objectType := fold.DetermineObjectType(ops)
+		st, err := writ.Fold(ops, rules[objectType])
 		if err != nil {
-			return Snapshot{}, fmt.Errorf("fold comments: %w", err)
+			return Snapshot{}, fmt.Errorf("fold %s %s: %w", objectType, id, err)
 		}
-		snapshot.Comments = threads
-	}
-
-	// Fold issues
-	var issueIDs []string
-	for id := range issuesOps {
-		issueIDs = append(issueIDs, id)
-	}
-	sort.Strings(issueIDs)
-	for _, id := range issueIDs {
-		iss, err := writ.FoldIssue(issuesOps[id])
-		if err != nil {
-			return Snapshot{}, fmt.Errorf("fold issue %s: %w", id, err)
-		}
-		snapshot.Issues = append(snapshot.Issues, IssueRecord{
-			ObjectID: id,
-			Issue:    iss,
-		})
-	}
-
-	// Fold projects
-	var projectIDs []string
-	for id := range projectsOps {
-		projectIDs = append(projectIDs, id)
-	}
-	sort.Strings(projectIDs)
-	for _, id := range projectIDs {
-		proj, err := writ.FoldProject(projectsOps[id])
-		if err != nil {
-			return Snapshot{}, fmt.Errorf("fold project %s: %w", id, err)
-		}
-		snapshot.Projects = append(snapshot.Projects, ProjectRecord{
-			ObjectID: id,
-			Project:  proj,
-		})
-	}
-
-	// Fold cycles
-	var cycleIDs []string
-	for id := range cyclesOps {
-		cycleIDs = append(cycleIDs, id)
-	}
-	sort.Strings(cycleIDs)
-	for _, id := range cycleIDs {
-		cyc, err := writ.FoldCycle(cyclesOps[id])
-		if err != nil {
-			return Snapshot{}, fmt.Errorf("fold cycle %s: %w", id, err)
-		}
-		snapshot.Cycles = append(snapshot.Cycles, CycleRecord{
-			ObjectID: id,
-			Cycle:    cyc,
+		snapshot.Objects = append(snapshot.Objects, ObjectRecord{
+			ObjectID:    id,
+			ObjectType:  objectType,
+			ObjectState: st,
 		})
 	}
 
 	// Anchor checks
 	for _, chk := range checks {
-		comm := findCommentInThreads(snapshot.Comments, chk.CommentID)
-		if comm == nil {
-			return Snapshot{}, fmt.Errorf("anchor check: comment %q not found in snapshot comments", chk.CommentID)
+		rec := findObjectRecord(snapshot.Objects, chk.CommentID)
+		if rec == nil {
+			return Snapshot{}, fmt.Errorf("anchor check: comment %q not found in snapshot objects", chk.CommentID)
 		}
-		if comm.Anchor == nil {
+		anchor, ok := decodeAnchor(rec.ObjectState.State["anchor"])
+		if !ok {
 			return Snapshot{}, fmt.Errorf("anchor check: comment %q has no anchor", chk.CommentID)
 		}
 		branch := chk.Branch
@@ -543,11 +472,11 @@ func buildSnapshot(t TestReporter, rt *deviceRuntime, checks []AnchorCheck) (Sna
 			return Snapshot{}, fmt.Errorf("materialize tree for %s: %w", branchRef.Hash().String(), err)
 		}
 		tree := resolve.NewTree(files, resolve.SHA1)
-		res := resolve.Resolve(*comm.Anchor, tree)
+		res := resolve.Resolve(anchor, tree)
 		status := deriveStatus(res)
 		snapshot.Resolutions = append(snapshot.Resolutions, ResolutionRecord{
 			CommentID:  chk.CommentID,
-			Anchor:     *comm.Anchor,
+			Anchor:     anchor,
 			Resolution: res,
 			Status:     status,
 		})
@@ -616,14 +545,30 @@ func deriveStatus(res resolve.Resolution) string {
 	return "orphaned"
 }
 
-func findCommentInThreads(threads []writ.CommentThread, id string) *writ.Comment {
-	for i := range threads {
-		if threads[i].ObjectID == id {
-			return &threads[i].Comment
-		}
-		if c := findCommentInThreads(threads[i].Replies, id); c != nil {
-			return c
+func findObjectRecord(objects []ObjectRecord, id string) *ObjectRecord {
+	for i := range objects {
+		if objects[i].ObjectID == id {
+			return &objects[i]
 		}
 	}
 	return nil
+}
+
+// decodeAnchor recovers a resolve.Anchor from a generically-folded "anchor"
+// field: create-once carries the value verbatim as data (spec/fold.md §6),
+// so it comes back from writ.Fold as a map[string]any matching the same
+// JSON shape resolve.Anchor itself marshals to, not a typed struct.
+func decodeAnchor(raw any) (resolve.Anchor, bool) {
+	if raw == nil {
+		return resolve.Anchor{}, false
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return resolve.Anchor{}, false
+	}
+	var anchor resolve.Anchor
+	if err := json.Unmarshal(b, &anchor); err != nil {
+		return resolve.Anchor{}, false
+	}
+	return anchor, true
 }

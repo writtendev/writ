@@ -6,7 +6,7 @@ title: "Documentation"
 slug: "docs"
 ---
 
-Writ stores code review and issue operations inside the git repository itself.
+`writ` stores signed, append-only, mergeable state inside a git repository, under types your own `writ.schema` declares.
 
 The full flag-by-flag surface is the [CLI Reference](../cli/), generated from
 the command table in `cmd/writ`.

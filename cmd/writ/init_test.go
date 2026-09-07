@@ -536,7 +536,7 @@ func TestInit_GPGFormatSpellingAgreesWithTheWritePath(t *testing.T) {
 			stdout.Reset()
 			stderr.Reset()
 			if code := run(context.Background(), []string{
-				"review", "open", "-C", env.repoDir, "-title", "x",
+				"schema", "apply", "-C", env.repoDir,
 			}, &stdout, &stderr); code != 0 {
 				t.Fatalf("a signed write refused a repository init reported as configured (gpg.format = %q):\n%s", format, stderr.String())
 			}
@@ -647,7 +647,7 @@ func TestInit_NeverAdvisesRunningInit(t *testing.T) {
 		// repository state, read through the engine, still carries the
 		// remediation. Asserted directly, because no CLI verb renders a
 		// ConfigError today — engine/open.go flattens the ones Load returns
-		// into ErrNoIdentity — so the review open check below passes through
+		// into ErrNoIdentity — so the schema apply check below passes through
 		// a hardcoded string and would survive Error() dropping the hint.
 		_, loadErr := identity.Load(context.Background(), env.repoDir)
 		if loadErr == nil {
@@ -664,12 +664,17 @@ func TestInit_NeverAdvisesRunningInit(t *testing.T) {
 			t.Errorf("ConfigError.Message kept the advice init must not print: %q", cfgErr.Message())
 		}
 
+		// A write needs a writ.schema to plan from before it ever reaches
+		// the identity check; write the same namespace-only starter `writ
+		// init` itself would, without running init.
+		writeSchemaFile(t, env.repoDir, "namespace testns\n")
+
 		var stdout, stderr bytes.Buffer
-		if code := run(context.Background(), []string{"review", "open", "-C", env.repoDir, "-title", "x"}, &stdout, &stderr); code == 0 {
-			t.Fatalf("review open should refuse on an unconfigured repo; stdout: %s", stdout.String())
+		if code := run(context.Background(), []string{"schema", "apply", "-C", env.repoDir}, &stdout, &stderr); code == 0 {
+			t.Fatalf("schema apply should refuse on an unconfigured repo; stdout: %s", stdout.String())
 		}
 		if got := stderr.String(); !strings.Contains(got, "run 'writ init' to configure") {
-			t.Errorf("review open dropped the remediation:\n%s", got)
+			t.Errorf("schema apply dropped the remediation:\n%s", got)
 		}
 	})
 }
@@ -762,6 +767,11 @@ func TestInit_E2E_PlainGitFetch(t *testing.T) {
 		t.Fatalf("dag.Open clone A: %v", err)
 	}
 
+	// This exercises plain-git-fetch/ref mechanics only — a raw dag.Append
+	// beneath any schema layer — and needs an object_type the installed
+	// (still built-in, pre-WRIT-194) vocabulary already declares, so
+	// "review" here is a stand-in value for that vocabulary slot, not a
+	// naming choice this ticket's per-type removal governs.
 	bodyBytes, _ := json.Marshal(map[string]any{"title": "Initial"})
 	envOp := codec.Envelope{
 		ObjectID:   "rev-1234567890abcdef",

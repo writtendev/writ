@@ -55,22 +55,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runCompletion(args[1:], stdout, stderr)
 	case "init":
 		return runInit(ctx, defaultDir, args[1:], stdout, stderr)
-	case "comment":
-		return runComment(ctx, defaultDir, args[1:], stdout, stderr)
-	case "doc":
-		return runDoc(ctx, defaultDir, args[1:], stdout, stderr)
-	case "issue":
-		return runIssue(ctx, defaultDir, args[1:], stdout, stderr)
 	case "object":
 		return runObject(ctx, defaultDir, args[1:], stdout, stderr)
-	case "review":
-		return runReview(ctx, defaultDir, args[1:], stdout, stderr)
-	case "state":
-		return runState(ctx, defaultDir, args[1:], stdout, stderr)
-	case "label":
-		return runLabel(ctx, defaultDir, args[1:], stdout, stderr)
-	case "settings":
-		return runSettings(ctx, defaultDir, args[1:], stdout, stderr)
 	case "schema":
 		return runSchema(ctx, defaultDir, args[1:], stdout, stderr)
 	case "sync":

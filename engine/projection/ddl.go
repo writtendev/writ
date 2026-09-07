@@ -286,15 +286,6 @@ type typeDescriptor struct {
 	Children     []ddlTable
 	Targets      map[string]*targetPlan
 	AppendGroups []appendGroupPlan
-
-	// shapeJSON is the canonical JSON encoding of this type's own generated
-	// shape (snapshotType(td)), computed once here rather than re-marshaled
-	// on every typed-reader call: requireBuiltinShape (typed_reader_guard.go)
-	// used to pay 2.6-9.1µs and 37-132 allocations re-deriving, on every
-	// single Reviews/Review/Issues/... call, a comparison ApplySchema had
-	// already fixed for this descriptor's entire lifetime (WRIT-189 round 3
-	// MINOR-4).
-	shapeJSON []byte
 }
 
 // schemaDescriptor is the generator's output: every declared object type's
@@ -566,7 +557,7 @@ func persistedQueryShapes(desc *schemaDescriptor) []persistedQueryShape {
 // not just the offending target, and buildDescriptor never fails the whole
 // schema build over it. A colliding or ambiguous type is data someone else
 // wrote — a legal object type name under op-envelope's grammar, such as
-// "review--base", can still generate a table name ("o_review__base")
+// "ticket--base", can still generate a table name ("o_ticket__base")
 // another type already owns, and a legal schema can still declare two rules
 // that agree on everything but Field — and WRIT-188 round 3's ruling
 // applies here just as much as there: data another writer wrote must never
@@ -903,11 +894,6 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 		Targets:      targets,
 		AppendGroups: appendGroupPlans,
 	}
-	shapeJSON, err := json.Marshal(snapshotType(td))
-	if err != nil {
-		return nil, nil, false, fmt.Errorf("projection: marshal %q shape: %w", objectType, err)
-	}
-	td.shapeJSON = shapeJSON
 
 	return td, anchorRefs, true, nil
 }
@@ -1005,11 +991,7 @@ func buildSnapshot(desc *schemaDescriptor) map[string]typeSnapshot {
 
 // snapshotType is buildSnapshot's per-type unit: td's table and every child
 // table, map-valued so two typeDescriptors built from equivalent but
-// differently-ordered rule slices compare equal. requireBuiltinShape (see
-// typed_reader_guard.go) is the other caller — it compares one installed
-// type's snapshot against a freshly built reference typeDescriptor for the
-// same object type, entirely independent of the digest this feeds
-// buildDescriptor's own canonicalJSON/digest.
+// differently-ordered rule slices compare equal.
 func snapshotType(td *typeDescriptor) typeSnapshot {
 	children := make(map[string]tableSnapshot, len(td.Children))
 	for _, c := range td.Children {

@@ -34,11 +34,12 @@ is derived, by deterministically folding an object's operations in causal
 order.
 
 ```console
-$ writ init                       # writes fetch refspecs into .git/config
-$ writ review open -title "Add rate limiting" -base main -head rate-limit
-$ writ review comment -m "this allocates in the hot path"
-$ writ review approve
-$ writ sync                       # git push, to your own ref namespace
+$ writ init                        # writes fetch refspecs into .git/config
+$ writ schema apply                 # appends the schema op; review/issue/comment ship as engine built-ins, not from this file
+$ writ object create review create -field title="Add rate limiting"
+$ writ object apply <id> revision -field base=<base-sha> -field head=<head-sha>
+$ writ object apply <id> approval -field revision=<head-sha> -field verdict=approve
+$ writ sync                        # git push, to your own ref namespace
 ```
 
 That is the whole deployment story. No server, no database, no webhook, no
@@ -277,12 +278,14 @@ ask about first.
 `refs/writ/<writer-id>/*`. A stranger filing a bug on an open-source project
 does not have it. Writ is built for the work of a team that already has commit
 access; it structurally cannot let unauthenticated strangers write ops without
-an account. The answer is an intake bot — a writer with push credentials that
-accepts reports from a public webhook, form, or email, attributing reporters
-truthfully via `user:` person identifiers (such as `user:github-octocat`)
-without inventing fake email addresses. For many open-source projects, the
-honest answer is to keep GitHub Issues as the public front door and use Writ
-for everything behind it.
+an account. The answer is an intake bot — a designated writer with push
+credentials that bridges incoming webhooks, web forms, email, or an external
+tracker into writ operations. To attribute external reporters truthfully
+without synthesizing fake email addresses, an intake bot uses the `user:`
+person identifier scheme (`user:<service>-<id>`, such as
+`user:github-octocat`) while the bot itself signs the operation commit. For
+many open-source projects, the honest answer is to keep GitHub Issues as the
+public front door and use Writ for everything behind it.
 
 ## The spec is the fixtures
 
@@ -328,8 +331,11 @@ that we have to.
 
 Built and working: the spec and its conformance fixtures; the engine — codec,
 DAG store, fold, anchor resolver, SQLite projection, sync — behind a
-domain-shaped public Go API; and the `writ` CLI, with porcelain for humans and
-`--json` on every read verb for scripts and agents.
+schema-shaped public Go API, never git-shaped: callers see no SHAs or
+refspecs unless they ask, and the shapes they see come from the schema in
+the log, not from Go structs writ ships; and the `writ` CLI, deliberately
+plumbing rather than porcelain, with `--json` on every read verb for scripts
+and agents.
 
 Not built: the terminal client, a GitHub bridge, the relay, compaction. The
 public API is deliberately strong enough that clients need no private hooks —

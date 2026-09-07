@@ -25,31 +25,6 @@ func ExampleOpen() {
 	fmt.Printf("Active writer: %s\n", writer.Name)
 }
 
-func ExampleReviews_Create() {
-	ctx := context.Background()
-	store, err := writ.Open(".")
-	if err != nil {
-		log.Printf("open repo: %v", err)
-		return
-	}
-	defer store.Close()
-
-	// Create a new code review. Base and Head are commit OIDs, not ref names:
-	// resolve the ref first, the way the CLI does with git rev-parse.
-	reviewID, err := store.Reviews.Create(ctx, writ.NewReview{
-		Title:       "Add OAuth2 authentication provider",
-		Description: "Implements Google and GitHub OAuth2 flows",
-		Base:        "e83c5163316f89bfbde7d9ab23ca2e25604af290",
-		Head:        "1f7a7a472abf3dd9643fd615f6da379c4acb3e3a",
-	})
-	if err != nil {
-		log.Printf("create review: %v", err)
-		return
-	}
-
-	fmt.Printf("Created review: %s\n", reviewID)
-}
-
 func ExampleObjects_Create() {
 	ctx := context.Background()
 	store, err := writ.Open(".")
@@ -109,29 +84,6 @@ func ExampleObjects_Get() {
 	fmt.Printf("Object %s (%s): %v\n", obj.ObjectID, obj.ObjectType, obj.Fields["title"])
 }
 
-func ExampleQuery_Reviews() {
-	store, err := writ.Open(".")
-	if err != nil {
-		log.Printf("open repo: %v", err)
-		return
-	}
-	defer store.Close()
-
-	// Query open reviews
-	reviews, err := store.Query.Reviews(writ.ReviewFilter{
-		Status:  []string{"open"},
-		OrderBy: writ.OrderByUpdatedAtDesc,
-	})
-	if err != nil {
-		log.Printf("query reviews: %v", err)
-		return
-	}
-
-	for _, r := range reviews {
-		fmt.Printf("Review %s: %s (status: %s)\n", r.ObjectID, r.Review.Title, r.Review.Status)
-	}
-}
-
 func ExampleStore_Watch() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -147,14 +99,14 @@ func ExampleStore_Watch() {
 	events := store.Watch(ctx)
 
 	// 2. Query initial snapshot after subscribing
-	reviews, err := store.Query.Reviews(writ.ReviewFilter{
-		Status: []string{"open"},
+	tickets, err := store.Query.Objects(writ.ObjectFilter{
+		Type: []string{"ticket"},
 	})
 	if err != nil {
-		log.Printf("query initial reviews: %v", err)
+		log.Printf("query initial tickets: %v", err)
 		return
 	}
-	fmt.Printf("Initial open reviews: %d\n", len(reviews))
+	fmt.Printf("Initial tickets: %d\n", len(tickets))
 
 	// 3. React to incoming events in the background
 	go func() {
@@ -171,14 +123,15 @@ func ExampleStore_Watch() {
 }
 
 // TestDocumentedBaseAndHeadAreOIDs guards the package's own documentation.
-//
-// The godoc landing page and ExampleReviews_Create both passed ref names for
-// base and head — an idiom the producer now refuses — and nothing
-// caught it: an Example without an "// Output:" comment compiles but never
-// runs, so `go test` could not have noticed. It still must not run, because it
-// would append ops to whatever repository `go test` was invoked in and print a
-// freshly minted, nondeterministic object id. So the guard reads the source
-// instead: every Base/Head literal these two files teach must be a commit OID.
+// Nothing here documents a Base/Head-shaped field any more — that was
+// review-specific porcelain this ticket deleted along with the typed
+// per-type services — but a producer that resolves a ref-shaped value into
+// a commit OID before writing it stays a real trap for whatever
+// schema-declared field plays that role next, and an Example without an
+// "// Output:" comment compiles but never runs, so `go test` would not
+// itself catch a bad doc example. So the guard stays, reading the source
+// instead: any Base/Head literal these two files ever teach again must be a
+// commit OID.
 func TestDocumentedBaseAndHeadAreOIDs(t *testing.T) {
 	literal := regexp.MustCompile(`(Base|Head):\s*"([^"]*)"`)
 	oid := regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
@@ -194,7 +147,7 @@ func TestDocumentedBaseAndHeadAreOIDs(t *testing.T) {
 		}
 		for _, m := range matches {
 			if !oid.MatchString(m[2]) {
-				t.Errorf("%s documents %s: %q, which is not a commit OID — Reviews.Create and PushRevision refuse ref names, so the documentation would teach a call that fails",
+				t.Errorf("%s documents %s: %q, which is not a commit OID — a schema-declared field resolved into a commit OID by the producer refuses a ref name, so the documentation would teach a call that fails",
 					file, m[1], m[2])
 			}
 		}

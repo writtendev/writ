@@ -27,7 +27,7 @@ func TestHelp_Command(t *testing.T) {
 	})
 
 	t.Run("command_help", func(t *testing.T) {
-		for _, cmd := range []string{"init", "comment", "issue", "review", "sync", "version", "completion", "help"} {
+		for _, cmd := range []string{"init", "object", "schema", "sync", "version", "completion", "help"} {
 			var stdout, stderr bytes.Buffer
 			code := run(context.Background(), []string{"help", cmd}, &stdout, &stderr)
 			if code != 0 {
@@ -45,20 +45,13 @@ func TestHelp_Command(t *testing.T) {
 			cmd    string
 			subcmd string
 		}{
-			{"comment", "edit"},
-			{"comment", "delete"},
-			{"review", "open"},
-			{"review", "comment"},
-			{"review", "approve"},
-			{"review", "status"},
-			{"review", "list"},
-			{"issue", "create"},
-			{"issue", "status"},
-			{"issue", "comment"},
-			{"issue", "assign"},
-			{"issue", "list"},
-			{"issue", "link"},
-			{"issue", "label"},
+			{"object", "create"},
+			{"object", "apply"},
+			{"object", "show"},
+			{"object", "list"},
+			{"schema", "plan"},
+			{"schema", "apply"},
+			{"schema", "show"},
 		}
 
 		for _, sc := range subcmds {
@@ -91,9 +84,9 @@ func TestHelp_Command(t *testing.T) {
 
 	t.Run("unknown_subcommand", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
-		code := run(context.Background(), []string{"help", "review", "nonexistent"}, &stdout, &stderr)
+		code := run(context.Background(), []string{"help", "object", "nonexistent"}, &stdout, &stderr)
 		if code != 2 {
-			t.Errorf("writ help review nonexistent exited with %d, want 2", code)
+			t.Errorf("writ help object nonexistent exited with %d, want 2", code)
 		}
 		if !strings.Contains(stderr.String(), "unknown subcommand") {
 			t.Errorf("stderr missing 'unknown subcommand': %s", stderr.String())
@@ -107,46 +100,32 @@ func TestHelp_FlagsRouting(t *testing.T) {
 		{"--help"},
 		{"init", "-h"},
 		{"init", "--help"},
-		{"comment", "-h"},
-		{"comment", "--help"},
-		{"comment", "edit", "-h"},
-		{"comment", "edit", "--help"},
-		{"comment", "delete", "-h"},
-		{"comment", "delete", "--help"},
+		{"object", "-h"},
+		{"object", "--help"},
+		{"object", "create", "-h"},
+		{"object", "create", "--help"},
+		{"object", "apply", "-h"},
+		{"object", "apply", "--help"},
+		{"object", "show", "-h"},
+		{"object", "show", "--help"},
+		{"object", "list", "-h"},
+		{"object", "list", "--help"},
+		{"schema", "-h"},
+		{"schema", "--help"},
+		// "schema plan -h"/"schema apply -h" are omitted here: their flag
+		// sets predate this ticket and never set FlagSet.Usage (unlike
+		// every sibling constructor), so -h/--help falls through to Go's
+		// default flag usage text instead of the app's own rendering. Pre-
+		// existing, outside WRIT-195's scope — flagged separately rather
+		// than fixed as a drive-by.
+		{"schema", "show", "-h"},
+		{"schema", "show", "--help"},
 		{"sync", "-h"},
 		{"sync", "--help"},
 		{"completion", "-h"},
 		{"completion", "--help"},
 		{"version", "-h"},
 		{"version", "--help"},
-		{"issue", "-h"},
-		{"issue", "--help"},
-		{"issue", "create", "-h"},
-		{"issue", "create", "--help"},
-		{"issue", "status", "-h"},
-		{"issue", "status", "--help"},
-		{"issue", "comment", "-h"},
-		{"issue", "comment", "--help"},
-		{"issue", "assign", "-h"},
-		{"issue", "assign", "--help"},
-		{"issue", "list", "-h"},
-		{"issue", "list", "--help"},
-		{"issue", "link", "-h"},
-		{"issue", "link", "--help"},
-		{"issue", "label", "-h"},
-		{"issue", "label", "--help"},
-		{"review", "-h"},
-		{"review", "--help"},
-		{"review", "open", "-h"},
-		{"review", "open", "--help"},
-		{"review", "comment", "-h"},
-		{"review", "comment", "--help"},
-		{"review", "approve", "-h"},
-		{"review", "approve", "--help"},
-		{"review", "status", "-h"},
-		{"review", "status", "--help"},
-		{"review", "list", "-h"},
-		{"review", "list", "--help"},
 	}
 
 	for _, args := range cmds {
@@ -164,4 +143,3 @@ func TestHelp_FlagsRouting(t *testing.T) {
 		})
 	}
 }
-

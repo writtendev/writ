@@ -5,12 +5,25 @@ import (
 	"context"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/go-git/go-git/v5"
 )
+
+// quickstartTestSchema is the writ.schema this test writes and applies,
+// mirroring docs/quickstart.md's own first step: a schema-authoring
+// tutorial before an object one. "ticket" is the neutral example type
+// AGENTS.md and spec/schema-source.md use — writ names no downstream
+// product.
+const quickstartTestSchema = `namespace quickstart
+
+type ticket {
+  op create 1, update 1 {
+    title string lww
+  }
+}
+`
 
 func TestQuickstart(t *testing.T) {
 	requireGit(t)
@@ -22,11 +35,6 @@ func TestQuickstart(t *testing.T) {
 
 	// Step 1: Initial commit in repo
 	commitFile(t, aliceDir, "README.md", "# My Project\n", "Initial commit")
-	cmd := exec.Command("git", "branch", "-M", "main")
-	cmd.Dir = aliceDir
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("rename branch to main: %v (%s)", err, string(out))
-	}
 
 	// Step 2: writ init
 	var stdout, stderr bytes.Buffer
@@ -38,57 +46,46 @@ func TestQuickstart(t *testing.T) {
 		t.Errorf("step 2 output missing Writer ID: %s", stdout.String())
 	}
 
-	// Step 3: Create feature branch and open review
-	cmd = exec.Command("git", "checkout", "-b", "feature")
-	cmd.Dir = aliceDir
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("checkout feature branch: %v (%s)", err, string(out))
-	}
-	commitFile(t, aliceDir, "main.go", "package main\n", "Add main entry point")
+	// Step 3: Declare the ticket type in writ.schema and apply it
+	writeSchemaFile(t, aliceDir, quickstartTestSchema)
 
 	stdout.Reset()
 	stderr.Reset()
-	code = run(ctx, []string{
-		"review", "open", "-C", aliceDir,
-		"-title", "Add main entry point",
-		"-base", "main", "-head", "feature",
-	}, &stdout, &stderr)
+	code = run(ctx, []string{"schema", "apply", "-C", aliceDir}, &stdout, &stderr)
 	if code != 0 {
-		t.Fatalf("step 3 (review open) failed with %d; stderr: %s", code, stderr.String())
+		t.Fatalf("step 3 (schema apply) failed with %d; stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Created schema object") {
+		t.Errorf("step 3 output missing schema creation: %s", stdout.String())
 	}
 
-	openOut := strings.TrimSpace(stdout.String())
-	idRe := regexp.MustCompile(`^([0-9a-f]{32}) \(open\) Add main entry point$`)
-	matches := idRe.FindStringSubmatch(openOut)
-	if len(matches) < 2 {
-		t.Fatalf("unexpected review open output: %q", openOut)
-	}
-	reviewID := matches[1]
-
-	// Step 4: Add a comment
+	// Step 4: Create a ticket
 	stdout.Reset()
 	stderr.Reset()
 	code = run(ctx, []string{
-		"review", "comment", "-C", aliceDir,
-		reviewID, "-m", "Looks great, ready for review.",
+		"object", "create", "-C", aliceDir, "ticket", "create",
+		"-field", "title=Add main entry point",
 	}, &stdout, &stderr)
 	if code != 0 {
-		t.Fatalf("step 4 (review comment) failed with %d; stderr: %s", code, stderr.String())
+		t.Fatalf("step 4 (object create) failed with %d; stderr: %s", code, stderr.String())
 	}
-	commentID := strings.TrimSpace(stdout.String())
-	if len(commentID) != 32 {
-		t.Fatalf("unexpected comment ID format: %q", commentID)
+	objectID := strings.TrimSpace(stdout.String())
+	if len(objectID) != 32 {
+		t.Fatalf("unexpected object id format: %q", objectID)
 	}
 
-	// Step 5: Record approval
+	// Step 5: Apply an update
 	stdout.Reset()
 	stderr.Reset()
 	code = run(ctx, []string{
-		"review", "approve", "-C", aliceDir,
-		reviewID, "-verdict", "approve", "-m", "LGTM",
+		"object", "apply", "-C", aliceDir, objectID, "update",
+		"-field", "title=Add main entry point (ready for review)",
 	}, &stdout, &stderr)
 	if code != 0 {
-		t.Fatalf("step 5 (review approve) failed with %d; stderr: %s", code, stderr.String())
+		t.Fatalf("step 5 (object apply) failed with %d; stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), objectID+": applied update") {
+		t.Errorf("step 5 output missing apply confirmation: %s", stdout.String())
 	}
 
 	// Step 6: Set up remote and sync
@@ -110,7 +107,7 @@ func TestQuickstart(t *testing.T) {
 
 	// Step 7: Collaborator clones and syncs
 	bobDir := filepath.Join(t.TempDir(), "collab")
-	cmd = exec.Command("git", "clone", bareDir, bobDir)
+	cmd := exec.Command("git", "clone", bareDir, bobDir)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("clone to bobDir: %v (%s)", err, string(out))
 	}
@@ -135,33 +132,27 @@ func TestQuickstart(t *testing.T) {
 		t.Errorf("bob sync output missing fetched ops: %s", stdout.String())
 	}
 
-	// Collaborator lists reviews
+	// Collaborator lists tickets
 	stdout.Reset()
 	stderr.Reset()
-	code = run(ctx, []string{"review", "list", "-C", bobDir}, &stdout, &stderr)
+	code = run(ctx, []string{"object", "list", "-C", bobDir, "ticket"}, &stdout, &stderr)
 	if code != 0 {
-		t.Fatalf("bob review list failed with %d; stderr: %s", code, stderr.String())
+		t.Fatalf("bob object list failed with %d; stderr: %s", code, stderr.String())
 	}
 	listOut := stdout.String()
-	if !strings.Contains(listOut, reviewID[:8]) {
-		t.Errorf("bob review list missing review ID %s: %s", reviewID[:8], listOut)
-	}
-	if !strings.Contains(listOut, "Add main entry point") {
-		t.Errorf("bob review list missing review title: %s", listOut)
+	if !strings.Contains(listOut, objectID[:8]) {
+		t.Errorf("bob object list missing object ID %s: %s", objectID[:8], listOut)
 	}
 
-	// Collaborator views review status
+	// Collaborator views the ticket
 	stdout.Reset()
 	stderr.Reset()
-	code = run(ctx, []string{"review", "status", "-C", bobDir, reviewID[:8]}, &stdout, &stderr)
+	code = run(ctx, []string{"object", "show", "-C", bobDir, objectID}, &stdout, &stderr)
 	if code != 0 {
-		t.Fatalf("bob review status failed with %d; stderr: %s", code, stderr.String())
+		t.Fatalf("bob object show failed with %d; stderr: %s", code, stderr.String())
 	}
-	statusOut := stdout.String()
-	if !strings.Contains(statusOut, "Approvals:   1") {
-		t.Errorf("bob review status missing Approvals: 1: %s", statusOut)
-	}
-	if !strings.Contains(statusOut, "Revisions:   1") {
-		t.Errorf("bob review status missing Revisions: 1: %s", statusOut)
+	showOut := stdout.String()
+	if !strings.Contains(showOut, "Add main entry point (ready for review)") {
+		t.Errorf("bob object show missing updated title: %s", showOut)
 	}
 }

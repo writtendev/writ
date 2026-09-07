@@ -714,6 +714,26 @@ func runObjectList(ctx context.Context, defaultDir string, args []string, stdout
 	return 0
 }
 
+// authorDisplay renders an op's author as "name <email>", falling back to
+// whichever of the two is present, or "-" when both are blank. Op authors
+// come off op commits, including foreign ones, and nothing normalizes them
+// on the read path, so a blank name or email is a real possibility here,
+// not a defensive nicety.
+func authorDisplay(name, email string) string {
+	name = strings.TrimSpace(name)
+	email = strings.TrimSpace(email)
+	switch {
+	case name != "" && email != "":
+		return fmt.Sprintf("%s <%s>", name, email)
+	case name != "":
+		return name
+	case email != "":
+		return email
+	default:
+		return "-"
+	}
+}
+
 type schemaShowOpts struct {
 	dir      string
 	jsonMode bool

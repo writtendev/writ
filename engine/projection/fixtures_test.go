@@ -8,7 +8,6 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/engine/dag"
 	"github.com/writtendev/writ/engine/identity"
 	"github.com/writtendev/writ/engine/projection"
@@ -148,181 +147,27 @@ func TestFixturesIncrementalVsColdAndFoldAgreement(t *testing.T) {
 				t.Fatalf("dbInc.DumpTables: %v", err)
 			}
 
-			// 3. Assert incremental == cold
+			// 3. Assert incremental == cold. This is entirely type-agnostic:
+			// it compares two SQLite materializations of the same op
+			// history against each other, not against a typed fold. This
+			// test used to also cross-check Projection == Fold for
+			// review/comment/issue/project/cycle here, using the typed
+			// Fold* functions WRIT-195 deleted along with the per-type
+			// engine services. The generic replacement for that
+			// cross-check — writeTypeRow's inversion of state.Fold's
+			// output compared against state.Fold directly, over lww,
+			// set-observed-remove, tombstone, append, and keyed-lww
+			// targets, concurrent multi-writer histories, an unknown op
+			// type, and a truncated ancestry — is
+			// TestProjectionMatchesFoldAcrossStrategies and
+			// TestProjectionMatchesFoldOnTruncatedAncestry in
+			// fold_agreement_test.go, built over a schema-declared test
+			// type rather than against these fixtures' still-builtin
+			// (pre-WRIT-194) review/issue/etc. corpus.
 			if !reflect.DeepEqual(incDump, coldDump) {
 				t.Fatalf("fixture %s: incremental dump != cold dump:\nincremental: %+v\ncold: %+v",
 					desc.Name, incDump, coldDump)
 			}
-
-			// 4. Cross-check: Projection == Fold for all reviews, comments, issues, projects, cycles
-			enumRes, err := store.Enumerate()
-			if err != nil {
-				t.Fatalf("store.Enumerate %s: %v", desc.Name, err)
-			}
-
-			for objID, ops := range enumRes.Ops {
-				if len(ops) == 0 {
-					continue
-				}
-
-				hasReview := false
-				hasComment := false
-				hasIssue := false
-				hasProject := false
-				hasCycle := false
-
-				for _, op := range ops {
-					switch op.ObjectType {
-					case "review":
-						hasReview = true
-					case "comment":
-						hasComment = true
-					case "issue":
-						hasIssue = true
-					case "project":
-						hasProject = true
-					case "cycle":
-						hasCycle = true
-					}
-				}
-
-				if hasReview {
-					reviewState, err := writ.FoldReview(ops)
-					if err != nil {
-						t.Fatalf("writ.FoldReview for %s in %s: %v", objID, desc.Name, err)
-					}
-
-					reviewsRes, err := dbCold.Reviews(projection.ReviewFilter{})
-					if err != nil {
-						t.Fatalf("dbCold.Reviews: %v", err)
-					}
-					var found *projection.ReviewResult
-					for _, rr := range reviewsRes {
-						if rr.ObjectID == objID {
-							found = &rr
-							break
-						}
-					}
-					if found == nil {
-						t.Fatalf("review %s not found in dbCold.Reviews", objID)
-					}
-					if !reflect.DeepEqual(found.Review, reviewState) {
-						t.Fatalf("review %s in %s differs between fold and projection:\n fold: %+v\n proj: %+v",
-							objID, desc.Name, reviewState, found.Review)
-					}
-				} else if hasComment {
-					commentState, err := writ.FoldComment(ops)
-					if err != nil {
-						t.Fatalf("writ.FoldComment for %s in %s: %v", objID, desc.Name, err)
-					}
-
-					commentsRes, err := dbCold.Comments(projection.CommentFilter{IncludeDeleted: true})
-					if err != nil {
-						t.Fatalf("dbCold.Comments: %v", err)
-					}
-					var found *projection.CommentResult
-					for _, cr := range commentsRes {
-						if cr.ObjectID == objID {
-							found = &cr
-							break
-						}
-					}
-					if found == nil {
-						t.Fatalf("comment %s not found in dbCold.Comments", objID)
-					}
-					commentState.Subject.Raw = nil
-					commentState.Subject.Unknown = nil
-					if !reflect.DeepEqual(found.Comment, commentState) {
-						t.Fatalf("comment %s in %s differs between fold and projection:\n fold: %+v\n proj: %+v",
-							objID, desc.Name, commentState, found.Comment)
-					}
-				} else if hasIssue {
-					issueState, err := writ.FoldIssue(ops)
-					if err != nil {
-						t.Fatalf("writ.FoldIssue for %s in %s: %v", objID, desc.Name, err)
-					}
-
-					issuesRes, err := dbCold.Issues(projection.IssueFilter{})
-					if err != nil {
-						t.Fatalf("dbCold.Issues: %v", err)
-					}
-					var found *projection.IssueResult
-					for _, ir := range issuesRes {
-						if ir.ObjectID == objID {
-							found = &ir
-							break
-						}
-					}
-					if found == nil {
-						t.Fatalf("issue %s not found in dbCold.Issues", objID)
-					}
-					if !reflect.DeepEqual(found.Issue, issueState) {
-						t.Fatalf("issue %s in %s differs between fold and projection:\n fold: %+v\n proj: %+v",
-							objID, desc.Name, issueState, found.Issue)
-					}
-				} else if hasProject {
-					projState, err := writ.FoldProject(ops)
-					if err != nil {
-						t.Fatalf("writ.FoldProject for %s in %s: %v", objID, desc.Name, err)
-					}
-					var title, descText, status, reason string
-					err = dbCold.DB().QueryRow("SELECT COALESCE(f_title, ''), COALESCE(f_description, ''), COALESCE(f_status, ''), COALESCE(f_reason, '') FROM o_project WHERE object_id = ?", objID).Scan(&title, &descText, &status, &reason)
-					if err != nil {
-						t.Fatalf("query project %s: %v", objID, err)
-					}
-					if title != projState.Title || descText != projState.Description || status != projState.Status || reason != projState.Reason {
-						t.Fatalf("project %s in %s differs between fold and projection", objID, desc.Name)
-					}
-					issRows, err := dbCold.DB().Query("SELECT item FROM o_project__issue WHERE object_id = ? ORDER BY item ASC", objID)
-					if err != nil {
-						t.Fatalf("query project_issues %s: %v", objID, err)
-					}
-					var projIssues []string
-					for issRows.Next() {
-						var iss string
-						if err := issRows.Scan(&iss); err != nil {
-							issRows.Close()
-							t.Fatalf("scan project issue: %v", err)
-						}
-						projIssues = append(projIssues, iss)
-					}
-					issRows.Close()
-					if !reflect.DeepEqual(projIssues, projState.Issues) && !(len(projIssues) == 0 && len(projState.Issues) == 0) {
-						t.Fatalf("project %s issues mismatch: fold=%v proj=%v", objID, projState.Issues, projIssues)
-					}
-				} else if hasCycle {
-					cycleState, err := writ.FoldCycle(ops)
-					if err != nil {
-						t.Fatalf("writ.FoldCycle for %s in %s: %v", objID, desc.Name, err)
-					}
-					var title, descText, startsAt, endsAt string
-					err = dbCold.DB().QueryRow("SELECT COALESCE(f_title, ''), COALESCE(f_description, ''), COALESCE(f_starts_at, ''), COALESCE(f_ends_at, '') FROM o_cycle WHERE object_id = ?", objID).Scan(&title, &descText, &startsAt, &endsAt)
-					if err != nil {
-						t.Fatalf("query cycle %s: %v", objID, err)
-					}
-					if title != cycleState.Title || descText != cycleState.Description || startsAt != cycleState.StartsAt || endsAt != cycleState.EndsAt {
-						t.Fatalf("cycle %s in %s differs between fold and projection", objID, desc.Name)
-					}
-					issRows, err := dbCold.DB().Query("SELECT item FROM o_cycle__issue WHERE object_id = ? ORDER BY item ASC", objID)
-					if err != nil {
-						t.Fatalf("query cycle_issues %s: %v", objID, err)
-					}
-					var cycIssues []string
-					for issRows.Next() {
-						var iss string
-						if err := issRows.Scan(&iss); err != nil {
-							issRows.Close()
-							t.Fatalf("scan cycle issue: %v", err)
-						}
-						cycIssues = append(cycIssues, iss)
-					}
-					issRows.Close()
-					if !reflect.DeepEqual(cycIssues, cycleState.Issues) && !(len(cycIssues) == 0 && len(cycleState.Issues) == 0) {
-						t.Fatalf("cycle %s issues mismatch: fold=%v proj=%v", objID, cycleState.Issues, cycIssues)
-					}
-				}
-			}
-
 			_ = statsCold
 		})
 	}

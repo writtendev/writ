@@ -245,17 +245,10 @@ func Open(path string, opts ...Option) (*Store, error) {
 		}
 	}
 
-	s.Reviews = &Reviews{store: s}
-	s.Issues = &Issues{store: s}
-	s.Comments = &Comments{store: s}
 	s.Objects = &Objects{store: s}
 	s.Drafts = &Drafts{store: s}
 	s.ReadState = &ReadState{store: s}
 	s.Query = &Query{store: s}
-	s.WorkflowStates = &WorkflowStates{store: s}
-	s.Labels = &Labels{store: s}
-	s.Documents = &Documents{store: s}
-	s.Settings = &SettingsService{store: s}
 
 	return s, nil
 }

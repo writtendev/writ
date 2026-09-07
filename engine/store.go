@@ -34,21 +34,11 @@ type Writer struct {
 // Signer is an alias for codec.Signer.
 type Signer = codec.Signer
 
-// Store is the top-level handle for interacting with collaborative SDLC objects
-// stored in a git repository.
+// Store is the top-level handle for interacting with schema-declared
+// collaborative objects stored in a git repository.
 type Store struct {
-	// Reviews provides review creation, revision push, approval, and status operations.
-	Reviews *Reviews
-
-	// Issues provides issue creation, state transitions, assignments, labels, and links.
-	Issues *Issues
-
-	// Comments provides comment edits, deletions, and reply operations.
-	Comments *Comments
-
 	// Objects provides generic create, apply, and get operations over
-	// collaborative objects of any schema-declared type — the schema-shaped
-	// replacement for the typed per-type services above.
+	// collaborative objects of any schema-declared type.
 	Objects *Objects
 
 	// Drafts provides local comment draft creation, updates, listing, discarding, and publishing.
@@ -57,20 +47,8 @@ type Store struct {
 	// ReadState provides local read/unread tracking across collaborative objects.
 	ReadState *ReadState
 
-	// Query provides read queries over reviews, issues, comments, threads, and objects.
+	// Query provides read queries over collaborative objects.
 	Query *Query
-
-	// WorkflowStates provides workflow state creation, updates, and default seeding.
-	WorkflowStates *WorkflowStates
-
-	// Labels provides label creation and updates.
-	Labels *Labels
-
-	// Documents provides document and section operations.
-	Documents *Documents
-
-	// Settings provides workspace settings retrieval and updates.
-	Settings *SettingsService
 
 	gitInfo     GitDirInfo
 	storer      storage.Storer

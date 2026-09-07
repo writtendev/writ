@@ -14,8 +14,8 @@ import (
 )
 
 // makeWidgetEnv and makeWidgetOp build ops for a synthetic "widget" object
-// type directly, the same way makeReviewEnv/makeReviewOp do for "review" in
-// revision_pairing_test.go: no schema validates a "widget" op body, so this
+// type directly, the same way makeReviewEnv does for "review" in
+// refresh_test.go: no schema validates a "widget" op body, so this
 // reaches Refresh with no producer-validation gate to route around,
 // regardless of whether the body shape below is one a real schema would
 // ever declare.
@@ -231,6 +231,125 @@ func TestAppendGroupTargetDiffersFromField(t *testing.T) {
 	}
 	if !fHead.Valid || fHead.String != "bbb" {
 		t.Fatalf("o_widget__base_head.f_head = %v (valid=%v), want \"bbb\" — target(...) differing from field was read by target key instead of field name", fHead.String, fHead.Valid)
+	}
+}
+
+// TestAppendGroupOmittedFieldPairing restores, generically, the coverage
+// WRIT-189 round 2's MAJOR-1 finding pinned in a since-deleted per-type
+// test (WRIT-195 round 1 MEDIUM finding): a multi-field
+// append group where one op writes only one of the group's fields, the
+// other field entirely absent rather than written empty.
+//
+// Before WRIT-189 round 2's fix, Reviews/Review zipped two independent
+// append child tables (o_review__base and o_review__head) back into pairs
+// by local list position — an op that wrote only "base" shifted every
+// later op's "head" value out of step with its own "base", mispairing both
+// while still reporting a plausible-looking row count. ddl.go's
+// appendGroupPlan fixed this generically by materializing one row per
+// contributing op (writeAppendGroupRows), with SQL NULL for a field that
+// particular op didn't write, so the pairing is fixed at write time by
+// construction: reading the table in idx order gives the right base/head
+// pair for each op regardless of which fields any single op wrote.
+//
+// This test pins that generic per-op correspondence directly — using the
+// synthetic "widget" object type's "push" envelope (target(...) used, same
+// as TestAppendGroupTargetDiffersFromField) rather than review's
+// base/head — and cross-checks it against state.Fold's own (independent,
+// per-target, unaligned) base/head lists: state.Fold has no concept of
+// pairing across targets at all, so the correspondence guarantee lives
+// entirely in the generic table's one-row-per-op structure, not in the pure
+// fold.
+func TestAppendGroupOmittedFieldPairing(t *testing.T) {
+	base := time.Unix(1700000000, 0).UTC()
+	opCreate := makeWidgetOp("op-create-1", nil, "create", map[string]any{"title": "T"}, base)
+	// Omits "head_sha" entirely: an absent field, not an empty-string write.
+	opPush1 := makeWidgetOp("op-push-1", []string{"op-create-1"}, "push", map[string]any{"base_sha": "aaa"}, base.Add(1*time.Second))
+	opPush2 := makeWidgetOp("op-push-2", []string{"op-push-1"}, "push", map[string]any{"base_sha": "bbb", "head_sha": "ccc"}, base.Add(2*time.Second))
+	ops := []codec.Op{opCreate, opPush1, opPush2}
+
+	titleRule := state.Rule{OpType: "create", Field: "title", Strategy: "lww", ValueType: "string", ObjectType: "widget"}
+	baseRule := state.Rule{OpType: "push", OpVersion: 1, Field: "base_sha", Target: "base", Strategy: "append", ValueType: "git-oid", ObjectType: "widget"}
+	headRule := state.Rule{OpType: "push", OpVersion: 1, Field: "head_sha", Target: "head", Strategy: "append", ValueType: "git-oid", ObjectType: "widget"}
+	rules := []state.Rule{titleRule, baseRule, headRule}
+
+	// state.Fold's own base/head lists are independent and unaligned: "head"
+	// gets exactly one entry (from opPush2), never a placeholder for
+	// opPush1's omission. This is exactly the shape that made the old
+	// positional-zip pairing wrong — there is nothing in these two lists
+	// alone to say which head value belongs with which base value.
+	want, err := state.Fold(ops, rules)
+	if err != nil {
+		t.Fatalf("state.Fold failed: %v", err)
+	}
+	wantBase, _ := want.State["base"].([]any)
+	wantHead, _ := want.State["head"].([]any)
+	if !reflect.DeepEqual(wantBase, []any{"aaa", "bbb"}) {
+		t.Fatalf("test setup: state.Fold's base = %#v, want [\"aaa\" \"bbb\"]", want.State["base"])
+	}
+	if !reflect.DeepEqual(wantHead, []any{"ccc"}) {
+		t.Fatalf("test setup: state.Fold's head = %#v, want [\"ccc\"] — only opPush2 wrote head", want.State["head"])
+	}
+
+	_, store := createTestStore(t, "0123456789abcdef")
+
+	db, err := projection.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:) failed: %v", err)
+	}
+	defer db.Close()
+
+	enumRes := &dag.EnumerateResult{
+		Ops: map[string][]codec.Op{"w-1": ops},
+		Cursors: dag.CursorSet{
+			"refs/writ/0123456789abcdef/widget": "op-push-2",
+		},
+		DecodedCommits: len(ops),
+	}
+
+	rulesByType := map[string][]state.Rule{"widget": rules}
+	if _, err := db.Refresh(store, projection.WithSchema(rulesByType), projection.WithEnumOverrideForTest(enumRes)); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	rows, err := db.DB().Query("SELECT idx, f_base, f_head FROM o_widget__base_head WHERE object_id = ? ORDER BY idx ASC", "w-1")
+	if err != nil {
+		t.Fatalf("query o_widget__base_head: %v", err)
+	}
+	defer rows.Close()
+
+	type row struct {
+		idx        int
+		base, head sql.NullString
+	}
+	var got []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.idx, &r.base, &r.head); err != nil {
+			t.Fatalf("scan o_widget__base_head row: %v", err)
+		}
+		got = append(got, r)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate o_widget__base_head: %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("o_widget__base_head has %d rows, want 2 (one per push op): %+v", len(got), got)
+	}
+	// Row 0 is opPush1: base="aaa", head omitted (NULL) — not shifted to
+	// pair with opPush2's head.
+	if !got[0].base.Valid || got[0].base.String != "aaa" {
+		t.Fatalf("row 0 f_base = %v (valid=%v), want \"aaa\"", got[0].base.String, got[0].base.Valid)
+	}
+	if got[0].head.Valid {
+		t.Fatalf("row 0 f_head = %q, want NULL (opPush1 never wrote head_sha) — an omitted field must not be paired with a later op's value", got[0].head.String)
+	}
+	// Row 1 is opPush2: both fields present.
+	if !got[1].base.Valid || got[1].base.String != "bbb" {
+		t.Fatalf("row 1 f_base = %v (valid=%v), want \"bbb\"", got[1].base.String, got[1].base.Valid)
+	}
+	if !got[1].head.Valid || got[1].head.String != "ccc" {
+		t.Fatalf("row 1 f_head = %v (valid=%v), want \"ccc\"", got[1].head.String, got[1].head.Valid)
 	}
 }
 

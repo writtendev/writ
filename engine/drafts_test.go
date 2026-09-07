@@ -2,6 +2,7 @@ package writ_test
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"strings"
 	"testing"
@@ -113,11 +114,12 @@ func TestDraftPublishReview(t *testing.T) {
 	defer store.Close()
 
 	// Create a review
-	reviewID, err := store.Reviews.Create(ctx, writ.NewReview{
-		Title: "Publish Review Test",
+	reviewID, err := store.Objects.Create(ctx, "review", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Publish Review Test"},
 	})
 	if err != nil {
-		t.Fatalf("Reviews.Create failed: %v", err)
+		t.Fatalf("Objects.Create(review) failed: %v", err)
 	}
 
 	// Save draft on the review
@@ -139,13 +141,17 @@ func TestDraftPublishReview(t *testing.T) {
 		t.Fatalf("expected non-empty commentID")
 	}
 
-	// Verify comment exists in projection
-	comments, err := store.Query.Comments(writ.CommentFilter{SubjectID: reviewID})
+	// Verify the published comment folds with the right subject and text.
+	comment, err := store.Objects.Get(ctx, commentID)
 	if err != nil {
-		t.Fatalf("Query.Comments failed: %v", err)
+		t.Fatalf("Objects.Get(comment) failed: %v", err)
 	}
-	if len(comments) != 1 || comments[0].Comment.Text != "Published review comment text" {
-		t.Fatalf("unexpected comments in projection: %+v", comments)
+	if comment.ObjectType != "comment" || comment.Fields["text"] != "Published review comment text" {
+		t.Fatalf("unexpected published comment: %+v", comment)
+	}
+	subject := decodeCommentSubject(t, comment.Fields["subject"])
+	if subject["object_type"] != "review" || subject["object_id"] != reviewID {
+		t.Fatalf("unexpected comment subject: %+v", subject)
 	}
 
 	// Verify draft is deleted
@@ -165,11 +171,12 @@ func TestDraftPublishIssue(t *testing.T) {
 	defer store.Close()
 
 	// Create an issue
-	issueID, err := store.Issues.Create(ctx, writ.NewIssue{
-		Title: "Publish Issue Test",
+	issueID, err := store.Objects.Create(ctx, "issue", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Publish Issue Test"},
 	})
 	if err != nil {
-		t.Fatalf("Issues.Create failed: %v", err)
+		t.Fatalf("Objects.Create(issue) failed: %v", err)
 	}
 
 	// Save draft on the issue
@@ -191,13 +198,17 @@ func TestDraftPublishIssue(t *testing.T) {
 		t.Fatalf("expected non-empty commentID")
 	}
 
-	// Verify comment exists in projection
-	comments, err := store.Query.Comments(writ.CommentFilter{SubjectID: issueID})
+	// Verify the published comment folds with the right subject and text.
+	comment, err := store.Objects.Get(ctx, commentID)
 	if err != nil {
-		t.Fatalf("Query.Comments failed: %v", err)
+		t.Fatalf("Objects.Get(comment) failed: %v", err)
 	}
-	if len(comments) != 1 || comments[0].Comment.Text != "Published issue comment text" {
-		t.Fatalf("unexpected comments in projection: %+v", comments)
+	if comment.ObjectType != "comment" || comment.Fields["text"] != "Published issue comment text" {
+		t.Fatalf("unexpected published comment: %+v", comment)
+	}
+	subject := decodeCommentSubject(t, comment.Fields["subject"])
+	if subject["object_type"] != "issue" || subject["object_id"] != issueID {
+		t.Fatalf("unexpected comment subject: %+v", subject)
 	}
 
 	// Verify draft is deleted
@@ -217,11 +228,12 @@ func TestDraftsNeverReachSharedRefs(t *testing.T) {
 	defer sA.Close()
 
 	// Alice creates a review
-	reviewID, err := sA.Reviews.Create(ctx, writ.NewReview{
-		Title: "Draft Leak Test Review",
+	reviewID, err := sA.Objects.Create(ctx, "review", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Draft Leak Test Review"},
 	})
 	if err != nil {
-		t.Fatalf("Alice Reviews.Create failed: %v", err)
+		t.Fatalf("Alice Objects.Create(review) failed: %v", err)
 	}
 
 	// Alice saves a draft containing a unique sentinel string
@@ -278,14 +290,206 @@ func TestDraftsNeverReachSharedRefs(t *testing.T) {
 		t.Fatalf("Bob Sync after publish failed: %v", err)
 	}
 
-	// Bob queries comments and now sees the published comment
-	bobComments, err := sB.Query.Comments(writ.CommentFilter{SubjectID: reviewID})
+	// Bob now sees the published comment
+	bobComment, err := sB.Objects.Get(ctx, commentID)
 	if err != nil {
-		t.Fatalf("Bob Query.Comments failed: %v", err)
+		t.Fatalf("Bob Objects.Get(comment) failed: %v", err)
 	}
-	if len(bobComments) != 1 || bobComments[0].Comment.Text != sentinel {
-		t.Fatalf("Bob did not receive published comment: %+v", bobComments)
+	if bobComment.Fields["text"] != sentinel {
+		t.Fatalf("Bob did not receive published comment: %+v", bobComment)
 	}
+}
+
+// TestDraftPublish_UnknownSubjectRefused verifies Publish refuses to
+// publish a draft whose subject does not exist, rather than writing a
+// permanently signed comment op against a dangling subject (round 1
+// MAJOR-1(a)). The draft must survive the failed publish so the caller can
+// retry once the subject exists.
+func TestDraftPublish_UnknownSubjectRefused(t *testing.T) {
+	dir, _ := setupConfiguredRepo(t)
+	ctx := context.Background()
+
+	store, err := writ.Open(dir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer store.Close()
+
+	draftID, err := store.Drafts.Save(ctx, writ.Draft{
+		SubjectType: "review",
+		SubjectID:   "does-not-exist",
+		Text:        "Comment on a subject that was never created",
+	})
+	if err != nil {
+		t.Fatalf("Drafts.Save failed: %v", err)
+	}
+
+	if _, err := store.Drafts.Publish(ctx, draftID); err != writ.ErrNotFound {
+		t.Fatalf("Drafts.Publish on unknown subject: got err %v, want ErrNotFound", err)
+	}
+
+	// The draft must still be there to retry from: Publish must not discard
+	// it on a failed publish.
+	if _, err := store.Drafts.Get(ctx, draftID); err != nil {
+		t.Fatalf("expected draft to survive a refused publish, got %v", err)
+	}
+}
+
+// TestDraftPublish_UnknownInReplyToRefused mirrors the subject check above
+// for the in_reply_to existence check (round 1 MAJOR-1(b)).
+func TestDraftPublish_UnknownInReplyToRefused(t *testing.T) {
+	dir, _ := setupConfiguredRepo(t)
+	ctx := context.Background()
+
+	store, err := writ.Open(dir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer store.Close()
+
+	reviewID, err := store.Objects.Create(ctx, "review", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Reply Existence Test"},
+	})
+	if err != nil {
+		t.Fatalf("Objects.Create(review) failed: %v", err)
+	}
+
+	draftID, err := store.Drafts.Save(ctx, writ.Draft{
+		SubjectType: "review",
+		SubjectID:   reviewID,
+		InReplyTo:   "does-not-exist",
+		Text:        "Reply to a comment that was never created",
+	})
+	if err != nil {
+		t.Fatalf("Drafts.Save failed: %v", err)
+	}
+
+	if _, err := store.Drafts.Publish(ctx, draftID); err != writ.ErrNotFound {
+		t.Fatalf("Drafts.Publish on unknown in_reply_to: got err %v, want ErrNotFound", err)
+	}
+
+	if _, err := store.Drafts.Get(ctx, draftID); err != nil {
+		t.Fatalf("expected draft to survive a refused publish, got %v", err)
+	}
+}
+
+// TestDraftPublish_EmptySubjectTypeResolvesRealType verifies that Publish
+// resolves the subject's actual object type through the generic Query.Object
+// lookup rather than coercing an unset SubjectType to a fixed literal (round
+// 1 MAJOR-1(c)). A draft saved without an explicit SubjectType against an
+// issue must publish as an issue comment, not a review comment.
+func TestDraftPublish_EmptySubjectTypeResolvesRealType(t *testing.T) {
+	dir, _ := setupConfiguredRepo(t)
+	ctx := context.Background()
+
+	store, err := writ.Open(dir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer store.Close()
+
+	issueID, err := store.Objects.Create(ctx, "issue", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Untyped Draft Subject Test"},
+	})
+	if err != nil {
+		t.Fatalf("Objects.Create(issue) failed: %v", err)
+	}
+
+	draftID, err := store.Drafts.Save(ctx, writ.Draft{
+		SubjectID: issueID,
+		Text:      "Comment with no explicit subject type",
+	})
+	if err != nil {
+		t.Fatalf("Drafts.Save failed: %v", err)
+	}
+
+	commentID, err := store.Drafts.Publish(ctx, draftID)
+	if err != nil {
+		t.Fatalf("Drafts.Publish failed: %v", err)
+	}
+
+	comment, err := store.Objects.Get(ctx, commentID)
+	if err != nil {
+		t.Fatalf("Objects.Get(comment) failed: %v", err)
+	}
+	subject := decodeCommentSubject(t, comment.Fields["subject"])
+	if subject["object_type"] != "issue" || subject["object_id"] != issueID {
+		t.Fatalf("unexpected comment subject: %+v, want object_type=issue object_id=%s", subject, issueID)
+	}
+}
+
+// TestDraftPublish_NonSDLCSchemaType verifies Publish has no hardcoded
+// review/issue allowlist: a draft against a schema-declared type the
+// engine has never heard of publishes exactly like one against a built-in
+// type (round 1 MEDIUM finding on engine/drafts.go:159).
+func TestDraftPublish_NonSDLCSchemaType(t *testing.T) {
+	dir, _ := setupConfiguredRepo(t)
+	ctx := context.Background()
+
+	store, err := writ.Open(dir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer store.Close()
+
+	envs := compileTestSchema(t, "sch-standup", testSchemaSrc)
+	if err := store.ApplySchema(ctx, envs); err != nil {
+		t.Fatalf("ApplySchema failed: %v", err)
+	}
+
+	standupID, err := store.Objects.Create(ctx, "standup", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Daily Standup"},
+	})
+	if err != nil {
+		t.Fatalf("Objects.Create(standup) failed: %v", err)
+	}
+
+	draftID, err := store.Drafts.Save(ctx, writ.Draft{
+		SubjectType: "standup",
+		SubjectID:   standupID,
+		Text:        "Comment on a non-SDLC schema-declared type",
+	})
+	if err != nil {
+		t.Fatalf("Drafts.Save failed: %v", err)
+	}
+
+	commentID, err := store.Drafts.Publish(ctx, draftID)
+	if err != nil {
+		t.Fatalf("Drafts.Publish failed: %v", err)
+	}
+
+	comment, err := store.Objects.Get(ctx, commentID)
+	if err != nil {
+		t.Fatalf("Objects.Get(comment) failed: %v", err)
+	}
+	subject := decodeCommentSubject(t, comment.Fields["subject"])
+	if subject["object_type"] != "standup" || subject["object_id"] != standupID {
+		t.Fatalf("unexpected comment subject: %+v, want object_type=standup object_id=%s", subject, standupID)
+	}
+}
+
+// decodeCommentSubject decodes a comment's "subject" field, which the
+// generic fold returns as raw JSON bytes (json.RawMessage) rather than a
+// decoded map: "subject" declares no value_type, so create-once's
+// byte-exact-preservation rule (spec/fold.md §5.2) keeps it verbatim.
+func decodeCommentSubject(t *testing.T, raw any) map[string]any {
+	t.Helper()
+	b, ok := raw.(json.RawMessage)
+	if !ok {
+		if bs, ok2 := raw.([]byte); ok2 {
+			b = bs
+		} else {
+			t.Fatalf("comment subject field is %T, want json.RawMessage", raw)
+		}
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatalf("unmarshal comment subject: %v", err)
+	}
+	return m
 }
 
 func assertSentinelNotInWritRefs(t *testing.T, repoDir, sentinel string) {

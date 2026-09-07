@@ -21,7 +21,7 @@ All plumbing commands emit a single top-level JSON document on `stdout` adhering
 | Field | Type | Description |
 |---|---|---|
 | `schema_version` | integer | Envelope schema version (currently `1`). Bumps only on breaking changes. |
-| `kind` | string | Discriminator for the payload schema (e.g. `review.list`, `review.status`, `issue.list`, `issue.status`, `issue.label`, `label.list`, `sync.status`, `sync.result`, `comment.edit`, `comment.delete`, `schema.plan`, `schema.apply`, `schema.show`, `object.create`, `object.apply`, `object.show`, `object.list`). |
+| `kind` | string | Discriminator for the payload schema (`sync.status`, `sync.result`, `schema.plan`, `schema.apply`, `schema.show`, `object.create`, `object.apply`, `object.show`, `object.list`). |
 | `data` | object or array | Verb-specific payload structure. |
 
 ---
@@ -41,270 +41,11 @@ All plumbing commands emit a single top-level JSON document on `stdout` adhering
    - `5`: Not a git repository or store cannot be opened.
 6. **No Null Collections:** Empty collections serialize as `[]`, never `null`.
 7. **Deterministic Formatting & Ordering:** Timestamps are formatted as ISO 8601 / RFC 3339 UTC with a trailing `Z` (e.g. `2026-01-01T00:00:00Z`). All list responses have a deterministic total order, using object ID ascending as a tiebreaker.
+8. **Pre-v0.1.0 exception to rule 1:** WRIT-195 removed the `review.*`, `issue.*`, `comment.*`, `label.*`, `state.*`, `settings`, and `doc.*` kinds (and their payload shapes) from this same `schema_version: 1` envelope, replacing them with the generic `object.*`/`schema.*` verbs below. Nothing has shipped yet (`AGENTS.md`: "Nothing has shipped: no tags, no users, no external implementations"), so this is a deliberate pre-v0.1.0 break, not a violation of rule 1 going forward — additive-only evolution is the promise from here on, not a retroactive one.
 
 ---
 
 ## 3. Supported Verbs & Schema Reference
-
-### `writ review list --json`
-
-Lists code reviews matching optional filters.
-
-- **Envelope `kind`**: `"review.list"`
-- **`data` Type**: Array of `ReviewSummary` objects (`[]ReviewSummary`)
-
-#### `ReviewSummary` Fields
-
-| Field | Type | Description |
-|---|---|---|
-| `object_id` | string | 32-character lowercase hex identifier for the review. |
-| `title` | string | Title of the code review. |
-| `status` | string | Lifecycle state (`draft`, `open`, `closed`, `merged`). |
-| `author` | object | Creator identity: `{ "name": string, "email": string }`. |
-| `created_at` | string | Creation timestamp in RFC 3339 UTC (`...Z`). |
-| `updated_at` | string | Last modification timestamp in RFC 3339 UTC (`...Z`). |
-
-#### Example Output
-
-```json
-{
-  "schema_version": 1,
-  "kind": "review.list",
-  "data": [
-    {
-      "object_id": "0123456789abcdef0123456789abcdef",
-      "title": "Add OAuth2 authentication provider",
-      "status": "open",
-      "author": {
-        "name": "Alice",
-        "email": "alice@example.com"
-      },
-      "created_at": "2026-01-01T00:00:00Z",
-      "updated_at": "2026-01-01T00:05:00Z"
-    }
-  ]
-}
-```
-
----
-
-### `writ review status <id> --json`
-
-Fetches detailed status and folded state for a single code review.
-
-- **Envelope `kind`**: `"review.status"`
-- **`data` Type**: `Review` object
-
-#### `Review` Fields
-
-| Field | Type | Description |
-|---|---|---|
-| `object_id` | string | 32-character lowercase hex identifier for the review. |
-| `title` | string | Title of the code review. |
-| `description` | string (optional) | Extended review description or rationale. |
-| `status` | string | Lifecycle state (`draft`, `open`, `closed`, `merged`). |
-| `merge_commit` | string (optional) | Merge commit SHA if the review is merged. |
-| `reason` | string (optional) | Reason text supplied with status change. |
-| `author` | object | Creator identity: `{ "name": string, "email": string }`. |
-| `created_at` | string | Creation timestamp in RFC 3339 UTC. |
-| `updated_at` | string | Last modification timestamp in RFC 3339 UTC. |
-| `assignees` | array of strings | Assigned reviewers as scheme-prefixed person identifiers (`email:alice@example.com`, `user:alice`): `[ string ]`. |
-| `labels` | array of strings | Labels attached to the review, converged from concurrent add/remove operations. |
-| `links` | array of objects | Cross-reference links: `[ { "target": string, "target_type": string, "relation": string } ]`. `target` is either a bare object ID (same repo) or `<repo-id>#<object-id>` (cross-repo). |
-| `revisions` | array of objects | Pushed revisions: `[ { "base": string, "head": string } ]`. |
-| `approvals` | array of objects | Recorded review verdicts: `[ { "subject": string, "revision": string, "verdict": string, "message": string } ]`. |
-| `ci_statuses` | array of objects | Automated CI checks: `[ { "revision": string, "name": string, "state": string, "url": string, "description": string, "started_at": string, "completed_at": string, "external_id": string } ]`. |
-| `unknown_ops` | array of objects | Preserved forward-compatibility operations: `[ { "commit": string, "object_type": string, "op_type": string, "op_version": integer } ]`. |
-
-#### Example Output
-
-```json
-{
-  "schema_version": 1,
-  "kind": "review.status",
-  "data": {
-    "object_id": "0123456789abcdef0123456789abcdef",
-    "title": "Add OAuth2 authentication provider",
-    "description": "Implements OAuth2 login flows",
-    "status": "open",
-    "author": {
-      "name": "Alice",
-      "email": "alice@example.com"
-    },
-    "created_at": "2026-01-01T00:00:00Z",
-    "updated_at": "2026-01-01T00:05:00Z",
-    "assignees": [
-      "user:bob"
-    ],
-    "labels": [
-      "area/engine"
-    ],
-    "links": [
-      {
-        "target": "fedcba9876543210fedcba9876543210",
-        "target_type": "issue",
-        "relation": "fixes"
-      }
-    ],
-    "revisions": [
-      {
-        "base": "0123456789abcdef0123456789abcdef01234567",
-        "head": "1111111111111111111111111111111111111111"
-      }
-    ],
-    "approvals": [
-      {
-        "subject": "user:bob",
-        "revision": "1111111111111111111111111111111111111111",
-        "verdict": "approve",
-        "message": "Looks great!"
-      }
-    ],
-    "ci_statuses": [
-      {
-        "revision": "1111111111111111111111111111111111111111",
-        "name": "ci/test",
-        "state": "success",
-        "url": "https://ci.example.com/build/123",
-        "description": "All unit tests passed"
-      }
-    ],
-    "unknown_ops": []
-  }
-}
-```
-
----
-
-### `writ issue list --json`
-
-Lists issues matching optional filters.
-
-- **Envelope `kind`**: `"issue.list"`
-- **`data` Type**: Array of `IssueSummary` objects (`[]IssueSummary`)
-
-#### `IssueSummary` Fields
-
-| Field | Type | Description |
-|---|---|---|
-| `object_id` | string | 32-character lowercase hex identifier for the issue. |
-| `title` | string | Title of the issue. |
-| `state` | string | Workflow-state object ID, or `""` if the issue has no `set-state` op yet. |
-| `author` | object | Creator identity: `{ "name": string, "email": string }`. |
-| `created_at` | string | Creation timestamp in RFC 3339 UTC (`...Z`). |
-| `updated_at` | string | Last modification timestamp in RFC 3339 UTC (`...Z`). |
-
-#### Example Output
-
-```json
-{
-  "schema_version": 1,
-  "kind": "issue.list",
-  "data": [
-    {
-      "object_id": "0123456789abcdef0123456789abcdef",
-      "title": "Login form rejects valid emails",
-      "state": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "author": {
-        "name": "Alice",
-        "email": "alice@example.com"
-      },
-      "created_at": "2026-01-01T00:00:00Z",
-      "updated_at": "2026-01-01T00:05:00Z"
-    }
-  ]
-}
-```
-
----
-
-### `writ issue status <id> --json`
-
-Fetches detailed status and folded state for a single issue.
-
-- **Envelope `kind`**: `"issue.status"`
-- **`data` Type**: `Issue` object
-
-#### `Issue` Fields
-
-| Field | Type | Description |
-|---|---|---|
-| `object_id` | string | 32-character lowercase hex identifier for the issue. |
-| `title` | string | Title of the issue. |
-| `description` | string (optional) | Extended issue description. |
-| `state` | string | Workflow-state object ID, or `""` if the issue has no `set-state` op yet. |
-| `reason` | string (optional) | Reason text supplied with the last state change. |
-| `author` | object | Creator identity: `{ "name": string, "email": string }`. |
-| `created_at` | string | Creation timestamp in RFC 3339 UTC. |
-| `updated_at` | string | Last modification timestamp in RFC 3339 UTC. |
-| `assignees` | array of strings | Assignees as scheme-prefixed person identifiers (`email:alice@example.com`, `user:alice`), converged from concurrent add/remove operations. |
-| `labels` | array of strings | Labels attached to the issue, converged from concurrent add/remove operations. |
-| `links` | array of objects | Cross-reference links: `[ { "target": string, "target_type": string, "relation": string } ]`. `target` is either a bare object ID (same repo) or `<repo-id>#<object-id>` (cross-repo). |
-| `comments` | array of objects | Threaded comments attached to the issue: `[ CommentThread ]`. |
-| `unknown_ops` | array of objects | Preserved forward-compatibility operations: `[ { "commit": string, "object_type": string, "op_type": string, "op_version": integer } ]`. |
-
-#### Example Output
-
-```json
-{
-  "schema_version": 1,
-  "kind": "issue.status",
-  "data": {
-    "object_id": "0123456789abcdef0123456789abcdef",
-    "title": "Login form rejects valid emails",
-    "description": "RFC 5321 plus-addressing is rejected by the client-side regex",
-    "state": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "author": {
-      "name": "Alice",
-      "email": "alice@example.com"
-    },
-    "created_at": "2026-01-01T00:00:00Z",
-    "updated_at": "2026-01-01T00:05:00Z",
-    "assignees": ["user:bob"],
-    "labels": ["bug"],
-    "links": [
-      {
-        "target": "1111111111111111111111111111111111111111",
-        "target_type": "review",
-        "relation": "fixes"
-      }
-    ],
-    "comments": [],
-    "unknown_ops": []
-  }
-}
-```
-
----
-
-### `writ issue label <id> [--json]`
-
-Views or updates labels on a single issue.
-
-- **Envelope `kind`**: `"issue.label"`
-- **`data` Type**: `IssueLabels` object
-
-#### `IssueLabels` Fields
-
-| Field | Type | Description |
-|---|---|---|
-| `object_id` | string | 32-character lowercase hex identifier for the issue. |
-| `labels` | array of strings | Labels attached to the issue, converged from concurrent add/remove operations. |
-
-#### Example Output
-
-```json
-{
-  "schema_version": 1,
-  "kind": "issue.label",
-  "data": {
-    "object_id": "0123456789abcdef0123456789abcdef",
-    "labels": ["bug", "documentation"]
-  }
-}
-```
-
----
 
 ### `writ sync --status --json [remote...]`
 
@@ -369,133 +110,6 @@ Synchronizes operations with remote git repositories (fetches, pushes, and refre
       "ops_pushed": 2,
       "objects_touched": 1,
       "unsynced": 0
-    }
-  ]
-}
-```
-
----
-
-### `writ comment edit <comment-id> -m <new-text> --json`
-
-Updates the text content of an existing comment and returns the refreshed comment state.
-
-- **Envelope `kind`**: `"comment.edit"`
-- **`data` Type**: `Comment` object
-
-#### `Comment` Fields
-
-| Field | Type | Description |
-|---|---|---|
-| `object_id` | string | 32-character lowercase hex identifier for the comment. |
-| `subject` | object | Target subject: `{ "object_type": string, "object_id": string }`. |
-| `author` | object | Author identity: `{ "name": string, "email": string }`. |
-| `created_at` | string | Creation timestamp in RFC 3339 UTC (`...Z`). |
-| `updated_at` | string | Last modification timestamp in RFC 3339 UTC (`...Z`). |
-| `text` | string | Text content of the comment. |
-| `in_reply_to` | string (optional) | Object ID of the parent comment if this is a threaded reply. |
-| `anchor` | object (optional) | Anchor location describing where the comment is positioned. |
-| `deleted` | boolean | `true` if the comment has been tombstoned/deleted; `false` otherwise. |
-| `resolved` | boolean | `true` if the thread is marked as resolved; `false` otherwise. |
-| `resolved_by` | string (optional) | Person identifier who resolved the thread. |
-| `positions` | array (optional) | Resolved source positions. |
-| `unknown_ops` | array | Preserved unrecognized operations on this comment. |
-
-#### Example Output
-
-```json
-{
-  "schema_version": 1,
-  "kind": "comment.edit",
-  "data": {
-    "object_id": "c-root",
-    "subject": {
-      "object_type": "review",
-      "object_id": "r-7f3a"
-    },
-    "author": {
-      "name": "Alice Example",
-      "email": "alice@example.test"
-    },
-    "created_at": "2026-01-01T00:00:00Z",
-    "updated_at": "2026-01-01T00:05:00Z",
-    "text": "Updated comment text",
-    "deleted": false,
-    "resolved": false,
-    "unknown_ops": []
-  }
-}
-```
-
----
-
-### `writ comment delete <comment-id> --json`
-
-Marks an existing comment as deleted (tombstone) and returns the refreshed comment state with `deleted: true`.
-
-- **Envelope `kind`**: `"comment.delete"`
-- **`data` Type**: `Comment` object
-
-#### Example Output
-
-```json
-{
-  "schema_version": 1,
-  "kind": "comment.delete",
-  "data": {
-    "object_id": "c-root",
-    "subject": {
-      "object_type": "review",
-      "object_id": "r-7f3a"
-    },
-    "author": {
-      "name": "Alice Example",
-      "email": "alice@example.test"
-    },
-    "created_at": "2026-01-01T00:00:00Z",
-    "updated_at": "2026-01-01T00:05:00Z",
-    "text": "Original comment text",
-    "deleted": true,
-    "resolved": false,
-    "unknown_ops": []
-  }
-}
-```
-
----
-
-### `writ label list --json`
-
-Lists labels across the workspace.
-
-- **Envelope `kind`**: `"label.list"`
-- **`data` Type**: Array of `LabelSummary` objects (`[]LabelSummary`)
-
-#### `LabelSummary` Fields
-
-| Field | Type | Description |
-|---|---|---|
-| `object_id` | string | 32-character lowercase hex identifier for the label. |
-| `name` | string | Display name of the label. |
-| `color` | string | Hex color client hint (e.g. `"#d73a4a"`). |
-| `description` | string | Optional description of the label. |
-| `created_at` | string | Creation timestamp in RFC 3339 UTC (`...Z`). |
-| `updated_at` | string | Last modification timestamp in RFC 3339 UTC (`...Z`). |
-
-#### Example Output
-
-```json
-{
-  "schema_version": 1,
-  "kind": "label.list",
-  "data": [
-    {
-      "object_id": "0123456789abcdef0123456789abcdef",
-      "name": "bug",
-      "color": "#d73a4a",
-      "description": "Something isn't working",
-      "created_at": "2026-01-01T00:00:00Z",
-      "updated_at": "2026-01-01T00:00:00Z"
     }
   ]
 }
@@ -820,29 +434,29 @@ Lists collaborative objects across every schema-declared type, or within one, fr
 
 ## 4. Worked `jq` Examples
 
-### List open reviews
+### List every object of one type
 ```bash
-writ review list --json | jq -r '.data[] | select(.status == "open") | "\(.object_id) \(.title)"'
+writ object list ticket --json | jq -r '.data[] | "\(.object_id) \(.object_type)"'
+```
+`object.list` reports only summary columns (id, type, author, timestamps,
+op count) — a field like `title` lives on the folded object itself, so
+listing titles takes one `object.show` per row:
+```bash
+writ object list ticket --json \
+  | jq -r '.data[].object_id' \
+  | while read -r id; do
+      writ object show "$id" --json | jq -r '"\(.data.object_id) \(.data.fields.title)"'
+    done
 ```
 
-### Check if a review has approvals
+### Extract one field from an object's folded state
 ```bash
-writ review status <id> --json | jq -e '.data.approvals[] | select(.verdict == "approve")' > /dev/null
+writ object show <id> --json | jq -r '.data.fields.title'
 ```
 
-### Extract the latest revision head commit
+### Check whether an object carries any unrecognized (forward-compatibility) ops
 ```bash
-writ review status <id> --json | jq -r '.data.revisions[-1].head'
-```
-
-### List open issues
-```bash
-writ issue list -state open --json | jq -r '.data[] | "\(.object_id) \(.title)"'
-```
-
-### Check if an issue is assigned to a user
-```bash
-writ issue status <id> --json | jq -e --arg who "user:bob" '.data.assignees | index($who)' > /dev/null
+writ object show <id> --json | jq -e '.data.unknown_ops | length > 0' > /dev/null
 ```
 
 ### Check total unsynced operations before network sync
@@ -850,22 +464,17 @@ writ issue status <id> --json | jq -e --arg who "user:bob" '.data.assignees | in
 writ sync --status --json | jq '[.data[].unsynced] | add'
 ```
 
-### Verify zero errors across all CI checks
+### List the fields and ops a type declares
 ```bash
-writ review status <id> --json | jq 'all(.data.ci_statuses[]; .state == "success")'
+writ schema show ticket --json | jq -r '.data.fields[] | "\(.field) (\(.op_type) v\(.op_version))"'
 ```
 
-### List labels on an issue
+### List every installed type name
 ```bash
-writ issue label <id> --json | jq -r '.data.labels[]'
+writ schema show --json | jq -r '.data[].type'
 ```
 
-### Edit a comment and extract its updated text
+### Check whether `writ.schema` matches what is already in the log
 ```bash
-writ comment edit <id> -m "new text" --json | jq -r '.data.text'
-```
-
-### Check if a comment is deleted
-```bash
-writ comment delete <id> --json | jq '.data.deleted'
+writ schema plan --json | jq '.data.up_to_date'
 ```

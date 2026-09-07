@@ -70,8 +70,9 @@ func TestStoreSyncLifecycle(t *testing.T) {
 	}
 
 	// Alice creates a review
-	reviewID, err := sA.Reviews.Create(ctx, writ.NewReview{
-		Title: "Sync Feature Review",
+	reviewID, err := sA.Objects.Create(ctx, "review", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Sync Feature Review"},
 	})
 	if err != nil {
 		t.Fatalf("Alice create review: %v", err)
@@ -118,24 +119,45 @@ func TestStoreSyncLifecycle(t *testing.T) {
 	}
 
 	// Bob queries and approves Alice's review
-	resB, err := sB.Query.Review(reviewID)
+	objB, err := sB.Objects.Get(ctx, reviewID)
 	if err != nil {
-		t.Fatalf("Bob Query.Review failed: %v", err)
+		t.Fatalf("Bob Objects.Get failed: %v", err)
 	}
-	if resB.Review.Title != "Sync Feature Review" {
-		t.Errorf("Bob got title %q", resB.Review.Title)
+	if objB.Fields["title"] != "Sync Feature Review" {
+		t.Errorf("Bob got title %q", objB.Fields["title"])
+	}
+
+	// Objects.Get folds straight from the DAG and never touches the
+	// projection, so it alone can't confirm Sync's own Refresh actually
+	// materialized the fetched op into Bob's cache — Query.Objects' text
+	// filter, served from the projection's generated type-table columns,
+	// does (round 1 minor finding: post-fetch state had come to be checked
+	// only through Objects.Get across this file).
+	byText, err := sB.Query.Objects(writ.ObjectFilter{Text: "Sync Feature Review"})
+	if err != nil {
+		t.Fatalf("Bob Query.Objects(Text) failed: %v", err)
+	}
+	if len(byText) != 1 || byText[0].ObjectID != reviewID {
+		t.Fatalf("Bob Query.Objects(Text=%q) = %+v, want exactly [%s]", "Sync Feature Review", byText, reviewID)
 	}
 
 	// Push a revision and approve
 	headHash := runGitCmd(t, bobDir, "rev-parse", "HEAD")[:40]
-	if err := sB.Reviews.PushRevision(ctx, reviewID, headHash, headHash); err != nil {
-		t.Fatalf("Bob PushRevision failed: %v", err)
-	}
-	if err := sB.Reviews.Approve(ctx, reviewID, writ.Approval{
-		Verdict: "approve",
-		Message: "Looks great from Bob!",
+	if err := sB.Objects.Apply(ctx, reviewID, writ.NewOp{
+		Type:   "revision",
+		Fields: map[string]any{"base": headHash, "head": headHash},
 	}); err != nil {
-		t.Fatalf("Bob Approve failed: %v", err)
+		t.Fatalf("Bob revision apply failed: %v", err)
+	}
+	if err := sB.Objects.Apply(ctx, reviewID, writ.NewOp{
+		Type: "approval",
+		Fields: map[string]any{
+			"revision": headHash,
+			"verdict":  "approve",
+			"message":  "Looks great from Bob!",
+		},
+	}); err != nil {
+		t.Fatalf("Bob approval apply failed: %v", err)
 	}
 
 	// Bob pushes approval to origin
@@ -156,12 +178,23 @@ func TestStoreSyncLifecycle(t *testing.T) {
 		t.Errorf("Alice expected 2 ops fetched, got %d", syncResA2.OpsFetched)
 	}
 
-	resA2, err := sA.Query.Review(reviewID)
+	// approval's fields declare no target (spec/schema-ops.md), so each one
+	// folds under its own field name as a keyed-lww register — a []any of
+	// {"key": [...], "value": ...} entries keyed by (subject, revision) —
+	// not a struct-shaped "approvals" collection (that aggregation was
+	// FoldReview's own typed-reducer construction, not a generic fold
+	// property).
+	objA2, err := sA.Objects.Get(ctx, reviewID)
 	if err != nil {
-		t.Fatalf("Alice Query.Review after fetch failed: %v", err)
+		t.Fatalf("Alice Objects.Get after fetch failed: %v", err)
 	}
-	if len(resA2.Review.Approvals) != 1 || resA2.Review.Approvals[0].Verdict != "approve" {
-		t.Errorf("Alice unexpected approvals: %+v", resA2.Review.Approvals)
+	verdicts, _ := objA2.Fields["verdict"].([]any)
+	if len(verdicts) != 1 {
+		t.Fatalf("Alice unexpected verdict entries: %+v", objA2.Fields["verdict"])
+	}
+	entry, _ := verdicts[0].(map[string]any)
+	if entry["value"] != "approve" {
+		t.Errorf("Alice unexpected verdict: %+v", entry)
 	}
 }
 
@@ -187,8 +220,9 @@ func TestStoreSync_PreReceiveHookFailureAndRetry(t *testing.T) {
 	defer sA.Close()
 
 	// Alice creates a review
-	reviewID, err := sA.Reviews.Create(ctx, writ.NewReview{
-		Title: "Hook Failure Review",
+	reviewID, err := sA.Objects.Create(ctx, "review", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Hook Failure Review"},
 	})
 	if err != nil {
 		t.Fatalf("Alice create review: %v", err)
@@ -267,12 +301,12 @@ func TestStoreSync_PreReceiveHookFailureAndRetry(t *testing.T) {
 		t.Errorf("Bob OpsFetched = %d, want 1", syncResB.OpsFetched)
 	}
 
-	resB, err := sB.Query.Review(reviewID)
+	objB, err := sB.Objects.Get(ctx, reviewID)
 	if err != nil {
-		t.Fatalf("Bob Query.Review failed: %v", err)
+		t.Fatalf("Bob Objects.Get failed: %v", err)
 	}
-	if resB.Review.Title != "Hook Failure Review" {
-		t.Errorf("Bob Review.Title = %q, want 'Hook Failure Review'", resB.Review.Title)
+	if objB.Fields["title"] != "Hook Failure Review" {
+		t.Errorf("Bob Fields[title] = %v, want 'Hook Failure Review'", objB.Fields["title"])
 	}
 }
 

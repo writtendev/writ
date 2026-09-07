@@ -90,7 +90,7 @@ Alongside the machines sits one small shared component: **writer identity** — 
 
 ## Public API shape
 
-Schema-shaped, never git-shaped — callers see no SHAs or refspecs unless they ask. `Store.Objects`, `Store.Query.Objects`, and `Store.Types` (WRIT-192) are that surface; the typed per-type services (`Store.Reviews`, `.Issues`, `.Comments`, `.Documents`, `.Labels`, `.WorkflowStates`, `.Settings`, plus their typed `Query` readers) still ship alongside them — `cmd/writ` still calls them — and are deleted by WRIT-195, once WRIT-193 re-points the CLI at the generic surface below:
+Schema-shaped, never git-shaped — callers see no SHAs or refspecs unless they ask. `Store.Objects`, `Store.Query.Objects`, and `Store.Types` (WRIT-192) are that surface. The typed per-type services (`Store.Reviews`, `.Issues`, `.Comments`, `.Documents`, `.Labels`, `.WorkflowStates`, `.Settings`, plus their typed `Query` readers) are gone (WRIT-195); the generic surface below is the only one that remains:
 
 ```go
 store, err := writ.Open(path, opts...)         // any git dir: clone, bare, worktree; fully offline
@@ -112,7 +112,7 @@ store.Watch(ctx)                           // <-chan Event (reactive event strea
 
 `op` is a `writ.NewOp{Type, Version, Fields}`: `Fields` is keyed by declared field name on the way in, but `Objects.Get`'s `Object.Fields` reads back keyed by TARGET key — a rule's declared `target` when it has one, otherwise its field name — which differs whenever a rule declares one (WRIT-198's `assign.add`/`assign.remove` both write field `add`/`remove` and both read back under `assignees`). `Object` deliberately omits the op-level `TotalOrder`/commit ids `ObjectState` carries: a caller who supplied only an object id never asked for a SHA. `writ.Fold(ops, rules)` still returns the full `ObjectState`, since a caller passing ops in has asked for op-shaped output.
 
-The shapes callers see come from the schema folded out of the log, not from Go structs writ ships: `engine/state`'s per-type structs (`Review`, `Comment`, `Issue`, `Anchor`, …) stay for now — WRIT-195 stops re-exporting them once the typed services that consume them are gone — but `store.Objects.Get` already returns the generic folded map the schema describes for any declared type, including one no Go type is named after. Typed codegen — generating a consumer's own Go structs from its schema — is deliberately deferred until a real consumer needs it; the DX regression in the meantime (map access instead of typed fields) is a known, accepted cost, not an oversight.
+The shapes callers see come from the schema folded out of the log, not from Go structs writ ships: `engine/state`'s per-type structs (`Review`, `Comment`, `Issue`, …) are gone (WRIT-195) — `Anchor` stays, since it is content-based data every fold carries verbatim, not a per-type shape — and `store.Objects.Get` returns the generic folded map the schema describes for any declared type, including one no Go type is named after. Typed codegen — generating a consumer's own Go structs from its schema — is deliberately deferred until a real consumer needs it; the DX regression in the meantime (map access instead of typed fields) is a known, accepted cost, not an oversight.
 
 `store.Query.Objects` serves filtered, cross-type queries directly from the SQLite projection cache, whose tables are themselves generated from the schema (WRIT-189) rather than one hand-written table per type. All operations automatically refresh the projection unless disabled via `writ.WithoutAutoRefresh()`.
 

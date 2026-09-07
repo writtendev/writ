@@ -2,6 +2,7 @@ package writ_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -19,152 +20,187 @@ func TestQueryFullSuite(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Create multiple reviews
-	r1, err := s.Reviews.Create(ctx, writ.NewReview{
-		Title:       "First Feature Review",
-		Description: "Alpha feature",
+	r1, err := s.Objects.Create(ctx, "review", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "First Feature Review", "description": "Alpha feature"},
 	})
 	if err != nil {
 		t.Fatalf("Create r1: %v", err)
 	}
 
-	r2, err := s.Reviews.Create(ctx, writ.NewReview{
-		Title:       "Second Bugfix Review",
-		Description: "Beta bugfix",
+	r2, err := s.Objects.Create(ctx, "review", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Second Bugfix Review", "description": "Beta bugfix"},
 	})
 	if err != nil {
 		t.Fatalf("Create r2: %v", err)
 	}
 
-	if err := s.Reviews.SetStatus(ctx, r2, writ.ReviewStatus{Status: "closed", Reason: "superseded"}); err != nil {
+	if err := s.Objects.Apply(ctx, r2, writ.NewOp{
+		Type:   "set-status",
+		Fields: map[string]any{"status": "closed", "reason": "superseded"},
+	}); err != nil {
 		t.Fatalf("SetStatus r2: %v", err)
 	}
 
 	// 2. Create multiple issues
-	i1, err := s.Issues.Create(ctx, writ.NewIssue{
-		Title:       "Issue One",
-		Description: "Important issue",
+	i1, err := s.Objects.Create(ctx, "issue", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Issue One", "description": "Important issue"},
 	})
 	if err != nil {
 		t.Fatalf("Create i1: %v", err)
 	}
-	if err := s.Issues.Assign(ctx, i1, []string{"user:alice"}, nil); err != nil {
+	if err := s.Objects.Apply(ctx, i1, writ.NewOp{
+		Type:   "assign",
+		Fields: map[string]any{"add": []string{"user:alice"}},
+	}); err != nil {
 		t.Fatalf("Assign i1: %v", err)
 	}
-	if err := s.Issues.Label(ctx, i1, []string{"frontend"}, nil); err != nil {
+	if err := s.Objects.Apply(ctx, i1, writ.NewOp{
+		Type:   "label",
+		Fields: map[string]any{"add": []string{"frontend"}},
+	}); err != nil {
 		t.Fatalf("Label i1: %v", err)
 	}
 
-	i2, err := s.Issues.Create(ctx, writ.NewIssue{
-		Title:       "Issue Two",
-		Description: "Backend issue",
+	i2, err := s.Objects.Create(ctx, "issue", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Issue Two", "description": "Backend issue"},
 	})
 	if err != nil {
 		t.Fatalf("Create i2: %v", err)
 	}
-	if err := s.Issues.SetState(ctx, i2, writ.IssueState{State: "closed", Reason: "fixed"}); err != nil {
+	if err := s.Objects.Apply(ctx, i2, writ.NewOp{
+		Type:   "set-state",
+		Fields: map[string]any{"state": "closed", "reason": "fixed"},
+	}); err != nil {
 		t.Fatalf("SetState i2: %v", err)
 	}
-	if err := s.Issues.Assign(ctx, i2, []string{"user:bob"}, nil); err != nil {
+	if err := s.Objects.Apply(ctx, i2, writ.NewOp{
+		Type:   "assign",
+		Fields: map[string]any{"add": []string{"user:bob"}},
+	}); err != nil {
 		t.Fatalf("Assign i2: %v", err)
 	}
 
 	// 3. Comments on r1
-	c1, err := s.Reviews.Comment(ctx, r1, writ.NewComment{Text: "Comment 1 on r1"})
+	c1, err := s.Objects.Create(ctx, "comment", writ.NewOp{
+		Type: "create",
+		Fields: map[string]any{
+			"text":    "Comment 1 on r1",
+			"subject": map[string]string{"object_type": "review", "object_id": r1},
+		},
+	})
 	if err != nil {
 		t.Fatalf("Comment r1: %v", err)
 	}
-	c2, err := s.Reviews.Comment(ctx, r1, writ.NewComment{Text: "Reply to comment 1", InReplyTo: c1})
+	c2, err := s.Objects.Create(ctx, "comment", writ.NewOp{
+		Type: "create",
+		Fields: map[string]any{
+			"text":        "Reply to comment 1",
+			"subject":     map[string]string{"object_type": "review", "object_id": r1},
+			"in_reply_to": c1,
+		},
+	})
 	if err != nil {
 		t.Fatalf("Reply r1: %v", err)
 	}
 
 	// Edit c1
-	if err := s.Comments.Edit(ctx, c1, "Edited Comment 1 on r1"); err != nil {
+	if err := s.Objects.Apply(ctx, c1, writ.NewOp{
+		Type:   "edit",
+		Fields: map[string]any{"text": "Edited Comment 1 on r1"},
+	}); err != nil {
 		t.Fatalf("Edit c1: %v", err)
 	}
 
-	// Test Query.Reviews
-	closedReviews, err := s.Query.Reviews(writ.ReviewFilter{Status: []string{"closed"}})
+	// Test Query.Objects, filtered by type
+	allReviews, err := s.Query.Objects(writ.ObjectFilter{Type: []string{"review"}, OrderBy: writ.OrderByCreatedAtAsc})
 	if err != nil {
-		t.Fatalf("Query.Reviews closed: %v", err)
-	}
-	if len(closedReviews) != 1 || closedReviews[0].ObjectID != r2 {
-		t.Errorf("expected closed review r2, got %+v", closedReviews)
-	}
-
-	allReviews, err := s.Query.Reviews(writ.ReviewFilter{OrderBy: writ.OrderByCreatedAtAsc})
-	if err != nil {
-		t.Fatalf("Query.Reviews all: %v", err)
+		t.Fatalf("Query.Objects(review): %v", err)
 	}
 	if len(allReviews) != 2 {
 		t.Errorf("expected 2 reviews, got %d", len(allReviews))
 	}
 
-	// Test Query.Review point lookup
-	resR1, err := s.Query.Review(r1)
+	// Test Objects.Get point lookup and folded field values
+	objR1, err := s.Objects.Get(ctx, r1)
 	if err != nil {
-		t.Fatalf("Query.Review(r1): %v", err)
+		t.Fatalf("Objects.Get(r1): %v", err)
 	}
-	if resR1.Review.Title != "First Feature Review" {
-		t.Errorf("got title %q", resR1.Review.Title)
+	if objR1.Fields["title"] != "First Feature Review" {
+		t.Errorf("got title %q", objR1.Fields["title"])
 	}
 
-	// Test Query.Review not found
-	_, err = s.Query.Review("non-existent-id")
+	objR2, err := s.Objects.Get(ctx, r2)
+	if err != nil {
+		t.Fatalf("Objects.Get(r2): %v", err)
+	}
+	if objR2.Fields["status"] != "closed" {
+		t.Errorf("expected r2 status closed, got %v", objR2.Fields["status"])
+	}
+
+	// Test Objects.Get not found
+	_, err = s.Objects.Get(ctx, "non-existent-id")
 	if !errors.Is(err, writ.ErrNotFound) {
 		t.Errorf("expected ErrNotFound for missing review, got: %v", err)
 	}
 
-	// Test Query.Issues: i1 never had a set-state op, so it folds with the
+	// Test Objects.Get: i1 never had a set-state op, so it folds with the
 	// empty default state (no legacy "open" blessing).
-	openIssues, err := s.Query.Issues(writ.IssueFilter{State: []string{""}})
+	objI1, err := s.Objects.Get(ctx, i1)
 	if err != nil {
-		t.Fatalf("Query.Issues empty state: %v", err)
+		t.Fatalf("Objects.Get(i1): %v", err)
 	}
-	if len(openIssues) != 1 || openIssues[0].ObjectID != i1 {
-		t.Errorf("expected issue i1, got %+v", openIssues)
+	if objI1.Fields["state"] != nil && objI1.Fields["state"] != "" {
+		t.Errorf("expected i1 to have no state, got %v", objI1.Fields["state"])
+	}
+	assignees, _ := objI1.Fields["assignees"].([]string)
+	if len(assignees) != 1 || assignees[0] != "user:alice" {
+		t.Errorf("expected i1 assignees [user:alice], got %v", objI1.Fields["assignees"])
 	}
 
-	// Test Query.Issue point lookup
-	resI2, err := s.Query.Issue(i2)
+	objI2, err := s.Objects.Get(ctx, i2)
 	if err != nil {
-		t.Fatalf("Query.Issue(i2): %v", err)
+		t.Fatalf("Objects.Get(i2): %v", err)
 	}
-	if resI2.Issue.State != "closed" {
-		t.Errorf("got state %q, want 'closed'", resI2.Issue.State)
-	}
-
-	// Test Query.Issue not found
-	_, err = s.Query.Issue("non-existent-id")
-	if !errors.Is(err, writ.ErrNotFound) {
-		t.Errorf("expected ErrNotFound for missing issue, got: %v", err)
+	if objI2.Fields["state"] != "closed" {
+		t.Errorf("got state %q, want 'closed'", objI2.Fields["state"])
 	}
 
-	// Test Query.Comments
-	comments, err := s.Query.Comments(writ.CommentFilter{SubjectID: r1})
-	if err != nil {
-		t.Fatalf("Query.Comments: %v", err)
-	}
-	if len(comments) != 2 {
-		t.Errorf("expected 2 comments on r1, got %d", len(comments))
-	}
-
-	// Test Query.Threads
-	threads, err := s.Query.Threads("review", r1)
-	if err != nil {
-		t.Fatalf("Query.Threads: %v", err)
-	}
-	if len(threads) != 1 || len(threads[0].Replies) != 1 || threads[0].Replies[0].ObjectID != c2 {
-		t.Errorf("unexpected thread tree: %+v", threads)
-	}
-
-	// Test Query.Objects
+	// Test Query.Objects cross-type
 	objects, err := s.Query.Objects(writ.ObjectFilter{})
 	if err != nil {
 		t.Fatalf("Query.Objects: %v", err)
 	}
 	if len(objects) != 6 { // 2 reviews + 2 issues + 2 comments
 		t.Errorf("expected 6 objects total, got %d", len(objects))
+	}
+
+	// Test comment content and threading via Fields, since Query.Threads
+	// (a per-type reader) no longer exists.
+	objC1, err := s.Objects.Get(ctx, c1)
+	if err != nil {
+		t.Fatalf("Objects.Get(c1): %v", err)
+	}
+	if objC1.Fields["text"] != "Edited Comment 1 on r1" {
+		t.Errorf("expected edited text, got %v", objC1.Fields["text"])
+	}
+	objC2, err := s.Objects.Get(ctx, c2)
+	if err != nil {
+		t.Fatalf("Objects.Get(c2): %v", err)
+	}
+	// in_reply_to declares no normalizing value type, so create-once's
+	// byte-exact-preservation rule (spec/fold.md §5.2) returns it as raw
+	// JSON bytes rather than a decoded string.
+	inReplyToRaw, _ := objC2.Fields["in_reply_to"].(json.RawMessage)
+	var inReplyTo string
+	if err := json.Unmarshal(inReplyToRaw, &inReplyTo); err != nil {
+		t.Fatalf("unmarshal in_reply_to: %v", err)
+	}
+	if inReplyTo != c1 {
+		t.Errorf("expected c2.in_reply_to = %s, got %v", c1, inReplyTo)
 	}
 }
 
@@ -183,13 +219,17 @@ func TestWithoutAutoRefresh(t *testing.T) {
 	ctx := context.Background()
 
 	// Write without auto-refresh
-	id, err := s.Reviews.Create(ctx, writ.NewReview{Title: "Manual Refresh Review"})
+	id, err := s.Objects.Create(ctx, "review", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Manual Refresh Review"},
+	})
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
 
-	// Without refresh, projection has not folded the new review yet
-	_, err = s.Query.Review(id)
+	// Without refresh, the projection has not folded the new review yet —
+	// Query.Object is served from the projection, unlike Objects.Get.
+	_, err = s.Query.Object(id)
 	if !errors.Is(err, writ.ErrNotFound) {
 		t.Errorf("expected ErrNotFound before manual refresh, got: %v", err)
 	}
@@ -203,13 +243,37 @@ func TestWithoutAutoRefresh(t *testing.T) {
 		t.Errorf("expected 1 object touched, got %d", stats.ObjectsTouched)
 	}
 
-	// Now Query.Review finds it
-	res, err := s.Query.Review(id)
+	// Now Query.Object finds it
+	res, err := s.Query.Object(id)
 	if err != nil {
-		t.Fatalf("Query.Review after manual refresh failed: %v", err)
+		t.Fatalf("Query.Object after manual refresh failed: %v", err)
 	}
-	if res.Review.Title != "Manual Refresh Review" {
-		t.Errorf("got title %q", res.Review.Title)
+	if res.ObjectID != id {
+		t.Errorf("got object id %q, want %q", res.ObjectID, id)
+	}
+
+	// Query.Objects' text filter is served from the projection's generated
+	// type-table columns (o_review.f_title here), not from ObjectResult's
+	// own objects-table-only metadata — so, unlike res above, this actually
+	// asserts a folded field value made it into the cache (round 1 minor
+	// finding: no engine-level test asserted a folded field value out of
+	// the projection any more once title assertions moved onto Objects.Get,
+	// which deliberately bypasses it).
+	byText, err := s.Query.Objects(writ.ObjectFilter{Text: "Manual Refresh Review"})
+	if err != nil {
+		t.Fatalf("Query.Objects(Text) after manual refresh failed: %v", err)
+	}
+	if len(byText) != 1 || byText[0].ObjectID != id {
+		t.Errorf("Query.Objects(Text=%q) = %+v, want exactly [%s] — the projection's materialized title must match", "Manual Refresh Review", byText, id)
+	}
+
+	// Objects.Get, which folds from the DAG directly, finds it regardless.
+	obj, err := s.Objects.Get(ctx, id)
+	if err != nil {
+		t.Fatalf("Objects.Get failed: %v", err)
+	}
+	if obj.Fields["title"] != "Manual Refresh Review" {
+		t.Errorf("got title %q", obj.Fields["title"])
 	}
 }
 
@@ -236,16 +300,29 @@ func TestQueryObjects_WarmReopenWithoutAutoRefresh(t *testing.T) {
 		t.Fatalf("Open failed: %v", err)
 	}
 
-	r1, err := s.Reviews.Create(ctx, writ.NewReview{Title: "Zebra Crossing Review"})
+	r1, err := s.Objects.Create(ctx, "review", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Zebra Crossing Review"},
+	})
 	if err != nil {
 		t.Fatalf("Create review failed: %v", err)
 	}
-	c1, err := s.Reviews.Comment(ctx, r1, writ.NewComment{Text: "first comment"})
+	c1, err := s.Objects.Create(ctx, "comment", writ.NewOp{
+		Type: "create",
+		Fields: map[string]any{
+			"text":    "first comment",
+			"subject": map[string]string{"object_type": "review", "object_id": r1},
+		},
+	})
 	if err != nil {
 		t.Fatalf("Comment failed: %v", err)
 	}
-	if err := s.Comments.Delete(ctx, c1); err != nil {
-		t.Fatalf("Comments.Delete failed: %v", err)
+	// The delete op body carries no content (spec/comments.md): tombstone
+	// semantics come from the op type itself, not a field in its body.
+	if err := s.Objects.Apply(ctx, c1, writ.NewOp{
+		Type: "delete",
+	}); err != nil {
+		t.Fatalf("Objects.Apply(delete) failed: %v", err)
 	}
 
 	if _, err := s.Refresh(ctx); err != nil {

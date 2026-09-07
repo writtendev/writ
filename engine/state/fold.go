@@ -1,8 +1,6 @@
 package state
 
 import (
-	"strings"
-
 	"github.com/writtendev/writ/engine/codec"
 	"github.com/writtendev/writ/engine/internal/fold"
 )
@@ -21,14 +19,14 @@ type Rule struct {
 	MaxLength int64             `json:"max_length,omitempty"`
 	KeyTypes  map[string]string `json:"key_types,omitempty"`
 	// ObjectType scopes the rule to one object type (spec/fold.md §5): empty
-	// on either the rule or the op matches anything. It is left empty on
-	// every hand-written Go rule table (ReviewRules, IssueRules, etc.)
-	// rather than set to the table's own type: those tables are already
-	// selected per object type by their callers and the typed reducers, so
-	// an empty ObjectType changes nothing for them, and WRIT-194 deletes the
-	// tables outright — setting it on every literal there would be
-	// throwaway work. Only log-sourced rules (RulesFromSchemas) and rules
-	// built from spec.FieldRules() carry it.
+	// on either the rule or the op matches anything. Before WRIT-195 it was
+	// left empty on every hand-written Go rule table (ReviewRules,
+	// IssueRules, etc.) rather than set to the table's own type — those
+	// tables were already selected per object type by their callers and the
+	// typed reducers, so an empty ObjectType changed nothing for them — and
+	// WRIT-195 deleted the tables outright rather than retrofit them. Only
+	// log-sourced rules (RulesFromSchemas) and rules built from
+	// spec.FieldRules() carry it.
 	ObjectType string `json:"object_type,omitempty"`
 	// Deprecated is carried through from a schema-declared field's
 	// deprecate-field state (spec/schema-ops.md §4.6, §5): it is metadata
@@ -119,71 +117,3 @@ func Fold(ops []codec.Op, rules []Rule) (ObjectState, error) {
 	}, nil
 }
 
-// stringItems returns the items a set-valued field carries. Both set strategies
-// consume the same two shapes: a `set-union` field holds a string or an array of
-// strings (spec/fold.md §5.3), and so does each side of an OR-set (§5.4).
-// Anything else made the operation uninterpretable (§7.1) before it reached a
-// reducer, so a non-string here is unreachable and skipped rather than rendered.
-//
-// Every typed reducer shares this with the generic fold's own item helpers so a
-// body shape one consumes cannot be silently dropped by the other. A set-union
-// field read with a bare `.(string)` assertion until WRIT-124's round-2 review:
-// an array-shaped value such as `{"remote":["origin","upstream"]}` is accepted
-// by the uninterpretability check and folded by both the generic driver and the
-// reference fold, so nothing quarantined it and the typed reducer alone
-// returned no items at all — "skip invents an absence" relocated from the
-// predicate into a reducer, reaching the public API and the SQLite projection.
-func stringItems(raw any) []string {
-	switch v := raw.(type) {
-	case string:
-		return []string{v}
-	case []any:
-		items := make([]string, 0, len(v))
-		for _, it := range v {
-			if s, ok := it.(string); ok {
-				items = append(items, s)
-			}
-		}
-		return items
-	case []string:
-		return v
-	}
-	return nil
-}
-
-// extractOrSetItems extracts additions and removals from a flat OR-set body,
-// accommodating both flat fields (body[addField] / body[remField]) and nested
-// maps ({add: [...], remove: [...]}) present at either field (spec/fold.md §5.4).
-func extractOrSetItems(body map[string]any, addField, remField string) (adds []string, removes []string) {
-	if m, ok := body[addField].(map[string]any); ok {
-		adds = append(adds, stringItems(m["add"])...)
-		removes = append(removes, stringItems(m["remove"])...)
-	} else {
-		adds = append(adds, stringItems(body[addField])...)
-	}
-	if m, ok := body[remField].(map[string]any); ok {
-		adds = append(adds, stringItems(m["add"])...)
-		removes = append(removes, stringItems(m["remove"])...)
-	} else {
-		removes = append(removes, stringItems(body[remField])...)
-	}
-	return adds, removes
-}
-
-// extractScalarOrSetItems extracts additions and removals from a scalar OR-set
-// body (such as project/cycle add-issue / remove-issue), supporting scalar
-// items (or arrays) mapped to side by opType, or nested maps present at the field.
-func extractScalarOrSetItems(body map[string]any, field string, opType string) (adds []string, removes []string) {
-	if m, ok := body[field].(map[string]any); ok {
-		adds = append(adds, stringItems(m["add"])...)
-		removes = append(removes, stringItems(m["remove"])...)
-		return adds, removes
-	}
-	items := stringItems(body[field])
-	if strings.HasPrefix(opType, "add-") || opType == "add" {
-		adds = append(adds, items...)
-	} else if strings.HasPrefix(opType, "remove-") || opType == "remove" {
-		removes = append(removes, items...)
-	}
-	return adds, removes
-}

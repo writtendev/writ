@@ -10,7 +10,6 @@ import (
 
 	"github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/engine/codec"
-	"github.com/writtendev/writ/engine/identity"
 )
 
 func dummySigner() writ.Signer {
@@ -49,38 +48,6 @@ func runGitCmd(t *testing.T, dir string, args ...string) string {
 		t.Fatalf("git %v failed: %v\nOutput: %s", args, err, string(out))
 	}
 	return string(out)
-}
-
-func setupTestRepoWithID(t *testing.T, name, email string) (string, identity.RepoID) {
-	t.Helper()
-	dir := t.TempDir()
-	runGitCmd(t, dir, "init")
-	runGitCmd(t, dir, "config", "user.name", name)
-	runGitCmd(t, dir, "config", "user.email", email)
-	runGitCmd(t, dir, "config", "gpg.format", "ssh")
-	runGitCmd(t, dir, "config", "user.signingKey", "key::ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGdummy")
-
-	// Mint and ensure writer ID
-	_, _, err := identity.EnsureWriterID(context.Background(), dir, nil)
-	if err != nil {
-		t.Fatalf("ensure writer ID: %v", err)
-	}
-
-	// Mint and ensure repo ID
-	repoID, _, err := identity.EnsureRepoID(context.Background(), dir)
-	if err != nil {
-		t.Fatalf("ensure repo ID: %v", err)
-	}
-
-	// Commit initial file
-	dummyFile := filepath.Join(dir, "README.md")
-	if err := os.WriteFile(dummyFile, []byte("# "+name+"\n"), 0o644); err != nil {
-		t.Fatalf("write dummy file: %v", err)
-	}
-	runGitCmd(t, dir, "add", "README.md")
-	runGitCmd(t, dir, "commit", "-m", "initial commit")
-
-	return dir, repoID
 }
 
 func TestOpenMatrix(t *testing.T) {
@@ -142,7 +109,7 @@ func TestOpenMatrix(t *testing.T) {
 	defer s5.Close()
 
 	// Query should succeed
-	results, err := s5.Query.Reviews(writ.ReviewFilter{})
+	results, err := s5.Query.Objects(writ.ObjectFilter{Type: []string{"review"}})
 	if err != nil {
 		t.Fatalf("Query on unconfigured repo failed: %v", err)
 	}
@@ -151,7 +118,10 @@ func TestOpenMatrix(t *testing.T) {
 	}
 
 	// Write should fail with ErrNoIdentity
-	_, err = s5.Reviews.Create(context.Background(), writ.NewReview{Title: "Unconfigured write"})
+	_, err = s5.Objects.Create(context.Background(), "review", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Unconfigured write"},
+	})
 	if !errors.Is(err, writ.ErrNoIdentity) {
 		t.Errorf("expected ErrNoIdentity, got: %v", err)
 	}
@@ -209,7 +179,10 @@ func TestStoreMissingSigningKey(t *testing.T) {
 		t.Errorf("unexpected writer: %+v", w)
 	}
 
-	_, err = s1.Reviews.Create(ctx, writ.NewReview{Title: "Should fail signing key"})
+	_, err = s1.Objects.Create(ctx, "review", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Should fail signing key"},
+	})
 	if !errors.Is(err, writ.ErrNoSigningKey) {
 		t.Errorf("expected ErrNoSigningKey, got: %v", err)
 	}
@@ -221,9 +194,12 @@ func TestStoreMissingSigningKey(t *testing.T) {
 	}
 	defer s2.Close()
 
-	id, err := s2.Reviews.Create(ctx, writ.NewReview{Title: "Should succeed with custom signer"})
+	id, err := s2.Objects.Create(ctx, "review", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Should succeed with custom signer"},
+	})
 	if err != nil {
-		t.Fatalf("Reviews.Create with custom signer failed: %v", err)
+		t.Fatalf("Objects.Create with custom signer failed: %v", err)
 	}
 	if id == "" {
 		t.Fatal("expected non-empty review ID")

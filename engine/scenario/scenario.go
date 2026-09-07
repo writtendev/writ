@@ -129,28 +129,13 @@ type Scenario struct {
 	Steps   []Step
 }
 
-// ReviewRecord is a folded Review object in a converged snapshot.
-type ReviewRecord struct {
-	ObjectID string      `json:"object_id"`
-	Review   writ.Review `json:"review"`
-}
-
-// IssueRecord is a folded Issue object in a converged snapshot.
-type IssueRecord struct {
-	ObjectID string     `json:"object_id"`
-	Issue    writ.Issue `json:"issue"`
-}
-
-// ProjectRecord is a folded Project object in a converged snapshot.
-type ProjectRecord struct {
-	ObjectID string       `json:"object_id"`
-	Project  writ.Project `json:"project"`
-}
-
-// CycleRecord is a folded Cycle object in a converged snapshot.
-type CycleRecord struct {
-	ObjectID string     `json:"object_id"`
-	Cycle    writ.Cycle `json:"cycle"`
+// ObjectRecord is a folded collaborative object of any type in a converged
+// snapshot — the schema-shaped replacement for the per-type
+// ReviewRecord/IssueRecord/ProjectRecord/CycleRecord this ticket deletes.
+type ObjectRecord struct {
+	ObjectID    string           `json:"object_id"`
+	ObjectType  string           `json:"object_type"`
+	ObjectState writ.ObjectState `json:"object_state"`
 }
 
 // ResolutionRecord records the deterministic resolution of an anchored comment.
@@ -163,12 +148,8 @@ type ResolutionRecord struct {
 
 // Snapshot represents the materialized multi-object state of a converged clone.
 type Snapshot struct {
-	Reviews     []ReviewRecord       `json:"reviews,omitempty"`
-	Comments    []writ.CommentThread `json:"comments,omitempty"`
-	Issues      []IssueRecord        `json:"issues,omitempty"`
-	Projects    []ProjectRecord      `json:"projects,omitempty"`
-	Cycles      []CycleRecord        `json:"cycles,omitempty"`
-	Resolutions []ResolutionRecord   `json:"resolutions,omitempty"`
+	Objects     []ObjectRecord     `json:"objects,omitempty"`
+	Resolutions []ResolutionRecord `json:"resolutions,omitempty"`
 }
 
 // MakeAnchor builds a resolve.Anchor for a given file content and line range.

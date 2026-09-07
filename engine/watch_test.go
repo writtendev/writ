@@ -24,14 +24,22 @@ func TestWatchLocalWritesEmit(t *testing.T) {
 
 	events := store.Watch(ctx)
 
-	// 1. Create review with base & head (appends create + revision)
-	reviewID, err := store.Reviews.Create(ctx, writ.NewReview{
-		Title: "Add Authentication",
-		Base:  "0000000000000000000000000000000000000001",
-		Head:  "0000000000000000000000000000000000000002",
+	// 1. Create review, then push a revision (appends create + revision)
+	reviewID, err := store.Objects.Create(ctx, "review", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Add Authentication"},
 	})
 	if err != nil {
-		t.Fatalf("Reviews.Create failed: %v", err)
+		t.Fatalf("Objects.Create(review) failed: %v", err)
+	}
+	if err := store.Objects.Apply(ctx, reviewID, writ.NewOp{
+		Type: "revision",
+		Fields: map[string]any{
+			"base": "0000000000000000000000000000000000000001",
+			"head": "0000000000000000000000000000000000000002",
+		},
+	}); err != nil {
+		t.Fatalf("Objects.Apply(revision) failed: %v", err)
 	}
 
 	select {
@@ -45,7 +53,7 @@ func TestWatchLocalWritesEmit(t *testing.T) {
 		if ev.ObjectID != reviewID {
 			t.Errorf("expected ObjectID %q, got %q", reviewID, ev.ObjectID)
 		}
-		expectedOpTypes := []string{"create", "revision"}
+		expectedOpTypes := []string{"create"}
 		if !reflect.DeepEqual(ev.OpTypes, expectedOpTypes) {
 			t.Errorf("expected OpTypes %v, got %v", expectedOpTypes, ev.OpTypes)
 		}
@@ -53,12 +61,33 @@ func TestWatchLocalWritesEmit(t *testing.T) {
 		t.Fatal("timed out waiting for review create event")
 	}
 
+	// 1b. The revision push is its own change event.
+	select {
+	case ev := <-events:
+		if ev.Kind != writ.EventChanged {
+			t.Errorf("expected EventChanged, got %q", ev.Kind)
+		}
+		if ev.ObjectID != reviewID {
+			t.Errorf("expected ObjectID %q, got %q", reviewID, ev.ObjectID)
+		}
+		expectedOpTypes := []string{"revision"}
+		if !reflect.DeepEqual(ev.OpTypes, expectedOpTypes) {
+			t.Errorf("expected OpTypes %v, got %v", expectedOpTypes, ev.OpTypes)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for review revision event")
+	}
+
 	// 2. Add comment to review (appends create op for comment object)
-	commentID, err := store.Reviews.Comment(ctx, reviewID, writ.NewComment{
-		Text: "Please check auth header format",
+	commentID, err := store.Objects.Create(ctx, "comment", writ.NewOp{
+		Type: "create",
+		Fields: map[string]any{
+			"text":    "Please check auth header format",
+			"subject": map[string]string{"object_type": "review", "object_id": reviewID},
+		},
 	})
 	if err != nil {
-		t.Fatalf("Reviews.Comment failed: %v", err)
+		t.Fatalf("Objects.Create(comment) failed: %v", err)
 	}
 
 	select {
@@ -81,12 +110,12 @@ func TestWatchLocalWritesEmit(t *testing.T) {
 	}
 
 	// 3. Update review title (appends update op for review object)
-	newTitle := "Add Authentication Provider"
-	err = store.Reviews.Update(ctx, reviewID, writ.ReviewEdit{
-		Title: &newTitle,
+	err = store.Objects.Apply(ctx, reviewID, writ.NewOp{
+		Type:   "update",
+		Fields: map[string]any{"title": "Add Authentication Provider"},
 	})
 	if err != nil {
-		t.Fatalf("Reviews.Update failed: %v", err)
+		t.Fatalf("Objects.Apply(update) failed: %v", err)
 	}
 
 	select {
@@ -126,11 +155,12 @@ func TestWatchPostFetchRefoldsEmit(t *testing.T) {
 	defer sB.Close()
 
 	// Alice creates review and syncs to origin
-	reviewID, err := sA.Reviews.Create(ctx, writ.NewReview{
-		Title: "Alice's Review",
+	reviewID, err := sA.Objects.Create(ctx, "review", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Alice's Review"},
 	})
 	if err != nil {
-		t.Fatalf("Alice Reviews.Create failed: %v", err)
+		t.Fatalf("Alice Objects.Create(review) failed: %v", err)
 	}
 
 	if _, err := sA.Sync(ctx, "origin"); err != nil {
@@ -177,11 +207,12 @@ func TestWatchNothingMissedAfterSubscribe(t *testing.T) {
 	const n = 10
 	var createdIDs []string
 	for i := 0; i < n; i++ {
-		id, err := store.Issues.Create(ctx, writ.NewIssue{
-			Title: fmt.Sprintf("Issue %d", i),
+		id, err := store.Objects.Create(ctx, "issue", writ.NewOp{
+			Type:   "create",
+			Fields: map[string]any{"title": fmt.Sprintf("Issue %d", i)},
 		})
 		if err != nil {
-			t.Fatalf("Issues.Create %d failed: %v", i, err)
+			t.Fatalf("Objects.Create(issue) %d failed: %v", i, err)
 		}
 		createdIDs = append(createdIDs, id)
 	}
@@ -236,9 +267,12 @@ func TestWatchConcurrentSubscribeAndRefreshRace(t *testing.T) {
 	wg.Wait()
 
 	// Subsequent write must be delivered to all subscribers
-	id, err := store.Issues.Create(ctx, writ.NewIssue{Title: "Raced Issue"})
+	id, err := store.Objects.Create(ctx, "issue", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Raced Issue"},
+	})
 	if err != nil {
-		t.Fatalf("Issues.Create failed: %v", err)
+		t.Fatalf("Objects.Create(issue) failed: %v", err)
 	}
 
 	for i, ch := range channels {
@@ -265,25 +299,39 @@ func TestWatchEventPrecedesVisibility(t *testing.T) {
 
 	events := store.Watch(ctx)
 
-	id, err := store.Reviews.Create(ctx, writ.NewReview{
-		Title: "Visibility Test Review",
+	id, err := store.Objects.Create(ctx, "review", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Visibility Test Review"},
 	})
 	if err != nil {
-		t.Fatalf("Reviews.Create failed: %v", err)
+		t.Fatalf("Objects.Create(review) failed: %v", err)
 	}
 
 	select {
 	case ev := <-events:
 		// Immediately query for that object
-		res, err := store.Query.Review(ev.ObjectID)
+		res, err := store.Query.Object(ev.ObjectID)
 		if err != nil {
-			t.Fatalf("Query.Review immediately on event failed: %v", err)
-		}
-		if res.Review.Title != "Visibility Test Review" {
-			t.Fatalf("Query.Review returned wrong title: %q", res.Review.Title)
+			t.Fatalf("Query.Object immediately on event failed: %v", err)
 		}
 		if res.ObjectID != id {
-			t.Fatalf("Query.Review returned wrong ObjectID: %q", res.ObjectID)
+			t.Fatalf("Query.Object returned wrong ObjectID: %q", res.ObjectID)
+		}
+
+		// The event fires only after the projection transaction commits
+		// (that's the property this test names), so the folded title —
+		// not just the objects-table id — must already be queryable too:
+		// Query.Objects' text filter is served from the projection's
+		// generated type-table columns, not ObjectResult's own metadata
+		// (round 1 minor finding: this assertion had been downgraded to
+		// "an id comes back", which a projection that materialized only
+		// the objects row and no type-table columns would still pass).
+		byText, err := store.Query.Objects(writ.ObjectFilter{Text: "Visibility Test Review"})
+		if err != nil {
+			t.Fatalf("Query.Objects(Text) immediately on event failed: %v", err)
+		}
+		if len(byText) != 1 || byText[0].ObjectID != id {
+			t.Fatalf("Query.Objects(Text=%q) = %+v, want exactly [%s] immediately on event", "Visibility Test Review", byText, id)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for event")
@@ -306,8 +354,9 @@ func TestWatchSlowConsumerOverflowAndReset(t *testing.T) {
 	// Write 128 + 50 = 178 issues
 	const totalWrites = 178
 	for i := 0; i < totalWrites; i++ {
-		_, err := store.Issues.Create(ctx, writ.NewIssue{
-			Title: fmt.Sprintf("Overflow Issue %d", i),
+		_, err := store.Objects.Create(ctx, "issue", writ.NewOp{
+			Type:   "create",
+			Fields: map[string]any{"title": fmt.Sprintf("Overflow Issue %d", i)},
 		})
 		if err != nil {
 			t.Fatalf("write %d failed: %v", i, err)
@@ -315,9 +364,9 @@ func TestWatchSlowConsumerOverflowAndReset(t *testing.T) {
 	}
 
 	// Projection is intact and query succeeds
-	issues, err := store.Query.Issues(writ.IssueFilter{})
+	issues, err := store.Query.Objects(writ.ObjectFilter{Type: []string{"issue"}})
 	if err != nil {
-		t.Fatalf("Query.Issues failed: %v", err)
+		t.Fatalf("Query.Objects(issue) failed: %v", err)
 	}
 	if len(issues) != totalWrites {
 		t.Fatalf("expected %d issues in projection, got %d", totalWrites, len(issues))
@@ -331,8 +380,9 @@ func TestWatchSlowConsumerOverflowAndReset(t *testing.T) {
 	}
 
 	// Perform another write so emit sees available buffer capacity and delivers reset
-	_, err = store.Issues.Create(ctx, writ.NewIssue{
-		Title: "Post-overflow Issue",
+	_, err = store.Objects.Create(ctx, "issue", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Post-overflow Issue"},
 	})
 	if err != nil {
 		t.Fatalf("post-overflow write failed: %v", err)
@@ -371,11 +421,12 @@ func TestWatchRebuildEmitsReset(t *testing.T) {
 	defer store.Close()
 
 	// Create an initial review
-	_, err = store.Reviews.Create(ctx, writ.NewReview{
-		Title: "Rebuild Review",
+	_, err = store.Objects.Create(ctx, "review", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Rebuild Review"},
 	})
 	if err != nil {
-		t.Fatalf("Reviews.Create failed: %v", err)
+		t.Fatalf("Objects.Create(review) failed: %v", err)
 	}
 
 	events := store.Watch(ctx)
@@ -442,9 +493,12 @@ func TestWatchLifecycle(t *testing.T) {
 	}
 
 	// Further writes succeed without panicking
-	_, err = store.Issues.Create(ctx, writ.NewIssue{Title: "Post-cancel Issue"})
+	_, err = store.Objects.Create(ctx, "issue", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Post-cancel Issue"},
+	})
 	if err != nil {
-		t.Fatalf("Issues.Create after cancel failed: %v", err)
+		t.Fatalf("Objects.Create(issue) after cancel failed: %v", err)
 	}
 
 	// 2. Store.Close closes all remaining subscribers
@@ -498,9 +552,12 @@ func TestWatchWithoutAutoRefresh(t *testing.T) {
 	events := store.Watch(ctx)
 
 	// Write without auto-refresh produces no event immediately
-	reviewID, err := store.Reviews.Create(ctx, writ.NewReview{Title: "Manual Refresh Review"})
+	reviewID, err := store.Objects.Create(ctx, "review", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Manual Refresh Review"},
+	})
 	if err != nil {
-		t.Fatalf("Reviews.Create failed: %v", err)
+		t.Fatalf("Objects.Create(review) failed: %v", err)
 	}
 
 	select {
