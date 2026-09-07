@@ -62,7 +62,7 @@ title        Fix the thing
 
 ## `list`
 
-Lists objects across every schema-declared type, or within one when `<type>` is given, served from the projection cache. `-author`, `-text`, `-include-deleted`, `-limit`, `-offset`, and `-sort` filter and page the results the same way the per-type `list` commands do. A `<type>` the installed vocabulary does not declare is refused by name, the same way `create` and `schema show` refuse one — never a silent empty result indistinguishable from "no objects of that type." `schema` is queryable too, even though it is not schema-declared and so never appears among the names an unknown `<type>` error lists: it is writ's one hard-coded object type (`spec/schema-ops.md`), and `writ schema apply` leaves real `schema` rows for `object list schema` to find.
+Lists objects across every schema-declared type, or within one when `<type>` is given, served from the projection cache. `-author`, `-text`, `-include-deleted`, `-limit`, `-offset`, and `-sort` filter and page the results. A `<type>` the installed vocabulary does not declare is refused by name, the same way `create` and `schema show` refuse one — never a silent empty result indistinguishable from "no objects of that type." `schema` is queryable too, even though it is not schema-declared and so never appears among the names an unknown `<type>` error lists: it is writ's one hard-coded object type (`spec/schema-ops.md`), and `writ schema apply` leaves real `schema` rows for `object list schema` to find.
 
 ```console
 $ writ object list ticket -text urgent

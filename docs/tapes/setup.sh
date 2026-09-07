@@ -25,6 +25,20 @@ git add README.md
 git commit -m "Initial commit" >/dev/null 2>&1
 git remote add origin "$WRIT_BARE_DIR"
 
+# Pre-write writ.schema declaring the ticket type the tape uses: `writ init`
+# never overwrites an existing one, so writing it here means the visible
+# `writ schema apply` step in the tape has something real to apply, without
+# making the file's own editing (not a writ command) part of the recording.
+cat > writ.schema <<'SCHEMA'
+namespace demo
+
+type ticket {
+  op create 1, update 1 {
+    title  string  lww
+  }
+}
+SCHEMA
+
 # Collab repo pre-setup
 git clone "$WRIT_BARE_DIR" "$WRIT_COLLAB_DIR" >/dev/null 2>&1
 (
@@ -36,26 +50,42 @@ git clone "$WRIT_BARE_DIR" "$WRIT_COLLAB_DIR" >/dev/null 2>&1
   writ init >/dev/null 2>&1
 )
 
-# Wrapper to format review ID cleanly
+# Fixed placeholder ids the tape "types" literally, so the recording reads
+# the same every run despite object ids being freshly minted (crypto/rand)
+# each time. The wrapper below resolves a placeholder to the real id via
+# `object list --json`, runs the real command against it, then masks the
+# real id back out of the output.
+TICKET_PLACEHOLDER=0192a1b2c3d4e5f60718293a4b5c6d7e
+SCHEMA_PLACEHOLDER=426905eb8b0b65f913ddcfd05905d1d3
+
+# Wrapper to format object/schema ids cleanly
 _real_writ=$(which writ)
 writ() {
-  if [ "$1" = "review" ] && { [ "$2" = "comment" ] || [ "$2" = "approve" ] || [ "$2" = "status" ]; } && [ "${3:-}" = "01918a3b5c6d7e8f90123456789abcde" -o "${3:-}" = "01918a3b" ]; then
-    real_id=$("$_real_writ" review list -C "$PWD" --json 2>/dev/null | grep -o '"object_id":"[^"]*"' | head -1 | cut -d'"' -f4)
+  if [ "$1" = "schema" ] && [ "$2" = "apply" ]; then
+    out=$("$_real_writ" "$@")
+    real_id=$(echo "$out" | grep -o '[0-9a-f]\{32\}' | head -1)
+    if [ -n "$real_id" ]; then
+      echo "$out" | sed "s/$real_id/$SCHEMA_PLACEHOLDER/g"
+    else
+      echo "$out"
+    fi
+  elif [ "$1" = "object" ] && [ "$2" = "create" ]; then
+    out=$("$_real_writ" "$@")
+    real_id="$out"
+    echo "$out" | sed "s/$real_id/$TICKET_PLACEHOLDER/g"
+  elif [ "$1" = "object" ] && { [ "$2" = "apply" ] || [ "$2" = "show" ]; } && [ "${3:-}" = "$TICKET_PLACEHOLDER" -o "${3:-}" = "${TICKET_PLACEHOLDER:0:8}" ]; then
+    real_id=$("$_real_writ" object list ticket -C "$PWD" --json 2>/dev/null | grep -o '"object_id":"[^"]*"' | head -1 | cut -d'"' -f4)
     action="$2"
     shift 3
     if [ -n "$real_id" ]; then
-      "$_real_writ" review "$action" "$real_id" "$@" | sed "s/$real_id/01918a3b5c6d7e8f90123456789abcde/g"
+      "$_real_writ" object "$action" "$real_id" "$@" | sed "s/$real_id/$TICKET_PLACEHOLDER/g"
     else
-      "$_real_writ" review "$action" "01918a3b5c6d7e8f90123456789abcde" "$@"
+      "$_real_writ" object "$action" "$TICKET_PLACEHOLDER" "$@"
     fi
-  elif [ "$1" = "review" ] && [ "$2" = "open" ]; then
-    out=$("$_real_writ" "$@")
-    real_id=$(echo "$out" | awk '{print $1}')
-    echo "$out" | sed "s/$real_id/01918a3b5c6d7e8f90123456789abcde/g"
-  elif [ "$1" = "review" ] && [ "$2" = "list" ]; then
-    real_id=$("$_real_writ" review list -C "$PWD" --json 2>/dev/null | grep -o '"object_id":"[^"]*"' | head -1 | cut -d'"' -f4)
+  elif [ "$1" = "object" ] && [ "$2" = "list" ]; then
+    real_id=$("$_real_writ" object list ticket -C "$PWD" --json 2>/dev/null | grep -o '"object_id":"[^"]*"' | head -1 | cut -d'"' -f4)
     if [ -n "$real_id" ]; then
-      "$_real_writ" "$@" | sed "s/${real_id:0:8}/01918a3b/g"
+      "$_real_writ" "$@" | sed "s/${real_id:0:8}/${TICKET_PLACEHOLDER:0:8}/g"
     else
       "$_real_writ" "$@"
     fi

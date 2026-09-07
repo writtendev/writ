@@ -17,53 +17,44 @@ Sleep 500ms
 Enter
 Sleep 2s
 
-# Step 2: Create feature branch and commit
-Type "git checkout -b feature"
-Sleep 300ms
-Enter
-Sleep 1s
-
-Type 'echo "package main" > main.go && git add main.go && git commit -m "Add main entry point"'
-Sleep 500ms
-Enter
-Sleep 1500ms
-
-# Step 3: Open a code review
-Type 'writ review open -title "Add main entry point" -base main -head feature'
+# Step 2: Declare the ticket type. setup.sh already wrote a writ.schema
+# declaring it (editing writ.schema is not the command being demonstrated
+# here); this shows applying it.
+Type "writ schema apply"
 Sleep 500ms
 Enter
 Sleep 2s
 
-# Step 4: Add a comment
-Type 'writ review comment 01918a3b5c6d7e8f90123456789abcde -m "Looks great, ready for review."'
+# Step 3: Create a ticket
+Type 'writ object create ticket create -field "title=Add main entry point"'
 Sleep 500ms
 Enter
 Sleep 2s
 
-# Step 5: Record approval verdict
-Type 'writ review approve 01918a3b5c6d7e8f90123456789abcde -verdict approve -m "LGTM"'
+# Step 4: Apply an update
+Type 'writ object apply 0192a1b2 update -field "title=Add main entry point (ready for review)"'
 Sleep 500ms
 Enter
 Sleep 2s
 
-# Step 6: Sync review operations with remote
+# Step 5: Sync operations with remote
 Type "writ sync origin"
 Sleep 500ms
 Enter
 Sleep 2s
 
-# Step 7: Collaborator inspects reviews in their clone
+# Step 6: Collaborator inspects tickets in their clone
 Type "cd ../collab && writ sync origin >/dev/null 2>&1"
 Sleep 300ms
 Enter
 Sleep 1s
 
-Type "writ review list"
+Type "writ object list ticket"
 Sleep 500ms
 Enter
 Sleep 2s
 
-Type "writ review status 01918a3b"
+Type "writ object show 0192a1b2"
 Sleep 500ms
 Enter
 Sleep 2s

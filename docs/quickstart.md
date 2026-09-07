@@ -1,12 +1,23 @@
 # Quickstart
 
-This guide walks you through setting up Writ in a git repository, creating a review, commenting on it, recording an approval, and syncing review operations to a collaborator across a remote repository.
+This guide walks you through setting up Writ in a git repository, declaring a
+schema-backed object type, creating and updating an object of that type, and
+syncing operations to a collaborator across a remote repository.
+
+Writ itself knows no SDLC vocabulary — no "review", no "issue" — only merge
+types and value types (see `AGENTS.md`). What you call your objects and what
+fields they carry is something *you* declare, in a `writ.schema` file, the
+same way a git repository knows nothing about GitHub's issues until GitHub
+tells it what an issue looks like. This walkthrough is therefore a
+schema-authoring tutorial first, and an object tutorial second.
 
 ## 1. Set Up Your Repository & SSH Signing Key
 
-Writ stores all code review and issue operations directly inside your git repository as signed commits under `refs/writ/*`.
+Writ stores all operations directly inside your git repository as signed
+commits under `refs/writ/*`.
 
-Initialize your git repository and ensure your SSH signing key and identity are configured:
+Initialize your git repository and ensure your SSH signing key and identity
+are configured:
 
 ```bash
 git init
@@ -27,7 +38,8 @@ git branch -M main
 
 ## 2. Initialize Writ
 
-Run `writ init` to mint a unique writer ID and configure Writ's remote fetch refspecs:
+Run `writ init` to mint a unique writer ID, configure Writ's remote fetch
+refspecs, and write a starter `writ.schema`:
 
 ```bash
 writ init
@@ -37,51 +49,110 @@ Output:
 ```
 Writer ID: 0123456789abcdef (minted)
 Repo ID: a1b2c3d4e5f60718293a4b5c6d7e8f90 (minted)
+Person ID: email:alice@example.com (derived from user.email)
 Signing key: ~/.ssh/id_ed25519.pub (ssh)
 No git remotes configured; fetch refspec will be added when a remote is configured.
+Wrote starter /path/to/repo/writ.schema
 ```
 
-## 3. Create a Feature and Open a Code Review
+The starter file `writ init` wrote has a namespace and nothing else — Writ
+declares no types of its own:
 
-Create a feature branch with your changes:
-
-```bash
-git checkout -b feature
-echo "package main" > main.go
-git add main.go
-git commit -m "Add main entry point"
+```
+namespace my-project
 ```
 
-Open a new code review comparing `main` and `feature`:
+## 3. Declare a Type
+
+Edit `writ.schema` to declare a `ticket` type — the name is yours to choose;
+`ticket` is just this guide's example — with a `title` field set by its
+`create` and `update` ops:
+
+```
+namespace my-project
+
+type ticket {
+  op create 1, update 1 {
+    title  string  lww
+  }
+}
+```
+
+Apply it, which signs and appends the ops that bring the schema object in
+the log in line with this file:
 
 ```bash
-writ review open -title "Add main entry point" -base main -head feature
+writ schema apply
 ```
 
 Output:
 ```
-01918a3b5c6d7e8f90123456789abcde (open) Add main entry point
+Created schema object 426905eb8b0b65f913ddcfd05905d1d3 (namespace "my-project").
+Appended 6 op(s).
 ```
 
-## 4. Add a Review Comment
-
-Add a comment to the review using the review ID:
+At any point you can ask Writ what vocabulary is actually installed and
+folding right now — this is the source of truth for op and field names, not
+the working-tree file you just edited:
 
 ```bash
-writ review comment 01918a3b5c6d7e8f90123456789abcde -m "Looks great, ready for review."
+writ schema show ticket
 ```
 
-## 5. Record an Approval Verdict
+Output:
+```
+type  ticket
+Ops:
+  create  v1
+  update  v1
+Fields:
+  title  create v1  string  lww
+  title  update v1  string  lww
+```
 
-Record an approval for the review:
+## 4. Create and Update an Object
+
+`writ object` is generic plumbing over any schema-declared type — it knows
+no `-title` flag, no per-type shape, only `-field <k>=<v>` pairs the
+installed vocabulary parses:
 
 ```bash
-writ review approve 01918a3b5c6d7e8f90123456789abcde -verdict approve -m "LGTM"
+writ object create ticket create -field "title=Add main entry point"
 ```
 
-## 6. Sync Operations with Remote
+Output:
+```
+0192a1b2c3d4e5f60718293a4b5c6d7e
+```
 
-Add a git remote and sync Writ review operations:
+That bare id is the new object's id. Apply a further op against it:
+
+```bash
+writ object apply 0192a1b2c3d4e5f60718293a4b5c6d7e update \
+  -field "title=Add main entry point (ready for review)"
+```
+
+Output:
+```
+0192a1b2c3d4e5f60718293a4b5c6d7e: applied update
+```
+
+Show its folded state, keyed by field:
+
+```bash
+writ object show 0192a1b2c3d4e5f60718293a4b5c6d7e
+```
+
+Output:
+```
+object_id    0192a1b2c3d4e5f60718293a4b5c6d7e
+object_type  ticket
+title        Add main entry point (ready for review)
+```
+
+## 5. Sync Operations with Remote
+
+Add a git remote and sync Writ operations:
 
 ```bash
 git remote add origin git@github.com:example/repo.git
@@ -90,10 +161,10 @@ writ sync origin
 
 Output:
 ```
-origin: pushed 3 ops, 1 object updated
+origin: pushed 8 ops
 ```
 
-## 7. Collaborator Clones and Lists Reviews
+## 6. Collaborator Clones and Lists Objects
 
 On another machine or clone, your collaborator initializes Writ and syncs:
 
@@ -104,19 +175,40 @@ writ init
 writ sync origin
 ```
 
-Your collaborator can now inspect reviews and review status offline:
+Output:
+```
+origin: fetched 8 ops, 2 objects updated
+```
+
+Your collaborator can now list and inspect tickets offline — filtering to
+one schema-declared type at a time:
 
 ```bash
-writ review list
+writ object list ticket
 ```
 
 Output:
 ```
-01918a3b    open    Add main entry point    Alice    2026-08-31 16:00:00
+0192a1b2  ticket  Alice <alice@example.com>  2026-08-31 16:00:00
 ```
 
-And view detailed status including approvals and revisions:
+And show one object's full folded state:
 
 ```bash
-writ review status 01918a3b
+writ object show 0192a1b2
 ```
+
+Output:
+```
+object_id    0192a1b2c3d4e5f60718293a4b5c6d7e
+object_type  ticket
+title        Add main entry point (ready for review)
+```
+
+## Where to go next
+
+`writ object` and `writ schema` are deliberately plumbing, not porcelain —
+see `docs/content/docs/object.md`. Everything here works the same for any
+type your `writ.schema` declares; `writ schema show <type>` is always the
+authoritative answer for what ops and fields exist, whatever this guide's
+example drifts from.

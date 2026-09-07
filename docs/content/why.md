@@ -35,9 +35,10 @@ order.
 
 ```console
 $ writ init                       # writes fetch refspecs into .git/config
-$ writ review open -title "Add rate limiting" -base main -head rate-limit
-$ writ review comment -m "this allocates in the hot path"
-$ writ review approve
+$ writ schema apply                # installs the review/issue/comment types your writ.schema declares
+$ writ object create review create -field title="Add rate limiting" -field base=main -field head=rate-limit
+$ writ object apply <id> comment -field text="this allocates in the hot path"
+$ writ object apply <id> approve
 $ writ sync                       # git push, to your own ref namespace
 ```
 
