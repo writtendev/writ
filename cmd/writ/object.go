@@ -23,6 +23,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -197,6 +198,9 @@ func convertFieldValue(valueType, raw string) (any, error) {
 	case "number":
 		f, err := strconv.ParseFloat(raw, 64)
 		if err != nil {
+			return nil, fmt.Errorf("invalid number value %q", raw)
+		}
+		if math.IsNaN(f) || math.IsInf(f, 0) {
 			return nil, fmt.Errorf("invalid number value %q", raw)
 		}
 		return f, nil
@@ -642,6 +646,21 @@ func runObjectList(ctx context.Context, defaultDir string, args []string, stdout
 
 	var typeFilter []string
 	if len(posArgs) == 1 && posArgs[0] != "" {
+		types, err := store.Types(ctx)
+		if err != nil {
+			return renderErr(stderr, err)
+		}
+		declared := false
+		for _, t := range types {
+			if t.Name == posArgs[0] {
+				declared = true
+				break
+			}
+		}
+		if !declared {
+			fmt.Fprintf(stderr, "writ object list: object type %q is not declared by the installed vocabulary (declares: %s)\n", posArgs[0], strings.Join(declaredTypeNames(types), ", "))
+			return 1
+		}
 		typeFilter = []string{posArgs[0]}
 	}
 
@@ -795,7 +814,11 @@ func runSchemaShow(ctx context.Context, defaultDir string, args []string, stdout
 		fmt.Fprintln(stdout, "Fields:")
 		ftw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
 		for _, f := range found.Fields {
-			fmt.Fprintf(ftw, "  %s\t%s v%d\t%s\t%s\n", f.Name, f.OpType, f.OpVersion, f.ValueType, f.Strategy)
+			target := ""
+			if f.Target != "" {
+				target = "-> " + f.Target
+			}
+			fmt.Fprintf(ftw, "  %s\t%s v%d\t%s\t%s\t%s\n", f.Name, f.OpType, f.OpVersion, f.ValueType, f.Strategy, target)
 		}
 		_ = ftw.Flush()
 	}

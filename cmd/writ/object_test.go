@@ -158,36 +158,42 @@ func TestObjectCLI_EndToEnd_NeverHeardOfType(t *testing.T) {
 
 // TestObjectCLI_FieldValueTypeErrors pins the acceptance case: a value that
 // fails its declared value type is refused at the CLI, naming the field and
-// value type, and appends nothing.
+// value type, and appends nothing. This includes NaN/Inf (round-2 finding):
+// strconv.ParseFloat accepts them, so convertFieldValue must reject them
+// itself rather than let them reach json.Marshal(op.Fields) and die there
+// with a message naming neither the field nor its value type.
 func TestObjectCLI_FieldValueTypeErrors(t *testing.T) {
 	env := initTestRepo(t)
 	applyTicketObjectSchema(t, env.repoDir)
 
-	var stdout, stderr bytes.Buffer
-	code := run(context.Background(), []string{
-		"object", "create", "-C", env.repoDir, "ticket", "create",
-		"-field", "title=Something",
-		"-field", "estimate=abc",
-	}, &stdout, &stderr)
-	if code == 0 {
-		t.Fatalf("expected a non-zero exit for an invalid number value, got 0 (stdout: %s)", stdout.String())
-	}
-	if !strings.Contains(stderr.String(), "estimate") {
-		t.Errorf("stderr does not name the field: %q", stderr.String())
-	}
-	if !strings.Contains(stderr.String(), "number") {
-		t.Errorf("stderr does not name the declared value type: %q", stderr.String())
+	for _, bad := range []string{"abc", "NaN", "Inf", "+Inf", "-Inf", "infinity"} {
+		t.Run(bad, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := run(context.Background(), []string{
+				"object", "create", "-C", env.repoDir, "ticket", "create",
+				"-field", "title=Something",
+				"-field", "estimate=" + bad,
+			}, &stdout, &stderr)
+			if code == 0 {
+				t.Fatalf("expected a non-zero exit for an invalid number value, got 0 (stdout: %s)", stdout.String())
+			}
+			if !strings.Contains(stderr.String(), "estimate") {
+				t.Errorf("stderr does not name the field: %q", stderr.String())
+			}
+			if !strings.Contains(stderr.String(), "number") {
+				t.Errorf("stderr does not name the declared value type: %q", stderr.String())
+			}
+		})
 	}
 
-	stdout.Reset()
-	stderr.Reset()
+	var stdout, stderr bytes.Buffer
 	if code := run(context.Background(), []string{"object", "list", "-C", env.repoDir, "ticket", "--json"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("object list failed: %s", stderr.String())
 	}
 	var results []wire.ObjectSummary
 	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectList, &results)
 	if len(results) != 0 {
-		t.Fatalf("expected nothing appended after the refused create, got %d objects", len(results))
+		t.Fatalf("expected nothing appended after the refused creates, got %d objects", len(results))
 	}
 }
 
@@ -234,6 +240,27 @@ func TestObjectCLI_UnknownTypeAndOp(t *testing.T) {
 	code = run(context.Background(), []string{"object", "create", "-C", env.repoDir, "nosuchtype", "create"}, &stdout, &stderr)
 	if code == 0 {
 		t.Fatalf("expected a non-zero exit for an unknown object type, got 0")
+	}
+	if !strings.Contains(stderr.String(), "nosuchtype") {
+		t.Errorf("stderr does not name the unknown type: %q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "ticket") {
+		t.Errorf("stderr does not name what the vocabulary does declare (ticket): %q", stderr.String())
+	}
+}
+
+// TestObjectCLI_List_UnknownType pins the round-2 finding: a typo'd or
+// renamed <type> positional to `object list` must be refused by name, the
+// same way `object create` and `schema show` already refuse it, rather than
+// silently returning an empty result indistinguishable from "no objects".
+func TestObjectCLI_List_UnknownType(t *testing.T) {
+	env := initTestRepo(t)
+	applyTicketObjectSchema(t, env.repoDir)
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"object", "list", "-C", env.repoDir, "nosuchtype"}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatalf("expected a non-zero exit for an unknown object type, got 0 (stdout: %s)", stdout.String())
 	}
 	if !strings.Contains(stderr.String(), "nosuchtype") {
 		t.Errorf("stderr does not name the unknown type: %q", stderr.String())
@@ -388,6 +415,58 @@ func TestSchemaShowCLI(t *testing.T) {
 	}
 	if len(typeInfo.Fields) == 0 {
 		t.Errorf("expected fields for ticket, got none")
+	}
+}
+
+// widgetTargetTestSchema declares one field twice under two different ops:
+// once under the default target (the field name) and once renamed via
+// `target(...)` -- the round-2 finding's `label`/`label_v2` example.
+const widgetTargetTestSchema = `namespace acme
+description "Widget vocabulary"
+
+type widget {
+  op create 1 {
+    label  string  lww
+  }
+  op rename 1 {
+    label  string  lww  target(label_v2)
+  }
+}
+`
+
+// TestSchemaShowCLI_FieldTable_Target pins the round-2 finding: the human
+// `schema show <type>` field table must print `target` when a field's
+// storage target differs from its declared name, the one attribute needed
+// to reconcile `-field <name>` on `object create` with `object show`'s
+// target-keyed output. A field whose target is undeclared (equal to its own
+// name) prints no target, matching wire.SchemaTypeField's own `omitempty`.
+func TestSchemaShowCLI_FieldTable_Target(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, widgetTargetTestSchema)
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code := run(context.Background(), []string{"schema", "show", "-C", env.repoDir, "widget"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("schema show widget failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	out := stdout.String()
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "create") && strings.Contains(line, "label") {
+			if strings.Contains(line, "label_v2") {
+				t.Errorf("create's label declares no target override, want no target in the row: %q", line)
+			}
+		}
+		if strings.Contains(line, "rename") && strings.Contains(line, "label") {
+			if !strings.Contains(line, "label_v2") {
+				t.Errorf("rename's label targets label_v2, want it named in the row: %q", line)
+			}
+		}
 	}
 }
 

@@ -823,9 +823,9 @@ var settingsSetCmd = &command{
 
 var schemaCmd = &command{
 	Name:      "schema",
-	Short:     "Plan and apply the writ.schema working-tree file",
+	Short:     "Plan, apply, and show the schema-declared vocabulary",
 	UsageLine: "Usage: writ schema [-C <dir>] <subcommand> [arguments]",
-	Long:      "Connect the writ.schema working-tree source file to the schema objects in the log.",
+	Long:      "Connect the writ.schema working-tree source file to the schema objects in the log (plan, apply), and report the vocabulary actually installed and folding right now (show).",
 	Flags: []flagSpec{
 		{
 			Name:  "C",

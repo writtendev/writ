@@ -476,7 +476,7 @@ _writ() {
                 'issue:Manage issues'
                 'object:Generic create, apply, show, and list over any schema-declared object type'
                 'review:Manage code reviews'
-                'schema:Plan and apply the writ.schema working-tree file'
+                'schema:Plan, apply, and show the schema-declared vocabulary'
                 'sync:Synchronize collaborative SDLC operations'
                 'version:Print the writ version'
                 'completion:Generate shell completion scripts'

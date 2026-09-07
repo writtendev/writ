@@ -62,7 +62,7 @@ title        Fix the thing
 
 ## `list`
 
-Lists objects across every schema-declared type, or within one when `<type>` is given, served from the projection cache. `-author`, `-text`, `-include-deleted`, `-limit`, `-offset`, and `-sort` filter and page the results the same way the per-type `list` commands do.
+Lists objects across every schema-declared type, or within one when `<type>` is given, served from the projection cache. `-author`, `-text`, `-include-deleted`, `-limit`, `-offset`, and `-sort` filter and page the results the same way the per-type `list` commands do. A `<type>` the installed vocabulary does not declare is refused by name, the same way `create` and `schema show` refuse one — never a silent empty result indistinguishable from "no objects of that type."
 
 ```console
 $ writ object list ticket -text urgent
