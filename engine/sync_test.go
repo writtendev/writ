@@ -127,6 +127,20 @@ func TestStoreSyncLifecycle(t *testing.T) {
 		t.Errorf("Bob got title %q", objB.Fields["title"])
 	}
 
+	// Objects.Get folds straight from the DAG and never touches the
+	// projection, so it alone can't confirm Sync's own Refresh actually
+	// materialized the fetched op into Bob's cache — Query.Objects' text
+	// filter, served from the projection's generated type-table columns,
+	// does (round 1 minor finding: post-fetch state had come to be checked
+	// only through Objects.Get across this file).
+	byText, err := sB.Query.Objects(writ.ObjectFilter{Text: "Sync Feature Review"})
+	if err != nil {
+		t.Fatalf("Bob Query.Objects(Text) failed: %v", err)
+	}
+	if len(byText) != 1 || byText[0].ObjectID != reviewID {
+		t.Fatalf("Bob Query.Objects(Text=%q) = %+v, want exactly [%s]", "Sync Feature Review", byText, reviewID)
+	}
+
 	// Push a revision and approve
 	headHash := runGitCmd(t, bobDir, "rev-parse", "HEAD")[:40]
 	if err := sB.Objects.Apply(ctx, reviewID, writ.NewOp{

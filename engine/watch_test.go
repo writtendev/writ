@@ -317,6 +317,22 @@ func TestWatchEventPrecedesVisibility(t *testing.T) {
 		if res.ObjectID != id {
 			t.Fatalf("Query.Object returned wrong ObjectID: %q", res.ObjectID)
 		}
+
+		// The event fires only after the projection transaction commits
+		// (that's the property this test names), so the folded title —
+		// not just the objects-table id — must already be queryable too:
+		// Query.Objects' text filter is served from the projection's
+		// generated type-table columns, not ObjectResult's own metadata
+		// (round 1 minor finding: this assertion had been downgraded to
+		// "an id comes back", which a projection that materialized only
+		// the objects row and no type-table columns would still pass).
+		byText, err := store.Query.Objects(writ.ObjectFilter{Text: "Visibility Test Review"})
+		if err != nil {
+			t.Fatalf("Query.Objects(Text) immediately on event failed: %v", err)
+		}
+		if len(byText) != 1 || byText[0].ObjectID != id {
+			t.Fatalf("Query.Objects(Text=%q) = %+v, want exactly [%s] immediately on event", "Visibility Test Review", byText, id)
+		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for event")
 	}

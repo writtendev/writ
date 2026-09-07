@@ -40,13 +40,40 @@ Fixture YAML descriptions under `testdata/descriptions/` support the following c
 - **`forward-compat`:** Golden forward-compatibility outputs (`testdata/golden/forward-compat/*.json`) verifying that unknown op types, future op versions, and unknown fields are preserved byte-for-byte, classified according to the reader profile, and surfaced as opaque records without perturbing known state.
 - **`fold`:** Golden folded state outputs (`testdata/golden/fold/*.json`) verifying that concurrent field edits, multi-device writer races, LWW and tiebreak rules, per-field merge strategies, and ancestry truncation reduce deterministically to byte-identical folded states across writers and DAG permutations.
 - **`orphan-anchors`:** Golden resolution outputs (`testdata/golden/orphan-anchors/*.json`) verifying pure anchor resolution (`resolve.Resolve`) across real git history rewrites (rebase, rename, file and line deletion, hunk drift, force-push), checking matching ladder rungs, orphan degradation reasons, overall status derivation, schema validity, and byte-identical orphan preservation.
-- **`settings`:** Golden `writ.FoldSettings` outputs (`testdata/golden/settings/*.json`), cross-checked against the generic `writ.Fold(ops, writ.SettingsRules())` for agreement, verifying repo-level settings default values and per-field LWW resolution across concurrent writers.
-- **`issue`:** Golden `writ.FoldIssue` outputs (`testdata/golden/issue/*.json`) verifying issue lifecycle, triage, labels, cross-repo links, and workflow-state transitions.
-- **`review`:** Golden `writ.FoldReview` outputs (`testdata/golden/review/*.json`) verifying review revisions, status transitions, assignment, approval, and CI-status merge behaviour.
-- **`label`:** Golden `writ.FoldLabel` outputs (`testdata/golden/label/*.json`) verifying label rename races and forward-compatible unknown fields.
-- **`workflow-state`:** Golden `writ.FoldWorkflowState` outputs (`testdata/golden/workflow-state/*.json`) verifying workflow-state ordering and concurrent edits.
-- **`document`:** Golden document/section fold outputs (`testdata/golden/document/*.json`) verifying the multi-value-register concurrency model for long-form text (ARCHITECTURE.md §Document concurrency model).
-- **`project`/`cycle`:** Golden `writ.FoldProject`/`writ.FoldCycle` outputs (`testdata/golden/project/*.json`, `testdata/golden/cycle/*.json`, both registered by `project_cycle_test.go`) verifying project membership races and cycle date/membership fields.
+- **`settings`, `issue`, `review`, `label`, `workflow-state`, `document`,
+  `project`/`cycle`:** **Orphaned by WRIT-195.** These families' descriptions
+  and golden files are still in `testdata/descriptions/` and
+  `testdata/golden/`, and `TestCorpusMatchesGolden` still generates and
+  manifest-pins every one of them, but the Go test files that folded and
+  compared them (`settings_test.go`, `issue_test.go`, `review_test.go`,
+  `label_test.go`, `workflow_state_test.go`, `document_test.go`,
+  `project_cycle_test.go`) called the typed `writ.FoldSettings`/`FoldIssue`/
+  `FoldReview`/`FoldLabel`/`FoldWorkflowState`/`FoldProject`/`FoldCycle`
+  reducers WRIT-195 deleted along with the per-type engine services, and were
+  deleted with them. No fixture family currently folds or golden-checks any
+  of these descriptions: `issue-concurrent-triage`, `issue-cross-repo-links`,
+  `issue-empty-set-items`, `issue-fields-and-rank`,
+  `issue-label-concurrent-apply-remove`, `issue-lifecycle`,
+  `issue-unknown-label-reference`, `issue-unknown-state`,
+  `issue-workflow-transitions`, `label-concurrent-rename`,
+  `label-forward-compat`, `settings-concurrent-edits`, `settings-defaults`,
+  `settings-unknown-keys`, `workflow-state-concurrent-edits`,
+  `workflow-state-ordering`, `project-membership-races`,
+  `cycle-dates-and-membership`, `document-sections-concurrent`, and
+  `review-mixed-signals`. Two of those pull weight beyond the deleted
+  vocabulary: `label-forward-compat` and `settings-unknown-keys` are the only
+  corpus-level exercises of the "unknown fields preserved and ignored"
+  invariant, and `document-sections-concurrent` is the only corpus-level
+  `multi-value` history — strategy-level coverage for both survives via the
+  abstract merge vectors in `spec/testdata/fold/merge/` (`multi-value-*.json`,
+  `uninterpretable-*.json`, run by `spec/fold_test.go` and
+  `engine/fold_test.go`), so this is a narrowing of corpus-level coverage,
+  not a hole, but a real one. These families await WRIT-194 (which removes
+  the built-in review/issue/etc. vocabulary these descriptions were written
+  against): either that ticket re-wires them onto the generic schema-driven
+  fold path, or it deletes the now-dead descriptions and golden files
+  outright. Until then this is dead data in the tree, not a passing
+  guarantee.
 - **`schema`:** Golden `writ.FoldSchema` outputs (`testdata/golden/schema/*.json`) driving the one object type writ hard-codes directly, cross-checked asymmetrically against `writ.Fold(ops, writ.SchemaRules())` (spec/schema-ops.md §3.1: the typed reducer's non-canonical `op_version` quarantine has no equivalent in the generic driver). Covers bootstrap, the §3.1 quarantine, multi-writer concurrent declarations, deprecate/redeclare, and schema-level forward compatibility.
 - **`schema-driven`:** Golden outputs (`testdata/golden/schema-driven/*.json`) for every schema object in a fixture folded with `writ.FoldSchema`, resolved into per-`object_type` rules with `writ.RulesFromSchemas`, and every other object folded against the rules resolved for its own `object_type` — with no new engine code, exactly the schema-driven fold path ARCHITECTURE.md §The six machines describes. Covers absent-schema and uninterpretable-op forward compatibility, `spec.ValidateFieldRule` rejection at the §9 boundary, namespace/object-type/redefine-schema collisions and how `RulesFromSchemas` reports them, `person-ref` normalization across every strategy position that applies it, version-bump target resolution (Correction 3), and reader-side body-vocabulary tolerance under a schema resolved from the log.
 

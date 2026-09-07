@@ -153,10 +153,17 @@ func TestFixturesIncrementalVsColdAndFoldAgreement(t *testing.T) {
 			// test used to also cross-check Projection == Fold for
 			// review/comment/issue/project/cycle here, using the typed
 			// Fold* functions WRIT-195 deleted along with the per-type
-			// engine services; that generic equivalent now lives in
-			// query_test.go against a schema-declared test type, rather
-			// than against these fixtures' still-builtin (pre-WRIT-194)
-			// review/issue/etc. corpus.
+			// engine services. The generic replacement for that
+			// cross-check — writeTypeRow's inversion of state.Fold's
+			// output compared against state.Fold directly, over lww,
+			// set-observed-remove, tombstone, append, and keyed-lww
+			// targets, concurrent multi-writer histories, an unknown op
+			// type, and a truncated ancestry — is
+			// TestProjectionMatchesFoldAcrossStrategies and
+			// TestProjectionMatchesFoldOnTruncatedAncestry in
+			// fold_agreement_test.go, built over a schema-declared test
+			// type rather than against these fixtures' still-builtin
+			// (pre-WRIT-194) review/issue/etc. corpus.
 			if !reflect.DeepEqual(incDump, coldDump) {
 				t.Fatalf("fixture %s: incremental dump != cold dump:\nincremental: %+v\ncold: %+v",
 					desc.Name, incDump, coldDump)

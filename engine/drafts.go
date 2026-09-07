@@ -136,12 +136,31 @@ func (d *Drafts) Discard(ctx context.Context, id string) error {
 // Publish converts a local draft into a committed comment object referencing
 // its subject by a soft "subject" field (object_type, object_id) — the same
 // generic construction Objects.Create uses for every schema-declared type,
-// "comment" included — and deletes the draft upon success. Unlike the
-// review/issue-specific comment writers this replaced, Publish no longer
-// threads the subject's (or reply's) frontier in as the new comment's
-// causal DAG parents: nothing folds, queries, or threads (all of which
-// group by the "subject"/"in_reply_to" fields, not DAG ancestry) depended
-// on that link, so dropping it costs no tested behavior.
+// "comment" included — and deletes the draft upon success.
+//
+// The subject's (and, when set, the reply's) existence is checked through
+// the generic Query.Object lookup rather than a per-type projection reader:
+// it returns ErrNotFound for a subject or reply that isn't there, and the
+// real ObjectType for one that is, so Publish never has to guess or
+// hardcode which schema-declared types a draft may target.
+//
+// Unlike the review/issue-specific comment writers this replaced, Publish
+// no longer threads the subject's (or reply's) frontier in as the new
+// comment's causal DAG parents: nothing folds, queries, or threads (all of
+// which group by the "subject"/"in_reply_to" fields, not DAG ancestry)
+// depended on that link, so fold determinism is genuinely unaffected (t*
+// and the total order are computed over the per-object_id restricted DAG,
+// spec/fold.md §1-§4). What is affected is reachability: ARCHITECTURE.md
+// §Ref layout names that edge as the reason an op someone built on stays
+// reachable from the referencing writer's ref even if its origin ref rolls
+// back, and spec/ref-layout.md §Producer requirements is the normative
+// half requiring observed cross-object causal dependencies to follow at
+// parents[1:]. After this change writ emits no parents[1:] edge anywhere:
+// a review or issue commented on by another writer is no longer kept
+// reachable by that comment once its own ref rolls back or is only
+// partially fetched. Objects.Create has no parameter for observed causal
+// parents, so restoring this is out of scope here — recorded as a
+// deliberate, disclosed loss, not fixed.
 func (d *Drafts) Publish(ctx context.Context, id string) (string, error) {
 	if d == nil || d.store == nil {
 		return "", fmt.Errorf("writ: store is nil")
@@ -152,22 +171,22 @@ func (d *Drafts) Publish(ctx context.Context, id string) (string, error) {
 		return "", err
 	}
 
-	subjectType := draft.SubjectType
-	if subjectType == "" {
-		subjectType = "review"
-	}
-	if subjectType != "review" && subjectType != "issue" {
-		return "", fmt.Errorf("writ: unsupported draft subject type %q", draft.SubjectType)
+	subject, err := d.store.Query.Object(draft.SubjectID)
+	if err != nil {
+		return "", err
 	}
 
 	fields := map[string]any{
 		"subject": map[string]string{
-			"object_type": subjectType,
+			"object_type": subject.ObjectType,
 			"object_id":   draft.SubjectID,
 		},
 		"text": draft.Text,
 	}
 	if draft.InReplyTo != "" {
+		if _, err := d.store.Query.Object(draft.InReplyTo); err != nil {
+			return "", err
+		}
 		fields["in_reply_to"] = draft.InReplyTo
 	}
 	if draft.Anchor != nil {

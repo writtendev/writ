@@ -252,6 +252,21 @@ func TestWithoutAutoRefresh(t *testing.T) {
 		t.Errorf("got object id %q, want %q", res.ObjectID, id)
 	}
 
+	// Query.Objects' text filter is served from the projection's generated
+	// type-table columns (o_review.f_title here), not from ObjectResult's
+	// own objects-table-only metadata — so, unlike res above, this actually
+	// asserts a folded field value made it into the cache (round 1 minor
+	// finding: no engine-level test asserted a folded field value out of
+	// the projection any more once title assertions moved onto Objects.Get,
+	// which deliberately bypasses it).
+	byText, err := s.Query.Objects(writ.ObjectFilter{Text: "Manual Refresh Review"})
+	if err != nil {
+		t.Fatalf("Query.Objects(Text) after manual refresh failed: %v", err)
+	}
+	if len(byText) != 1 || byText[0].ObjectID != id {
+		t.Errorf("Query.Objects(Text=%q) = %+v, want exactly [%s] — the projection's materialized title must match", "Manual Refresh Review", byText, id)
+	}
+
 	// Objects.Get, which folds from the DAG directly, finds it regardless.
 	obj, err := s.Objects.Get(ctx, id)
 	if err != nil {

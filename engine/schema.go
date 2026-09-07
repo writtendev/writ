@@ -313,13 +313,20 @@ func fingerprintChains(chains map[string]dag.DiscoveredChain) string {
 // same reason, so a resolver failure elsewhere in the log must not be able
 // to block writing the very "schema" ops that could fix it.
 //
-// checkBeforeAppend exists for multi-op sequences only — Reviews.Create (two
-// ops: create, then an optional initial revision) and ApplySchema (a whole
-// compiled delta) are its two callers. A single-op append (Objects.Create,
-// Objects.Apply, every other typed write service) needs no pre-flight check
-// of its own: dagStore.Append already runs the identical producer
-// validation against the identical log-sourced vocabulary before it writes
-// anything, so there is nothing left for a second look to catch.
+// checkBeforeAppend exists for multi-op sequences only. Before WRIT-195,
+// Reviews.Create (two ops: create, then an optional initial revision) and
+// ApplySchema (a whole compiled delta) were its two callers; the generic
+// Objects.Create/Apply each append exactly one envelope, so ApplySchema is
+// the only caller left. Every envelope ApplySchema passes carries
+// object_type "schema", which needsLogVocabularies always short-circuits on
+// (see its own doc comment), so this function's log-sourced-vocabulary
+// branch below has no production caller left at all — it is reachable only
+// through the CheckBeforeAppend shim engine/export_test.go exposes for
+// testing (TestCheckBeforeAppendAgreesWithAppend). A single-op append
+// (Objects.Create, Objects.Apply) needs no pre-flight check of its own:
+// dagStore.Append already runs the identical producer validation against
+// the identical log-sourced vocabulary before it writes anything, so there
+// is nothing left for a second look to catch.
 func (s *Store) checkBeforeAppend(ctx context.Context, envs ...codec.Envelope) error {
 	var vocabularies codec.Vocabularies
 	if needsLogVocabularies(envs) {
