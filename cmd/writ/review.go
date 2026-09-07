@@ -18,34 +18,6 @@ import (
 	"github.com/writtendev/writ/spec"
 )
 
-type stringSliceFlag []string
-
-func (f *stringSliceFlag) String() string {
-	return strings.Join(*f, ",")
-}
-
-func (f *stringSliceFlag) Set(val string) error {
-	*f = append(*f, val)
-	return nil
-}
-
-func parseArgs(fs *flag.FlagSet, args []string) ([]string, error) {
-	var posArgs []string
-	remaining := args
-	for len(remaining) > 0 {
-		if err := fs.Parse(remaining); err != nil {
-			return nil, err
-		}
-		if len(fs.Args()) > 0 {
-			posArgs = append(posArgs, fs.Args()[0])
-			remaining = fs.Args()[1:]
-		} else {
-			break
-		}
-	}
-	return posArgs, nil
-}
-
 func runReview(ctx context.Context, defaultDir string, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		renderUsage(stderr, []string{"review"}, reviewCmd)

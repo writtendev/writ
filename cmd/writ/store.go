@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -285,6 +286,49 @@ func resolveSectionID(ctx context.Context, store *writ.Store, prefix string) (st
 	}
 	if len(matches) > 1 {
 		return "", fmt.Errorf("ambiguous section ID prefix %q matches %d sections (%s)", prefix, len(matches), strings.Join(matches, ", "))
+	}
+
+	return matches[0], nil
+}
+
+// resolveObjectID resolves an object ID or unambiguous prefix to a full
+// object ID, for the generic `writ object`/`writ schema` commands that work
+// across every schema-declared type rather than one typed collection.
+//
+// A full 32-hex-character id passes straight through, unresolved: it goes
+// directly to Objects.Get, which folds from the DAG and needs the exact id,
+// not a prefix. Anything shorter is resolved through
+// Query.Objects{IncludeDeleted: true} instead, the same way every other
+// resolveXID helper above resolves a prefix -- prefix matching needs an
+// index to search, and the projection is that index.
+func resolveObjectID(ctx context.Context, store *writ.Store, prefix string) (string, error) {
+	if prefix == "" {
+		return "", fmt.Errorf("object ID required")
+	}
+
+	if len(prefix) == 32 {
+		if _, err := hex.DecodeString(prefix); err == nil {
+			return prefix, nil
+		}
+	}
+
+	objects, err := store.Query.Objects(writ.ObjectFilter{IncludeDeleted: true})
+	if err != nil {
+		return "", err
+	}
+
+	var matches []string
+	for _, o := range objects {
+		if strings.HasPrefix(o.ObjectID, prefix) {
+			matches = append(matches, o.ObjectID)
+		}
+	}
+
+	if len(matches) == 0 {
+		return "", notFoundError{kind: "object", id: prefix}
+	}
+	if len(matches) > 1 {
+		return "", fmt.Errorf("ambiguous object ID prefix %q matches %d objects (%s)", prefix, len(matches), strings.Join(matches, ", "))
 	}
 
 	return matches[0], nil

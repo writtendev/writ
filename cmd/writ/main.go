@@ -61,6 +61,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runDoc(ctx, defaultDir, args[1:], stdout, stderr)
 	case "issue":
 		return runIssue(ctx, defaultDir, args[1:], stdout, stderr)
+	case "object":
+		return runObject(ctx, defaultDir, args[1:], stdout, stderr)
 	case "review":
 		return runReview(ctx, defaultDir, args[1:], stdout, stderr)
 	case "state":

@@ -112,7 +112,7 @@ _writ() {
             COMPREPLY=($(compgen -W "-C -h -help --help" -- "$cur"))
             return 0
         fi
-        COMPREPLY=($(compgen -W "init comment issue review sync version completion help" -- "$cur"))
+        COMPREPLY=($(compgen -W "init comment issue object review schema sync version completion help" -- "$cur"))
         return 0
     fi
 
@@ -170,7 +170,7 @@ _writ() {
             ;;
         help)
             if [ -z "$subcmd" ]; then
-                COMPREPLY=($(compgen -W "init comment issue review sync version completion help" -- "$cur"))
+                COMPREPLY=($(compgen -W "init comment issue object review schema sync version completion help" -- "$cur"))
                 return 0
             fi
             case "$subcmd" in
@@ -182,8 +182,16 @@ _writ() {
                     COMPREPLY=($(compgen -W "create status comment assign list link label" -- "$cur"))
                     return 0
                     ;;
+                object)
+                    COMPREPLY=($(compgen -W "create apply show list" -- "$cur"))
+                    return 0
+                    ;;
                 review)
                     COMPREPLY=($(compgen -W "open comment approve assign label link status list" -- "$cur"))
+                    return 0
+                    ;;
+                schema)
+                    COMPREPLY=($(compgen -W "plan apply show" -- "$cur"))
                     return 0
                     ;;
             esac
@@ -249,6 +257,70 @@ _writ() {
                 label)
                     if [[ "$cur" == -* ]]; then
                         COMPREPLY=($(compgen -W "-C -add -remove -json --json -h -help --help" -- "$cur"))
+                        return 0
+                    fi
+                    ;;
+            esac
+            ;;
+        object)
+            if [ -z "$subcmd" ]; then
+                if [[ "$cur" == -* ]]; then
+                    COMPREPLY=($(compgen -W "-C -h -help --help" -- "$cur"))
+                    return 0
+                fi
+                COMPREPLY=($(compgen -W "create apply show list" -- "$cur"))
+                return 0
+            fi
+            # Count positional arguments given after the subcommand, so
+            # <type> (create, list) can be completed from the installed
+            # vocabulary without stepping on flag values.
+            local obj_pos=0
+            local j=$((subcmd_idx + 1))
+            while [ $j -lt $cword ]; do
+                case "${words[j]}" in
+                    -C|-field|--field|-op-version|--op-version|-author|--author|-text|--text|-limit|--limit|-offset|--offset|-sort|--sort)
+                        j=$((j + 2))
+                        ;;
+                    -*) j=$((j + 1)) ;;
+                    *) obj_pos=$((obj_pos + 1)); j=$((j + 1)) ;;
+                esac
+            done
+            case "$subcmd" in
+                create)
+                    if [ $obj_pos -eq 0 ] && [[ "$cur" != -* ]]; then
+                        COMPREPLY=($(compgen -W "$(writ schema show 2>/dev/null)" -- "$cur"))
+                        return 0
+                    fi
+                    if [[ "$cur" == -* ]]; then
+                        COMPREPLY=($(compgen -W "-C -field -op-version -json --json -h -help --help" -- "$cur"))
+                        return 0
+                    fi
+                    ;;
+                apply)
+                    if [[ "$cur" == -* ]]; then
+                        COMPREPLY=($(compgen -W "-C -field -op-version -json --json -h -help --help" -- "$cur"))
+                        return 0
+                    fi
+                    ;;
+                show)
+                    if [[ "$cur" == -* ]]; then
+                        COMPREPLY=($(compgen -W "-C -json --json -h -help --help" -- "$cur"))
+                        return 0
+                    fi
+                    ;;
+                list)
+                    case "$prev" in
+                        -sort|--sort)
+                            COMPREPLY=($(compgen -W "created_at_asc created_at_desc updated_at_asc updated_at_desc" -- "$cur"))
+                            return 0
+                            ;;
+                    esac
+                    if [ $obj_pos -eq 0 ] && [[ "$cur" != -* ]]; then
+                        COMPREPLY=($(compgen -W "$(writ schema show 2>/dev/null)" -- "$cur"))
+                        return 0
+                    fi
+                    if [[ "$cur" == -* ]]; then
+                        COMPREPLY=($(compgen -W "-C -author -text -include-deleted -limit -offset -sort -json --json -h -help --help" -- "$cur"))
                         return 0
                     fi
                     ;;
@@ -350,6 +422,32 @@ _writ() {
                     ;;
             esac
             ;;
+        schema)
+            if [ -z "$subcmd" ]; then
+                if [[ "$cur" == -* ]]; then
+                    COMPREPLY=($(compgen -W "-C -h -help --help" -- "$cur"))
+                    return 0
+                fi
+                COMPREPLY=($(compgen -W "plan apply show" -- "$cur"))
+                return 0
+            fi
+            case "$subcmd" in
+                plan|apply)
+                    if [[ "$cur" == -* ]]; then
+                        COMPREPLY=($(compgen -W "-C -json --json -h -help --help" -- "$cur"))
+                        return 0
+                    fi
+                    ;;
+                show)
+                    if [[ "$cur" != -* ]]; then
+                        COMPREPLY=($(compgen -W "$(writ schema show 2>/dev/null)" -- "$cur"))
+                        return 0
+                    fi
+                    COMPREPLY=($(compgen -W "-C -json --json -h -help --help" -- "$cur"))
+                    return 0
+                    ;;
+            esac
+            ;;
     esac
 }
 
@@ -376,7 +474,9 @@ _writ() {
                 'init:Initialize writ configuration'
                 'comment:Manage comments'
                 'issue:Manage issues'
+                'object:Generic create, apply, show, and list over any schema-declared object type'
                 'review:Manage code reviews'
+                'schema:Plan and apply the writ.schema working-tree file'
                 'sync:Synchronize collaborative SDLC operations'
                 'version:Print the writ version'
                 'completion:Generate shell completion scripts'
@@ -412,19 +512,27 @@ _writ() {
                     ;;
                 help)
                     _arguments -s -S \
-                        '1:command:(init comment issue review sync version completion help)' \
+                        '1:command:(init comment issue object review schema sync version completion help)' \
                         '2:subcommand:->help_subcommand'
                     case $line[1] in
                         comment) _values 'comment subcommand' edit delete ;;
                         issue) _values 'issue subcommand' create status comment assign list link label ;;
+                        object) _values 'object subcommand' create apply show list ;;
                         review) _values 'review subcommand' open comment approve assign label link status list ;;
+                        schema) _values 'schema subcommand' plan apply show ;;
                     esac
                     ;;
                 issue)
                     _writ_issue
                     ;;
+                object)
+                    _writ_object
+                    ;;
                 review)
                     _writ_review
+                    ;;
+                schema)
+                    _writ_schema
                     ;;
             esac
             ;;
@@ -683,6 +791,120 @@ _writ_review() {
     esac
 }
 
+_writ_schema_types() {
+    local -a types
+    types=(${(f)"$(writ schema show 2>/dev/null)"})
+    _describe 'type' types
+}
+
+_writ_object() {
+    local curcontext="$curcontext" state line
+    typeset -A opt_args
+
+    _arguments -C \
+        '(-C)-C[Run as if writ was started in <dir>]:directory:_files -/' \
+        '(-h -help --help)'{-h,-help,--help}'[Show help]' \
+        '1: :->subcommand' \
+        '*:: :->args'
+
+    case $state in
+        subcommand)
+            local -a subcommands
+            subcommands=(
+                'create:Create a new object of a schema-declared type'
+                'apply:Apply a further op to an existing object'
+                "show:Show an object's folded state"
+                'list:List objects across or within a type'
+            )
+            _describe -t subcommands 'object subcommand' subcommands
+            ;;
+        args)
+            case $line[1] in
+                create)
+                    _arguments -s -S \
+                        '(-C)-C[Run as if writ was started in <dir>]:directory:_files -/' \
+                        '*-field[Field k=v to set on the creating op]:field:' \
+                        '-op-version[Explicit op version]:version:' \
+                        '(--json -json)'{--json,-json}'[Output result as JSON]' \
+                        '(-h -help --help)'{-h,-help,--help}'[Show help]' \
+                        '1:type:_writ_schema_types' \
+                        '2:op-type:'
+                    ;;
+                apply)
+                    _arguments -s -S \
+                        '(-C)-C[Run as if writ was started in <dir>]:directory:_files -/' \
+                        '*-field[Field k=v to set on the op]:field:' \
+                        '-op-version[Explicit op version]:version:' \
+                        '(--json -json)'{--json,-json}'[Output result as JSON]' \
+                        '(-h -help --help)'{-h,-help,--help}'[Show help]' \
+                        '1:object ID:' \
+                        '2:op-type:'
+                    ;;
+                show)
+                    _arguments -s -S \
+                        '(-C)-C[Run as if writ was started in <dir>]:directory:_files -/' \
+                        '(--json -json)'{--json,-json}'[Output result as JSON]' \
+                        '(-h -help --help)'{-h,-help,--help}'[Show help]' \
+                        '1:object ID:'
+                    ;;
+                list)
+                    _arguments -s -S \
+                        '(-C)-C[Run as if writ was started in <dir>]:directory:_files -/' \
+                        '*-author[Filter by author]:author:' \
+                        '-text[Filter by text query]:text:' \
+                        '-include-deleted[Include deleted objects]' \
+                        '-limit[Maximum objects to return]:limit:' \
+                        '-offset[Skip the first N matching objects]:offset:' \
+                        '-sort[Sort order]:sort:(created_at_asc created_at_desc updated_at_asc updated_at_desc)' \
+                        '(--json -json)'{--json,-json}'[Output result as JSON]' \
+                        '(-h -help --help)'{-h,-help,--help}'[Show help]' \
+                        '1:type:_writ_schema_types'
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+_writ_schema() {
+    local curcontext="$curcontext" state line
+    typeset -A opt_args
+
+    _arguments -C \
+        '(-C)-C[Run as if writ was started in <dir>]:directory:_files -/' \
+        '(-h -help --help)'{-h,-help,--help}'[Show help]' \
+        '1: :->subcommand' \
+        '*:: :->args'
+
+    case $state in
+        subcommand)
+            local -a subcommands
+            subcommands=(
+                'plan:Show the ops writ.schema would append'
+                'apply:Sign and append the ops writ.schema declares'
+                'show:Show the vocabulary actually installed and folding now'
+            )
+            _describe -t subcommands 'schema subcommand' subcommands
+            ;;
+        args)
+            case $line[1] in
+                plan|apply)
+                    _arguments -s -S \
+                        '(-C)-C[Run as if writ was started in <dir>]:directory:_files -/' \
+                        '(--json -json)'{--json,-json}'[Output result as JSON]' \
+                        '(-h -help --help)'{-h,-help,--help}'[Show help]'
+                    ;;
+                show)
+                    _arguments -s -S \
+                        '(-C)-C[Run as if writ was started in <dir>]:directory:_files -/' \
+                        '(--json -json)'{--json,-json}'[Output result as JSON]' \
+                        '(-h -help --help)'{-h,-help,--help}'[Show help]' \
+                        '1:type:_writ_schema_types'
+                    ;;
+            esac
+            ;;
+    esac
+}
+
 _writ "$@"`)
 }
 
@@ -776,9 +998,23 @@ complete -c writ -l help -s h -d 'Show help information'
 	}
 
 	fmt.Fprintln(w, `
+# Subcommands for object`)
+	for _, sub := range objectCmd.Subs {
+		fmt.Fprintf(w, "complete -c writ -n '__fish_writ_needs_subcommand object' -f -a '%s' -d '%s'\n",
+			sub.Name, escapeFishDesc(sub.Short))
+	}
+
+	fmt.Fprintln(w, `
 # Subcommands for review`)
 	for _, sub := range reviewCmd.Subs {
 		fmt.Fprintf(w, "complete -c writ -n '__fish_writ_needs_subcommand review' -f -a '%s' -d '%s'\n",
+			sub.Name, escapeFishDesc(sub.Short))
+	}
+
+	fmt.Fprintln(w, `
+# Subcommands for schema`)
+	for _, sub := range schemaCmd.Subs {
+		fmt.Fprintf(w, "complete -c writ -n '__fish_writ_needs_subcommand schema' -f -a '%s' -d '%s'\n",
 			sub.Name, escapeFishDesc(sub.Short))
 	}
 
@@ -787,10 +1023,17 @@ complete -c writ -l help -s h -d 'Show help information'
 complete -c writ -n '__fish_writ_using_command completion' -f -a 'bash zsh fish'
 
 # Subcommands for help
-complete -c writ -n '__fish_writ_needs_subcommand help' -f -a 'init comment issue review sync version completion help'
+complete -c writ -n '__fish_writ_needs_subcommand help' -f -a 'init comment issue object review schema sync version completion help'
 complete -c writ -n '__fish_writ_needs_subcommand help comment' -f -a 'edit delete'
 complete -c writ -n '__fish_writ_needs_subcommand help issue' -f -a 'create status comment assign list link label'
+complete -c writ -n '__fish_writ_needs_subcommand help object' -f -a 'create apply show list'
 complete -c writ -n '__fish_writ_needs_subcommand help review' -f -a 'open comment approve assign label link status list'
+complete -c writ -n '__fish_writ_needs_subcommand help schema' -f -a 'plan apply show'
+
+# <type> completion for object create/list and schema show, from the vocabulary the installed schema declares.
+complete -c writ -n '__fish_writ_using_command object create' -f -a '(writ schema show 2>/dev/null)'
+complete -c writ -n '__fish_writ_using_command object list' -f -a '(writ schema show 2>/dev/null)'
+complete -c writ -n '__fish_writ_using_command schema show' -f -a '(writ schema show 2>/dev/null)'
 
 # Flags for commands`)
 

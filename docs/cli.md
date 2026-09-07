@@ -26,6 +26,10 @@ slug: "cli"
 - [`writ issue list`](#writ-issue-list)
 - [`writ issue link`](#writ-issue-link)
 - [`writ issue label`](#writ-issue-label)
+- [`writ object create`](#writ-object-create)
+- [`writ object apply`](#writ-object-apply)
+- [`writ object show`](#writ-object-show)
+- [`writ object list`](#writ-object-list)
 - [`writ review open`](#writ-review-open)
 - [`writ review comment`](#writ-review-comment)
 - [`writ review approve`](#writ-review-approve)
@@ -44,6 +48,7 @@ slug: "cli"
 - [`writ settings set`](#writ-settings-set)
 - [`writ schema plan`](#writ-schema-plan)
 - [`writ schema apply`](#writ-schema-apply)
+- [`writ schema show`](#writ-schema-show)
 - [`writ sync`](#writ-sync)
 - [`writ version`](#writ-version)
 - [`writ completion`](#writ-completion)
@@ -528,6 +533,121 @@ writ issue label 01J8ABC
 writ issue label 01J8ABC -add bug
 writ issue label 01J8ABC -remove duplicate
 writ issue label 01J8ABC --json
+```
+
+### `writ object create`
+
+Create a new object of a schema-declared type
+
+#### Synopsis
+
+```console
+Usage: writ object create [-C <dir>] <type> <op-type> [-field <k>=<v>]... [-op-version <n>] [--json]
+```
+
+#### Description
+
+Append the op that starts a new object of <type>, using <op-type>'s field rules
+from the installed vocabulary (`writ schema show <type>`) to parse each -field value.
+
+#### Flags
+
+- `-C <dir>`: Run as if writ was started in <dir>
+- `-field <k>=<v>`: Field <k>=<v> to set on the creating op (repeatable; repeat the same key for a set)
+- `-op-version version`: Explicit op version (default: resolved from the installed vocabulary)
+- `-json`: Output result as JSON
+
+#### Examples
+
+```bash
+writ object create ticket create -field title="Fix the thing"
+writ object create ticket create -field title="Fix the thing" --json
+```
+
+### `writ object apply`
+
+Apply a further op to an existing object
+
+#### Synopsis
+
+```console
+Usage: writ object apply [-C <dir>] <object-id> <op-type> [-field <k>=<v>]... [-op-version <n>] [--json]
+```
+
+#### Description
+
+Append a further op against an existing object, causally following its current frontier.
+
+#### Flags
+
+- `-C <dir>`: Run as if writ was started in <dir>
+- `-field <k>=<v>`: Field <k>=<v> to set on the op (repeatable; repeat the same key for a set)
+- `-op-version version`: Explicit op version (default: resolved from the installed vocabulary)
+- `-json`: Output result as JSON
+
+#### Examples
+
+```bash
+writ object apply 01J8ABC update -field title="Renamed"
+```
+
+### `writ object show`
+
+Show an object's folded state
+
+#### Synopsis
+
+```console
+Usage: writ object show [-C <dir>] <object-id> [--json]
+```
+
+#### Description
+
+Fold an object's state directly from the log and print it, keyed by target field.
+
+#### Flags
+
+- `-C <dir>`: Run as if writ was started in <dir>
+- `-json`: Output result as JSON
+
+#### Examples
+
+```bash
+writ object show 01J8ABC
+writ object show 01J8ABC --json
+```
+
+### `writ object list`
+
+List objects across or within a type
+
+#### Synopsis
+
+```console
+Usage: writ object list [-C <dir>] [<type>] [-author <a>]... [-text <q>] [-include-deleted] [-limit N] [-offset N] [-sort <order>] [--json]
+```
+
+#### Description
+
+List collaborative objects, optionally filtered to one schema-declared type.
+
+#### Flags
+
+- `-C <dir>`: Run as if writ was started in <dir>
+- `-author <a>`: Filter by author <a> name or email (repeatable)
+- `-text <q>`: Filter by text <q> match
+- `-include-deleted`: Include deleted objects
+- `-limit N`: Maximum number N of objects to return
+- `-offset N`: Skip the first N matching objects
+- `-sort <order>`: Sort order <order> (created_at_asc, created_at_desc, updated_at_asc, updated_at_desc)
+- `-json`: Output result as JSON
+
+#### Examples
+
+```bash
+writ object list
+writ object list ticket
+writ object list ticket -text urgent --json
 ```
 
 ### `writ review open`
@@ -1054,6 +1174,36 @@ Run the same computation as `writ schema plan`, then sign and append the resulti
 ```bash
 writ schema apply
 writ schema apply --json
+```
+
+### `writ schema show`
+
+Show the vocabulary actually installed and folding now
+
+#### Synopsis
+
+```console
+Usage: writ schema show [-C <dir>] [<type>] [--json]
+```
+
+#### Description
+
+Report the vocabulary Store.Types resolves right now -- built-in types overlaid by
+whatever the log declares -- which is not the same question `writ schema plan`/`apply`
+answer (the working-tree writ.schema file's own view). With no <type>, print one bare
+type name per line. With <type>, print that type's declared ops and fields.
+
+#### Flags
+
+- `-C <dir>`: Run as if writ was started in <dir>
+- `-json`: Output result as JSON
+
+#### Examples
+
+```bash
+writ schema show
+writ schema show ticket
+writ schema show ticket --json
 ```
 
 ### `writ sync`

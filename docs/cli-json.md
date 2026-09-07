@@ -21,7 +21,7 @@ All plumbing commands emit a single top-level JSON document on `stdout` adhering
 | Field | Type | Description |
 |---|---|---|
 | `schema_version` | integer | Envelope schema version (currently `1`). Bumps only on breaking changes. |
-| `kind` | string | Discriminator for the payload schema (e.g. `review.list`, `review.status`, `issue.list`, `issue.status`, `issue.label`, `label.list`, `sync.status`, `sync.result`, `comment.edit`, `comment.delete`, `schema.plan`, `schema.apply`). |
+| `kind` | string | Discriminator for the payload schema (e.g. `review.list`, `review.status`, `issue.list`, `issue.status`, `issue.label`, `label.list`, `sync.status`, `sync.result`, `comment.edit`, `comment.delete`, `schema.plan`, `schema.apply`, `schema.show`, `object.create`, `object.apply`, `object.show`, `object.list`). |
 | `data` | object or array | Verb-specific payload structure. |
 
 ---
@@ -618,6 +618,193 @@ Runs the same computation as `writ schema plan`, then signs and appends the resu
       }
     ]
   }
+}
+```
+
+---
+
+### `writ schema show [<type>] --json`
+
+Reports the vocabulary `Store.Types` resolves right now — built-in types overlaid by whatever the log declares. This is a different question from `writ schema plan`/`apply` (`Store.Schema`, the working-tree `writ.schema` file's own view): `schema show` answers "what is installed and folding today," not "what would this file change."
+
+- **Envelope `kind`**: `"schema.show"`
+- **`data` Type**: with `<type>`, one `SchemaType` object; with no `<type>`, an array of `SchemaType` objects (`[]SchemaType`) — every installed type, sorted by name.
+
+#### `SchemaType` Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | The bare wire `object_type`. |
+| `description` | string | Optional type description. Omitted when empty. |
+| `deprecated` | boolean | `true` if the type is deprecated. Omitted when `false`. |
+| `fields` | array | `SchemaField` entries this type declares. Omitted when empty. |
+| `ops` | array | `SchemaOp` entries this type declares. Omitted when empty. |
+| `fields[].field` | string | Declared field name (the key an op body carries on the wire — not always the key `object show`'s `fields` reports it back under; see `object.show` below). |
+| `fields[].op_type` | string | The op type that writes this field. |
+| `fields[].op_version` | integer | The op version that writes this field. |
+| `fields[].value_type` | string | Declared value type (`string`, `int`, `number`, `bool`, `anchor`, ...). Omitted when the field declares none. |
+| `fields[].strategy` | string | Merge strategy (`lww`, `set-union`, ...). Omitted when unset. |
+| `fields[].target` | string | Target key this field folds into, when it differs from `field`. Omitted otherwise. |
+| `ops[].op_type` | string | Op type name. |
+| `ops[].op_version` | integer | Op version. |
+| `ops[].description` | string | Optional op description. Omitted when empty. |
+
+#### Example Output
+
+```json
+{
+  "schema_version": 1,
+  "kind": "schema.show",
+  "data": {
+    "type": "ticket",
+    "fields": [
+      { "field": "title", "op_type": "create", "op_version": 1, "value_type": "string", "strategy": "lww" }
+    ],
+    "ops": [
+      { "op_type": "create", "op_version": 1 }
+    ]
+  }
+}
+```
+
+With no `<type>`, `data` is a bare array of the same shape, one entry per installed type.
+
+---
+
+### `writ object create <type> <op-type> --json`
+
+Appends the op that starts a new object of `<type>`, using `<op-type>`'s field rules from the installed vocabulary to parse each `-field` value.
+
+- **Envelope `kind`**: `"object.create"`
+- **`data` Type**: `ObjectCreated` object
+
+#### `ObjectCreated` Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `object_id` | string | 32-character lowercase hex identifier minted for the new object. |
+| `object_type` | string | The object type created. |
+
+#### Example Output
+
+```json
+{
+  "schema_version": 1,
+  "kind": "object.create",
+  "data": {
+    "object_id": "0123456789abcdef0123456789abcdef",
+    "object_type": "ticket"
+  }
+}
+```
+
+---
+
+### `writ object apply <object-id> <op-type> --json`
+
+Appends a further op against an existing object, causally following its current frontier. The object's type comes from the object itself, not from a flag.
+
+- **Envelope `kind`**: `"object.apply"`
+- **`data` Type**: `ObjectApplied` object
+
+#### `ObjectApplied` Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `object_id` | string | The object applied to. |
+| `op_type` | string | The op type appended. |
+
+#### Example Output
+
+```json
+{
+  "schema_version": 1,
+  "kind": "object.apply",
+  "data": {
+    "object_id": "0123456789abcdef0123456789abcdef",
+    "op_type": "update"
+  }
+}
+```
+
+---
+
+### `writ object show <object-id> --json`
+
+Folds an object's state directly from the log — never the projection cache — and reports it.
+
+- **Envelope `kind`**: `"object.show"`
+- **`data` Type**: `Object` object
+
+#### `Object` Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `object_id` | string | The object's id. |
+| `object_type` | string | The object's type, determined from its own ops. |
+| `fields` | object | **An open map keyed by TARGET key** — a rule's declared `target` when it has one, otherwise its field name — not a fixed field set. This is the one place this document's §2 "additive-only, never retyped" promise carries a schema-shaped carve-out: the keys present, and the type of each value, are whatever the installed vocabulary for `object_type` declares, which a consumer-declared schema can change without this CLI's own version bumping. Values are the merge-strategy's folded representation: a scalar, a JSON array, or a JSON object. |
+| `unknown_ops` | array | Ops this object carries that no installed rule interprets — forward compatibility, not an error. Empty array (`[]`) when there are none. |
+| `unknown_ops[].commit` | string | The op commit's SHA — the only way to name an uninterpretable op for a caller who needs to report or investigate it. |
+| `unknown_ops[].object_type` | string | The op's own `object_type`. |
+| `unknown_ops[].op_type` | string | The op's own `op_type`. |
+| `unknown_ops[].op_version` | integer | The op's own `op_version`. |
+
+#### Example Output
+
+```json
+{
+  "schema_version": 1,
+  "kind": "object.show",
+  "data": {
+    "object_id": "0123456789abcdef0123456789abcdef",
+    "object_type": "ticket",
+    "fields": {
+      "title": "Fix the thing",
+      "tags": ["urgent", "backend"]
+    },
+    "unknown_ops": []
+  }
+}
+```
+
+---
+
+### `writ object list [<type>] --json`
+
+Lists collaborative objects across every schema-declared type, or within one, from the projection cache.
+
+- **Envelope `kind`**: `"object.list"`
+- **`data` Type**: Array of `ObjectSummary` objects (`[]ObjectSummary`)
+
+#### `ObjectSummary` Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `object_id` | string | 32-character lowercase hex identifier. |
+| `object_type` | string | The object's type. |
+| `author` | object | `{ "name": string, "email": string }` — the object's creating author. |
+| `created_at` | string | Creation timestamp in RFC 3339 UTC (`...Z`). |
+| `updated_at` | string | Last modification timestamp in RFC 3339 UTC (`...Z`). |
+| `op_count` | integer | Number of ops folded into this object. |
+| `last_op_id` | string | Commit id of the most recently folded op. |
+
+#### Example Output
+
+```json
+{
+  "schema_version": 1,
+  "kind": "object.list",
+  "data": [
+    {
+      "object_id": "0123456789abcdef0123456789abcdef",
+      "object_type": "ticket",
+      "author": { "name": "Alice", "email": "alice@example.com" },
+      "created_at": "2026-01-01T00:00:00Z",
+      "updated_at": "2026-01-01T00:00:00Z",
+      "op_count": 1,
+      "last_op_id": "abc123"
+    }
+  ]
 }
 ```
 

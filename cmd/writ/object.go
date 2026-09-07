@@ -1,0 +1,774 @@
+// Command family `writ object` is the generic plumbing porcelain over any
+// schema-declared collaborative object type: create, apply, show, and list,
+// on top of the schema-shaped Store.Objects / Store.Query.Objects / Store.Types
+// surface WRIT-192 shipped (ARCHITECTURE.md §Public API shape). `writ schema
+// show` lives here too, alongside the vocabulary lookups `object` itself
+// needs.
+//
+// Writ no longer knows what an issue or a review is, so it cannot offer a
+// good per-type verb for one: `writ object create ticket create -field
+// title=...` is worse to type than a hand-written `writ ticket create
+// -title ...` would be. That is expected -- nice per-type porcelain is a
+// job for whatever layer owns the schema, built on --json. This file adds
+// no schema-driven dynamic subcommand generation to compensate: help text,
+// completion, flag types, and error messages would all become
+// schema-dependent, for a CLI whose main consumer is agents reading --json
+// anyway.
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"sort"
+	"strconv"
+	"strings"
+	"text/tabwriter"
+
+	"github.com/writtendev/writ/cmd/writ/internal/wire"
+	"github.com/writtendev/writ/engine"
+)
+
+func runObject(ctx context.Context, defaultDir string, args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		renderUsage(stderr, []string{"object"}, objectCmd)
+		return 2
+	}
+
+	switch args[0] {
+	case "-h", "-help", "--help":
+		renderUsage(stdout, []string{"object"}, objectCmd)
+		return 0
+	case "create":
+		return runObjectCreate(ctx, defaultDir, args[1:], stdout, stderr)
+	case "apply":
+		return runObjectApply(ctx, defaultDir, args[1:], stdout, stderr)
+	case "show":
+		return runObjectShow(ctx, defaultDir, args[1:], stdout, stderr)
+	case "list":
+		return runObjectList(ctx, defaultDir, args[1:], stdout, stderr)
+	default:
+		fmt.Fprintf(stderr, "writ object: unknown subcommand %q\n\n", args[0])
+		renderUsage(stderr, []string{"object"}, objectCmd)
+		return 2
+	}
+}
+
+// resolveOpVersion mirrors writ.Objects.Create/Apply's own op-version
+// resolution (engine/objects.go's unexported resolveOpVersion, over the
+// same Store.Types data): find objectType's declared version(s) of opType,
+// refusing and naming the candidates when more than one exists. The CLI
+// needs the concrete version before Create/Apply ever runs, to look up
+// -field rules by the fully-specified (type, op_type, op_version) tuple
+// below -- so this small duplicate of the engine's own decision, not a
+// deeper one like a value-type catalogue, is unavoidable: passing the
+// resolved version through to NewOp then means Create/Apply's identical
+// check never has anything left to do.
+func resolveOpVersion(types []writ.SchemaType, objectType, opType string) (int64, error) {
+	var td *writ.SchemaType
+	for i := range types {
+		if types[i].Name == objectType {
+			td = &types[i]
+			break
+		}
+	}
+	if td == nil {
+		return 0, fmt.Errorf("object type %q is not declared by the installed vocabulary", objectType)
+	}
+
+	versionSet := make(map[int64]bool)
+	for _, o := range td.Ops {
+		if o.OpType == opType {
+			versionSet[o.OpVersion] = true
+		}
+	}
+	if len(versionSet) == 0 {
+		return 0, fmt.Errorf("object type %q declares no op %q", objectType, opType)
+	}
+	if len(versionSet) > 1 {
+		versions := make([]int64, 0, len(versionSet))
+		for v := range versionSet {
+			versions = append(versions, v)
+		}
+		sort.Slice(versions, func(i, j int) bool { return versions[i] < versions[j] })
+		return 0, fmt.Errorf("object type %q declares %d versions of op %q (%v): specify -op-version explicitly", objectType, len(versionSet), opType, versions)
+	}
+	for v := range versionSet {
+		return v, nil
+	}
+	panic("unreachable")
+}
+
+// lookupSchemaField finds the field rule declared for the fully-specified
+// (object type, op type, op version, field name) tuple, or nil if the op
+// declares no such field.
+func lookupSchemaField(types []writ.SchemaType, objectType, opType string, opVersion int64, name string) *writ.SchemaField {
+	for i := range types {
+		if types[i].Name != objectType {
+			continue
+		}
+		for j := range types[i].Fields {
+			f := &types[i].Fields[j]
+			if f.Name == name && f.OpType == opType && f.OpVersion == opVersion {
+				return f
+			}
+		}
+	}
+	return nil
+}
+
+// declaredFieldNames lists the field names the given (object type, op type,
+// op version) actually declares, sorted, for use in an "undeclared field"
+// error message.
+func declaredFieldNames(types []writ.SchemaType, objectType, opType string, opVersion int64) []string {
+	var names []string
+	for i := range types {
+		if types[i].Name != objectType {
+			continue
+		}
+		for _, f := range types[i].Fields {
+			if f.OpType == opType && f.OpVersion == opVersion {
+				names = append(names, f.Name)
+			}
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+// convertFieldValue converts one raw --field string into the Go value
+// op.Fields expects, by the field's declared value_type. This is
+// type-directed parsing only, never re-validation: string, text, enum,
+// person-ref, object-ref, git-oid, position, timestamp, and no declared
+// value type all pass the raw string through unchanged, leaving enum
+// membership, max_length, and pattern checks to the producer validator that
+// already runs inside Objects.Create/Apply -- a CLI copy of
+// engine/internal/value would be exactly the second, drifting copy
+// WRIT-192's plan refused for Objects.Create itself.
+func convertFieldValue(valueType, raw string) (any, error) {
+	switch valueType {
+	case "int":
+		n, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid int value %q", raw)
+		}
+		return n, nil
+	case "number":
+		f, err := strconv.ParseFloat(raw, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid number value %q", raw)
+		}
+		return f, nil
+	case "bool":
+		b, err := strconv.ParseBool(raw)
+		if err != nil {
+			return nil, fmt.Errorf("invalid bool value %q", raw)
+		}
+		return b, nil
+	case "anchor":
+		var m map[string]any
+		if err := json.Unmarshal([]byte(raw), &m); err != nil {
+			return nil, fmt.Errorf("invalid anchor value %q: must be a JSON object", raw)
+		}
+		return m, nil
+	default:
+		// string, text, enum, person-ref, object-ref, git-oid, position,
+		// timestamp, or no declared value type at all.
+		return raw, nil
+	}
+}
+
+// parseFieldFlags groups repeated -field k=v flags by key, looks each key
+// up as a field rule of (objectType, opType, opVersion), converts its
+// value(s) by the field's declared value_type, and returns the resulting op
+// body. A key given more than once becomes a JSON array of the converted
+// elements, in the order given; a key given once stays a scalar.
+func parseFieldFlags(raw []string, objectType, opType string, opVersion int64, types []writ.SchemaType) (map[string]any, error) {
+	var order []string
+	grouped := make(map[string][]string)
+	for _, kv := range raw {
+		idx := strings.IndexByte(kv, '=')
+		if idx < 0 {
+			return nil, fmt.Errorf("invalid -field %q: expected key=value", kv)
+		}
+		key, val := kv[:idx], kv[idx+1:]
+		if _, ok := grouped[key]; !ok {
+			order = append(order, key)
+		}
+		grouped[key] = append(grouped[key], val)
+	}
+
+	fields := make(map[string]any, len(order))
+	for _, key := range order {
+		rule := lookupSchemaField(types, objectType, opType, opVersion, key)
+		if rule == nil {
+			declared := declaredFieldNames(types, objectType, opType, opVersion)
+			if len(declared) == 0 {
+				return nil, fmt.Errorf("field %q is not declared for %s %s (it declares no fields)", key, objectType, opType)
+			}
+			return nil, fmt.Errorf("field %q is not declared for %s %s (declares: %s)", key, objectType, opType, strings.Join(declared, ", "))
+		}
+
+		vals := grouped[key]
+		converted := make([]any, len(vals))
+		for i, v := range vals {
+			cv, err := convertFieldValue(rule.ValueType, v)
+			if err != nil {
+				return nil, fmt.Errorf("-field %s=%s: %v", key, v, err)
+			}
+			converted[i] = cv
+		}
+		if len(converted) == 1 {
+			fields[key] = converted[0]
+		} else {
+			fields[key] = converted
+		}
+	}
+	return fields, nil
+}
+
+type objectCreateOpts struct {
+	dir      string
+	fields   stringSliceFlag
+	opVer    int64
+	jsonMode bool
+}
+
+func newObjectCreateFlagSet(defaultDir string) (*flag.FlagSet, *objectCreateOpts) {
+	fs := flag.NewFlagSet("object create", flag.ContinueOnError)
+	opts := &objectCreateOpts{}
+	fs.StringVar(&opts.dir, "C", defaultDir, "Run as if writ was started in `<dir>`")
+	fs.Var(&opts.fields, "field", "Field `<k>=<v>` to set on the creating op (repeatable; repeat the same key for a set)")
+	fs.Int64Var(&opts.opVer, "op-version", 0, "Explicit op `version` (default: resolved from the installed vocabulary)")
+	fs.BoolVar(&opts.jsonMode, "json", false, "Output result as JSON")
+	fs.Usage = func() {
+		renderUsage(fs.Output(), []string{"object", "create"}, objectCreateCmd)
+	}
+	return fs, opts
+}
+
+func runObjectCreate(ctx context.Context, defaultDir string, args []string, stdout, stderr io.Writer) int {
+	fs, opts := newObjectCreateFlagSet(defaultDir)
+	fs.SetOutput(stderr)
+
+	posArgs, err := parseArgs(fs, args)
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+
+	if len(posArgs) < 2 {
+		fmt.Fprintln(stderr, "writ object create: <type> and <op-type> are required")
+		fs.Usage()
+		return 2
+	}
+	if len(posArgs) > 2 {
+		fmt.Fprintf(stderr, "writ object create: unexpected arguments: %s\n", strings.Join(posArgs[2:], " "))
+		fs.Usage()
+		return 2
+	}
+	objectType, opType := posArgs[0], posArgs[1]
+
+	targetDir := opts.dir
+	if targetDir == "" {
+		targetDir = "."
+	}
+
+	store, err := openStore(targetDir)
+	if err != nil {
+		return renderErr(stderr, err)
+	}
+	defer store.Close()
+
+	types, err := store.Types(ctx)
+	if err != nil {
+		return renderErr(stderr, err)
+	}
+
+	version := opts.opVer
+	if version == 0 {
+		v, err := resolveOpVersion(types, objectType, opType)
+		if err != nil {
+			fmt.Fprintf(stderr, "writ object create: %v\n", err)
+			return 1
+		}
+		version = v
+	}
+
+	fields, err := parseFieldFlags(opts.fields, objectType, opType, version, types)
+	if err != nil {
+		fmt.Fprintf(stderr, "writ object create: %v\n", err)
+		return 1
+	}
+
+	id, err := store.Objects.Create(ctx, objectType, writ.NewOp{Type: opType, Version: version, Fields: fields})
+	if err != nil {
+		return renderErr(stderr, err)
+	}
+
+	if opts.jsonMode {
+		if err := emitJSON(stdout, wire.KindObjectCreate, wire.ObjectCreated{ObjectID: id, ObjectType: objectType}); err != nil {
+			fmt.Fprintf(stderr, "writ object create: marshal json: %v\n", err)
+			return 1
+		}
+		return 0
+	}
+
+	fmt.Fprintln(stdout, id)
+	return 0
+}
+
+type objectApplyOpts struct {
+	dir      string
+	fields   stringSliceFlag
+	opVer    int64
+	jsonMode bool
+}
+
+func newObjectApplyFlagSet(defaultDir string) (*flag.FlagSet, *objectApplyOpts) {
+	fs := flag.NewFlagSet("object apply", flag.ContinueOnError)
+	opts := &objectApplyOpts{}
+	fs.StringVar(&opts.dir, "C", defaultDir, "Run as if writ was started in `<dir>`")
+	fs.Var(&opts.fields, "field", "Field `<k>=<v>` to set on the op (repeatable; repeat the same key for a set)")
+	fs.Int64Var(&opts.opVer, "op-version", 0, "Explicit op `version` (default: resolved from the installed vocabulary)")
+	fs.BoolVar(&opts.jsonMode, "json", false, "Output result as JSON")
+	fs.Usage = func() {
+		renderUsage(fs.Output(), []string{"object", "apply"}, objectApplyCmd)
+	}
+	return fs, opts
+}
+
+func runObjectApply(ctx context.Context, defaultDir string, args []string, stdout, stderr io.Writer) int {
+	fs, opts := newObjectApplyFlagSet(defaultDir)
+	fs.SetOutput(stderr)
+
+	posArgs, err := parseArgs(fs, args)
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+
+	if len(posArgs) < 2 {
+		fmt.Fprintln(stderr, "writ object apply: <object-id> and <op-type> are required")
+		fs.Usage()
+		return 2
+	}
+	if len(posArgs) > 2 {
+		fmt.Fprintf(stderr, "writ object apply: unexpected arguments: %s\n", strings.Join(posArgs[2:], " "))
+		fs.Usage()
+		return 2
+	}
+	opType := posArgs[1]
+
+	targetDir := opts.dir
+	if targetDir == "" {
+		targetDir = "."
+	}
+
+	store, err := openStore(targetDir)
+	if err != nil {
+		return renderErr(stderr, err)
+	}
+	defer store.Close()
+
+	objectID, err := resolveObjectID(ctx, store, posArgs[0])
+	if err != nil {
+		return renderErr(stderr, err)
+	}
+
+	existing, err := store.Query.Object(objectID)
+	if err != nil {
+		return renderErr(stderr, err)
+	}
+
+	types, err := store.Types(ctx)
+	if err != nil {
+		return renderErr(stderr, err)
+	}
+
+	version := opts.opVer
+	if version == 0 {
+		v, err := resolveOpVersion(types, existing.ObjectType, opType)
+		if err != nil {
+			fmt.Fprintf(stderr, "writ object apply: %v\n", err)
+			return 1
+		}
+		version = v
+	}
+
+	fields, err := parseFieldFlags(opts.fields, existing.ObjectType, opType, version, types)
+	if err != nil {
+		fmt.Fprintf(stderr, "writ object apply: %v\n", err)
+		return 1
+	}
+
+	if err := store.Objects.Apply(ctx, objectID, writ.NewOp{Type: opType, Version: version, Fields: fields}); err != nil {
+		return renderErr(stderr, err)
+	}
+
+	if opts.jsonMode {
+		if err := emitJSON(stdout, wire.KindObjectApply, wire.ObjectApplied{ObjectID: objectID, OpType: opType}); err != nil {
+			fmt.Fprintf(stderr, "writ object apply: marshal json: %v\n", err)
+			return 1
+		}
+		return 0
+	}
+
+	fmt.Fprintf(stdout, "%s: applied %s\n", objectID, opType)
+	return 0
+}
+
+type objectShowOpts struct {
+	dir      string
+	jsonMode bool
+}
+
+func newObjectShowFlagSet(defaultDir string) (*flag.FlagSet, *objectShowOpts) {
+	fs := flag.NewFlagSet("object show", flag.ContinueOnError)
+	opts := &objectShowOpts{}
+	fs.StringVar(&opts.dir, "C", defaultDir, "Run as if writ was started in `<dir>`")
+	fs.BoolVar(&opts.jsonMode, "json", false, "Output result as JSON")
+	fs.Usage = func() {
+		renderUsage(fs.Output(), []string{"object", "show"}, objectShowCmd)
+	}
+	return fs, opts
+}
+
+func runObjectShow(ctx context.Context, defaultDir string, args []string, stdout, stderr io.Writer) int {
+	fs, opts := newObjectShowFlagSet(defaultDir)
+	fs.SetOutput(stderr)
+
+	posArgs, err := parseArgs(fs, args)
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+
+	if len(posArgs) == 0 || posArgs[0] == "" {
+		fmt.Fprintln(stderr, "writ object show: object ID is required")
+		fs.Usage()
+		return 2
+	}
+	if len(posArgs) > 1 {
+		fmt.Fprintf(stderr, "writ object show: unexpected arguments: %s\n", strings.Join(posArgs[1:], " "))
+		fs.Usage()
+		return 2
+	}
+
+	targetDir := opts.dir
+	if targetDir == "" {
+		targetDir = "."
+	}
+
+	store, err := openStore(targetDir)
+	if err != nil {
+		return renderErr(stderr, err)
+	}
+	defer store.Close()
+
+	objectID, err := resolveObjectID(ctx, store, posArgs[0])
+	if err != nil {
+		return renderErr(stderr, err)
+	}
+
+	obj, err := store.Objects.Get(ctx, objectID)
+	if err != nil {
+		return renderErr(stderr, err)
+	}
+
+	if opts.jsonMode {
+		if err := emitJSON(stdout, wire.KindObjectShow, wire.FromObject(obj)); err != nil {
+			fmt.Fprintf(stderr, "writ object show: marshal json: %v\n", err)
+			return 1
+		}
+		return 0
+	}
+
+	keys := make([]string, 0, len(obj.Fields))
+	for k := range obj.Fields {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	tw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintf(tw, "object_id\t%s\n", obj.ObjectID)
+	fmt.Fprintf(tw, "object_type\t%s\n", obj.ObjectType)
+	for _, k := range keys {
+		fmt.Fprintf(tw, "%s\t%s\n", k, fieldDisplay(obj.Fields[k]))
+	}
+	_ = tw.Flush()
+
+	if len(obj.UnknownOps) > 0 {
+		fmt.Fprintln(stdout, "Unknown ops:")
+		for _, u := range obj.UnknownOps {
+			fmt.Fprintf(stdout, "  %s %s v%d (%s)\n", u.ObjectType, u.OpType, u.OpVersion, u.Commit)
+		}
+	}
+
+	return 0
+}
+
+// fieldDisplay renders one Object.Fields value for the human tabwriter
+// view: a bare string prints unquoted, everything else (numbers, bools,
+// maps, slices -- an object type nothing declares a Go shape for) prints
+// as compact JSON.
+func fieldDisplay(v any) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprintf("%v", v)
+	}
+	return string(b)
+}
+
+type objectListOpts struct {
+	dir            string
+	authors        stringSliceFlag
+	text           string
+	includeDeleted bool
+	limit          int
+	offset         int
+	sortOrder      string
+	jsonMode       bool
+}
+
+func newObjectListFlagSet(defaultDir string) (*flag.FlagSet, *objectListOpts) {
+	fs := flag.NewFlagSet("object list", flag.ContinueOnError)
+	opts := &objectListOpts{}
+	fs.StringVar(&opts.dir, "C", defaultDir, "Run as if writ was started in `<dir>`")
+	fs.Var(&opts.authors, "author", "Filter by author `<a>` name or email (repeatable)")
+	fs.StringVar(&opts.text, "text", "", "Filter by text `<q>` match")
+	fs.BoolVar(&opts.includeDeleted, "include-deleted", false, "Include deleted objects")
+	fs.IntVar(&opts.limit, "limit", 0, "Maximum number `N` of objects to return")
+	fs.IntVar(&opts.offset, "offset", 0, "Skip the first `N` matching objects")
+	fs.StringVar(&opts.sortOrder, "sort", "", "Sort order `<order>` (created_at_asc, created_at_desc, updated_at_asc, updated_at_desc)")
+	fs.BoolVar(&opts.jsonMode, "json", false, "Output result as JSON")
+	fs.Usage = func() {
+		renderUsage(fs.Output(), []string{"object", "list"}, objectListCmd)
+	}
+	return fs, opts
+}
+
+func runObjectList(ctx context.Context, defaultDir string, args []string, stdout, stderr io.Writer) int {
+	fs, opts := newObjectListFlagSet(defaultDir)
+	fs.SetOutput(stderr)
+
+	posArgs, err := parseArgs(fs, args)
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+
+	if len(posArgs) > 1 {
+		fmt.Fprintf(stderr, "writ object list: unexpected arguments: %s\n", strings.Join(posArgs[1:], " "))
+		fs.Usage()
+		return 2
+	}
+
+	if opts.limit < 0 {
+		fmt.Fprintf(stderr, "writ object list: -limit must be non-negative, got %d\n", opts.limit)
+		fs.Usage()
+		return 2
+	}
+	if opts.offset < 0 {
+		fmt.Fprintf(stderr, "writ object list: -offset must be non-negative, got %d\n", opts.offset)
+		fs.Usage()
+		return 2
+	}
+
+	var orderBy writ.OrderBy
+	if opts.sortOrder != "" {
+		orderBy, err = parseOrderBy(opts.sortOrder)
+		if err != nil {
+			fmt.Fprintf(stderr, "writ object list: invalid sort order %q\n", opts.sortOrder)
+			fs.Usage()
+			return 2
+		}
+	}
+
+	targetDir := opts.dir
+	if targetDir == "" {
+		targetDir = "."
+	}
+
+	store, err := openStore(targetDir)
+	if err != nil {
+		return renderErr(stderr, err)
+	}
+	defer store.Close()
+
+	var typeFilter []string
+	if len(posArgs) == 1 && posArgs[0] != "" {
+		typeFilter = []string{posArgs[0]}
+	}
+
+	results, err := store.Query.Objects(writ.ObjectFilter{
+		Type:           typeFilter,
+		Author:         opts.authors,
+		Text:           opts.text,
+		IncludeDeleted: opts.includeDeleted,
+		OrderBy:        orderBy,
+		Limit:          opts.limit,
+		Offset:         opts.offset,
+	})
+	if err != nil {
+		return renderErr(stderr, err)
+	}
+
+	if opts.jsonMode {
+		if err := emitJSON(stdout, wire.KindObjectList, wire.FromObjectResultSummaries(results)); err != nil {
+			fmt.Fprintf(stderr, "writ object list: marshal json: %v\n", err)
+			return 1
+		}
+		return 0
+	}
+
+	tw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
+	for _, r := range results {
+		shortID := r.ObjectID
+		if len(shortID) > 8 {
+			shortID = shortID[:8]
+		}
+		author := authorDisplay(r.Author.Name, r.Author.Email)
+		updatedAt := r.UpdatedAt.Format("2006-01-02 15:04:05")
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", shortID, r.ObjectType, author, updatedAt)
+	}
+	_ = tw.Flush()
+	return 0
+}
+
+type schemaShowOpts struct {
+	dir      string
+	jsonMode bool
+}
+
+func newSchemaShowFlagSet(defaultDir string) (*flag.FlagSet, *schemaShowOpts) {
+	fs := flag.NewFlagSet("schema show", flag.ContinueOnError)
+	opts := &schemaShowOpts{}
+	fs.StringVar(&opts.dir, "C", defaultDir, "Run as if writ was started in `<dir>`")
+	fs.BoolVar(&opts.jsonMode, "json", false, "Output result as JSON")
+	fs.Usage = func() {
+		renderUsage(fs.Output(), []string{"schema", "show"}, schemaShowCmd)
+	}
+	return fs, opts
+}
+
+// runSchemaShow reports the vocabulary actually installed and folding right
+// now (Store.Types): built-in types overlaid by whatever the log declares.
+// This is deliberately not what `writ schema plan`/`apply` answer
+// (Store.Schema, the working-tree writ.schema file's own view) -- see
+// schemaShowCmd's Long text.
+func runSchemaShow(ctx context.Context, defaultDir string, args []string, stdout, stderr io.Writer) int {
+	fs, opts := newSchemaShowFlagSet(defaultDir)
+	fs.SetOutput(stderr)
+
+	posArgs, err := parseArgs(fs, args)
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+
+	if len(posArgs) > 1 {
+		fmt.Fprintf(stderr, "writ schema show: unexpected arguments: %s\n", strings.Join(posArgs[1:], " "))
+		fs.Usage()
+		return 2
+	}
+
+	targetDir := opts.dir
+	if targetDir == "" {
+		targetDir = "."
+	}
+
+	store, err := openStore(targetDir)
+	if err != nil {
+		return renderErr(stderr, err)
+	}
+	defer store.Close()
+
+	types, err := store.Types(ctx)
+	if err != nil {
+		return renderErr(stderr, err)
+	}
+
+	if len(posArgs) == 0 {
+		if opts.jsonMode {
+			if err := emitJSON(stdout, wire.KindSchemaShow, wire.FromSchemaTypeInfos(types)); err != nil {
+				fmt.Fprintf(stderr, "writ schema show: marshal json: %v\n", err)
+				return 1
+			}
+			return 0
+		}
+		// Deliberately the porcelain form: one bare type name per line,
+		// nothing else -- so shell completion can be a plain
+		// $(writ schema show) call with nothing to parse.
+		for _, t := range types {
+			fmt.Fprintln(stdout, t.Name)
+		}
+		return 0
+	}
+
+	name := posArgs[0]
+	var found *writ.SchemaType
+	for i := range types {
+		if types[i].Name == name {
+			found = &types[i]
+			break
+		}
+	}
+	if found == nil {
+		return renderErr(stderr, fmt.Errorf("object type %q is not declared by the installed vocabulary", name))
+	}
+
+	if opts.jsonMode {
+		if err := emitJSON(stdout, wire.KindSchemaShow, wire.FromSchemaTypeInfo(*found)); err != nil {
+			fmt.Fprintf(stderr, "writ schema show: marshal json: %v\n", err)
+			return 1
+		}
+		return 0
+	}
+
+	tw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintf(tw, "type\t%s\n", found.Name)
+	if found.Description != "" {
+		fmt.Fprintf(tw, "description\t%s\n", found.Description)
+	}
+	if found.Deprecated {
+		fmt.Fprintf(tw, "deprecated\t%v\n", found.Deprecated)
+	}
+	_ = tw.Flush()
+
+	if len(found.Ops) > 0 {
+		fmt.Fprintln(stdout, "Ops:")
+		otw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
+		for _, o := range found.Ops {
+			fmt.Fprintf(otw, "  %s\tv%d\t%s\n", o.OpType, o.OpVersion, o.Description)
+		}
+		_ = otw.Flush()
+	}
+
+	if len(found.Fields) > 0 {
+		fmt.Fprintln(stdout, "Fields:")
+		ftw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
+		for _, f := range found.Fields {
+			fmt.Fprintf(ftw, "  %s\t%s v%d\t%s\t%s\n", f.Name, f.OpType, f.OpVersion, f.ValueType, f.Strategy)
+		}
+		_ = ftw.Flush()
+	}
+
+	return 0
+}
