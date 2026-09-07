@@ -12,24 +12,14 @@
 
 package writ // github.com/writtendev/writ/engine
 
-const DefaultSettingsObjectID = state.DefaultSettingsObjectID
 const EventChanged EventKind = "changed"
 const EventCreated EventKind = "created"
 const EventReset EventKind = "reset"
 const OrderByCreatedAtAsc = projection.OrderByCreatedAtAsc
 const OrderByCreatedAtDesc = projection.OrderByCreatedAtDesc
-const OrderByEstimateAsc = projection.OrderByEstimateAsc
-const OrderByEstimateDesc = projection.OrderByEstimateDesc
-const OrderByPositionAsc = projection.OrderByPositionAsc
-const OrderByPositionDesc = projection.OrderByPositionDesc
-const OrderByPriorityAsc = projection.OrderByPriorityAsc
-const OrderByPriorityDesc = projection.OrderByPriorityDesc
-const OrderByTitleAsc = projection.OrderByTitleAsc
-const OrderByTitleDesc = projection.OrderByTitleDesc
 const OrderByUpdatedAtAsc = projection.OrderByUpdatedAtAsc
 const OrderByUpdatedAtDesc = projection.OrderByUpdatedAtDesc
 
-var DefaultWorkflowStates = []NewWorkflowState{{Name: "Backlog", Type: "backlog", Position: "1"}, {Name: "Todo", Type: "unstarted", Position: "V"}, {Name: "In Progress", Type: "started", Position: "k"}, {Name: "Done", Type: "completed", Position: "s"}, {Name: "Canceled", Type: "canceled", Position: "zV"}}
 var ErrAuth = writsync.ErrAuth
 var ErrCycle = state.ErrCycle
 var ErrDuplicateOpID = state.ErrDuplicateOpID
@@ -42,103 +32,25 @@ var ErrNotFound = projection.ErrNotFound
 var ErrRefRejected = writsync.ErrRefRejected
 var ErrUnknownRemote = writsync.ErrUnknownRemote
 
-func CycleRules() []Rule
-func DefaultSettings() Settings
-func DocumentRules() []Rule
 func Fold(ops []codec.Op, rules []Rule) (ObjectState, error)
-func FoldComment(ops []codec.Op) (Comment, error)
-func FoldComments(ops []codec.Op) ([]CommentThread, error)
-func FoldCycle(ops []codec.Op) (Cycle, error)
-func FoldDocument(ops []codec.Op) (Document, error)
-func FoldIssue(ops []codec.Op) (Issue, error)
-func FoldLabel(ops []codec.Op) (Label, error)
-func FoldProject(ops []codec.Op) (Project, error)
-func FoldReview(ops []codec.Op) (Review, error)
 func FoldSchema(ops []codec.Op) (Schema, error)
-func FoldSection(ops []codec.Op) (Section, error)
-func FoldSettings(ops []codec.Op) (Settings, error)
-func FoldWorkflowState(ops []codec.Op) (WorkflowState, error)
-func IssueRules() []Rule
-func LabelRules() []Rule
 func NormalizePerson(s string) string
 func Open(path string, opts ...Option) (*Store, error)
-func ParseCommentSubject(raw []byte) (CommentSubject, error)
 func ParseReference(ref string) (string, string, error)
-func ProjectRules() []Rule
 func ResolveGitDir(path string) (GitDirInfo, error)
-func ReviewRules() []Rule
 func RulesFromSchemas(schemas []state.Schema) (map[string][]Rule, []SchemaConflict)
 func SchemaFromEnvelopes(envs []codec.Envelope) (Schema, error)
 func SchemaRules() []Rule
-func SectionRules() []Rule
-func SettingsRules() []Rule
 func VocabulariesFromSchemas(schemas []state.Schema) (codec.Vocabularies, []SchemaConflict)
 func WithCacheDir(dir string) Option
 func WithGitBinary(gitBin string) Option
 func WithSigner(signer Signer) Option
 func WithTargetRefs(refs ...string) Option
 func WithoutAutoRefresh() Option
-func WorkflowStateRules() []Rule
 
 type Anchor = resolve.Anchor
 
-type Approval = state.Approval
-
 type Author = projection.Author
-
-type CIStatus = state.CIStatus
-
-type Comment = state.Comment
-
-type CommentFilter = projection.CommentFilter
-
-type CommentResolve struct {
-	Resolved bool `json:"resolved"`
-	ResolvedBy string `json:"resolved_by,omitempty"`
-}
-
-type CommentResult = projection.CommentResult
-
-type CommentSubject = state.CommentSubject
-
-type CommentThread = state.CommentThread
-
-type Comments struct {
-	// unexported fields
-}
-func (*Comments) Delete(ctx context.Context, id string) error
-func (*Comments) Edit(ctx context.Context, id, text string) error
-func (*Comments) Resolve(ctx context.Context, id string, res CommentResolve) error
-
-type Cycle = state.Cycle
-
-type Document = state.Document
-
-type DocumentEdit struct {
-	Title *string `json:"title,omitempty"`
-	Labels *DocumentLabelEdit `json:"labels,omitempty"`
-}
-
-type DocumentFilter = projection.DocumentFilter
-
-type DocumentLabelEdit struct {
-	Add []string `json:"add,omitempty"`
-	Remove []string `json:"remove,omitempty"`
-}
-
-type DocumentResult = projection.DocumentResult
-
-type Documents struct {
-	// unexported fields
-}
-func (*Documents) AddSection(ctx context.Context, docID string, ns NewSection) (string, error)
-func (*Documents) Create(ctx context.Context, nd NewDocument) (string, error)
-func (*Documents) DeleteSection(ctx context.Context, sectionID string) error
-func (*Documents) EditSection(ctx context.Context, sectionID string, body string) error
-func (*Documents) Link(ctx context.Context, id string, link Link) error
-func (*Documents) MoveSection(ctx context.Context, sectionID string, afterID, beforeID string) error
-func (*Documents) Update(ctx context.Context, id string, edit DocumentEdit) error
-func (*Documents) UpdateSection(ctx context.Context, sectionID string, edit SectionEdit) error
 
 type Draft struct {
 	ID string `json:"id"`
@@ -181,110 +93,10 @@ type GitDirInfo struct {
 	CommonDir string
 }
 
-type Issue = state.Issue
-
-type IssueEdit struct {
-	Title *string `json:"title,omitempty"`
-	Description *string `json:"description,omitempty"`
-	Priority *int `json:"priority,omitempty"`
-	Estimate *float64 `json:"estimate,omitempty"`
-	Position *string `json:"position,omitempty"`
-}
-
-type IssueFilter = projection.IssueFilter
-
-type IssueResult = projection.IssueResult
-
-type IssueState struct {
-	State string `json:"state"`
-	Reason string `json:"reason,omitempty"`
-	Position *string `json:"position,omitempty"`
-}
-
-type Issues struct {
-	// unexported fields
-}
-func (*Issues) Assign(ctx context.Context, id string, add, remove []string) error
-func (*Issues) Comment(ctx context.Context, id string, c NewComment) (string, error)
-func (*Issues) Create(ctx context.Context, n NewIssue) (string, error)
-func (*Issues) Label(ctx context.Context, id string, add, remove []string) error
-func (*Issues) Link(ctx context.Context, id string, l Link) error
-func (*Issues) SetState(ctx context.Context, id string, st IssueState) error
-func (*Issues) Update(ctx context.Context, id string, edit IssueEdit) error
-
-type Label = state.Label
-
-type LabelEdit struct {
-	Name *string `json:"name,omitempty"`
-	Color *string `json:"color,omitempty"`
-	Description *string `json:"description,omitempty"`
-}
-
-type LabelFilter = projection.LabelFilter
-
-type LabelResult = projection.LabelResult
-
-type Labels struct {
-	// unexported fields
-}
-func (*Labels) Create(ctx context.Context, nl NewLabel) (string, error)
-func (*Labels) Update(ctx context.Context, id string, edit LabelEdit) error
-
-type Link = state.Link
-
-type NewComment struct {
-	Text string `json:"text"`
-	Anchor *Anchor `json:"anchor,omitempty"`
-	InReplyTo string `json:"in_reply_to,omitempty"`
-}
-
-type NewDocument struct {
-	Title string `json:"title"`
-	Labels []string `json:"labels,omitempty"`
-	Links []Link `json:"links,omitempty"`
-}
-
-type NewIssue struct {
-	Title string `json:"title"`
-	Description string `json:"description,omitempty"`
-	Priority *int `json:"priority,omitempty"`
-	Estimate *float64 `json:"estimate,omitempty"`
-	Position *string `json:"position,omitempty"`
-}
-
-type NewLabel struct {
-	Name string `json:"name"`
-	Color string `json:"color,omitempty"`
-	Description string `json:"description,omitempty"`
-}
-
 type NewOp struct {
 	Type string
 	Version int64
 	Fields map[string]any
-}
-
-type NewReview struct {
-	Title string `json:"title"`
-	Description string `json:"description,omitempty"`
-	Base string `json:"base,omitempty"`
-	Head string `json:"head,omitempty"`
-}
-
-type NewSection struct {
-	Title string `json:"title,omitempty"`
-	Body string `json:"body"`
-	Position string `json:"position,omitempty"`
-	After string `json:"after,omitempty"`
-	Before string `json:"before,omitempty"`
-}
-
-type NewWorkflowState struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
-	Position string `json:"position,omitempty"`
-	Color string `json:"color,omitempty"`
-	Description string `json:"description,omitempty"`
 }
 
 type Object struct {
@@ -315,27 +127,11 @@ type Option func(*openConfig)
 
 type OrderBy = projection.OrderBy
 
-type Project = state.Project
-
 type Query struct {
 	// unexported fields
 }
-func (*Query) Comments(f CommentFilter) ([]CommentResult, error)
-func (*Query) Document(id string) (DocumentResult, error)
-func (*Query) Documents(f DocumentFilter) ([]DocumentResult, error)
-func (*Query) Issue(id string) (IssueResult, error)
-func (*Query) Issues(f IssueFilter) ([]IssueResult, error)
-func (*Query) Label(id string) (LabelResult, error)
-func (*Query) Labels(f LabelFilter) ([]LabelResult, error)
 func (*Query) Object(id string) (ObjectResult, error)
 func (*Query) Objects(f ObjectFilter) ([]ObjectResult, error)
-func (*Query) Review(id string) (ReviewResult, error)
-func (*Query) Reviews(f ReviewFilter) ([]ReviewResult, error)
-func (*Query) Section(id string) (SectionResult, error)
-func (*Query) Settings() (SettingsResult, error)
-func (*Query) Threads(subjectType, subjectID string) ([]CommentThread, error)
-func (*Query) WorkflowState(id string) (WorkflowStateResult, error)
-func (*Query) WorkflowStates(f WorkflowStateFilter) ([]WorkflowStateResult, error)
 
 type ReadState struct {
 	// unexported fields
@@ -345,40 +141,6 @@ func (*ReadState) Mark(ctx context.Context, objectID string) error
 func (*ReadState) Unread(ctx context.Context, ids ...string) ([]string, error)
 
 type RefreshStats = projection.Stats
-
-type ResolvedPosition = projection.ResolvedPosition
-
-type Review = state.Review
-
-type ReviewEdit struct {
-	Title *string `json:"title,omitempty"`
-	Description *string `json:"description,omitempty"`
-}
-
-type ReviewFilter = projection.ReviewFilter
-
-type ReviewResult = projection.ReviewResult
-
-type ReviewStatus struct {
-	Status string `json:"status"`
-	MergeCommit string `json:"merge_commit,omitempty"`
-	Reason string `json:"reason,omitempty"`
-}
-
-type Reviews struct {
-	// unexported fields
-}
-func (*Reviews) Approve(ctx context.Context, id string, a Approval) error
-func (*Reviews) Assign(ctx context.Context, id string, add, remove []string) error
-func (*Reviews) Comment(ctx context.Context, id string, c NewComment) (string, error)
-func (*Reviews) Create(ctx context.Context, n NewReview) (string, error)
-func (*Reviews) Label(ctx context.Context, id string, add, remove []string) error
-func (*Reviews) Link(ctx context.Context, id string, l Link) error
-func (*Reviews) PushRevision(ctx context.Context, id, base, head string) error
-func (*Reviews) SetStatus(ctx context.Context, id string, status ReviewStatus) error
-func (*Reviews) Update(ctx context.Context, id string, edit ReviewEdit) error
-
-type Revision = state.Revision
 
 type Rule = state.Rule
 
@@ -397,53 +159,13 @@ type SchemaOp = state.SchemaOp
 
 type SchemaType = state.SchemaType
 
-type Section = state.Section
-
-type SectionEdit struct {
-	Title *string `json:"title,omitempty"`
-	Position *string `json:"position,omitempty"`
-}
-
-type SectionResult = projection.SectionResult
-
-type Settings = state.Settings
-
-type SettingsEdit struct {
-	Name *string `json:"name,omitempty"`
-	Identifier *string `json:"identifier,omitempty"`
-	Timezone *string `json:"timezone,omitempty"`
-	EstimateScale *string `json:"estimate_scale,omitempty"`
-	AllowZeroEstimates *bool `json:"allow_zero_estimates,omitempty"`
-	CyclesEnabled *bool `json:"cycles_enabled,omitempty"`
-	CycleDurationWeeks *int `json:"cycle_duration_weeks,omitempty"`
-	CycleStartDay *int `json:"cycle_start_day,omitempty"`
-	CycleCooldownWeeks *int `json:"cycle_cooldown_weeks,omitempty"`
-	TriageEnabled *bool `json:"triage_enabled,omitempty"`
-	CustomFields map[string]any `json:"-"`
-}
-
-type SettingsResult = projection.SettingsResult
-
-type SettingsService struct {
-	// unexported fields
-}
-func (*SettingsService) Get(ctx context.Context) (Settings, error)
-func (*SettingsService) Set(ctx context.Context, edit SettingsEdit) error
-
 type Signer = codec.Signer
 
 type Store struct {
-	Reviews *Reviews
-	Issues *Issues
-	Comments *Comments
 	Objects *Objects
 	Drafts *Drafts
 	ReadState *ReadState
 	Query *Query
-	WorkflowStates *WorkflowStates
-	Labels *Labels
-	Documents *Documents
-	Settings *SettingsService
 	// unexported fields
 }
 func (*Store) ApplySchema(ctx context.Context, envs []codec.Envelope) error
@@ -492,27 +214,6 @@ type TypeUnsynced struct {
 }
 
 type UnknownOp = state.UnknownOp
-
-type WorkflowState = state.WorkflowState
-
-type WorkflowStateEdit struct {
-	Name *string `json:"name,omitempty"`
-	Type *string `json:"type,omitempty"`
-	Position *string `json:"position,omitempty"`
-	Color *string `json:"color,omitempty"`
-	Description *string `json:"description,omitempty"`
-}
-
-type WorkflowStateFilter = projection.WorkflowStateFilter
-
-type WorkflowStateResult = projection.WorkflowStateResult
-
-type WorkflowStates struct {
-	// unexported fields
-}
-func (*WorkflowStates) Create(ctx context.Context, nws NewWorkflowState) (string, error)
-func (*WorkflowStates) SeedDefaults(ctx context.Context) error
-func (*WorkflowStates) Update(ctx context.Context, id string, edit WorkflowStateEdit) error
 
 type Writer struct {
 	ID string `json:"id"`
@@ -856,14 +557,6 @@ package projection // github.com/writtendev/writ/engine/projection
 
 const OrderByCreatedAtAsc OrderBy = "created_at_asc"
 const OrderByCreatedAtDesc OrderBy = "created_at_desc"
-const OrderByEstimateAsc OrderBy = "estimate_asc"
-const OrderByEstimateDesc OrderBy = "estimate_desc"
-const OrderByPositionAsc OrderBy = "position_asc"
-const OrderByPositionDesc OrderBy = "position_desc"
-const OrderByPriorityAsc OrderBy = "priority_asc"
-const OrderByPriorityDesc OrderBy = "priority_desc"
-const OrderByTitleAsc OrderBy = "title_asc"
-const OrderByTitleDesc OrderBy = "title_desc"
 const OrderByUpdatedAtAsc OrderBy = "updated_at_asc"
 const OrderByUpdatedAtDesc OrderBy = "updated_at_desc"
 
@@ -881,48 +574,19 @@ type Author struct {
 	Email string `json:"email"`
 }
 
-type CommentFilter struct {
-	SubjectType string
-	SubjectID string
-	Author []string
-	Text string
-	IncludeDeleted bool
-	Resolved *bool
-	TargetCommit string
-	OrderBy OrderBy
-	Limit int
-	Offset int
-}
-
-type CommentResult struct {
-	ObjectID string `json:"object_id"`
-	Author Author `json:"author"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Comment state.Comment `json:"comment"`
-	Resolved []ResolvedPosition `json:"resolved,omitempty"`
-}
-
 type DB struct {
 	// unexported fields
 }
 func (*DB) ApplySchema(rules map[string][]state.Rule) error
 func (*DB) ClearRead(objectID string) error
 func (*DB) Close() error
-func (*DB) Comments(f CommentFilter) ([]CommentResult, error)
 func (*DB) DB() *sql.DB
 func (*DB) DeleteDraft(draftID string) error
-func (*DB) Document(id string) (DocumentResult, error)
-func (*DB) Documents(f DocumentFilter) ([]DocumentResult, error)
 func (*DB) Draft(draftID string) (Draft, error)
 func (*DB) DumpLocalTables() (map[string][]map[string]any, error)
 func (*DB) DumpTables() (map[string][]map[string]any, error)
 func (*DB) Frontier(objectID string) ([]string, error)
 func (*DB) HasGeneratedTables() bool
-func (*DB) Issue(objectID string) (IssueResult, error)
-func (*DB) Issues(f IssueFilter) ([]IssueResult, error)
-func (*DB) Label(id string) (LabelResult, error)
-func (*DB) Labels(f LabelFilter) ([]LabelResult, error)
 func (*DB) ListDrafts(filter DraftFilter) ([]Draft, error)
 func (*DB) LocalDB() *sql.DB
 func (*DB) MarkRead(objectID, lastReadOpID string, readAt time.Time) error
@@ -931,30 +595,10 @@ func (*DB) Objects(f ObjectFilter) ([]ObjectResult, error)
 func (*DB) ReadMarks(objectIDs ...string) (map[string]ReadMark, error)
 func (*DB) Rebuild(store *dag.Store, opts ...Option) (Stats, error)
 func (*DB) Refresh(store *dag.Store, opts ...Option) (Stats, error)
-func (*DB) Review(objectID string) (ReviewResult, error)
-func (*DB) Reviews(f ReviewFilter) ([]ReviewResult, error)
 func (*DB) SaveDraft(draft Draft) (string, error)
-func (*DB) Section(id string) (SectionResult, error)
 func (*DB) SetSyncCursor(remote, refName, tip string, lastSyncedAt time.Time) error
-func (*DB) Settings() (SettingsResult, error)
 func (*DB) String() string
 func (*DB) SyncCursors(remote string) ([]SyncCursor, error)
-func (*DB) Threads(subjectType, subjectID string) ([]state.CommentThread, error)
-func (*DB) WorkflowState(id string) (WorkflowStateResult, error)
-func (*DB) WorkflowStates(f WorkflowStateFilter) ([]WorkflowStateResult, error)
-
-type DocumentFilter struct {
-	Labels []string
-}
-
-type DocumentResult struct {
-	ObjectID string `json:"object_id"`
-	Author Author `json:"author"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Document state.Document `json:"document"`
-	Sections []SectionResult `json:"sections,omitempty"`
-}
 
 type Draft struct {
 	DraftID string `json:"draft_id"`
@@ -970,41 +614,6 @@ type Draft struct {
 type DraftFilter struct {
 	SubjectID string `json:"subject_id,omitempty"`
 	SubjectType string `json:"subject_type,omitempty"`
-}
-
-type IssueFilter struct {
-	State []string
-	Priority []int
-	Author []string
-	Assignee []string
-	Label []string
-	Text string
-	IncludeDeleted bool
-	OrderBy OrderBy
-	Limit int
-	Offset int
-}
-
-type IssueResult struct {
-	ObjectID string `json:"object_id"`
-	Author Author `json:"author"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Issue state.Issue `json:"issue"`
-}
-
-type LabelFilter struct {
-	OrderBy OrderBy
-	Limit int
-	Offset int
-}
-
-type LabelResult struct {
-	ObjectID string `json:"object_id"`
-	Author Author `json:"author"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Label state.Label `json:"label"`
 }
 
 type ObjectChange struct {
@@ -1046,50 +655,6 @@ type ReadMark struct {
 	LastReadOpID string `json:"last_read_op_id,omitempty"`
 }
 
-type ResolvedPosition struct {
-	Side string `json:"side"`
-	Outcome string `json:"outcome"`
-	Match string `json:"match,omitempty"`
-	Path string `json:"path,omitempty"`
-	StartLine int `json:"start_line,omitempty"`
-	EndLine int `json:"end_line,omitempty"`
-	Reason string `json:"reason,omitempty"`
-}
-
-type ReviewFilter struct {
-	Status []string
-	Author []string
-	Assignee []string
-	Label []string
-	Text string
-	IncludeDeleted bool
-	OrderBy OrderBy
-	Limit int
-	Offset int
-}
-
-type ReviewResult struct {
-	ObjectID string `json:"object_id"`
-	Author Author `json:"author"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Review state.Review `json:"review"`
-}
-
-type SectionResult struct {
-	ObjectID string `json:"object_id"`
-	Author Author `json:"author"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Section state.Section `json:"section"`
-}
-
-type SettingsResult struct {
-	ObjectID string `json:"object_id"`
-	Settings state.Settings `json:"settings"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
 type Stats struct {
 	OpsDecoded int `json:"ops_decoded"`
 	ObjectsTouched int `json:"objects_touched"`
@@ -1103,21 +668,6 @@ type SyncCursor struct {
 	RefName string `json:"ref_name"`
 	Tip string `json:"tip"`
 	LastSyncedAt time.Time `json:"last_synced_at"`
-}
-
-type WorkflowStateFilter struct {
-	Type []string
-	OrderBy OrderBy
-	Limit int
-	Offset int
-}
-
-type WorkflowStateResult struct {
-	ObjectID string `json:"object_id"`
-	Author Author `json:"author"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	WorkflowState state.WorkflowState `json:"workflow_state"`
 }
 
 package resolve // github.com/writtendev/writ/engine/resolve
@@ -1232,11 +782,6 @@ type Converge struct {
 	SkipGoldenUpdate bool
 }
 
-type CycleRecord struct {
-	ObjectID string `json:"object_id"`
-	Cycle writ.Cycle `json:"cycle"`
-}
-
 type Device struct {
 	Name string `json:"name"`
 	Writer Writer `json:"writer"`
@@ -1258,14 +803,10 @@ type ForcePushChain struct {
 	ExpectedError error
 }
 
-type IssueRecord struct {
+type ObjectRecord struct {
 	ObjectID string `json:"object_id"`
-	Issue writ.Issue `json:"issue"`
-}
-
-type ProjectRecord struct {
-	ObjectID string `json:"object_id"`
-	Project writ.Project `json:"project"`
+	ObjectType string `json:"object_type"`
+	ObjectState writ.ObjectState `json:"object_state"`
 }
 
 type Push struct {
@@ -1296,11 +837,6 @@ type ResolutionRecord struct {
 	Status string `json:"status"`
 }
 
-type ReviewRecord struct {
-	ObjectID string `json:"object_id"`
-	Review writ.Review `json:"review"`
-}
-
 type Scenario struct {
 	Name string
 	Devices []Device
@@ -1308,11 +844,7 @@ type Scenario struct {
 }
 
 type Snapshot struct {
-	Reviews []ReviewRecord `json:"reviews,omitempty"`
-	Comments []writ.CommentThread `json:"comments,omitempty"`
-	Issues []IssueRecord `json:"issues,omitempty"`
-	Projects []ProjectRecord `json:"projects,omitempty"`
-	Cycles []CycleRecord `json:"cycles,omitempty"`
+	Objects []ObjectRecord `json:"objects,omitempty"`
 	Resolutions []ResolutionRecord `json:"resolutions,omitempty"`
 }
 
@@ -1430,132 +962,19 @@ type ValueTypeKind int
 
 package state // github.com/writtendev/writ/engine/state
 
-const DefaultSettingsObjectID = "00000000000000000000000073657474"
-
 var ErrCycle = fold.ErrCycle
 var ErrDuplicateOpID = fold.ErrDuplicateOpID
 var ErrInvalidReference = errors.New("writ: invalid reference format")
 var ErrMixedObjects = fold.ErrMixedObjects
 
 func BuiltinRules() (map[string][]Rule, error)
-func CycleRules() []Rule
-func DefaultSettings() Settings
-func DocumentRules() []Rule
 func Fold(ops []codec.Op, rules []Rule) (ObjectState, error)
-func FoldComment(ops []codec.Op) (Comment, error)
-func FoldComments(ops []codec.Op) ([]CommentThread, error)
-func FoldCycle(ops []codec.Op) (Cycle, error)
-func FoldDocument(ops []codec.Op) (Document, error)
-func FoldIssue(ops []codec.Op) (Issue, error)
-func FoldLabel(ops []codec.Op) (Label, error)
-func FoldProject(ops []codec.Op) (Project, error)
-func FoldReview(ops []codec.Op) (Review, error)
 func FoldSchema(ops []codec.Op) (Schema, error)
-func FoldSection(ops []codec.Op) (Section, error)
-func FoldSettings(ops []codec.Op) (Settings, error)
-func FoldWorkflowState(ops []codec.Op) (WorkflowState, error)
-func IssueRules() []Rule
-func LabelRules() []Rule
 func NormalizePerson(s string) string
-func ParseCommentSubject(raw []byte) (CommentSubject, error)
 func ParseReference(ref string) (designator string, objectID string, err error)
-func ProjectRules() []Rule
-func ReviewRules() []Rule
 func SchemaRules() []Rule
-func SectionRules() []Rule
-func SettingsRules() []Rule
-func WorkflowStateRules() []Rule
 
 type Anchor = resolve.Anchor
-
-type Approval struct {
-	Subject string `json:"subject"`
-	Revision string `json:"revision"`
-	Verdict string `json:"verdict"`
-	Message string `json:"message,omitempty"`
-}
-
-type CIStatus struct {
-	Revision string `json:"revision"`
-	Name string `json:"name"`
-	State string `json:"state"`
-	URL string `json:"url,omitempty"`
-	Description string `json:"description,omitempty"`
-	StartedAt string `json:"started_at,omitempty"`
-	CompletedAt string `json:"completed_at,omitempty"`
-	ExternalID string `json:"external_id,omitempty"`
-}
-
-type Comment struct {
-	Subject CommentSubject `json:"subject,omitzero"`
-	Text string `json:"text,omitempty"`
-	InReplyTo string `json:"in_reply_to,omitempty"`
-	Anchor *Anchor `json:"anchor,omitempty"`
-	Deleted bool `json:"deleted,omitempty"`
-	Resolved *bool `json:"resolved,omitempty"`
-	ResolvedBy string `json:"resolved_by,omitempty"`
-	UnknownOps []UnknownOp `json:"unknown_ops,omitempty"`
-}
-func (Comment) IsResolved() bool
-
-type CommentSubject struct {
-	ObjectType string `json:"object_type,omitempty"`
-	ObjectID string `json:"object_id,omitempty"`
-	Unknown map[string]json.RawMessage `json:"-"`
-	Raw []byte `json:"-"`
-}
-func (CommentSubject) IsZero() bool
-func (CommentSubject) MarshalJSON() ([]byte, error)
-
-type CommentThread struct {
-	ObjectID string `json:"object_id"`
-	Comment Comment `json:"comment"`
-	Replies []CommentThread `json:"replies,omitempty"`
-	UnknownOps []UnknownOp `json:"unknown_ops,omitempty"`
-}
-
-type Cycle struct {
-	Title string `json:"title,omitempty"`
-	Description string `json:"description,omitempty"`
-	StartsAt string `json:"starts_at,omitempty"`
-	EndsAt string `json:"ends_at,omitempty"`
-	Issues []string `json:"issues,omitempty"`
-	UnknownOps []UnknownOp `json:"unknown_ops,omitempty"`
-}
-
-type Document struct {
-	Title string `json:"title,omitempty"`
-	Labels []string `json:"labels,omitempty"`
-	Links []Link `json:"links,omitempty"`
-	UnknownOps []UnknownOp `json:"unknown_ops,omitempty"`
-}
-
-type Issue struct {
-	Title string `json:"title,omitempty"`
-	Description string `json:"description,omitempty"`
-	State string `json:"state,omitempty"`
-	Reason string `json:"reason,omitempty"`
-	Priority int `json:"priority,omitempty"`
-	Estimate *float64 `json:"estimate,omitempty"`
-	Position string `json:"position,omitempty"`
-	Assignees []string `json:"assignees,omitempty"`
-	Labels []string `json:"labels,omitempty"`
-	Links []Link `json:"links,omitempty"`
-	UnknownOps []UnknownOp `json:"unknown_ops,omitempty"`
-}
-
-type Label struct {
-	Name string `json:"name,omitempty"`
-	Color string `json:"color,omitempty"`
-	Description string `json:"description,omitempty"`
-	UnknownOps []UnknownOp `json:"unknown_ops,omitempty"`
-}
-
-type Link struct {
-	Target string `json:"target"`
-	TargetType string `json:"target_type,omitempty"`
-	Relation string `json:"relation"`
-}
 
 type ObjectState struct {
 	ObjectID string `json:"object_id"`
@@ -1568,35 +987,6 @@ type ObjectState struct {
 type OpRef struct {
 	Commit string `json:"commit"`
 	TStar int64 `json:"t_star"`
-}
-
-type Project struct {
-	Title string `json:"title,omitempty"`
-	Description string `json:"description,omitempty"`
-	Status string `json:"status,omitempty"`
-	Reason string `json:"reason,omitempty"`
-	Issues []string `json:"issues,omitempty"`
-	UnknownOps []UnknownOp `json:"unknown_ops,omitempty"`
-}
-
-type Review struct {
-	Title string `json:"title,omitempty"`
-	Description string `json:"description,omitempty"`
-	Status string `json:"status,omitempty"`
-	MergeCommit string `json:"merge_commit,omitempty"`
-	Reason string `json:"reason,omitempty"`
-	Assignees []string `json:"assignees,omitempty"`
-	Labels []string `json:"labels,omitempty"`
-	Links []Link `json:"links,omitempty"`
-	Revisions []Revision `json:"revisions,omitempty"`
-	Approvals []Approval `json:"approvals,omitempty"`
-	CIStatuses []CIStatus `json:"ci_statuses,omitempty"`
-	UnknownOps []UnknownOp `json:"unknown_ops,omitempty"`
-}
-
-type Revision struct {
-	Base string `json:"base"`
-	Head string `json:"head"`
 }
 
 type Rule struct {
@@ -1653,48 +1043,11 @@ type SchemaType struct {
 	Ops []SchemaOp `json:"ops,omitempty"`
 }
 
-type Section struct {
-	DocumentID string `json:"document_id,omitempty"`
-	Position string `json:"position,omitempty"`
-	Title string `json:"title,omitempty"`
-	Body any `json:"body,omitempty"`
-	Deleted bool `json:"deleted,omitempty"`
-	UnknownOps []UnknownOp `json:"unknown_ops,omitempty"`
-}
-func (Section) ConflictBodies() []string
-func (Section) IsConflicted() bool
-func (Section) SettledBody() string
-
-type Settings struct {
-	ObjectID string `json:"object_id"`
-	Name string `json:"name"`
-	Identifier string `json:"identifier"`
-	Timezone string `json:"timezone"`
-	EstimateScale string `json:"estimate_scale"`
-	AllowZeroEstimates bool `json:"allow_zero_estimates"`
-	CyclesEnabled bool `json:"cycles_enabled"`
-	CycleDurationWeeks int `json:"cycle_duration_weeks"`
-	CycleStartDay int `json:"cycle_start_day"`
-	CycleCooldownWeeks int `json:"cycle_cooldown_weeks"`
-	TriageEnabled bool `json:"triage_enabled"`
-	UnknownKeys map[string]any `json:"unknown_keys,omitempty"`
-	UnknownOps []UnknownOp `json:"unknown_ops,omitempty"`
-}
-
 type UnknownOp struct {
 	Commit string `json:"commit"`
 	ObjectType string `json:"object_type"`
 	OpType string `json:"op_type"`
 	OpVersion int64 `json:"op_version"`
-}
-
-type WorkflowState struct {
-	Name string `json:"name,omitempty"`
-	Type string `json:"type,omitempty"`
-	Position string `json:"position,omitempty"`
-	Color string `json:"color,omitempty"`
-	Description string `json:"description,omitempty"`
-	UnknownOps []UnknownOp `json:"unknown_ops,omitempty"`
 }
 
 package sync // github.com/writtendev/writ/engine/sync
