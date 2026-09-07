@@ -57,6 +57,32 @@ func runObject(ctx context.Context, defaultDir string, args []string, stdout, st
 	}
 }
 
+// declaredTypeNames lists every object type the installed vocabulary
+// declares, sorted, for use in an "unknown type" error message.
+func declaredTypeNames(types []writ.SchemaType) []string {
+	names := make([]string, 0, len(types))
+	for _, t := range types {
+		names = append(names, t.Name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// declaredOpNames lists the op types objectType declares, sorted and
+// deduplicated across versions, for use in an "unknown op" error message.
+func declaredOpNames(td *writ.SchemaType) []string {
+	seen := make(map[string]bool)
+	var names []string
+	for _, o := range td.Ops {
+		if !seen[o.OpType] {
+			seen[o.OpType] = true
+			names = append(names, o.OpType)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
 // resolveOpVersion mirrors writ.Objects.Create/Apply's own op-version
 // resolution (engine/objects.go's unexported resolveOpVersion, over the
 // same Store.Types data): find objectType's declared version(s) of opType,
@@ -67,7 +93,13 @@ func runObject(ctx context.Context, defaultDir string, args []string, stdout, st
 // deeper one like a value-type catalogue, is unavoidable: passing the
 // resolved version through to NewOp then means Create/Apply's identical
 // check never has anything left to do.
-func resolveOpVersion(types []writ.SchemaType, objectType, opType string) (int64, error) {
+//
+// explicitVersion, when non-zero, is a caller-supplied -op-version: it is
+// checked for membership in the declared version set instead of requiring
+// exactly one, so an undeclared explicit version is refused here -- naming
+// the versions that are declared -- rather than surfacing later as a
+// misleading "field is not declared" error out of parseFieldFlags.
+func resolveOpVersion(types []writ.SchemaType, objectType, opType string, explicitVersion int64) (int64, error) {
 	var td *writ.SchemaType
 	for i := range types {
 		if types[i].Name == objectType {
@@ -76,7 +108,7 @@ func resolveOpVersion(types []writ.SchemaType, objectType, opType string) (int64
 		}
 	}
 	if td == nil {
-		return 0, fmt.Errorf("object type %q is not declared by the installed vocabulary", objectType)
+		return 0, fmt.Errorf("object type %q is not declared by the installed vocabulary (declares: %s)", objectType, strings.Join(declaredTypeNames(types), ", "))
 	}
 
 	versionSet := make(map[int64]bool)
@@ -86,20 +118,26 @@ func resolveOpVersion(types []writ.SchemaType, objectType, opType string) (int64
 		}
 	}
 	if len(versionSet) == 0 {
-		return 0, fmt.Errorf("object type %q declares no op %q", objectType, opType)
+		return 0, fmt.Errorf("object type %q declares no op %q (declares: %s)", objectType, opType, strings.Join(declaredOpNames(td), ", "))
 	}
-	if len(versionSet) > 1 {
-		versions := make([]int64, 0, len(versionSet))
-		for v := range versionSet {
-			versions = append(versions, v)
+
+	versions := make([]int64, 0, len(versionSet))
+	for v := range versionSet {
+		versions = append(versions, v)
+	}
+	sort.Slice(versions, func(i, j int) bool { return versions[i] < versions[j] })
+
+	if explicitVersion != 0 {
+		if versionSet[explicitVersion] {
+			return explicitVersion, nil
 		}
-		sort.Slice(versions, func(i, j int) bool { return versions[i] < versions[j] })
+		return 0, fmt.Errorf("object type %q declares op %q at version(s) %v, not %d", objectType, opType, versions, explicitVersion)
+	}
+
+	if len(versionSet) > 1 {
 		return 0, fmt.Errorf("object type %q declares %d versions of op %q (%v): specify -op-version explicitly", objectType, len(versionSet), opType, versions)
 	}
-	for v := range versionSet {
-		return v, nil
-	}
-	panic("unreachable")
+	return versions[0], nil
 }
 
 // lookupSchemaField finds the field rule declared for the fully-specified
@@ -290,14 +328,10 @@ func runObjectCreate(ctx context.Context, defaultDir string, args []string, stdo
 		return renderErr(stderr, err)
 	}
 
-	version := opts.opVer
-	if version == 0 {
-		v, err := resolveOpVersion(types, objectType, opType)
-		if err != nil {
-			fmt.Fprintf(stderr, "writ object create: %v\n", err)
-			return 1
-		}
-		version = v
+	version, err := resolveOpVersion(types, objectType, opType, opts.opVer)
+	if err != nil {
+		fmt.Fprintf(stderr, "writ object create: %v\n", err)
+		return 1
 	}
 
 	fields, err := parseFieldFlags(opts.fields, objectType, opType, version, types)
@@ -393,14 +427,10 @@ func runObjectApply(ctx context.Context, defaultDir string, args []string, stdou
 		return renderErr(stderr, err)
 	}
 
-	version := opts.opVer
-	if version == 0 {
-		v, err := resolveOpVersion(types, existing.ObjectType, opType)
-		if err != nil {
-			fmt.Fprintf(stderr, "writ object apply: %v\n", err)
-			return 1
-		}
-		version = v
+	version, err := resolveOpVersion(types, existing.ObjectType, opType, opts.opVer)
+	if err != nil {
+		fmt.Fprintf(stderr, "writ object apply: %v\n", err)
+		return 1
 	}
 
 	fields, err := parseFieldFlags(opts.fields, existing.ObjectType, opType, version, types)

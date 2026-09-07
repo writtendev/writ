@@ -225,6 +225,9 @@ func TestObjectCLI_UnknownTypeAndOp(t *testing.T) {
 	if !strings.Contains(stderr.String(), "nosuchop") || !strings.Contains(stderr.String(), "ticket") {
 		t.Errorf("stderr does not name the unknown op / type: %q", stderr.String())
 	}
+	if !strings.Contains(stderr.String(), "create") || !strings.Contains(stderr.String(), "update") {
+		t.Errorf("stderr does not name what ticket does declare (create, update): %q", stderr.String())
+	}
 
 	stdout.Reset()
 	stderr.Reset()
@@ -234,6 +237,34 @@ func TestObjectCLI_UnknownTypeAndOp(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "nosuchtype") {
 		t.Errorf("stderr does not name the unknown type: %q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "ticket") {
+		t.Errorf("stderr does not name what the vocabulary does declare (ticket): %q", stderr.String())
+	}
+}
+
+// TestObjectCLI_ExplicitOpVersion_Undeclared pins the minor finding from
+// round 1: an explicit -op-version the vocabulary doesn't declare must be
+// refused by resolveOpVersion itself, naming the versions ticket create
+// does declare -- not surface later as parseFieldFlags blaming a field
+// that is, in fact, declared for the version the caller meant.
+func TestObjectCLI_ExplicitOpVersion_Undeclared(t *testing.T) {
+	env := initTestRepo(t)
+	applyTicketObjectSchema(t, env.repoDir)
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{
+		"object", "create", "-C", env.repoDir, "ticket", "create",
+		"-op-version", "7", "-field", "title=x",
+	}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatalf("expected a non-zero exit for an undeclared op version, got 0")
+	}
+	if strings.Contains(stderr.String(), "declares no fields") {
+		t.Errorf("stderr blames the field instead of the version: %q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "7") || !strings.Contains(stderr.String(), "1") {
+		t.Errorf("stderr does not name the requested version and the declared version: %q", stderr.String())
 	}
 }
 
