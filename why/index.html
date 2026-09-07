@@ -67,11 +67,12 @@ of small, signed, immutable <strong>operations</strong>, each stored as an ordin
 commit under <code>refs/writ/*</code>. Current state is never stored authoritatively. It
 is derived, by deterministically folding an object&rsquo;s operations in causal
 order.</p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-console" data-lang="console"><span class="line"><span class="cl"><span class="gp">$</span> writ init                       <span class="c1"># writes fetch refspecs into .git/config</span>
-</span></span><span class="line"><span class="cl"><span class="gp">$</span> writ review open -title <span class="s2">&#34;Add rate limiting&#34;</span> -base main -head rate-limit
-</span></span><span class="line"><span class="cl"><span class="gp">$</span> writ review comment -m <span class="s2">&#34;this allocates in the hot path&#34;</span>
-</span></span><span class="line"><span class="cl"><span class="gp">$</span> writ review approve
-</span></span><span class="line"><span class="cl"><span class="gp">$</span> writ sync                       <span class="c1"># git push, to your own ref namespace</span>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-console" data-lang="console"><span class="line"><span class="cl"><span class="gp">$</span> writ init                        <span class="c1"># writes fetch refspecs into .git/config</span>
+</span></span><span class="line"><span class="cl"><span class="gp">$</span> writ schema apply                 <span class="c1"># appends the schema op; review/issue/comment ship as engine built-ins, not from this file</span>
+</span></span><span class="line"><span class="cl"><span class="gp">$</span> writ object create review create -field <span class="nv">title</span><span class="o">=</span><span class="s2">&#34;Add rate limiting&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="gp">$</span> writ object apply &lt;id&gt; revision -field <span class="nv">base</span><span class="o">=</span>&lt;base-sha&gt; -field <span class="nv">head</span><span class="o">=</span>&lt;head-sha&gt;
+</span></span><span class="line"><span class="cl"><span class="gp">$</span> writ object apply &lt;id&gt; approval -field <span class="nv">revision</span><span class="o">=</span>&lt;head-sha&gt; -field <span class="nv">verdict</span><span class="o">=</span>approve
+</span></span><span class="line"><span class="cl"><span class="gp">$</span> writ sync                        <span class="c1"># git push, to your own ref namespace</span>
 </span></span></code></pre></div><p>That is the whole deployment story. No server, no database, no webhook, no
 account. <code>writ init</code> adds one line to <code>.git/config</code>
 (<code>remote.origin.fetch = refs/writ/*:refs/remotes/origin/writ/*</code>) and from then
@@ -334,12 +335,14 @@ ask about first.</p>
 <code>refs/writ/&lt;writer-id&gt;/*</code>. A stranger filing a bug on an open-source project
 does not have it. Writ is built for the work of a team that already has commit
 access; it structurally cannot let unauthenticated strangers write ops without
-an account. The answer is an intake bot — a writer with push credentials that
-accepts reports from a public webhook, form, or email, attributing reporters
-truthfully via <code>user:</code> person identifiers (such as <code>user:github-octocat</code>)
-without inventing fake email addresses. For many open-source projects, the
-honest answer is to keep GitHub Issues as the public front door and use Writ
-for everything behind it.</p>
+an account. The answer is an intake bot — a designated writer with push
+credentials that bridges incoming webhooks, web forms, email, or an external
+tracker into writ operations. To attribute external reporters truthfully
+without synthesizing fake email addresses, an intake bot uses the <code>user:</code>
+person identifier scheme (<code>user:&lt;service&gt;-&lt;id&gt;</code>, such as
+<code>user:github-octocat</code>) while the bot itself signs the operation commit. For
+many open-source projects, the honest answer is to keep GitHub Issues as the
+public front door and use Writ for everything behind it.</p>
 <h2 id="the-spec-is-the-fixtures">The spec is the fixtures</h2>
 <p>The standard is not the prose. It is the conformance corpus: fixture
 repositories exercising concurrent edits on every type, multi-device writers,
@@ -375,8 +378,11 @@ that we have to.</p>
 <h2 id="where-this-actually-is">Where this actually is</h2>
 <p>Built and working: the spec and its conformance fixtures; the engine — codec,
 DAG store, fold, anchor resolver, SQLite projection, sync — behind a
-domain-shaped public Go API; and the <code>writ</code> CLI, with porcelain for humans and
-<code>--json</code> on every read verb for scripts and agents.</p>
+schema-shaped public Go API, never git-shaped: callers see no SHAs or
+refspecs unless they ask, and the shapes they see come from the schema in
+the log, not from Go structs writ ships; and the <code>writ</code> CLI, deliberately
+plumbing rather than porcelain, with <code>--json</code> on every read verb for scripts
+and agents.</p>
 <p>Not built: the terminal client, a GitHub bridge, the relay, compaction. The
 public API is deliberately strong enough that clients need no private hooks —
 that constraint is what keeps the convention honest — and a client built on it
