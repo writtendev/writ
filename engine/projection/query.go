@@ -131,16 +131,19 @@ func (d *DB) Reviews(f ReviewFilter) ([]ReviewResult, error) {
 	if d == nil || d.db == nil {
 		return nil, fmt.Errorf("projection: database is closed")
 	}
+	if err := d.requireBuiltinShape("review"); err != nil {
+		return nil, err
+	}
 
 	var sb strings.Builder
 	var args []any
 
-	sb.WriteString("SELECT r.object_id, r.title, r.description, r.status, r.merge_commit, r.reason, ")
+	sb.WriteString("SELECT r.object_id, COALESCE(r.f_title, ''), COALESCE(r.f_description, ''), COALESCE(r.f_status, ''), COALESCE(r.f_merge_commit, ''), COALESCE(r.f_reason, ''), ")
 	sb.WriteString("o.author_name, o.author_email, o.created_at, o.updated_at ")
-	sb.WriteString("FROM reviews r JOIN objects o ON o.object_id = r.object_id WHERE 1=1")
+	sb.WriteString("FROM o_review r JOIN objects o ON o.object_id = r.object_id WHERE 1=1")
 
 	if len(f.Status) > 0 {
-		sb.WriteString(" AND r.status IN (" + placeholders(len(f.Status)) + ")")
+		sb.WriteString(" AND r.f_status IN (" + placeholders(len(f.Status)) + ")")
 		for _, s := range f.Status {
 			args = append(args, s)
 		}
@@ -157,18 +160,27 @@ func (d *DB) Reviews(f ReviewFilter) ([]ReviewResult, error) {
 	}
 
 	if len(f.Assignee) > 0 {
-		sb.WriteString(" AND EXISTS (SELECT 1 FROM review_assignees ra WHERE ra.review_object_id = r.object_id AND ra.assignee IN (" + placeholders(len(f.Assignee)) + "))")
+		sb.WriteString(" AND EXISTS (SELECT 1 FROM o_review__assignees ra WHERE ra.object_id = r.object_id AND ra.item IN (" + placeholders(len(f.Assignee)) + "))")
 		for _, a := range f.Assignee {
 			args = append(args, state.NormalizePerson(a))
 		}
 	}
 
 	if len(f.Label) > 0 {
-		appendLabelFilter(&sb, &args, "review_labels", "rl", "review_object_id", "r.object_id", f.Label)
+		// appendLabelFilter's generated EXISTS clause resolves a label
+		// filter value against o_label.f_name directly, a second type's
+		// column this reader has no other guard for — requireBuiltinShape
+		// above only covers "review" (WRIT-189 round 5 MAJOR-2, the same
+		// unguarded-cross-type-read class round 3 MAJOR-2 closed for
+		// Objects and round 5 closes for Issues' f.State branch).
+		if err := d.requireBuiltinShape("label"); err != nil {
+			return nil, err
+		}
+		appendLabelFilter(&sb, &args, "o_review__labels", "rl", "object_id", "r.object_id", f.Label)
 	}
 
 	if f.Text != "" {
-		sb.WriteString(" AND (r.title LIKE ? ESCAPE '\\' OR r.description LIKE ? ESCAPE '\\')")
+		sb.WriteString(" AND (r.f_title LIKE ? ESCAPE '\\' OR r.f_description LIKE ? ESCAPE '\\')")
 		escaped := "%" + escapeLike(f.Text) + "%"
 		args = append(args, escaped, escaped)
 	}
@@ -183,9 +195,9 @@ func (d *DB) Reviews(f ReviewFilter) ([]ReviewResult, error) {
 	case OrderByUpdatedAtDesc:
 		sb.WriteString(" ORDER BY o.updated_at DESC, r.object_id DESC")
 	case OrderByTitleAsc:
-		sb.WriteString(" ORDER BY r.title ASC, r.object_id ASC")
+		sb.WriteString(" ORDER BY r.f_title ASC, r.object_id ASC")
 	case OrderByTitleDesc:
-		sb.WriteString(" ORDER BY r.title DESC, r.object_id DESC")
+		sb.WriteString(" ORDER BY r.f_title DESC, r.object_id DESC")
 	default:
 		sb.WriteString(" ORDER BY o.created_at ASC, r.object_id ASC")
 	}
@@ -233,9 +245,18 @@ func (d *DB) Reviews(f ReviewFilter) ([]ReviewResult, error) {
 		return []ReviewResult{}, nil
 	}
 
-	// Batch load revisions
+	// Batch load revisions: base and head are two members of one append
+	// group (WRIT-189's generic append-envelope shape — ddl.go's
+	// appendGroupPlan), sharing a single child table keyed by (object_id,
+	// idx) where idx already reflects the originating op's position, one
+	// row per revision push. That is the pairing between a push's base and
+	// head fixed at write time (writeAppendGroupRows), so a reader just
+	// reads rows in idx order — no zipping two independently-ordered
+	// per-field lists back together by position, which is what silently
+	// mispaired or dropped a revision whenever one push wrote only one of
+	// the two fields (round 2 MAJOR-1).
 	revisionsMap := make(map[string][]state.Revision)
-	revRows, err := d.queryIn("SELECT review_object_id, base, head FROM review_revisions WHERE review_object_id IN (?) ORDER BY review_object_id ASC, revision_index ASC", objectIDs)
+	revRows, err := d.queryIn("SELECT object_id, COALESCE(f_base, ''), COALESCE(f_head, '') FROM o_review__base_head WHERE object_id IN (?) ORDER BY object_id ASC, idx ASC", objectIDs)
 	if err != nil {
 		return nil, fmt.Errorf("projection: query review revisions: %w", err)
 	}
@@ -251,7 +272,7 @@ func (d *DB) Reviews(f ReviewFilter) ([]ReviewResult, error) {
 
 	// Batch load assignees
 	assigneesMap := make(map[string][]string)
-	asRows, err := d.queryIn("SELECT review_object_id, assignee FROM review_assignees WHERE review_object_id IN (?) ORDER BY review_object_id ASC, assignee ASC", objectIDs)
+	asRows, err := d.queryIn("SELECT object_id, item FROM o_review__assignees WHERE object_id IN (?) ORDER BY object_id ASC, item ASC", objectIDs)
 	if err != nil {
 		return nil, fmt.Errorf("projection: query review assignees: %w", err)
 	}
@@ -267,7 +288,7 @@ func (d *DB) Reviews(f ReviewFilter) ([]ReviewResult, error) {
 
 	// Batch load labels
 	labelsMap := make(map[string][]string)
-	lblRows, err := d.queryIn("SELECT review_object_id, label FROM review_labels WHERE review_object_id IN (?) ORDER BY review_object_id ASC, label ASC", objectIDs)
+	lblRows, err := d.queryIn("SELECT object_id, item FROM o_review__labels WHERE object_id IN (?) ORDER BY object_id ASC, item ASC", objectIDs)
 	if err != nil {
 		return nil, fmt.Errorf("projection: query review labels: %w", err)
 	}
@@ -283,7 +304,7 @@ func (d *DB) Reviews(f ReviewFilter) ([]ReviewResult, error) {
 
 	// Batch load links
 	linksMap := make(map[string][]state.Link)
-	lnkRows, err := d.queryIn("SELECT review_object_id, target, target_type, relation FROM review_links WHERE review_object_id IN (?) ORDER BY review_object_id ASC, target ASC", objectIDs)
+	lnkRows, err := d.queryIn("SELECT object_id, k_target, COALESCE(f_target_type, ''), COALESCE(f_relation, '') FROM o_review__k_target WHERE object_id IN (?) AND COALESCE(f_relation, '') NOT IN ('', 'none') ORDER BY object_id ASC, k_target ASC", objectIDs)
 	if err != nil {
 		return nil, fmt.Errorf("projection: query review links: %w", err)
 	}
@@ -303,7 +324,7 @@ func (d *DB) Reviews(f ReviewFilter) ([]ReviewResult, error) {
 
 	// Batch load approvals
 	approvalsMap := make(map[string][]state.Approval)
-	appRows, err := d.queryIn("SELECT review_object_id, subject, revision, verdict, message FROM approvals WHERE review_object_id IN (?) ORDER BY review_object_id ASC, subject ASC, revision ASC", objectIDs)
+	appRows, err := d.queryIn("SELECT object_id, k_subject, k_revision, COALESCE(f_verdict, ''), COALESCE(f_message, '') FROM o_review__k_subject_revision WHERE object_id IN (?) AND COALESCE(f_verdict, '') NOT IN ('', 'none') ORDER BY object_id ASC, k_subject ASC, k_revision ASC", objectIDs)
 	if err != nil {
 		return nil, fmt.Errorf("projection: query approvals: %w", err)
 	}
@@ -324,7 +345,7 @@ func (d *DB) Reviews(f ReviewFilter) ([]ReviewResult, error) {
 
 	// Batch load ci_statuses
 	ciMap := make(map[string][]state.CIStatus)
-	ciRows, err := d.queryIn("SELECT review_object_id, revision, name, state, url, description, started_at, completed_at, external_id FROM ci_statuses WHERE review_object_id IN (?) ORDER BY review_object_id ASC, revision ASC, name ASC", objectIDs)
+	ciRows, err := d.queryIn("SELECT object_id, k_revision, k_name, COALESCE(f_state, ''), COALESCE(f_url, ''), COALESCE(f_ci_description, ''), COALESCE(f_started_at, ''), COALESCE(f_completed_at, ''), COALESCE(f_external_id, '') FROM o_review__k_revision_name WHERE object_id IN (?) ORDER BY object_id ASC, k_revision ASC, k_name ASC", objectIDs)
 	if err != nil {
 		return nil, fmt.Errorf("projection: query ci_statuses: %w", err)
 	}
@@ -348,26 +369,10 @@ func (d *DB) Reviews(f ReviewFilter) ([]ReviewResult, error) {
 	ciRows.Close()
 
 	// Batch load unknown_ops
-	unknownMap := make(map[string][]state.UnknownOp)
-	uRows, err := d.queryIn("SELECT object_id, op_id, object_type, op_type, op_version FROM unknown_ops WHERE object_id IN (?) ORDER BY object_id ASC, op_index ASC", objectIDs)
+	unknownMap, err := d.loadUnknownOps(objectIDs)
 	if err != nil {
-		return nil, fmt.Errorf("projection: query unknown_ops: %w", err)
+		return nil, err
 	}
-	for uRows.Next() {
-		var objID, opID, objType, opType string
-		var opVersion int64
-		if err := uRows.Scan(&objID, &opID, &objType, &opType, &opVersion); err != nil {
-			uRows.Close()
-			return nil, fmt.Errorf("projection: scan unknown op: %w", err)
-		}
-		unknownMap[objID] = append(unknownMap[objID], state.UnknownOp{
-			Commit:     opID,
-			ObjectType: objType,
-			OpType:     opType,
-			OpVersion:  opVersion,
-		})
-	}
-	uRows.Close()
 
 	results := make([]ReviewResult, 0, len(rawReviews))
 	for _, rr := range rawReviews {
@@ -397,33 +402,94 @@ func (d *DB) Reviews(f ReviewFilter) ([]ReviewResult, error) {
 	return results, nil
 }
 
+// loadUnknownOps batch-loads unknown_ops rows for a set of object IDs — the
+// one substrate table that never changes shape under this ticket.
+func (d *DB) loadUnknownOps(objectIDs []string) (map[string][]state.UnknownOp, error) {
+	unknownMap := make(map[string][]state.UnknownOp)
+	if len(objectIDs) == 0 {
+		return unknownMap, nil
+	}
+	uRows, err := d.queryIn("SELECT object_id, op_id, object_type, op_type, op_version FROM unknown_ops WHERE object_id IN (?) ORDER BY object_id ASC, op_index ASC", objectIDs)
+	if err != nil {
+		return nil, fmt.Errorf("projection: query unknown_ops: %w", err)
+	}
+	defer uRows.Close()
+	for uRows.Next() {
+		var objID, opID, objType, opType string
+		var opVersion int64
+		if err := uRows.Scan(&objID, &opID, &objType, &opType, &opVersion); err != nil {
+			return nil, fmt.Errorf("projection: scan unknown op: %w", err)
+		}
+		unknownMap[objID] = append(unknownMap[objID], state.UnknownOp{
+			Commit:     opID,
+			ObjectType: objType,
+			OpType:     opType,
+			OpVersion:  opVersion,
+		})
+	}
+	return unknownMap, uRows.Err()
+}
+
+func (d *DB) unknownOpsFor(objectID string) ([]state.UnknownOp, error) {
+	rows, err := d.db.Query("SELECT op_id, object_type, op_type, op_version FROM unknown_ops WHERE object_id = ? ORDER BY op_index ASC", objectID)
+	if err != nil {
+		return nil, fmt.Errorf("projection: query unknown_ops: %w", err)
+	}
+	defer rows.Close()
+	var out []state.UnknownOp
+	for rows.Next() {
+		var u state.UnknownOp
+		if err := rows.Scan(&u.Commit, &u.ObjectType, &u.OpType, &u.OpVersion); err != nil {
+			return nil, fmt.Errorf("projection: scan unknown op: %w", err)
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
 // Issues executes a list and filter query over issues.
 func (d *DB) Issues(f IssueFilter) ([]IssueResult, error) {
 	if d == nil || d.db == nil {
 		return nil, fmt.Errorf("projection: database is closed")
 	}
+	if err := d.requireBuiltinShape("issue"); err != nil {
+		return nil, err
+	}
 
 	var sb strings.Builder
 	var args []any
 
-	sb.WriteString("SELECT i.object_id, i.title, i.description, i.state, i.reason, i.priority, i.estimate, i.position, ")
+	sb.WriteString("SELECT i.object_id, COALESCE(i.f_title, ''), COALESCE(i.f_description, ''), COALESCE(i.f_state, ''), COALESCE(i.f_reason, ''), COALESCE(i.f_priority, 0), i.f_estimate, COALESCE(i.f_position, ''), ")
 	sb.WriteString("o.author_name, o.author_email, o.created_at, o.updated_at ")
-	sb.WriteString("FROM issues i JOIN objects o ON o.object_id = i.object_id WHERE 1=1")
+	sb.WriteString("FROM o_issue i JOIN objects o ON o.object_id = i.object_id WHERE 1=1")
 
 	if len(f.State) > 0 {
+		// This branch's EXISTS clause below reads o_workflow_state.f_name
+		// and .f_type directly, not through generated SQL derived from
+		// "issue"'s own shape — requireBuiltinShape("issue") above says
+		// nothing about whether "workflow-state" still has its built-in
+		// columns. A log schema redeclaring workflow-state alone (issue
+		// left untouched) reshapes o_workflow_state out from under this
+		// literal and turns a state-filtered Issues call into a raw SQLite
+		// "no such column: ws.f_name" instead of the named error this guard
+		// exists to produce (WRIT-189 round 5 MAJOR-2, the same class round
+		// 3 MAJOR-2 already closed for Objects via objectsHardcodedTypes).
+		if err := d.requireBuiltinShape("workflow-state"); err != nil {
+			return nil, err
+		}
 		sb.WriteString(" AND (")
 		for idx, s := range f.State {
 			if idx > 0 {
 				sb.WriteString(" OR ")
 			}
-			sb.WriteString("(i.state = ? OR EXISTS (SELECT 1 FROM workflow_states ws WHERE ws.object_id = i.state AND (LOWER(ws.name) = LOWER(?) OR LOWER(ws.type) = LOWER(?) OR (LOWER(?) = 'closed' AND ws.type = 'completed') OR (LOWER(?) = 'open' AND ws.type IN ('unstarted', 'backlog')))))")
+			sb.WriteString("(COALESCE(i.f_state, '') = ? OR EXISTS (SELECT 1 FROM o_workflow_state ws WHERE ws.object_id = i.f_state AND (LOWER(ws.f_name) = LOWER(?) OR LOWER(ws.f_type) = LOWER(?) OR (LOWER(?) = 'closed' AND ws.f_type = 'completed') OR (LOWER(?) = 'open' AND ws.f_type IN ('unstarted', 'backlog')))))")
 			args = append(args, s, s, s, s, s)
 		}
 		sb.WriteString(")")
 	}
 
 	if len(f.Priority) > 0 {
-		sb.WriteString(" AND i.priority IN (" + placeholders(len(f.Priority)) + ")")
+		sb.WriteString(" AND COALESCE(i.f_priority, 0) IN (" + placeholders(len(f.Priority)) + ")")
 		for _, p := range f.Priority {
 			args = append(args, p)
 		}
@@ -440,18 +506,25 @@ func (d *DB) Issues(f IssueFilter) ([]IssueResult, error) {
 	}
 
 	if len(f.Assignee) > 0 {
-		sb.WriteString(" AND EXISTS (SELECT 1 FROM issue_assignees ia WHERE ia.issue_object_id = i.object_id AND ia.assignee IN (" + placeholders(len(f.Assignee)) + "))")
+		sb.WriteString(" AND EXISTS (SELECT 1 FROM o_issue__assignees ia WHERE ia.object_id = i.object_id AND ia.item IN (" + placeholders(len(f.Assignee)) + "))")
 		for _, a := range f.Assignee {
 			args = append(args, state.NormalizePerson(a))
 		}
 	}
 
 	if len(f.Label) > 0 {
-		appendLabelFilter(&sb, &args, "issue_labels", "il", "issue_object_id", "i.object_id", f.Label)
+		// Same cross-type read as Reviews' identical guard above: this
+		// filter's EXISTS clause resolves against o_label.f_name, which
+		// requireBuiltinShape("issue") above says nothing about (WRIT-189
+		// round 5 MAJOR-2).
+		if err := d.requireBuiltinShape("label"); err != nil {
+			return nil, err
+		}
+		appendLabelFilter(&sb, &args, "o_issue__labels", "il", "object_id", "i.object_id", f.Label)
 	}
 
 	if f.Text != "" {
-		sb.WriteString(" AND (i.title LIKE ? ESCAPE '\\' OR i.description LIKE ? ESCAPE '\\')")
+		sb.WriteString(" AND (i.f_title LIKE ? ESCAPE '\\' OR i.f_description LIKE ? ESCAPE '\\')")
 		escaped := "%" + escapeLike(f.Text) + "%"
 		args = append(args, escaped, escaped)
 	}
@@ -466,21 +539,21 @@ func (d *DB) Issues(f IssueFilter) ([]IssueResult, error) {
 	case OrderByUpdatedAtDesc:
 		sb.WriteString(" ORDER BY o.updated_at DESC, i.object_id DESC")
 	case OrderByTitleAsc:
-		sb.WriteString(" ORDER BY i.title ASC, i.object_id ASC")
+		sb.WriteString(" ORDER BY i.f_title ASC, i.object_id ASC")
 	case OrderByTitleDesc:
-		sb.WriteString(" ORDER BY i.title DESC, i.object_id DESC")
+		sb.WriteString(" ORDER BY i.f_title DESC, i.object_id DESC")
 	case OrderByPriorityAsc:
-		sb.WriteString(" ORDER BY CASE WHEN i.priority = 0 THEN 0 ELSE 5 - i.priority END ASC, i.position ASC, o.created_at ASC, i.object_id ASC")
+		sb.WriteString(" ORDER BY CASE WHEN COALESCE(i.f_priority, 0) = 0 THEN 0 ELSE 5 - COALESCE(i.f_priority, 0) END ASC, COALESCE(i.f_position, '') ASC, o.created_at ASC, i.object_id ASC")
 	case OrderByPriorityDesc:
-		sb.WriteString(" ORDER BY CASE WHEN i.priority = 0 THEN 5 ELSE i.priority END ASC, i.position ASC, o.created_at ASC, i.object_id ASC")
+		sb.WriteString(" ORDER BY CASE WHEN COALESCE(i.f_priority, 0) = 0 THEN 5 ELSE COALESCE(i.f_priority, 0) END ASC, COALESCE(i.f_position, '') ASC, o.created_at ASC, i.object_id ASC")
 	case OrderByPositionAsc:
-		sb.WriteString(" ORDER BY i.position ASC, i.position_op_id ASC, o.created_at ASC, i.object_id ASC")
+		sb.WriteString(" ORDER BY COALESCE(i.f_position, '') ASC, COALESCE(i.f_position__op_id, '') ASC, o.created_at ASC, i.object_id ASC")
 	case OrderByPositionDesc:
-		sb.WriteString(" ORDER BY i.position DESC, i.position_op_id DESC, o.created_at DESC, i.object_id DESC")
+		sb.WriteString(" ORDER BY COALESCE(i.f_position, '') DESC, COALESCE(i.f_position__op_id, '') DESC, o.created_at DESC, i.object_id DESC")
 	case OrderByEstimateAsc:
-		sb.WriteString(" ORDER BY CASE WHEN i.estimate IS NULL THEN 1 ELSE 0 END, i.estimate ASC, i.position ASC, o.created_at ASC, i.object_id ASC")
+		sb.WriteString(" ORDER BY CASE WHEN i.f_estimate IS NULL THEN 1 ELSE 0 END, i.f_estimate ASC, COALESCE(i.f_position, '') ASC, o.created_at ASC, i.object_id ASC")
 	case OrderByEstimateDesc:
-		sb.WriteString(" ORDER BY CASE WHEN i.estimate IS NULL THEN 1 ELSE 0 END, i.estimate DESC, i.position ASC, o.created_at ASC, i.object_id ASC")
+		sb.WriteString(" ORDER BY CASE WHEN i.f_estimate IS NULL THEN 1 ELSE 0 END, i.f_estimate DESC, COALESCE(i.f_position, '') ASC, o.created_at ASC, i.object_id ASC")
 	default:
 		sb.WriteString(" ORDER BY o.created_at ASC, i.object_id ASC")
 	}
@@ -533,7 +606,7 @@ func (d *DB) Issues(f IssueFilter) ([]IssueResult, error) {
 
 	// Batch load assignees
 	assigneesMap := make(map[string][]string)
-	asRows, err := d.queryIn("SELECT issue_object_id, assignee FROM issue_assignees WHERE issue_object_id IN (?) ORDER BY issue_object_id ASC, assignee ASC", objectIDs)
+	asRows, err := d.queryIn("SELECT object_id, item FROM o_issue__assignees WHERE object_id IN (?) ORDER BY object_id ASC, item ASC", objectIDs)
 	if err != nil {
 		return nil, fmt.Errorf("projection: query issue assignees: %w", err)
 	}
@@ -549,7 +622,7 @@ func (d *DB) Issues(f IssueFilter) ([]IssueResult, error) {
 
 	// Batch load labels
 	labelsMap := make(map[string][]string)
-	lblRows, err := d.queryIn("SELECT issue_object_id, label FROM issue_labels WHERE issue_object_id IN (?) ORDER BY issue_object_id ASC, label ASC", objectIDs)
+	lblRows, err := d.queryIn("SELECT object_id, item FROM o_issue__labels WHERE object_id IN (?) ORDER BY object_id ASC, item ASC", objectIDs)
 	if err != nil {
 		return nil, fmt.Errorf("projection: query issue labels: %w", err)
 	}
@@ -565,7 +638,7 @@ func (d *DB) Issues(f IssueFilter) ([]IssueResult, error) {
 
 	// Batch load links
 	linksMap := make(map[string][]state.Link)
-	lnkRows, err := d.queryIn("SELECT issue_object_id, target, target_type, relation FROM issue_links WHERE issue_object_id IN (?) ORDER BY issue_object_id ASC, target ASC", objectIDs)
+	lnkRows, err := d.queryIn("SELECT object_id, k_target, COALESCE(f_target_type, ''), COALESCE(f_relation, '') FROM o_issue__k_target WHERE object_id IN (?) AND COALESCE(f_relation, '') NOT IN ('', 'none') ORDER BY object_id ASC, k_target ASC", objectIDs)
 	if err != nil {
 		return nil, fmt.Errorf("projection: query issue links: %w", err)
 	}
@@ -583,27 +656,10 @@ func (d *DB) Issues(f IssueFilter) ([]IssueResult, error) {
 	}
 	lnkRows.Close()
 
-	// Batch load unknown_ops
-	unknownMap := make(map[string][]state.UnknownOp)
-	uRows, err := d.queryIn("SELECT object_id, op_id, object_type, op_type, op_version FROM unknown_ops WHERE object_id IN (?) ORDER BY object_id ASC, op_index ASC", objectIDs)
+	unknownMap, err := d.loadUnknownOps(objectIDs)
 	if err != nil {
-		return nil, fmt.Errorf("projection: query unknown_ops: %w", err)
+		return nil, err
 	}
-	for uRows.Next() {
-		var objID, opID, objType, opType string
-		var opVersion int64
-		if err := uRows.Scan(&objID, &opID, &objType, &opType, &opVersion); err != nil {
-			uRows.Close()
-			return nil, fmt.Errorf("projection: scan unknown op: %w", err)
-		}
-		unknownMap[objID] = append(unknownMap[objID], state.UnknownOp{
-			Commit:     opID,
-			ObjectType: objType,
-			OpType:     opType,
-			OpVersion:  opVersion,
-		})
-	}
-	uRows.Close()
 
 	results := make([]IssueResult, 0, len(rawIssues))
 	for _, ri := range rawIssues {
@@ -636,33 +692,71 @@ func (d *DB) Issues(f IssueFilter) ([]IssueResult, error) {
 	return results, nil
 }
 
+// commentSubjectFilterSQL builds the SQL fragment matching a comment's
+// json_extract'd subject: f_subject holds create-once's raw, verbatim JSON
+// bytes for the untyped `subject` target, so a subject filter must go
+// through json_extract, never whole-blob equality — create-once preserves
+// unknown members and key order, and CommentFilter filters subject_type and
+// subject_id independently.
+func commentSubjectFilterSQL(alias string) (subjectType, subjectID string) {
+	return "json_extract(" + alias + ".f_subject, '$.object_type')", "json_extract(" + alias + ".f_subject, '$.object_id')"
+}
+
 // Comments executes a list and filter query over comments.
 func (d *DB) Comments(f CommentFilter) ([]CommentResult, error) {
 	if d == nil || d.db == nil {
 		return nil, fmt.Errorf("projection: database is closed")
 	}
+	if err := d.requireBuiltinShape("comment"); err != nil {
+		return nil, err
+	}
 
-	var sb strings.Builder
+	subjectTypeExpr, subjectIDExpr := commentSubjectFilterSQL("c")
+
 	var args []any
 
-	sb.WriteString("SELECT c.object_id, c.subject_type, c.subject_id, c.text, c.in_reply_to, c.anchor, c.deleted, c.resolved, c.resolved_by, ")
-	sb.WriteString("o.author_name, o.author_email, o.created_at, o.updated_at ")
-	sb.WriteString("FROM comments c JOIN objects o ON o.object_id = c.object_id WHERE 1=1")
-
-	if f.SubjectType != "" {
-		sb.WriteString(" AND c.subject_type = ?")
-		args = append(args, f.SubjectType)
-	}
+	// Filtering goes through the generic members table (indexed on member,
+	// value), joined in rather than checked via a correlated EXISTS: an
+	// EXISTS subquery lets the planner pick o_comment as the driving table
+	// (a full 100k-row scan probing the index once per row), where a JOIN
+	// lets it drive from whichever member row the (member, value) index
+	// narrows down first and reach o_comment through its primary key — at
+	// 100k-comment scale that is the difference this ticket's
+	// BenchmarkThreadsAssembly gate exists to catch. The SELECT list still
+	// reads f_subject directly via json_extract; that cost is paid only for
+	// the rows already narrowed down by the joins below.
+	// SubjectID is joined first when both are present: in practice it is the
+	// selective half (one object's comments among the whole table), while
+	// SubjectType (e.g. every comment on any review) routinely is not.
+	// SQLite has no statistics on this generic, schema-agnostic table (no
+	// ANALYZE run over it) to infer that itself, so join order is this
+	// query's only lever — and it is exactly the lever
+	// BenchmarkThreadsAssembly exists to hold accountable.
+	var joins []string
 	if f.SubjectID != "" {
-		sb.WriteString(" AND c.subject_id = ?")
+		joins = append(joins, "JOIN o_comment__subject__members si ON si.object_id = c.object_id AND si.member = 'object_id' AND si.value = ?")
 		args = append(args, f.SubjectID)
 	}
+	if f.SubjectType != "" {
+		joins = append(joins, "JOIN o_comment__subject__members st ON st.object_id = c.object_id AND st.member = 'object_type' AND st.value = ?")
+		args = append(args, f.SubjectType)
+	}
+
+	var sb strings.Builder
+	sb.WriteString("SELECT c.object_id, COALESCE(" + subjectTypeExpr + ", ''), COALESCE(" + subjectIDExpr + ", ''), COALESCE(c.f_text, ''), COALESCE(c.f_in_reply_to, ''), COALESCE(c.f_anchor, ''), COALESCE(c.f_deleted, 0), c.f_resolved, COALESCE(c.f_resolved_by, ''), ")
+	sb.WriteString("o.author_name, o.author_email, o.created_at, o.updated_at ")
+	sb.WriteString("FROM o_comment c ")
+	for _, j := range joins {
+		sb.WriteString(j)
+		sb.WriteString(" ")
+	}
+	sb.WriteString("JOIN objects o ON o.object_id = c.object_id WHERE 1=1")
 
 	if f.Resolved != nil {
 		if *f.Resolved {
-			sb.WriteString(" AND c.resolved = 1")
+			sb.WriteString(" AND c.f_resolved = 1")
 		} else {
-			sb.WriteString(" AND (c.resolved = 0 OR c.resolved IS NULL)")
+			sb.WriteString(" AND (c.f_resolved = 0 OR c.f_resolved IS NULL)")
 		}
 	}
 
@@ -677,12 +771,12 @@ func (d *DB) Comments(f CommentFilter) ([]CommentResult, error) {
 	}
 
 	if f.Text != "" {
-		sb.WriteString(" AND c.text LIKE ? ESCAPE '\\'")
+		sb.WriteString(" AND c.f_text LIKE ? ESCAPE '\\'")
 		args = append(args, "%"+escapeLike(f.Text)+"%")
 	}
 
 	if !f.IncludeDeleted {
-		sb.WriteString(" AND c.deleted = 0")
+		sb.WriteString(" AND (c.f_deleted = 0 OR c.f_deleted IS NULL)")
 	}
 
 	switch f.OrderBy {
@@ -744,27 +838,10 @@ func (d *DB) Comments(f CommentFilter) ([]CommentResult, error) {
 		return []CommentResult{}, nil
 	}
 
-	// Batch load unknown_ops
-	unknownMap := make(map[string][]state.UnknownOp)
-	uRows, err := d.queryIn("SELECT object_id, op_id, object_type, op_type, op_version FROM unknown_ops WHERE object_id IN (?) ORDER BY object_id ASC, op_index ASC", objectIDs)
+	unknownMap, err := d.loadUnknownOps(objectIDs)
 	if err != nil {
-		return nil, fmt.Errorf("projection: query unknown_ops: %w", err)
+		return nil, err
 	}
-	for uRows.Next() {
-		var objID, opID, objType, opType string
-		var opVersion int64
-		if err := uRows.Scan(&objID, &opID, &objType, &opType, &opVersion); err != nil {
-			uRows.Close()
-			return nil, fmt.Errorf("projection: scan unknown op: %w", err)
-		}
-		unknownMap[objID] = append(unknownMap[objID], state.UnknownOp{
-			Commit:     opID,
-			ObjectType: objType,
-			OpType:     opType,
-			OpVersion:  opVersion,
-		})
-	}
-	uRows.Close()
 
 	// Determine target commit for resolutions:
 	targetCommit := f.TargetCommit
@@ -791,10 +868,10 @@ func (d *DB) Comments(f CommentFilter) ([]CommentResult, error) {
 	var resQuery string
 	var extraArgs []any
 	if targetCommit != "" {
-		resQuery = "SELECT comment_object_id, side, outcome, match, path, start_line, end_line, reason FROM anchor_resolutions WHERE comment_object_id IN (?) AND target_commit = ? ORDER BY comment_object_id ASC, side ASC"
+		resQuery = "SELECT object_id, side, outcome, match, path, start_line, end_line, reason FROM anchor_resolutions WHERE object_id IN (?) AND target_commit = ? ORDER BY object_id ASC, side ASC"
 		extraArgs = []any{targetCommit}
 	} else {
-		resQuery = "SELECT comment_object_id, side, outcome, match, path, start_line, end_line, reason FROM anchor_resolutions WHERE comment_object_id IN (?) ORDER BY comment_object_id ASC, side ASC"
+		resQuery = "SELECT object_id, side, outcome, match, path, start_line, end_line, reason FROM anchor_resolutions WHERE object_id IN (?) ORDER BY object_id ASC, side ASC"
 	}
 
 	resRows, err := d.queryIn(resQuery, objectIDs, extraArgs...)
@@ -863,10 +940,38 @@ func (d *DB) Comments(f CommentFilter) ([]CommentResult, error) {
 	return results, nil
 }
 
+// objectsHardcodedTypes is every built-in object type Objects' SQL below
+// hard-codes a table/column literal for — its text-search EXISTS clauses
+// (o_review.f_title, o_issue.f_description, ...), reached only when f.Text
+// is set, and its default !IncludeDeleted filter (o_comment.f_deleted),
+// which is the one clause among these that fires on every call regardless
+// of which filters are set. Objects checks all five unconditionally,
+// before it knows which filters f actually carries — not because every
+// type's literal is always reached (only comment's is), but because
+// working out in advance which of the five this particular filter
+// combination would touch is exactly the per-filter bookkeeping the
+// generic fallback is meant to avoid, so the guard stays simple at the
+// cost of over-refusing: a repo redeclaring only, say, "cycle" loses even
+// a plain no-filter listing that never touches o_cycle at all. Objects is
+// exactly the generic fallback requireBuiltinShape's own error message
+// used to point a caller at, but requireBuiltinShape's coverage never
+// reached it — a log-declared schema reshaping any of these five types the
+// same way it reshapes o_review bricks Objects with a raw SQLite "no such
+// column" too (WRIT-189 round 3 MAJOR-2). Guarded here the same way every
+// other typed reader in this file is, rather than rewritten off
+// hard-coded columns — WRIT-192 deletes this whole surface, so the
+// smaller fix is the one that belongs in this ticket.
+var objectsHardcodedTypes = []string{"review", "issue", "comment", "project", "cycle"}
+
 // Objects executes a cross-type summary query over collaborative objects.
 func (d *DB) Objects(f ObjectFilter) ([]ObjectResult, error) {
 	if d == nil || d.db == nil {
 		return nil, fmt.Errorf("projection: database is closed")
+	}
+	for _, t := range objectsHardcodedTypes {
+		if err := d.requireBuiltinShape(t); err != nil {
+			return nil, err
+		}
 	}
 
 	var sb strings.Builder
@@ -896,17 +1001,17 @@ func (d *DB) Objects(f ObjectFilter) ([]ObjectResult, error) {
 	if f.Text != "" {
 		escaped := "%" + escapeLike(f.Text) + "%"
 		sb.WriteString(" AND (")
-		sb.WriteString("EXISTS (SELECT 1 FROM reviews r WHERE r.object_id = o.object_id AND (r.title LIKE ? ESCAPE '\\' OR r.description LIKE ? ESCAPE '\\'))")
-		sb.WriteString(" OR EXISTS (SELECT 1 FROM issues i WHERE i.object_id = o.object_id AND (i.title LIKE ? ESCAPE '\\' OR i.description LIKE ? ESCAPE '\\'))")
-		sb.WriteString(" OR EXISTS (SELECT 1 FROM comments c WHERE c.object_id = o.object_id AND c.text LIKE ? ESCAPE '\\')")
-		sb.WriteString(" OR EXISTS (SELECT 1 FROM projects p WHERE p.object_id = o.object_id AND (p.title LIKE ? ESCAPE '\\' OR p.description LIKE ? ESCAPE '\\'))")
-		sb.WriteString(" OR EXISTS (SELECT 1 FROM cycles cy WHERE cy.object_id = o.object_id AND (cy.title LIKE ? ESCAPE '\\' OR cy.description LIKE ? ESCAPE '\\'))")
+		sb.WriteString("EXISTS (SELECT 1 FROM o_review r WHERE r.object_id = o.object_id AND (r.f_title LIKE ? ESCAPE '\\' OR r.f_description LIKE ? ESCAPE '\\'))")
+		sb.WriteString(" OR EXISTS (SELECT 1 FROM o_issue i WHERE i.object_id = o.object_id AND (i.f_title LIKE ? ESCAPE '\\' OR i.f_description LIKE ? ESCAPE '\\'))")
+		sb.WriteString(" OR EXISTS (SELECT 1 FROM o_comment c WHERE c.object_id = o.object_id AND c.f_text LIKE ? ESCAPE '\\')")
+		sb.WriteString(" OR EXISTS (SELECT 1 FROM o_project p WHERE p.object_id = o.object_id AND (p.f_title LIKE ? ESCAPE '\\' OR p.f_description LIKE ? ESCAPE '\\'))")
+		sb.WriteString(" OR EXISTS (SELECT 1 FROM o_cycle cy WHERE cy.object_id = o.object_id AND (cy.f_title LIKE ? ESCAPE '\\' OR cy.f_description LIKE ? ESCAPE '\\'))")
 		sb.WriteString(")")
 		args = append(args, escaped, escaped, escaped, escaped, escaped, escaped, escaped, escaped, escaped)
 	}
 
 	if !f.IncludeDeleted {
-		sb.WriteString(" AND (o.object_type != 'comment' OR EXISTS (SELECT 1 FROM comments c WHERE c.object_id = o.object_id AND c.deleted = 0))")
+		sb.WriteString(" AND (o.object_type != 'comment' OR EXISTS (SELECT 1 FROM o_comment c WHERE c.object_id = o.object_id AND (c.f_deleted = 0 OR c.f_deleted IS NULL)))")
 	}
 
 	switch f.OrderBy {
@@ -1225,6 +1330,9 @@ func (d *DB) Review(objectID string) (ReviewResult, error) {
 	if d == nil || d.db == nil {
 		return ReviewResult{}, fmt.Errorf("projection: database is closed")
 	}
+	if err := d.requireBuiltinShape("review"); err != nil {
+		return ReviewResult{}, err
+	}
 	if objectID == "" {
 		return ReviewResult{}, ErrNotFound
 	}
@@ -1243,7 +1351,7 @@ func (d *DB) Review(objectID string) (ReviewResult, error) {
 	}
 
 	err := d.db.QueryRow(
-		"SELECT r.object_id, r.title, r.description, r.status, r.merge_commit, r.reason, o.author_name, o.author_email, o.created_at, o.updated_at FROM reviews r JOIN objects o ON o.object_id = r.object_id WHERE r.object_id = ?",
+		"SELECT r.object_id, COALESCE(r.f_title, ''), COALESCE(r.f_description, ''), COALESCE(r.f_status, ''), COALESCE(r.f_merge_commit, ''), COALESCE(r.f_reason, ''), o.author_name, o.author_email, o.created_at, o.updated_at FROM o_review r JOIN objects o ON o.object_id = r.object_id WHERE r.object_id = ?",
 		objectID,
 	).Scan(
 		&rr.objectID, &rr.title, &rr.description, &rr.status, &rr.mergeCommit, &rr.reason,
@@ -1256,25 +1364,25 @@ func (d *DB) Review(objectID string) (ReviewResult, error) {
 		return ReviewResult{}, fmt.Errorf("projection: query review %s: %w", objectID, err)
 	}
 
-	var revisions []state.Revision
-	revRows, err := d.db.Query("SELECT base, head FROM review_revisions WHERE review_object_id = ? ORDER BY revision_index ASC", objectID)
+	// See Reviews' batch load above for why one row (o_review__base_head,
+	// ddl.go's appendGroupPlan) replaces the old base/head zip-by-position.
+	revRows, err := d.db.Query("SELECT COALESCE(f_base, ''), COALESCE(f_head, '') FROM o_review__base_head WHERE object_id = ? ORDER BY idx ASC", objectID)
 	if err != nil {
 		return ReviewResult{}, fmt.Errorf("projection: query review revisions: %w", err)
 	}
-	defer revRows.Close()
+	var revisions []state.Revision
 	for revRows.Next() {
 		var base, head string
 		if err := revRows.Scan(&base, &head); err != nil {
+			revRows.Close()
 			return ReviewResult{}, fmt.Errorf("projection: scan review revision: %w", err)
 		}
 		revisions = append(revisions, state.Revision{Base: base, Head: head})
 	}
-	if err := revRows.Err(); err != nil {
-		return ReviewResult{}, fmt.Errorf("projection: iterate review revisions: %w", err)
-	}
+	revRows.Close()
 
 	var assignees []string
-	asRows, err := d.db.Query("SELECT assignee FROM review_assignees WHERE review_object_id = ? ORDER BY assignee ASC", objectID)
+	asRows, err := d.db.Query("SELECT item FROM o_review__assignees WHERE object_id = ? ORDER BY item ASC", objectID)
 	if err != nil {
 		return ReviewResult{}, fmt.Errorf("projection: query review assignees: %w", err)
 	}
@@ -1291,7 +1399,7 @@ func (d *DB) Review(objectID string) (ReviewResult, error) {
 	}
 
 	var labels []string
-	lblRows, err := d.db.Query("SELECT label FROM review_labels WHERE review_object_id = ? ORDER BY label ASC", objectID)
+	lblRows, err := d.db.Query("SELECT item FROM o_review__labels WHERE object_id = ? ORDER BY item ASC", objectID)
 	if err != nil {
 		return ReviewResult{}, fmt.Errorf("projection: query review labels: %w", err)
 	}
@@ -1308,7 +1416,7 @@ func (d *DB) Review(objectID string) (ReviewResult, error) {
 	}
 
 	var links []state.Link
-	lnkRows, err := d.db.Query("SELECT target, target_type, relation FROM review_links WHERE review_object_id = ? ORDER BY target ASC", objectID)
+	lnkRows, err := d.db.Query("SELECT k_target, COALESCE(f_target_type, ''), COALESCE(f_relation, '') FROM o_review__k_target WHERE object_id = ? AND COALESCE(f_relation, '') NOT IN ('', 'none') ORDER BY k_target ASC", objectID)
 	if err != nil {
 		return ReviewResult{}, fmt.Errorf("projection: query review links: %w", err)
 	}
@@ -1329,7 +1437,7 @@ func (d *DB) Review(objectID string) (ReviewResult, error) {
 	}
 
 	var approvals []state.Approval
-	appRows, err := d.db.Query("SELECT subject, revision, verdict, message FROM approvals WHERE review_object_id = ? ORDER BY subject ASC, revision ASC", objectID)
+	appRows, err := d.db.Query("SELECT k_subject, k_revision, COALESCE(f_verdict, ''), COALESCE(f_message, '') FROM o_review__k_subject_revision WHERE object_id = ? AND COALESCE(f_verdict, '') NOT IN ('', 'none') ORDER BY k_subject ASC, k_revision ASC", objectID)
 	if err != nil {
 		return ReviewResult{}, fmt.Errorf("projection: query approvals: %w", err)
 	}
@@ -1351,7 +1459,7 @@ func (d *DB) Review(objectID string) (ReviewResult, error) {
 	}
 
 	var ciStatuses []state.CIStatus
-	ciRows, err := d.db.Query("SELECT revision, name, state, url, description, started_at, completed_at, external_id FROM ci_statuses WHERE review_object_id = ? ORDER BY revision ASC, name ASC", objectID)
+	ciRows, err := d.db.Query("SELECT k_revision, k_name, COALESCE(f_state, ''), COALESCE(f_url, ''), COALESCE(f_ci_description, ''), COALESCE(f_started_at, ''), COALESCE(f_completed_at, ''), COALESCE(f_external_id, '') FROM o_review__k_revision_name WHERE object_id = ? ORDER BY k_revision ASC, k_name ASC", objectID)
 	if err != nil {
 		return ReviewResult{}, fmt.Errorf("projection: query ci_statuses: %w", err)
 	}
@@ -1376,27 +1484,9 @@ func (d *DB) Review(objectID string) (ReviewResult, error) {
 		return ReviewResult{}, fmt.Errorf("projection: iterate ci_statuses: %w", err)
 	}
 
-	var unknownOps []state.UnknownOp
-	uRows, err := d.db.Query("SELECT op_id, object_type, op_type, op_version FROM unknown_ops WHERE object_id = ? ORDER BY op_index ASC", objectID)
+	unknownOps, err := d.unknownOpsFor(objectID)
 	if err != nil {
-		return ReviewResult{}, fmt.Errorf("projection: query unknown_ops: %w", err)
-	}
-	defer uRows.Close()
-	for uRows.Next() {
-		var opID, objType, opType string
-		var opVersion int64
-		if err := uRows.Scan(&opID, &objType, &opType, &opVersion); err != nil {
-			return ReviewResult{}, fmt.Errorf("projection: scan unknown op: %w", err)
-		}
-		unknownOps = append(unknownOps, state.UnknownOp{
-			Commit:     opID,
-			ObjectType: objType,
-			OpType:     opType,
-			OpVersion:  opVersion,
-		})
-	}
-	if err := uRows.Err(); err != nil {
-		return ReviewResult{}, fmt.Errorf("projection: iterate unknown_ops: %w", err)
+		return ReviewResult{}, err
 	}
 
 	return ReviewResult{
@@ -1426,6 +1516,9 @@ func (d *DB) Issue(objectID string) (IssueResult, error) {
 	if d == nil || d.db == nil {
 		return IssueResult{}, fmt.Errorf("projection: database is closed")
 	}
+	if err := d.requireBuiltinShape("issue"); err != nil {
+		return IssueResult{}, err
+	}
 	if objectID == "" {
 		return IssueResult{}, ErrNotFound
 	}
@@ -1446,7 +1539,7 @@ func (d *DB) Issue(objectID string) (IssueResult, error) {
 	}
 
 	err := d.db.QueryRow(
-		"SELECT i.object_id, i.title, i.description, i.state, i.reason, i.priority, i.estimate, i.position, o.author_name, o.author_email, o.created_at, o.updated_at FROM issues i JOIN objects o ON o.object_id = i.object_id WHERE i.object_id = ?",
+		"SELECT i.object_id, COALESCE(i.f_title, ''), COALESCE(i.f_description, ''), COALESCE(i.f_state, ''), COALESCE(i.f_reason, ''), COALESCE(i.f_priority, 0), i.f_estimate, COALESCE(i.f_position, ''), o.author_name, o.author_email, o.created_at, o.updated_at FROM o_issue i JOIN objects o ON o.object_id = i.object_id WHERE i.object_id = ?",
 		objectID,
 	).Scan(
 		&ri.objectID, &ri.title, &ri.description, &ri.state, &ri.reason,
@@ -1461,7 +1554,7 @@ func (d *DB) Issue(objectID string) (IssueResult, error) {
 	}
 
 	var assignees []string
-	asRows, err := d.db.Query("SELECT assignee FROM issue_assignees WHERE issue_object_id = ? ORDER BY assignee ASC", objectID)
+	asRows, err := d.db.Query("SELECT item FROM o_issue__assignees WHERE object_id = ? ORDER BY item ASC", objectID)
 	if err != nil {
 		return IssueResult{}, fmt.Errorf("projection: query issue assignees: %w", err)
 	}
@@ -1478,7 +1571,7 @@ func (d *DB) Issue(objectID string) (IssueResult, error) {
 	}
 
 	var labels []string
-	lblRows, err := d.db.Query("SELECT label FROM issue_labels WHERE issue_object_id = ? ORDER BY label ASC", objectID)
+	lblRows, err := d.db.Query("SELECT item FROM o_issue__labels WHERE object_id = ? ORDER BY item ASC", objectID)
 	if err != nil {
 		return IssueResult{}, fmt.Errorf("projection: query issue labels: %w", err)
 	}
@@ -1495,7 +1588,7 @@ func (d *DB) Issue(objectID string) (IssueResult, error) {
 	}
 
 	var links []state.Link
-	lnkRows, err := d.db.Query("SELECT target, target_type, relation FROM issue_links WHERE issue_object_id = ? ORDER BY target ASC", objectID)
+	lnkRows, err := d.db.Query("SELECT k_target, COALESCE(f_target_type, ''), COALESCE(f_relation, '') FROM o_issue__k_target WHERE object_id = ? AND COALESCE(f_relation, '') NOT IN ('', 'none') ORDER BY k_target ASC", objectID)
 	if err != nil {
 		return IssueResult{}, fmt.Errorf("projection: query issue links: %w", err)
 	}
@@ -1515,27 +1608,9 @@ func (d *DB) Issue(objectID string) (IssueResult, error) {
 		return IssueResult{}, fmt.Errorf("projection: iterate issue links: %w", err)
 	}
 
-	var unknownOps []state.UnknownOp
-	uRows, err := d.db.Query("SELECT op_id, object_type, op_type, op_version FROM unknown_ops WHERE object_id = ? ORDER BY op_index ASC", objectID)
+	unknownOps, err := d.unknownOpsFor(objectID)
 	if err != nil {
-		return IssueResult{}, fmt.Errorf("projection: query unknown_ops: %w", err)
-	}
-	defer uRows.Close()
-	for uRows.Next() {
-		var opID, objType, opType string
-		var opVersion int64
-		if err := uRows.Scan(&opID, &objType, &opType, &opVersion); err != nil {
-			return IssueResult{}, fmt.Errorf("projection: scan unknown op: %w", err)
-		}
-		unknownOps = append(unknownOps, state.UnknownOp{
-			Commit:     opID,
-			ObjectType: objType,
-			OpType:     opType,
-			OpVersion:  opVersion,
-		})
-	}
-	if err := uRows.Err(); err != nil {
-		return IssueResult{}, fmt.Errorf("projection: iterate unknown_ops: %w", err)
+		return IssueResult{}, err
 	}
 
 	var est *float64
@@ -1569,16 +1644,19 @@ func (d *DB) WorkflowStates(f WorkflowStateFilter) ([]WorkflowStateResult, error
 	if d == nil || d.db == nil {
 		return nil, fmt.Errorf("projection: database is closed")
 	}
+	if err := d.requireBuiltinShape("workflow-state"); err != nil {
+		return nil, err
+	}
 
 	var sb strings.Builder
 	var args []any
 
-	sb.WriteString("SELECT ws.object_id, ws.name, ws.type, ws.position, ws.color, ws.description, ")
+	sb.WriteString("SELECT ws.object_id, COALESCE(ws.f_name, ''), COALESCE(ws.f_type, ''), COALESCE(ws.f_position, ''), COALESCE(ws.f_color, ''), COALESCE(ws.f_description, ''), ")
 	sb.WriteString("o.author_name, o.author_email, o.created_at, o.updated_at, o.last_op_id ")
-	sb.WriteString("FROM workflow_states ws JOIN objects o ON o.object_id = ws.object_id WHERE 1=1")
+	sb.WriteString("FROM o_workflow_state ws JOIN objects o ON o.object_id = ws.object_id WHERE 1=1")
 
 	if len(f.Type) > 0 {
-		sb.WriteString(" AND ws.type IN (" + placeholders(len(f.Type)) + ")")
+		sb.WriteString(" AND ws.f_type IN (" + placeholders(len(f.Type)) + ")")
 		for _, t := range f.Type {
 			args = append(args, t)
 		}
@@ -1594,11 +1672,11 @@ func (d *DB) WorkflowStates(f WorkflowStateFilter) ([]WorkflowStateResult, error
 	case OrderByUpdatedAtDesc:
 		sb.WriteString(" ORDER BY o.updated_at DESC, ws.object_id DESC")
 	case OrderByTitleAsc:
-		sb.WriteString(" ORDER BY ws.name ASC, ws.object_id ASC")
+		sb.WriteString(" ORDER BY ws.f_name ASC, ws.object_id ASC")
 	case OrderByTitleDesc:
-		sb.WriteString(" ORDER BY ws.name DESC, ws.object_id DESC")
+		sb.WriteString(" ORDER BY ws.f_name DESC, ws.object_id DESC")
 	default:
-		sb.WriteString(" ORDER BY ws.position ASC, ws.op_id ASC")
+		sb.WriteString(" ORDER BY COALESCE(ws.f_position, '') ASC, COALESCE(ws.f_position__op_id, '') ASC")
 	}
 
 	appendLimitOffset(&sb, &args, f.Limit, f.Offset)
@@ -1641,27 +1719,9 @@ func (d *DB) WorkflowStates(f WorkflowStateFilter) ([]WorkflowStateResult, error
 		return nil, fmt.Errorf("projection: scan workflow states rows: %w", err)
 	}
 
-	unknownMap := make(map[string][]state.UnknownOp)
-	if len(objectIDs) > 0 {
-		uRows, err := d.queryIn("SELECT object_id, op_id, object_type, op_type, op_version FROM unknown_ops WHERE object_id IN (?) ORDER BY object_id ASC, op_index ASC", objectIDs)
-		if err != nil {
-			return nil, fmt.Errorf("projection: query unknown_ops: %w", err)
-		}
-		for uRows.Next() {
-			var objID, opID, objType, opType string
-			var opVersion int64
-			if err := uRows.Scan(&objID, &opID, &objType, &opType, &opVersion); err != nil {
-				uRows.Close()
-				return nil, fmt.Errorf("projection: scan unknown op: %w", err)
-			}
-			unknownMap[objID] = append(unknownMap[objID], state.UnknownOp{
-				Commit:     opID,
-				ObjectType: objType,
-				OpType:     opType,
-				OpVersion:  opVersion,
-			})
-		}
-		uRows.Close()
+	unknownMap, err := d.loadUnknownOps(objectIDs)
+	if err != nil {
+		return nil, err
 	}
 
 	results := make([]WorkflowStateResult, 0, len(rawStates))
@@ -1692,6 +1752,9 @@ func (d *DB) WorkflowState(id string) (WorkflowStateResult, error) {
 	if d == nil || d.db == nil {
 		return WorkflowStateResult{}, fmt.Errorf("projection: database is closed")
 	}
+	if err := d.requireBuiltinShape("workflow-state"); err != nil {
+		return WorkflowStateResult{}, err
+	}
 	if id == "" {
 		return WorkflowStateResult{}, fmt.Errorf("projection: workflow state id cannot be empty")
 	}
@@ -1710,9 +1773,9 @@ func (d *DB) WorkflowState(id string) (WorkflowStateResult, error) {
 		lastOpID    string
 	}
 
-	query := "SELECT ws.object_id, ws.name, ws.type, ws.position, ws.color, ws.description, " +
+	query := "SELECT ws.object_id, COALESCE(ws.f_name, ''), COALESCE(ws.f_type, ''), COALESCE(ws.f_position, ''), COALESCE(ws.f_color, ''), COALESCE(ws.f_description, ''), " +
 		"o.author_name, o.author_email, o.created_at, o.updated_at, o.last_op_id " +
-		"FROM workflow_states ws JOIN objects o ON o.object_id = ws.object_id WHERE ws.object_id = ?"
+		"FROM o_workflow_state ws JOIN objects o ON o.object_id = ws.object_id WHERE ws.object_id = ?"
 
 	err := d.db.QueryRow(query, id).Scan(
 		&rs.objectID, &rs.name, &rs.stateType, &rs.position, &rs.color, &rs.description,
@@ -1725,27 +1788,9 @@ func (d *DB) WorkflowState(id string) (WorkflowStateResult, error) {
 		return WorkflowStateResult{}, fmt.Errorf("projection: query workflow state %s: %w", id, err)
 	}
 
-	var unknownOps []state.UnknownOp
-	uRows, err := d.db.Query("SELECT op_id, object_type, op_type, op_version FROM unknown_ops WHERE object_id = ? ORDER BY op_index ASC", id)
+	unknownOps, err := d.unknownOpsFor(id)
 	if err != nil {
-		return WorkflowStateResult{}, fmt.Errorf("projection: query unknown_ops: %w", err)
-	}
-	defer uRows.Close()
-	for uRows.Next() {
-		var opID, objType, opType string
-		var opVersion int64
-		if err := uRows.Scan(&opID, &objType, &opType, &opVersion); err != nil {
-			return WorkflowStateResult{}, fmt.Errorf("projection: scan unknown op: %w", err)
-		}
-		unknownOps = append(unknownOps, state.UnknownOp{
-			Commit:     opID,
-			ObjectType: objType,
-			OpType:     opType,
-			OpVersion:  opVersion,
-		})
-	}
-	if err := uRows.Err(); err != nil {
-		return WorkflowStateResult{}, fmt.Errorf("projection: iterate unknown_ops: %w", err)
+		return WorkflowStateResult{}, err
 	}
 
 	return WorkflowStateResult{
@@ -1772,29 +1817,32 @@ func (d *DB) Labels(f LabelFilter) ([]LabelResult, error) {
 	if d == nil || d.db == nil {
 		return nil, fmt.Errorf("projection: database is closed")
 	}
+	if err := d.requireBuiltinShape("label"); err != nil {
+		return nil, err
+	}
 
 	var sb strings.Builder
 	var args []any
 
-	sb.WriteString("SELECT l.object_id, l.name, l.color, l.description, ")
-	sb.WriteString("l.author_name, l.author_email, l.created_at, l.updated_at ")
-	sb.WriteString("FROM labels l WHERE 1=1")
+	sb.WriteString("SELECT l.object_id, COALESCE(l.f_name, ''), COALESCE(l.f_color, ''), COALESCE(l.f_description, ''), ")
+	sb.WriteString("o.author_name, o.author_email, o.created_at, o.updated_at ")
+	sb.WriteString("FROM o_label l JOIN objects o ON o.object_id = l.object_id WHERE 1=1")
 
 	switch f.OrderBy {
 	case OrderByCreatedAtAsc:
-		sb.WriteString(" ORDER BY l.created_at ASC, l.object_id ASC")
+		sb.WriteString(" ORDER BY o.created_at ASC, l.object_id ASC")
 	case OrderByCreatedAtDesc:
-		sb.WriteString(" ORDER BY l.created_at DESC, l.object_id DESC")
+		sb.WriteString(" ORDER BY o.created_at DESC, l.object_id DESC")
 	case OrderByUpdatedAtAsc:
-		sb.WriteString(" ORDER BY l.updated_at ASC, l.object_id ASC")
+		sb.WriteString(" ORDER BY o.updated_at ASC, l.object_id ASC")
 	case OrderByUpdatedAtDesc:
-		sb.WriteString(" ORDER BY l.updated_at DESC, l.object_id DESC")
+		sb.WriteString(" ORDER BY o.updated_at DESC, l.object_id DESC")
 	case OrderByTitleAsc:
-		sb.WriteString(" ORDER BY l.name ASC, l.object_id ASC")
+		sb.WriteString(" ORDER BY l.f_name ASC, l.object_id ASC")
 	case OrderByTitleDesc:
-		sb.WriteString(" ORDER BY l.name DESC, l.object_id DESC")
+		sb.WriteString(" ORDER BY l.f_name DESC, l.object_id DESC")
 	default:
-		sb.WriteString(" ORDER BY LOWER(l.name) ASC, l.object_id ASC")
+		sb.WriteString(" ORDER BY LOWER(l.f_name) ASC, l.object_id ASC")
 	}
 
 	appendLimitOffset(&sb, &args, f.Limit, f.Offset)
@@ -1834,27 +1882,9 @@ func (d *DB) Labels(f LabelFilter) ([]LabelResult, error) {
 		return nil, fmt.Errorf("projection: scan labels rows: %w", err)
 	}
 
-	unknownMap := make(map[string][]state.UnknownOp)
-	if len(objectIDs) > 0 {
-		uRows, err := d.queryIn("SELECT object_id, op_id, object_type, op_type, op_version FROM unknown_ops WHERE object_id IN (?) ORDER BY object_id ASC, op_index ASC", objectIDs)
-		if err != nil {
-			return nil, fmt.Errorf("projection: query unknown_ops: %w", err)
-		}
-		for uRows.Next() {
-			var objID, opID, objType, opType string
-			var opVersion int64
-			if err := uRows.Scan(&objID, &opID, &objType, &opType, &opVersion); err != nil {
-				uRows.Close()
-				return nil, fmt.Errorf("projection: scan unknown op: %w", err)
-			}
-			unknownMap[objID] = append(unknownMap[objID], state.UnknownOp{
-				Commit:     opID,
-				ObjectType: objType,
-				OpType:     opType,
-				OpVersion:  opVersion,
-			})
-		}
-		uRows.Close()
+	unknownMap, err := d.loadUnknownOps(objectIDs)
+	if err != nil {
+		return nil, err
 	}
 
 	results := make([]LabelResult, 0, len(rawLabels))
@@ -1884,6 +1914,9 @@ func (d *DB) Label(id string) (LabelResult, error) {
 	if d == nil || d.db == nil {
 		return LabelResult{}, fmt.Errorf("projection: database is closed")
 	}
+	if err := d.requireBuiltinShape("label"); err != nil {
+		return LabelResult{}, err
+	}
 	if id == "" {
 		return LabelResult{}, fmt.Errorf("projection: label id cannot be empty")
 	}
@@ -1900,7 +1933,7 @@ func (d *DB) Label(id string) (LabelResult, error) {
 	)
 
 	err := d.db.QueryRow(
-		"SELECT object_id, name, color, description, author_name, author_email, created_at, updated_at FROM labels WHERE object_id = ?",
+		"SELECT l.object_id, COALESCE(l.f_name, ''), COALESCE(l.f_color, ''), COALESCE(l.f_description, ''), o.author_name, o.author_email, o.created_at, o.updated_at FROM o_label l JOIN objects o ON o.object_id = l.object_id WHERE l.object_id = ?",
 		id,
 	).Scan(&objectID, &name, &color, &description, &authorName, &authorEmail, &createdAt, &updatedAt)
 	if err != nil {
@@ -1910,25 +1943,9 @@ func (d *DB) Label(id string) (LabelResult, error) {
 		return LabelResult{}, fmt.Errorf("projection: query label %s: %w", id, err)
 	}
 
-	uRows, err := d.db.Query(
-		"SELECT op_id, object_type, op_type, op_version FROM unknown_ops WHERE object_id = ? ORDER BY op_index ASC",
-		id,
-	)
+	unknownOps, err := d.unknownOpsFor(id)
 	if err != nil {
-		return LabelResult{}, fmt.Errorf("projection: query unknown_ops: %w", err)
-	}
-	defer uRows.Close()
-
-	var unknownOps []state.UnknownOp
-	for uRows.Next() {
-		var u state.UnknownOp
-		if err := uRows.Scan(&u.Commit, &u.ObjectType, &u.OpType, &u.OpVersion); err != nil {
-			return LabelResult{}, fmt.Errorf("projection: scan unknown op: %w", err)
-		}
-		unknownOps = append(unknownOps, u)
-	}
-	if err := uRows.Err(); err != nil {
-		return LabelResult{}, fmt.Errorf("projection: iterate unknown_ops: %w", err)
+		return LabelResult{}, err
 	}
 
 	return LabelResult{
@@ -1979,7 +1996,7 @@ func appendLabelFilter(sb *strings.Builder, args *[]any, tableName, alias, objID
 	rawPH := placeholders(len(rawValues))
 	lowPH := placeholders(len(lowerValues))
 
-	sb.WriteString(fmt.Sprintf(" AND EXISTS (SELECT 1 FROM %s %s WHERE %s.%s = %s AND (%s.label IN (%s) OR LOWER(%s.label) IN (%s) OR (LENGTH(%s.label) > 32 AND substr(%s.label, -32) IN (%s)) OR %s.label IN (SELECT object_id FROM labels WHERE LOWER(name) IN (%s)) OR (LENGTH(%s.label) > 32 AND substr(%s.label, -32) IN (SELECT object_id FROM labels WHERE LOWER(name) IN (%s))) OR LOWER(%s.label) IN (SELECT LOWER(name) FROM labels WHERE object_id IN (%s))))",
+	sb.WriteString(fmt.Sprintf(" AND EXISTS (SELECT 1 FROM %s %s WHERE %s.%s = %s AND (%s.item IN (%s) OR LOWER(%s.item) IN (%s) OR (LENGTH(%s.item) > 32 AND substr(%s.item, -32) IN (%s)) OR %s.item IN (SELECT object_id FROM o_label WHERE LOWER(f_name) IN (%s)) OR (LENGTH(%s.item) > 32 AND substr(%s.item, -32) IN (SELECT object_id FROM o_label WHERE LOWER(f_name) IN (%s))) OR LOWER(%s.item) IN (SELECT LOWER(f_name) FROM o_label WHERE object_id IN (%s))))",
 		tableName, alias, alias, objIDCol, parentObjIDCol,
 		alias, rawPH,
 		alias, lowPH,
@@ -2011,6 +2028,13 @@ func appendLabelFilter(sb *strings.Builder, args *[]any, tableName, alias, objID
 
 // Documents executes a list and filter query over documents, returning documents with their ordered sections.
 func (d *DB) Documents(f DocumentFilter) ([]DocumentResult, error) {
+	if err := d.requireBuiltinShape("document"); err != nil {
+		return nil, err
+	}
+	if err := d.requireBuiltinShape("section"); err != nil {
+		return nil, err
+	}
+
 	var conditions []string
 	var args []any
 
@@ -2021,14 +2045,14 @@ func (d *DB) Documents(f DocumentFilter) ([]DocumentResult, error) {
 			args = append(args, label)
 		}
 		conditions = append(conditions, fmt.Sprintf(
-			"d.object_id IN (SELECT document_id FROM document_labels WHERE label IN (%s) GROUP BY document_id HAVING COUNT(DISTINCT label) = %d)",
+			"d.object_id IN (SELECT object_id FROM o_document__labels WHERE item IN (%s) GROUP BY object_id HAVING COUNT(DISTINCT item) = %d)",
 			strings.Join(placeholders, ", "), len(f.Labels),
 		))
 	}
 
-	query := "SELECT d.object_id, d.title, d.state_json, " +
+	query := "SELECT d.object_id, COALESCE(d.f_title, ''), " +
 		"o.author_name, o.author_email, o.created_at, o.updated_at " +
-		"FROM documents d JOIN objects o ON o.object_id = d.object_id"
+		"FROM o_document d JOIN objects o ON o.object_id = d.object_id"
 
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
@@ -2044,7 +2068,6 @@ func (d *DB) Documents(f DocumentFilter) ([]DocumentResult, error) {
 	type rawDoc struct {
 		objectID    string
 		title       string
-		stateJSON   string
 		authorName  string
 		authorEmail string
 		createdAt   int64
@@ -2055,7 +2078,7 @@ func (d *DB) Documents(f DocumentFilter) ([]DocumentResult, error) {
 	var docIDs []string
 	for rows.Next() {
 		var rd rawDoc
-		if err := rows.Scan(&rd.objectID, &rd.title, &rd.stateJSON, &rd.authorName, &rd.authorEmail, &rd.createdAt, &rd.updatedAt); err != nil {
+		if err := rows.Scan(&rd.objectID, &rd.title, &rd.authorName, &rd.authorEmail, &rd.createdAt, &rd.updatedAt); err != nil {
 			return nil, fmt.Errorf("projection: scan document: %w", err)
 		}
 		rawDocs = append(rawDocs, rd)
@@ -2069,17 +2092,21 @@ func (d *DB) Documents(f DocumentFilter) ([]DocumentResult, error) {
 		return []DocumentResult{}, nil
 	}
 
+	labelsByDoc, linksByDoc, err := d.loadDocumentDetails(docIDs)
+	if err != nil {
+		return nil, err
+	}
 	sectionsByDoc, err := d.loadSectionsForDocuments(docIDs)
+	if err != nil {
+		return nil, err
+	}
+	unknownMap, err := d.loadUnknownOps(docIDs)
 	if err != nil {
 		return nil, err
 	}
 
 	results := make([]DocumentResult, len(rawDocs))
 	for i, rd := range rawDocs {
-		var docState state.Document
-		if err := json.Unmarshal([]byte(rd.stateJSON), &docState); err != nil {
-			return nil, fmt.Errorf("projection: unmarshal document state for %s: %w", rd.objectID, err)
-		}
 		results[i] = DocumentResult{
 			ObjectID: rd.objectID,
 			Author: Author{
@@ -2088,11 +2115,60 @@ func (d *DB) Documents(f DocumentFilter) ([]DocumentResult, error) {
 			},
 			CreatedAt: time.Unix(rd.createdAt, 0).UTC(),
 			UpdatedAt: time.Unix(rd.updatedAt, 0).UTC(),
-			Document:  docState,
-			Sections:  sectionsByDoc[rd.objectID],
+			Document: state.Document{
+				Title:      rd.title,
+				Labels:     labelsByDoc[rd.objectID],
+				Links:      linksByDoc[rd.objectID],
+				UnknownOps: unknownMap[rd.objectID],
+			},
+			Sections: sectionsByDoc[rd.objectID],
 		}
 	}
 	return results, nil
+}
+
+func (d *DB) loadDocumentDetails(docIDs []string) (map[string][]string, map[string][]state.Link, error) {
+	labelsByDoc := make(map[string][]string)
+	linksByDoc := make(map[string][]state.Link)
+	if len(docIDs) == 0 {
+		return labelsByDoc, linksByDoc, nil
+	}
+
+	lblRows, err := d.queryIn("SELECT object_id, item FROM o_document__labels WHERE object_id IN (?) ORDER BY object_id ASC, item ASC", docIDs)
+	if err != nil {
+		return nil, nil, fmt.Errorf("projection: query document labels: %w", err)
+	}
+	for lblRows.Next() {
+		var objID, label string
+		if err := lblRows.Scan(&objID, &label); err != nil {
+			lblRows.Close()
+			return nil, nil, fmt.Errorf("projection: scan document label: %w", err)
+		}
+		labelsByDoc[objID] = append(labelsByDoc[objID], label)
+	}
+	lblRows.Close()
+	if err := lblRows.Err(); err != nil {
+		return nil, nil, fmt.Errorf("projection: iterate document labels: %w", err)
+	}
+
+	lnkRows, err := d.queryIn("SELECT object_id, k_target, COALESCE(f_target_type, ''), COALESCE(f_relation, '') FROM o_document__k_target WHERE object_id IN (?) AND COALESCE(f_relation, '') NOT IN ('', 'none') ORDER BY object_id ASC, k_target ASC", docIDs)
+	if err != nil {
+		return nil, nil, fmt.Errorf("projection: query document links: %w", err)
+	}
+	for lnkRows.Next() {
+		var objID, target, targetType, relation string
+		if err := lnkRows.Scan(&objID, &target, &targetType, &relation); err != nil {
+			lnkRows.Close()
+			return nil, nil, fmt.Errorf("projection: scan document link: %w", err)
+		}
+		linksByDoc[objID] = append(linksByDoc[objID], state.Link{Target: target, TargetType: targetType, Relation: relation})
+	}
+	lnkRows.Close()
+	if err := lnkRows.Err(); err != nil {
+		return nil, nil, fmt.Errorf("projection: iterate document links: %w", err)
+	}
+
+	return labelsByDoc, linksByDoc, nil
 }
 
 func (d *DB) loadSectionsForDocuments(docIDs []string) (map[string][]SectionResult, error) {
@@ -2109,11 +2185,11 @@ func (d *DB) loadSectionsForDocuments(docIDs []string) (map[string][]SectionResu
 	}
 
 	query := fmt.Sprintf(
-		"SELECT s.object_id, s.document_id, s.position, s.op_id, s.title, s.state_json, "+
+		"SELECT s.object_id, COALESCE(s.f_document_id, ''), COALESCE(s.f_position, ''), COALESCE(s.f_position__op_id, ''), COALESCE(s.f_title, ''), "+
 			"o.author_name, o.author_email, o.created_at, o.updated_at "+
-			"FROM sections s JOIN objects o ON o.object_id = s.object_id "+
-			"WHERE s.document_id IN (%s) AND s.deleted = 0 "+
-			"ORDER BY s.position ASC, s.op_id ASC",
+			"FROM o_section s JOIN objects o ON o.object_id = s.object_id "+
+			"WHERE s.f_document_id IN (%s) AND (s.f_deleted = 0 OR s.f_deleted IS NULL) "+
+			"ORDER BY COALESCE(s.f_position, '') ASC, COALESCE(s.f_position__op_id, '') ASC",
 		strings.Join(placeholders, ", "),
 	)
 
@@ -2123,45 +2199,109 @@ func (d *DB) loadSectionsForDocuments(docIDs []string) (map[string][]SectionResu
 	}
 	defer rows.Close()
 
+	type rawSection struct {
+		objectID    string
+		documentID  string
+		position    string
+		title       string
+		authorName  string
+		authorEmail string
+		createdAt   int64
+		updatedAt   int64
+	}
+	var rawSections []rawSection
+	var sectionIDs []string
 	for rows.Next() {
-		var objID, docID, pos, opID, title, stateJSON, authorName, authorEmail string
-		var createdAt, updatedAt int64
-		if err := rows.Scan(&objID, &docID, &pos, &opID, &title, &stateJSON, &authorName, &authorEmail, &createdAt, &updatedAt); err != nil {
+		var rs rawSection
+		var opID string
+		if err := rows.Scan(&rs.objectID, &rs.documentID, &rs.position, &opID, &rs.title, &rs.authorName, &rs.authorEmail, &rs.createdAt, &rs.updatedAt); err != nil {
 			return nil, fmt.Errorf("projection: scan section: %w", err)
 		}
-
-		var secState state.Section
-		if err := json.Unmarshal([]byte(stateJSON), &secState); err != nil {
-			return nil, fmt.Errorf("projection: unmarshal section state for %s: %w", objID, err)
-		}
-
-		sectionsByDoc[docID] = append(sectionsByDoc[docID], SectionResult{
-			ObjectID: objID,
-			Author: Author{
-				Name:  authorName,
-				Email: authorEmail,
-			},
-			CreatedAt: time.Unix(createdAt, 0).UTC(),
-			UpdatedAt: time.Unix(updatedAt, 0).UTC(),
-			Section:   secState,
-		})
+		rawSections = append(rawSections, rs)
+		sectionIDs = append(sectionIDs, rs.objectID)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("projection: iterate sections: %w", err)
 	}
+
+	bodies, err := d.loadSectionBodies(sectionIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, rs := range rawSections {
+		sectionsByDoc[rs.documentID] = append(sectionsByDoc[rs.documentID], SectionResult{
+			ObjectID: rs.objectID,
+			Author: Author{
+				Name:  rs.authorName,
+				Email: rs.authorEmail,
+			},
+			CreatedAt: time.Unix(rs.createdAt, 0).UTC(),
+			UpdatedAt: time.Unix(rs.updatedAt, 0).UTC(),
+			Section: state.Section{
+				DocumentID: rs.documentID,
+				Position:   rs.position,
+				Title:      rs.title,
+				Body:       bodies[rs.objectID],
+			},
+		})
+	}
 	return sectionsByDoc, nil
+}
+
+// loadSectionBodies reads o_section__body rows for a set of sections and
+// derives each section's Body: a bare string when settled (one row), a
+// []string when concurrent (more than one row) — sections.conflicted and
+// sections.body used to be materialized columns; both are now derived from
+// this child table by the reader instead.
+func (d *DB) loadSectionBodies(sectionIDs []string) (map[string]any, error) {
+	bodies := make(map[string]any)
+	if len(sectionIDs) == 0 {
+		return bodies, nil
+	}
+	rows, err := d.queryIn("SELECT object_id, value FROM o_section__body WHERE object_id IN (?) ORDER BY object_id ASC, idx ASC", sectionIDs)
+	if err != nil {
+		return nil, fmt.Errorf("projection: query section bodies: %w", err)
+	}
+	defer rows.Close()
+	byID := make(map[string][]string)
+	for rows.Next() {
+		var objID, val string
+		if err := rows.Scan(&objID, &val); err != nil {
+			return nil, fmt.Errorf("projection: scan section body: %w", err)
+		}
+		byID[objID] = append(byID[objID], val)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("projection: iterate section bodies: %w", err)
+	}
+	for objID, vals := range byID {
+		if len(vals) == 1 {
+			bodies[objID] = vals[0]
+		} else {
+			bodies[objID] = vals
+		}
+	}
+	return bodies, nil
 }
 
 // Document fetches a single document by its object ID, returning ErrNotFound if not found.
 func (d *DB) Document(id string) (DocumentResult, error) {
-	query := "SELECT d.object_id, d.title, d.state_json, " +
-		"o.author_name, o.author_email, o.created_at, o.updated_at " +
-		"FROM documents d JOIN objects o ON o.object_id = d.object_id WHERE d.object_id = ?"
+	if err := d.requireBuiltinShape("document"); err != nil {
+		return DocumentResult{}, err
+	}
+	if err := d.requireBuiltinShape("section"); err != nil {
+		return DocumentResult{}, err
+	}
 
-	var objID, title, stateJSON, authorName, authorEmail string
+	query := "SELECT d.object_id, COALESCE(d.f_title, ''), " +
+		"o.author_name, o.author_email, o.created_at, o.updated_at " +
+		"FROM o_document d JOIN objects o ON o.object_id = d.object_id WHERE d.object_id = ?"
+
+	var objID, title, authorName, authorEmail string
 	var createdAt, updatedAt int64
 	err := d.db.QueryRow(query, id).Scan(
-		&objID, &title, &stateJSON, &authorName, &authorEmail, &createdAt, &updatedAt,
+		&objID, &title, &authorName, &authorEmail, &createdAt, &updatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -2170,12 +2310,15 @@ func (d *DB) Document(id string) (DocumentResult, error) {
 		return DocumentResult{}, fmt.Errorf("projection: query document %s: %w", id, err)
 	}
 
-	var docState state.Document
-	if err := json.Unmarshal([]byte(stateJSON), &docState); err != nil {
-		return DocumentResult{}, fmt.Errorf("projection: unmarshal document state for %s: %w", id, err)
+	labelsByDoc, linksByDoc, err := d.loadDocumentDetails([]string{id})
+	if err != nil {
+		return DocumentResult{}, err
 	}
-
 	sectionsByDoc, err := d.loadSectionsForDocuments([]string{id})
+	if err != nil {
+		return DocumentResult{}, err
+	}
+	unknownOps, err := d.unknownOpsFor(id)
 	if err != nil {
 		return DocumentResult{}, err
 	}
@@ -2188,21 +2331,32 @@ func (d *DB) Document(id string) (DocumentResult, error) {
 		},
 		CreatedAt: time.Unix(createdAt, 0).UTC(),
 		UpdatedAt: time.Unix(updatedAt, 0).UTC(),
-		Document:  docState,
-		Sections:  sectionsByDoc[id],
+		Document: state.Document{
+			Title:      title,
+			Labels:     labelsByDoc[id],
+			Links:      linksByDoc[id],
+			UnknownOps: unknownOps,
+		},
+		Sections: sectionsByDoc[id],
 	}, nil
 }
 
 // Section fetches a single document section by its object ID, returning ErrNotFound if not found.
 func (d *DB) Section(id string) (SectionResult, error) {
-	query := "SELECT s.object_id, s.document_id, s.position, s.op_id, s.title, s.state_json, " +
-		"o.author_name, o.author_email, o.created_at, o.updated_at " +
-		"FROM sections s JOIN objects o ON o.object_id = s.object_id WHERE s.object_id = ?"
+	if err := d.requireBuiltinShape("section"); err != nil {
+		return SectionResult{}, err
+	}
 
-	var objID, docID, pos, opID, title, stateJSON, authorName, authorEmail string
+	query := "SELECT s.object_id, COALESCE(s.f_document_id, ''), COALESCE(s.f_position, ''), COALESCE(s.f_title, ''), COALESCE(s.f_deleted, 0), " +
+		"o.author_name, o.author_email, o.created_at, o.updated_at " +
+		"FROM o_section s JOIN objects o ON o.object_id = s.object_id WHERE s.object_id = ?"
+
+	var objID, docID, pos, title string
+	var deleted int
+	var authorName, authorEmail string
 	var createdAt, updatedAt int64
 	err := d.db.QueryRow(query, id).Scan(
-		&objID, &docID, &pos, &opID, &title, &stateJSON, &authorName, &authorEmail, &createdAt, &updatedAt,
+		&objID, &docID, &pos, &title, &deleted, &authorName, &authorEmail, &createdAt, &updatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -2211,9 +2365,13 @@ func (d *DB) Section(id string) (SectionResult, error) {
 		return SectionResult{}, fmt.Errorf("projection: query section %s: %w", id, err)
 	}
 
-	var secState state.Section
-	if err := json.Unmarshal([]byte(stateJSON), &secState); err != nil {
-		return SectionResult{}, fmt.Errorf("projection: unmarshal section state for %s: %w", id, err)
+	bodies, err := d.loadSectionBodies([]string{id})
+	if err != nil {
+		return SectionResult{}, err
+	}
+	unknownOps, err := d.unknownOpsFor(id)
+	if err != nil {
+		return SectionResult{}, err
 	}
 
 	return SectionResult{
@@ -2224,7 +2382,14 @@ func (d *DB) Section(id string) (SectionResult, error) {
 		},
 		CreatedAt: time.Unix(createdAt, 0).UTC(),
 		UpdatedAt: time.Unix(updatedAt, 0).UTC(),
-		Section:   secState,
+		Section: state.Section{
+			DocumentID: docID,
+			Position:   pos,
+			Title:      title,
+			Body:       bodies[id],
+			Deleted:    deleted == 1,
+			UnknownOps: unknownOps,
+		},
 	}, nil
 }
 
@@ -2235,28 +2400,52 @@ func (d *DB) Settings() (SettingsResult, error) {
 	if d == nil || d.db == nil {
 		return SettingsResult{}, fmt.Errorf("projection: database is closed")
 	}
+	if err := d.requireBuiltinShape("settings"); err != nil {
+		return SettingsResult{}, err
+	}
+
+	hasTable, err := d.hasTable("o_settings")
+	if err != nil {
+		return SettingsResult{}, err
+	}
+	if !hasTable {
+		return SettingsResult{
+			ObjectID: state.DefaultSettingsObjectID,
+			Settings: state.DefaultSettings(),
+		}, nil
+	}
 
 	var (
 		objectID           string
-		name               string
-		identifier         string
-		timezone           string
-		estimateScale      string
-		allowZeroInt       int
-		cyclesEnabledInt   int
-		cycleDurationWeeks int
-		cycleStartDay      int
-		cycleCooldownWeeks int
-		triageEnabledInt   int
-		unkJSON            string
+		name               sql.NullString
+		identifier         sql.NullString
+		timezone           sql.NullString
+		estimateScale      sql.NullString
+		allowZeroInt       sql.NullInt64
+		cyclesEnabledInt   sql.NullInt64
+		cycleDurationWeeks sql.NullInt64
+		cycleStartDay      sql.NullInt64
+		cycleCooldownWeeks sql.NullInt64
+		triageEnabledInt   sql.NullInt64
+		unkJSON            sql.NullString
 		updatedAt          int64
 	)
 
+	// No COALESCE here: a NULL column means the register has never been
+	// written by any op (state.FoldSettings starts from
+	// state.DefaultSettings() and only overwrites a field an op's body
+	// actually names), and this reader must reproduce that fold exactly
+	// rather than substitute SQL's own zero-value default — UTC/fibonacci/2/1
+	// for timezone/estimate_scale/cycle_duration_weeks/cycle_start_day, not
+	// ""/""/0/0 (MAJOR-1, WRIT-189 round 1).
 	row := d.db.QueryRow(
-		"SELECT object_id, name, identifier, timezone, estimate_scale, allow_zero_estimates, cycles_enabled, cycle_duration_weeks, cycle_start_day, cycle_cooldown_weeks, triage_enabled, unknown_keys, updated_at FROM settings ORDER BY CASE WHEN object_id = ? THEN 0 ELSE 1 END, object_id ASC LIMIT 1",
+		"SELECT s.object_id, s.f_name, s.f_identifier, s.f_timezone, s.f_estimate_scale, "+
+			"s.f_allow_zero_estimates, s.f_cycles_enabled, s.f_cycle_duration_weeks, s.f_cycle_start_day, s.f_cycle_cooldown_weeks, "+
+			"s.f_triage_enabled, s.unknown_fields, o.updated_at "+
+			"FROM o_settings s JOIN objects o ON o.object_id = s.object_id ORDER BY CASE WHEN s.object_id = ? THEN 0 ELSE 1 END, s.object_id ASC LIMIT 1",
 		state.DefaultSettingsObjectID,
 	)
-	err := row.Scan(
+	err = row.Scan(
 		&objectID, &name, &identifier, &timezone, &estimateScale,
 		&allowZeroInt, &cyclesEnabledInt, &cycleDurationWeeks, &cycleStartDay, &cycleCooldownWeeks,
 		&triageEnabledInt, &unkJSON, &updatedAt,
@@ -2272,49 +2461,73 @@ func (d *DB) Settings() (SettingsResult, error) {
 	}
 
 	unkKeys := make(map[string]any)
-	if unkJSON != "" {
-		_ = json.Unmarshal([]byte(unkJSON), &unkKeys)
+	if unkJSON.Valid && unkJSON.String != "" {
+		_ = json.Unmarshal([]byte(unkJSON.String), &unkKeys)
 	}
 
+	defaults := state.DefaultSettings()
 	sett := state.Settings{
 		ObjectID:           objectID,
-		Name:               name,
-		Identifier:         identifier,
-		Timezone:           timezone,
-		EstimateScale:      estimateScale,
-		AllowZeroEstimates: allowZeroInt != 0,
-		CyclesEnabled:      cyclesEnabledInt != 0,
-		CycleDurationWeeks: cycleDurationWeeks,
-		CycleStartDay:      cycleStartDay,
-		CycleCooldownWeeks: cycleCooldownWeeks,
-		TriageEnabled:      triageEnabledInt != 0,
+		Name:               nullOr(name, defaults.Name),
+		Identifier:         nullOr(identifier, defaults.Identifier),
+		Timezone:           nullOr(timezone, defaults.Timezone),
+		EstimateScale:      nullOr(estimateScale, defaults.EstimateScale),
+		AllowZeroEstimates: nullIntOr(allowZeroInt, boolToInt(defaults.AllowZeroEstimates)) != 0,
+		CyclesEnabled:      nullIntOr(cyclesEnabledInt, boolToInt(defaults.CyclesEnabled)) != 0,
+		CycleDurationWeeks: int(nullIntOr(cycleDurationWeeks, int64(defaults.CycleDurationWeeks))),
+		CycleStartDay:      int(nullIntOr(cycleStartDay, int64(defaults.CycleStartDay))),
+		CycleCooldownWeeks: int(nullIntOr(cycleCooldownWeeks, int64(defaults.CycleCooldownWeeks))),
+		TriageEnabled:      nullIntOr(triageEnabledInt, boolToInt(defaults.TriageEnabled)) != 0,
 		UnknownKeys:        unkKeys,
 	}
 
-	// Read unknown ops
-	rows, err := d.db.Query(
-		"SELECT op_id, object_type, op_type, op_version FROM unknown_ops WHERE object_id = ? ORDER BY op_index ASC",
-		objectID,
-	)
+	unknownOps, err := d.unknownOpsFor(objectID)
 	if err != nil {
-		return SettingsResult{}, fmt.Errorf("projection: query unknown_ops: %w", err)
+		return SettingsResult{}, err
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var u state.UnknownOp
-		if err := rows.Scan(&u.Commit, &u.ObjectType, &u.OpType, &u.OpVersion); err != nil {
-			return SettingsResult{}, fmt.Errorf("projection: scan unknown op: %w", err)
-		}
-		sett.UnknownOps = append(sett.UnknownOps, u)
-	}
-	if err := rows.Err(); err != nil {
-		return SettingsResult{}, fmt.Errorf("projection: iterate unknown_ops: %w", err)
-	}
+	sett.UnknownOps = unknownOps
 
 	return SettingsResult{
 		ObjectID:  objectID,
 		Settings:  sett,
 		UpdatedAt: time.Unix(updatedAt, 0).UTC(),
 	}, nil
+}
+
+// hasTable reports whether a generated table with the given name currently
+// exists — Settings() is called before any op has ever been folded (fresh
+// Open, no ApplySchema yet), and must return defaults rather than error on
+// a missing table.
+func (d *DB) hasTable(name string) (bool, error) {
+	var n int
+	err := d.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?", name).Scan(&n)
+	if err != nil {
+		return false, fmt.Errorf("projection: check table %s: %w", name, err)
+	}
+	return n > 0, nil
+}
+
+// nullOr returns v's string if the register was ever written, or def — the
+// typed reader's stand-in for a register that has never been set, distinct
+// from one explicitly set to "".
+func nullOr(v sql.NullString, def string) string {
+	if v.Valid {
+		return v.String
+	}
+	return def
+}
+
+// nullIntOr is nullOr's integer counterpart.
+func nullIntOr(v sql.NullInt64, def int64) int64 {
+	if v.Valid {
+		return v.Int64
+	}
+	return def
+}
+
+func boolToInt(b bool) int64 {
+	if b {
+		return 1
+	}
+	return 0
 }

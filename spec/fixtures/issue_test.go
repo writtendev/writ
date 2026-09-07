@@ -18,8 +18,24 @@ import (
 	"github.com/writtendev/writ/engine/dag"
 	"github.com/writtendev/writ/engine/identity"
 	"github.com/writtendev/writ/engine/projection"
+	"github.com/writtendev/writ/engine/state"
 	"github.com/writtendev/writ/spec/fixtures"
 )
+
+// testProjectionRules is a thin wrapper over state.BuiltinRules(), the
+// single shared construction of "the built-in vocabulary's fold rules,
+// grouped by object type" every package needing one delegates to, for
+// driving projection.DB.Refresh/Rebuild directly in a test that does not go
+// through package writ's own Store (which resolves and applies this
+// automatically).
+func testProjectionRules(t *testing.T) map[string][]state.Rule {
+	t.Helper()
+	rules, err := state.BuiltinRules()
+	if err != nil {
+		t.Fatalf("state.BuiltinRules: %v", err)
+	}
+	return rules
+}
 
 // TestIssueFamily registers the issue fixture family and runs all descriptions
 // carrying issue collaborative objects through the typed FoldIssue golden test harness.
@@ -335,7 +351,7 @@ func TestIssueFieldsAndRankConcurrentTiebreak(t *testing.T) {
 	}
 	defer db.Close()
 
-	if _, err := db.Refresh(store); err != nil {
+	if _, err := db.Refresh(store, projection.WithSchema(testProjectionRules(t))); err != nil {
 		t.Fatalf("db.Refresh: %v", err)
 	}
 

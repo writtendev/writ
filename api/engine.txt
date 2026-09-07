@@ -862,6 +862,7 @@ func LocalSchemaVersion() int
 func Open(path string, opts ...OpenOption) (*DB, error)
 func SchemaVersion() int
 func WithLocalPath(path string) OpenOption
+func WithSchema(rules map[string][]state.Rule) Option
 func WithTargetRefs(refs ...string) Option
 
 type Author struct {
@@ -894,6 +895,7 @@ type CommentResult struct {
 type DB struct {
 	// unexported fields
 }
+func (*DB) ApplySchema(rules map[string][]state.Rule) error
 func (*DB) ClearRead(objectID string) error
 func (*DB) Close() error
 func (*DB) Comments(f CommentFilter) ([]CommentResult, error)
@@ -906,6 +908,7 @@ func (*DB) DumpLocalTables() (map[string][]map[string]any, error)
 func (*DB) DumpTables() (map[string][]map[string]any, error)
 func (*DB) Frontier(objectID string) ([]string, error)
 func (*DB) GroupIssues(by GroupKey, f IssueFilter) ([]Group, error)
+func (*DB) HasGeneratedTables() bool
 func (*DB) Issue(objectID string) (IssueResult, error)
 func (*DB) Issues(f IssueFilter) ([]IssueResult, error)
 func (*DB) Label(id string) (LabelResult, error)
@@ -1432,6 +1435,7 @@ var ErrDuplicateOpID = fold.ErrDuplicateOpID
 var ErrInvalidReference = errors.New("writ: invalid reference format")
 var ErrMixedObjects = fold.ErrMixedObjects
 
+func BuiltinRules() (map[string][]Rule, error)
 func CycleRules() []Rule
 func DefaultSettings() Settings
 func DocumentRules() []Rule

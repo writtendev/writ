@@ -180,3 +180,52 @@ func BenchmarkAppendByRefCount(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkOpenByRefCount is WRIT-189 round 1's MAJOR-2 finding's own
+// reproduction: writ.Open used to resolve the schema (a cold
+// dag.Store.Enumerate, unconditionally) and call projection.DB.ApplySchema
+// on every single call, including a reopen of a cache that already has its
+// generated tables from a prior process. That made Open itself linear in
+// the repository's total ref count — measured at 6.3x slower at 2,000 loose
+// refs than at 0 — and paid by every CLI invocation, reads included, not
+// only the first one after a schema change.
+//
+// Each subtest's warm-up Open creates the cache once (so its generated
+// tables are persisted to meta) and seeds refCount ordinary loose refs
+// exactly as BenchmarkAppendByRefCount does; only the repeated Opens in the
+// timed loop are measured, each one a reopen of that same warm, unchanged
+// cache — the case that must now stay flat.
+func BenchmarkOpenByRefCount(b *testing.B) {
+	for _, refCount := range []int{0, 200, 500, 2000} {
+		b.Run(fmt.Sprintf("refs=%d", refCount), func(b *testing.B) {
+			dir := setupConfiguredRepoTB(b)
+
+			warm, err := writ.Open(dir, writ.WithSigner(dummySigner()))
+			if err != nil {
+				b.Fatalf("warm-up writ.Open failed: %v", err)
+			}
+			storer := writ.StoreDAGStore(warm).Storer()
+			for i := 0; i < refCount; i++ {
+				name := plumbing.ReferenceName(fmt.Sprintf("refs/heads/branch-%d", i))
+				hash := plumbing.NewHash(fmt.Sprintf("%040x", i+1))
+				if err := storer.SetReference(plumbing.NewHashReference(name, hash)); err != nil {
+					b.Fatalf("seed ref %d failed: %v", i, err)
+				}
+			}
+			if err := warm.Close(); err != nil {
+				b.Fatalf("warm-up Close failed: %v", err)
+			}
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				store, err := writ.Open(dir, writ.WithSigner(dummySigner()))
+				if err != nil {
+					b.Fatalf("writ.Open failed: %v", err)
+				}
+				if err := store.Close(); err != nil {
+					b.Fatalf("Close failed: %v", err)
+				}
+			}
+		})
+	}
+}

@@ -214,7 +214,7 @@ func TestLocalStateSurvivesRebuild(t *testing.T) {
 	if _, err := store.Append(ctx, env, nil); err != nil {
 		t.Fatalf("Append failed: %v", err)
 	}
-	if _, err := db.Refresh(store); err != nil {
+	if _, err := db.Refresh(store, projection.WithSchema(testRules())); err != nil {
 		t.Fatalf("Refresh failed: %v", err)
 	}
 
@@ -242,7 +242,7 @@ func TestLocalStateSurvivesRebuild(t *testing.T) {
 	}
 
 	// 1. Run Rebuild on existing handle
-	stats, err := db.Rebuild(store)
+	stats, err := db.Rebuild(store, projection.WithSchema(testRules()))
 	if err != nil {
 		t.Fatalf("Rebuild failed: %v", err)
 	}
@@ -273,7 +273,7 @@ func TestLocalStateSurvivesRebuild(t *testing.T) {
 	}
 	defer db2.Close()
 
-	if _, err := db2.Rebuild(store); err != nil {
+	if _, err := db2.Rebuild(store, projection.WithSchema(testRules())); err != nil {
 		t.Fatalf("Rebuild on fresh projection file failed: %v", err)
 	}
 
@@ -338,7 +338,7 @@ func TestDropAndRebuildReproducesFoldedState(t *testing.T) {
 	if _, err := store.Append(ctx, env1, nil); err != nil {
 		t.Fatalf("Append 1 failed: %v", err)
 	}
-	if _, err := db.Refresh(store); err != nil {
+	if _, err := db.Refresh(store, projection.WithSchema(testRules())); err != nil {
 		t.Fatalf("Refresh 1 failed: %v", err)
 	}
 
@@ -348,7 +348,7 @@ func TestDropAndRebuildReproducesFoldedState(t *testing.T) {
 	if _, err := store.Append(ctx, env2, nil); err != nil {
 		t.Fatalf("Append 2 failed: %v", err)
 	}
-	if _, err := db.Refresh(store); err != nil {
+	if _, err := db.Refresh(store, projection.WithSchema(testRules())); err != nil {
 		t.Fatalf("Refresh 2 failed: %v", err)
 	}
 
@@ -372,7 +372,7 @@ func TestDropAndRebuildReproducesFoldedState(t *testing.T) {
 	}
 	defer dbFresh.Close()
 
-	stats, err := dbFresh.Rebuild(store)
+	stats, err := dbFresh.Rebuild(store, projection.WithSchema(testRules()))
 	if err != nil {
 		t.Fatalf("Rebuild fresh failed: %v", err)
 	}

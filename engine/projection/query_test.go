@@ -14,6 +14,9 @@ func setupSeededDB(t *testing.T) *projection.DB {
 	if err != nil {
 		t.Fatalf("Open(:memory:): %v", err)
 	}
+	if err := db.ApplySchema(testRules()); err != nil {
+		t.Fatalf("ApplySchema: %v", err)
+	}
 
 	rawDB := db.DB()
 
@@ -33,64 +36,78 @@ func setupSeededDB(t *testing.T) *projection.DB {
 	insertObject(t, rawDB, "comm-4", "comment", 1, "op-comm-4", "Dave Wilson", "dave@example.com", 3300, 3300)
 
 	// Insert reviews
-	execSQL(t, rawDB, "INSERT INTO reviews (object_id, title, description, status, merge_commit, reason) VALUES (?, ?, ?, ?, ?, ?)",
+	execSQL(t, rawDB, "INSERT INTO o_review (object_id, f_title, f_description, f_status, f_merge_commit, f_reason) VALUES (?, ?, ?, ?, ?, ?)",
 		"rev-1", "Fix 100% CPU in loop_worker", "Resolves high CPU usage during batching", "open", "", "")
-	execSQL(t, rawDB, "INSERT INTO review_revisions (review_object_id, revision_index, base, head) VALUES (?, ?, ?, ?)",
-		"rev-1", 0, "base-1", "head-1")
-	execSQL(t, rawDB, "INSERT INTO review_assignees (review_object_id, assignee) VALUES (?, ?)", "rev-1", "user:alice")
-	execSQL(t, rawDB, "INSERT INTO review_assignees (review_object_id, assignee) VALUES (?, ?)", "rev-1", "user:bob")
-	execSQL(t, rawDB, "INSERT INTO review_labels (review_object_id, label) VALUES (?, ?)", "rev-1", "area/engine")
-	execSQL(t, rawDB, "INSERT INTO review_labels (review_object_id, label) VALUES (?, ?)", "rev-1", "needs-docs")
-	execSQL(t, rawDB, "INSERT INTO review_links (review_object_id, target, target_type, relation) VALUES (?, ?, ?, ?)",
+	execSQL(t, rawDB, "INSERT INTO o_review__base_head (object_id, idx, f_base, f_head) VALUES (?, ?, ?, ?)", "rev-1", 0, "base-1", "head-1")
+	execSQL(t, rawDB, "INSERT INTO o_review__assignees (object_id, item) VALUES (?, ?)", "rev-1", "user:alice")
+	execSQL(t, rawDB, "INSERT INTO o_review__assignees (object_id, item) VALUES (?, ?)", "rev-1", "user:bob")
+	execSQL(t, rawDB, "INSERT INTO o_review__labels (object_id, item) VALUES (?, ?)", "rev-1", "area/engine")
+	execSQL(t, rawDB, "INSERT INTO o_review__labels (object_id, item) VALUES (?, ?)", "rev-1", "needs-docs")
+	execSQL(t, rawDB, "INSERT INTO o_review__k_target (object_id, k_target, f_target_type, f_relation) VALUES (?, ?, ?, ?)",
 		"rev-1", "iss-1", "issue", "fixes")
-	execSQL(t, rawDB, "INSERT INTO approvals (review_object_id, subject, revision, verdict, message) VALUES (?, ?, ?, ?, ?)",
+	execSQL(t, rawDB, "INSERT INTO o_review__k_subject_revision (object_id, k_subject, k_revision, f_verdict, f_message) VALUES (?, ?, ?, ?, ?)",
 		"rev-1", "bob@example.com", "head-1", "approved", "LGTM")
 
-	execSQL(t, rawDB, "INSERT INTO reviews (object_id, title, description, status, merge_commit, reason) VALUES (?, ?, ?, ?, ?, ?)",
+	execSQL(t, rawDB, "INSERT INTO o_review (object_id, f_title, f_description, f_status, f_merge_commit, f_reason) VALUES (?, ?, ?, ?, ?, ?)",
 		"rev-2", "Add feature foo_bar", "Implements foo_bar integration", "merged", "merge-sha-2", "")
-	execSQL(t, rawDB, "INSERT INTO review_assignees (review_object_id, assignee) VALUES (?, ?)", "rev-2", "user:bob")
-	execSQL(t, rawDB, "INSERT INTO review_labels (review_object_id, label) VALUES (?, ?)", "rev-2", "area/engine")
-	execSQL(t, rawDB, "INSERT INTO reviews (object_id, title, description, status, merge_commit, reason) VALUES (?, ?, ?, ?, ?, ?)",
+	execSQL(t, rawDB, "INSERT INTO o_review__assignees (object_id, item) VALUES (?, ?)", "rev-2", "user:bob")
+	execSQL(t, rawDB, "INSERT INTO o_review__labels (object_id, item) VALUES (?, ?)", "rev-2", "area/engine")
+	execSQL(t, rawDB, "INSERT INTO o_review (object_id, f_title, f_description, f_status, f_merge_commit, f_reason) VALUES (?, ?, ?, ?, ?, ?)",
 		"rev-3", "Refactor storage layer", "Clean up legacy drivers", "closed", "", "abandoned")
 
 	// Insert issues
-	execSQL(t, rawDB, "INSERT INTO issues (object_id, title, description, state, reason) VALUES (?, ?, ?, ?, ?)",
+	execSQL(t, rawDB, "INSERT INTO o_issue (object_id, f_title, f_description, f_state, f_reason) VALUES (?, ?, ?, ?, ?)",
 		"iss-1", "Memory leak in 100% workload", "Under 100% load, buffer_pool grows unbounded", "open", "")
-	execSQL(t, rawDB, "INSERT INTO issue_assignees (issue_object_id, assignee) VALUES (?, ?)", "iss-1", "user:alice")
-	execSQL(t, rawDB, "INSERT INTO issue_assignees (issue_object_id, assignee) VALUES (?, ?)", "iss-1", "user:bob")
-	execSQL(t, rawDB, "INSERT INTO issue_labels (issue_object_id, label) VALUES (?, ?)", "iss-1", "bug")
-	execSQL(t, rawDB, "INSERT INTO issue_labels (issue_object_id, label) VALUES (?, ?)", "iss-1", "perf")
-	execSQL(t, rawDB, "INSERT INTO issue_links (issue_object_id, target, target_type, relation) VALUES (?, ?, ?, ?)",
+	execSQL(t, rawDB, "INSERT INTO o_issue__assignees (object_id, item) VALUES (?, ?)", "iss-1", "user:alice")
+	execSQL(t, rawDB, "INSERT INTO o_issue__assignees (object_id, item) VALUES (?, ?)", "iss-1", "user:bob")
+	execSQL(t, rawDB, "INSERT INTO o_issue__labels (object_id, item) VALUES (?, ?)", "iss-1", "bug")
+	execSQL(t, rawDB, "INSERT INTO o_issue__labels (object_id, item) VALUES (?, ?)", "iss-1", "perf")
+	execSQL(t, rawDB, "INSERT INTO o_issue__k_target (object_id, k_target, f_target_type, f_relation) VALUES (?, ?, ?, ?)",
 		"iss-1", "writ#2", "issue", "blocks")
 
-	execSQL(t, rawDB, "INSERT INTO issues (object_id, title, description, state, reason) VALUES (?, ?, ?, ?, ?)",
+	execSQL(t, rawDB, "INSERT INTO o_issue (object_id, f_title, f_description, f_state, f_reason) VALUES (?, ?, ?, ?, ?)",
 		"iss-2", "Support foo_bar in CLI", "CLI flag --foo_bar should be supported", "in_progress", "")
-	execSQL(t, rawDB, "INSERT INTO issue_assignees (issue_object_id, assignee) VALUES (?, ?)", "iss-2", "user:bob")
-	execSQL(t, rawDB, "INSERT INTO issue_labels (issue_object_id, label) VALUES (?, ?)", "iss-2", "feature")
+	execSQL(t, rawDB, "INSERT INTO o_issue__assignees (object_id, item) VALUES (?, ?)", "iss-2", "user:bob")
+	execSQL(t, rawDB, "INSERT INTO o_issue__labels (object_id, item) VALUES (?, ?)", "iss-2", "feature")
 
-	execSQL(t, rawDB, "INSERT INTO issues (object_id, title, description, state, reason) VALUES (?, ?, ?, ?, ?)",
+	execSQL(t, rawDB, "INSERT INTO o_issue (object_id, f_title, f_description, f_state, f_reason) VALUES (?, ?, ?, ?, ?)",
 		"iss-3", "Documentation typo in docs", "Fix typo in readme", "closed", "completed")
-	execSQL(t, rawDB, "INSERT INTO issue_labels (issue_object_id, label) VALUES (?, ?)", "iss-3", "docs")
+	execSQL(t, rawDB, "INSERT INTO o_issue__labels (object_id, item) VALUES (?, ?)", "iss-3", "docs")
 
-	execSQL(t, rawDB, "INSERT INTO issues (object_id, title, description, state, reason) VALUES (?, ?, ?, ?, ?)",
+	execSQL(t, rawDB, "INSERT INTO o_issue (object_id, f_title, f_description, f_state, f_reason) VALUES (?, ?, ?, ?, ?)",
 		"iss-4", "Unassigned issue for triage", "Needs investigation", "open", "")
 
 	// Insert comments
-	execSQL(t, rawDB, "INSERT INTO comments (object_id, subject_type, subject_id, text, in_reply_to, anchor, deleted) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		"comm-1", "review", "rev-1", "Initial thought on loop_worker: 100% is high", "", "", 0)
-	execSQL(t, rawDB, "INSERT INTO comments (object_id, subject_type, subject_id, text, in_reply_to, anchor, deleted) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		"comm-2", "review", "rev-1", "Reply to initial thought", "comm-1", "", 0)
-	execSQL(t, rawDB, "INSERT INTO comments (object_id, subject_type, subject_id, text, in_reply_to, anchor, deleted) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		"comm-3", "review", "rev-1", "Nested reply under comm-2", "comm-2", "", 0)
-	execSQL(t, rawDB, "INSERT INTO comments (object_id, subject_type, subject_id, text, in_reply_to, anchor, deleted) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		"comm-4", "review", "rev-1", "Deleted comment in rev-1", "", "", 1)
+	execSQL(t, rawDB, "INSERT INTO o_comment (object_id, f_subject, f_text, f_in_reply_to, f_anchor, f_deleted) VALUES (?, ?, ?, ?, ?, ?)",
+		"comm-1", subjectJSON(t, "review", "rev-1"), "Initial thought on loop_worker: 100% is high", "", "", 0)
+	execSQL(t, rawDB, "INSERT INTO o_comment (object_id, f_subject, f_text, f_in_reply_to, f_anchor, f_deleted) VALUES (?, ?, ?, ?, ?, ?)",
+		"comm-2", subjectJSON(t, "review", "rev-1"), "Reply to initial thought", "comm-1", "", 0)
+	execSQL(t, rawDB, "INSERT INTO o_comment (object_id, f_subject, f_text, f_in_reply_to, f_anchor, f_deleted) VALUES (?, ?, ?, ?, ?, ?)",
+		"comm-3", subjectJSON(t, "review", "rev-1"), "Nested reply under comm-2", "comm-2", "", 0)
+	execSQL(t, rawDB, "INSERT INTO o_comment (object_id, f_subject, f_text, f_in_reply_to, f_anchor, f_deleted) VALUES (?, ?, ?, ?, ?, ?)",
+		"comm-4", subjectJSON(t, "review", "rev-1"), "Deleted comment in rev-1", "", "", 1)
+
+	// Insert subject members rows (the generic index the generator emits for
+	// any untyped lww/create-once target, driving Comments()'s subject_type
+	// / subject_id filters instead of an unindexed json_extract scan).
+	for _, commID := range []string{"comm-1", "comm-2", "comm-3", "comm-4"} {
+		execSQL(t, rawDB, "INSERT INTO o_comment__subject__members (object_id, member, value) VALUES (?, ?, ?)", commID, "object_type", "review")
+		execSQL(t, rawDB, "INSERT INTO o_comment__subject__members (object_id, member, value) VALUES (?, ?, ?)", commID, "object_id", "rev-1")
+	}
 
 	// Insert code_tips and anchor_resolutions
 	execSQL(t, rawDB, "INSERT INTO code_tips (ref_name, tip) VALUES (?, ?)", "refs/heads/main", "tip-commit-1")
-	execSQL(t, rawDB, "INSERT INTO anchor_resolutions (comment_object_id, target_commit, side, outcome, match, path, start_line, end_line, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		"comm-1", "tip-commit-1", "new", "resolved", "exact", "pkg/loop.go", 10, 15, "found match")
+	execSQL(t, rawDB, "INSERT INTO anchor_resolutions (object_id, target, target_commit, side, outcome, match, path, start_line, end_line, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		"comm-1", "anchor", "tip-commit-1", "new", "resolved", "exact", "pkg/loop.go", 10, 15, "found match")
 
 	return db
+}
+
+// subjectJSON builds the raw JSON bytes a create-once comment.subject target
+// stores verbatim, for test seeding that writes generated tables directly.
+func subjectJSON(t *testing.T, objectType, objectID string) string {
+	t.Helper()
+	return `{"object_type":"` + objectType + `","object_id":"` + objectID + `"}`
 }
 
 func insertObject(t *testing.T, db *sql.DB, objectID, objectType string, opCount int, lastOpID, authorName, authorEmail string, createdAt, updatedAt int64) {
@@ -453,10 +470,12 @@ func TestLabelsQuery(t *testing.T) {
 	defer db.Close()
 
 	rawDB := db.DB()
-	execSQL(t, rawDB, "INSERT INTO labels (object_id, name, color, description, author_name, author_email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		"lbl-1", "bug", "#d73a4a", "Bug report", "Alice", "alice@example.com", 1000, 1000)
-	execSQL(t, rawDB, "INSERT INTO labels (object_id, name, color, description, author_name, author_email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		"lbl-2", "feature", "#a2eeef", "New feature", "Bob", "bob@example.com", 1100, 1100)
+	insertObject(t, rawDB, "lbl-1", "label", 1, "op-lbl-1", "Alice", "alice@example.com", 1000, 1000)
+	execSQL(t, rawDB, "INSERT INTO o_label (object_id, f_name, f_color, f_description) VALUES (?, ?, ?, ?)",
+		"lbl-1", "bug", "#d73a4a", "Bug report")
+	insertObject(t, rawDB, "lbl-2", "label", 1, "op-lbl-2", "Bob", "bob@example.com", 1100, 1100)
+	execSQL(t, rawDB, "INSERT INTO o_label (object_id, f_name, f_color, f_description) VALUES (?, ?, ?, ?)",
+		"lbl-2", "feature", "#a2eeef", "New feature")
 
 	labels, err := db.Labels(projection.LabelFilter{})
 	if err != nil {
@@ -489,8 +508,9 @@ func TestLabelMatchingByNameAndID(t *testing.T) {
 
 	rawDB := db.DB()
 	labelID := "0123456789abcdef0123456789abcdef"
-	execSQL(t, rawDB, "INSERT INTO labels (object_id, name, color, description, author_name, author_email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		labelID, "bug", "#d73a4a", "Bug report", "Alice", "alice@example.com", 1000, 1000)
+	insertObject(t, rawDB, labelID, "label", 1, "op-lbl", "Alice", "alice@example.com", 1000, 1000)
+	execSQL(t, rawDB, "INSERT INTO o_label (object_id, f_name, f_color, f_description) VALUES (?, ?, ?, ?)",
+		labelID, "bug", "#d73a4a", "Bug report")
 
 	// iss-1 in setupSeededDB has bare string label "bug"
 	// 1. Filter by canonical label ID matches iss-1 because "bug" resolves to labelID
@@ -511,9 +531,9 @@ func TestLabelMatchingByNameAndID(t *testing.T) {
 
 	// 2. Add iss-5 with label = labelID
 	insertObject(t, rawDB, "iss-5", "issue", 1, "op-iss-5", "Alice", "alice@example.com", 2600, 2600)
-	execSQL(t, rawDB, "INSERT INTO issues (object_id, title, description, state, reason) VALUES (?, ?, ?, ?, ?)",
+	execSQL(t, rawDB, "INSERT INTO o_issue (object_id, f_title, f_description, f_state, f_reason) VALUES (?, ?, ?, ?, ?)",
 		"iss-5", "Issue with label ID", "Test", "open", "")
-	execSQL(t, rawDB, "INSERT INTO issue_labels (issue_object_id, label) VALUES (?, ?)", "iss-5", labelID)
+	execSQL(t, rawDB, "INSERT INTO o_issue__labels (object_id, item) VALUES (?, ?)", "iss-5", labelID)
 
 	// 3. Filter by label name "bug" matches both iss-1 (bare "bug") and iss-5 (label ID)
 	resByName, err := db.Issues(projection.IssueFilter{Label: []string{"bug"}})
@@ -541,26 +561,29 @@ func TestIssuesPriorityEstimatePosition(t *testing.T) {
 		t.Fatalf("Open(:memory:): %v", err)
 	}
 	defer db.Close()
+	if err := db.ApplySchema(testRules()); err != nil {
+		t.Fatalf("ApplySchema: %v", err)
+	}
 
 	rawDB := db.DB()
 	// iss-u: priority 1 (urgent), estimate 2.5, position bV (op-u)
 	insertObject(t, rawDB, "iss-u", "issue", 1, "op-u", "A", "a@example.com", 1000, 1000)
-	execSQL(t, rawDB, "INSERT INTO issues (object_id, title, description, state, reason, priority, estimate, position, position_op_id) VALUES (?, ?, ?, ?, '', ?, ?, ?, ?)",
+	execSQL(t, rawDB, "INSERT INTO o_issue (object_id, f_title, f_description, f_state, f_reason, f_priority, f_estimate, f_position, f_position__op_id) VALUES (?, ?, ?, ?, '', ?, ?, ?, ?)",
 		"iss-u", "Urgent", "", "open", 1, 2.5, "bV", "op-u")
 
 	// iss-h1: priority 2 (high), estimate 1.0, position aV (op-h1)
 	insertObject(t, rawDB, "iss-h1", "issue", 1, "op-h1", "A", "a@example.com", 1010, 1010)
-	execSQL(t, rawDB, "INSERT INTO issues (object_id, title, description, state, reason, priority, estimate, position, position_op_id) VALUES (?, ?, ?, ?, '', ?, ?, ?, ?)",
+	execSQL(t, rawDB, "INSERT INTO o_issue (object_id, f_title, f_description, f_state, f_reason, f_priority, f_estimate, f_position, f_position__op_id) VALUES (?, ?, ?, ?, '', ?, ?, ?, ?)",
 		"iss-h1", "High 1", "", "open", 2, 1.0, "aV", "op-h1")
 
 	// iss-h2: priority 2 (high), estimate 3.0, position aV (op-h2) — shares identical position with iss-h1
 	insertObject(t, rawDB, "iss-h2", "issue", 1, "op-h2", "A", "a@example.com", 1015, 1015)
-	execSQL(t, rawDB, "INSERT INTO issues (object_id, title, description, state, reason, priority, estimate, position, position_op_id) VALUES (?, ?, ?, ?, '', ?, ?, ?, ?)",
+	execSQL(t, rawDB, "INSERT INTO o_issue (object_id, f_title, f_description, f_state, f_reason, f_priority, f_estimate, f_position, f_position__op_id) VALUES (?, ?, ?, ?, '', ?, ?, ?, ?)",
 		"iss-h2", "High 2", "", "open", 2, 3.0, "aV", "op-h2")
 
 	// iss-n: priority 0 (none), estimate NULL, position cV (op-n)
 	insertObject(t, rawDB, "iss-n", "issue", 1, "op-n", "A", "a@example.com", 1020, 1020)
-	execSQL(t, rawDB, "INSERT INTO issues (object_id, title, description, state, reason, priority, estimate, position, position_op_id) VALUES (?, ?, ?, ?, '', ?, NULL, ?, ?)",
+	execSQL(t, rawDB, "INSERT INTO o_issue (object_id, f_title, f_description, f_state, f_reason, f_priority, f_estimate, f_position, f_position__op_id) VALUES (?, ?, ?, ?, '', ?, NULL, ?, ?)",
 		"iss-n", "None", "", "open", 0, "cV", "op-n")
 
 	// 1. Single lookup Issue(objectID)
@@ -654,5 +677,3 @@ func TestIssuesPriorityEstimatePosition(t *testing.T) {
 		t.Errorf("OrderByPositionDesc unexpected order: %v, %v, %v, %v", posDesc[0].ObjectID, posDesc[1].ObjectID, posDesc[2].ObjectID, posDesc[3].ObjectID)
 	}
 }
-
-

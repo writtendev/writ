@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-git/go-git/v5/plumbing"
@@ -130,14 +131,78 @@ func (s *Store) vocabularies(ctx context.Context) (codec.Vocabularies, error) {
 		return nil, fmt.Errorf("writ: resolve vocabularies: %w", err)
 	}
 	vocabularies, _ := VocabulariesFromSchemas(schemas)
+	logRules, _ := RulesFromSchemas(schemas)
+	rules := mergeRules(builtinRules(), logRules)
 
 	s.vocabMu.Lock()
 	s.vocabCache = vocabularies
+	s.ruleCache = rules
 	s.vocabChains = chains
 	s.vocabFingerprint = fp
 	s.vocabMu.Unlock()
 
 	return vocabularies, nil
+}
+
+// rules resolves the fold-rule index a projection ApplySchema/Refresh/Rebuild
+// call consumes: the built-in vocabulary overlaid by whatever the log
+// declares for the same object_type, log wins per type. It is memoised
+// alongside vocabularies (same cache-miss branch, same dag.Chains
+// fingerprint, same invalidation via noteAppend), so calling this on every
+// Refresh costs one Chains pass and a fingerprint comparison, not a fold.
+//
+// Installing the log's declaration wherever it exists, rather than treating
+// a log-vs-built-in name collision as a conflict that installs neither,
+// mirrors WRIT-188's own tier-2-over-tier-3 producer-validation precedence:
+// the alternative would blank a repo's projection the moment someone runs
+// `writ schema apply`, since nothing declares the built-in types in the log
+// yet.
+func (s *Store) rules(ctx context.Context) (map[string][]Rule, error) {
+	if _, err := s.vocabularies(ctx); err != nil {
+		return nil, err
+	}
+	s.vocabMu.Lock()
+	cached := s.ruleCache
+	s.vocabMu.Unlock()
+	return cached, nil
+}
+
+// mergeRules overlays log onto base, replacing base's entire rule list for
+// any object_type the log declares — not merging field-by-field — because
+// RulesFromSchemas already returns, per object_type, the complete installed
+// rule set for that type (every non-contested field across every schema
+// object binding it), and a partial merge would let a stale built-in rule
+// for a field the log's schema silently omits keep firing.
+func mergeRules(base, log map[string][]Rule) map[string][]Rule {
+	out := make(map[string][]Rule, len(base)+len(log))
+	for t, rs := range base {
+		out[t] = rs
+	}
+	for t, rs := range log {
+		out[t] = rs
+	}
+	return out
+}
+
+// builtinRulesOnce computes the still-shipping built-in vocabulary's fold
+// rules exactly once per process, delegating to state.BuiltinRules() — the
+// one shared construction production and every test package needing "a
+// rule index declaring the current built-in types" builds from
+// (WRIT-189 round 2 MINOR-4: this used to be a fourth, separately drifting
+// copy of what three test packages already built via
+// spec/fixtures.BuiltinRules(), so the tests validated an index production
+// never actually built). Rule is a type alias for state.Rule (engine/fold.go),
+// so state.BuiltinRules()'s map[string][]state.Rule needs no conversion.
+var builtinRulesOnce = sync.OnceValue(func() map[string][]Rule {
+	out, err := state.BuiltinRules()
+	if err != nil {
+		panic(fmt.Errorf("writ: loading built-in field rules: %w", err))
+	}
+	return out
+})
+
+func builtinRules() map[string][]Rule {
+	return builtinRulesOnce()
 }
 
 // noteAppend rolls the cached producer-vocabularies fingerprint forward

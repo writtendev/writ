@@ -152,7 +152,7 @@ func TestAnchorResolutionAndCodeRefMove(t *testing.T) {
 	}
 
 	// 3. Refresh projection
-	stats1, err := db.Refresh(store)
+	stats1, err := db.Refresh(store, projection.WithSchema(testRules()))
 	if err != nil {
 		t.Fatalf("Refresh 1 failed: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestAnchorResolutionAndCodeRefMove(t *testing.T) {
 
 	// Assert comments table has verbatim anchor JSON and no resolution state
 	var storedAnchor string
-	err = db.DB().QueryRow("SELECT anchor FROM comments WHERE object_id = 'comm-1'").Scan(&storedAnchor)
+	err = db.DB().QueryRow("SELECT f_anchor FROM o_comment WHERE object_id = 'comm-1'").Scan(&storedAnchor)
 	if err != nil {
 		t.Fatalf("query comments anchor: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestAnchorResolutionAndCodeRefMove(t *testing.T) {
 	err = db.DB().QueryRow(`
 		SELECT target_commit, side, outcome, match, path, start_line, end_line, reason
 		FROM anchor_resolutions
-		WHERE comment_object_id = 'comm-1'
+		WHERE object_id = 'comm-1'
 	`).Scan(&resCommit, &side, &outcome, &match, &path, &startLine, &endLine, &reason)
 	if err != nil {
 		t.Fatalf("query anchor_resolutions: %v", err)
@@ -213,7 +213,7 @@ func TestAnchorResolutionAndCodeRefMove(t *testing.T) {
 	_ = repo.Storer.SetReference(plumbing.NewReferenceFromStrings(mainRef.String(), c2Hash.String()))
 
 	// Refresh without any new ops: code ref moved, should re-resolve against commit 2
-	stats2, err := db.Refresh(store)
+	stats2, err := db.Refresh(store, projection.WithSchema(testRules()))
 	if err != nil {
 		t.Fatalf("Refresh 2 failed: %v", err)
 	}
@@ -238,7 +238,7 @@ func TestAnchorResolutionAndCodeRefMove(t *testing.T) {
 	err = db.DB().QueryRow(`
 		SELECT target_commit, side, outcome, match, path, start_line, end_line, reason
 		FROM anchor_resolutions
-		WHERE comment_object_id = 'comm-1'
+		WHERE object_id = 'comm-1'
 	`).Scan(&resCommit, &side, &outcome, &match, &path, &startLine, &endLine, &reason)
 	if err != nil {
 		t.Fatalf("query anchor_resolutions after code move: %v", err)

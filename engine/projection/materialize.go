@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
@@ -14,11 +16,15 @@ import (
 	"github.com/writtendev/writ/engine/state"
 )
 
-// materializeObject folds ops for a single collaborative object and records
-// typed rows in the projection tables inside tx.
-func materializeObject(tx *sql.Tx, objectID string, ops []codec.Op) error {
-	// Clean up existing state for this object
-	if err := deleteObjectState(tx, objectID); err != nil {
+// materializeObject folds ops for a single collaborative object against
+// desc's rule index and writes the generic, schema-generated tables inside
+// tx. It never switches on a Go object-type name: every table and column it
+// writes into comes from desc, which is itself built purely from the rule
+// index (ddl.go) — the same generic path an object of a type nobody has
+// heard of yet, freshly declared through writ.schema, takes on its very
+// first materialize.
+func materializeObject(tx *sql.Tx, desc *schemaDescriptor, objectID string, ops []codec.Op) error {
+	if err := deleteObjectState(tx, desc, objectID); err != nil {
 		return err
 	}
 
@@ -40,470 +46,214 @@ func materializeObject(tx *sql.Tx, objectID string, ops []codec.Op) error {
 	lastOpID := lastOp.ID
 	objectType := determineObjectType(orderedOps)
 
-	// Insert objects row
-	_, err = tx.Exec(
+	if _, err := tx.Exec(
 		"INSERT INTO objects (object_id, object_type, op_count, last_op_id, author_name, author_email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
 		objectID, objectType, len(ops), lastOpID, authorName, authorEmail, createdAt, updatedAt,
-	)
-	if err != nil {
+	); err != nil {
 		return fmt.Errorf("projection: insert object %s: %w", objectID, err)
 	}
 
-	switch objectType {
-	case "review":
-		review, err := state.FoldReview(ops)
-		if err != nil {
-			return fmt.Errorf("projection: fold review %s: %w", objectID, err)
-		}
+	var td *typeDescriptor
+	if desc != nil {
+		td = desc.types[objectType]
+	}
 
-		_, err = tx.Exec(
-			"INSERT INTO reviews (object_id, title, description, status, merge_commit, reason) VALUES (?, ?, ?, ?, ?, ?)",
-			objectID, review.Title, review.Description, review.Status, review.MergeCommit, review.Reason,
-		)
-		if err != nil {
-			return fmt.Errorf("projection: insert review %s: %w", objectID, err)
-		}
+	if td == nil {
+		// Undeclared type (no schema, built-in or log-declared, installs any
+		// rules for it), or a type withheld by ddl.go for an invalid target
+		// or keyed-lww key component: every op is preserved verbatim in
+		// unknown_ops, exactly as the absent-schema path always has.
+		return insertUnknownOps(tx, objectID, ops)
+	}
 
-		for i, rev := range review.Revisions {
-			_, err = tx.Exec(
-				"INSERT INTO review_revisions (review_object_id, revision_index, base, head) VALUES (?, ?, ?, ?)",
-				objectID, i, rev.Base, rev.Head,
-			)
-			if err != nil {
-				return fmt.Errorf("projection: insert review revision %s [%d]: %w", objectID, i, err)
-			}
-		}
+	rules := desc.rulesByType[objectType]
+	folded, err := state.Fold(ops, rules)
+	if err != nil {
+		return fmt.Errorf("projection: fold %s %s: %w", objectType, objectID, err)
+	}
 
-		for _, a := range review.Assignees {
-			_, err = tx.Exec(
-				"INSERT INTO review_assignees (review_object_id, assignee) VALUES (?, ?)",
-				objectID, a,
-			)
-			if err != nil {
-				return fmt.Errorf("projection: insert review assignee %s (%s): %w", objectID, a, err)
-			}
-		}
+	unknownFields := computeUnknownFields(orderedOps, rules, folded.UnknownOps)
+	if err := writeTypeRow(tx, td, objectID, folded.State, rules, orderedOps, unknownFields, folded.UnknownOps); err != nil {
+		return err
+	}
 
-		for _, label := range review.Labels {
-			_, err = tx.Exec(
-				"INSERT INTO review_labels (review_object_id, label) VALUES (?, ?)",
-				objectID, label,
-			)
-			if err != nil {
-				return fmt.Errorf("projection: insert review label %s (%s): %w", objectID, label, err)
-			}
+	for i, u := range folded.UnknownOps {
+		if _, err := tx.Exec(
+			"INSERT OR REPLACE INTO unknown_ops (object_id, op_id, object_type, op_type, op_version, op_index) VALUES (?, ?, ?, ?, ?, ?)",
+			objectID, u.Commit, u.ObjectType, u.OpType, u.OpVersion, i,
+		); err != nil {
+			return fmt.Errorf("projection: insert unknown op %s: %w", u.Commit, err)
 		}
+	}
 
-		for _, link := range review.Links {
-			_, err = tx.Exec(
-				"INSERT INTO review_links (review_object_id, target, target_type, relation) VALUES (?, ?, ?, ?)",
-				objectID, link.Target, link.TargetType, link.Relation,
-			)
-			if err != nil {
-				return fmt.Errorf("projection: insert review link %s (%s): %w", objectID, link.Target, err)
-			}
+	return nil
+}
+
+func insertUnknownOps(tx *sql.Tx, objectID string, ops []codec.Op) error {
+	for i, op := range ops {
+		if _, err := tx.Exec(
+			"INSERT OR REPLACE INTO unknown_ops (object_id, op_id, object_type, op_type, op_version, op_index) VALUES (?, ?, ?, ?, ?, ?)",
+			objectID, op.ID, op.ObjectType, op.OpType, op.OpVersion, i,
+		); err != nil {
+			return fmt.Errorf("projection: insert unreduced op %s: %w", op.ID, err)
 		}
+	}
+	return nil
+}
 
-		for _, app := range review.Approvals {
-			_, err = tx.Exec(
-				"INSERT INTO approvals (review_object_id, subject, revision, verdict, message) VALUES (?, ?, ?, ?, ?)",
-				objectID, app.Subject, app.Revision, app.Verdict, app.Message,
-			)
-			if err != nil {
-				return fmt.Errorf("projection: insert approval %s (%s, %s): %w", objectID, app.Subject, app.Revision, err)
-			}
-		}
+// writeTypeRow inserts td's type-table row (scalar and position-companion
+// columns, plus unknown_fields), every child-table row a collection or
+// keyed-lww target folded to, and every append-group row (unknownOps is the
+// object's quarantined ops, needed only to skip them when writing those).
+func writeTypeRow(tx *sql.Tx, td *typeDescriptor, objectID string, folded map[string]any, rules []state.Rule, orderedOps []codec.Op, unknownFields string, unknownOps []state.UnknownOp) error {
+	cols := []string{"object_id"}
+	vals := []any{objectID}
 
-		for _, ci := range review.CIStatuses {
-			_, err = tx.Exec(
-				"INSERT INTO ci_statuses (review_object_id, revision, name, state, url, description, started_at, completed_at, external_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-				objectID, ci.Revision, ci.Name, ci.State, ci.URL, ci.Description, ci.StartedAt, ci.CompletedAt, ci.ExternalID,
-			)
-			if err != nil {
-				return fmt.Errorf("projection: insert ci_status %s (%s, %s): %w", objectID, ci.Revision, ci.Name, err)
-			}
-		}
+	// group.keyed-lww targets by their shared group table so every group
+	// row (one per distinct key tuple) is built once, from every member
+	// target's own folded entries, rather than once per target.
+	type groupBuild struct {
+		table      *ddlTable
+		keyColumns []string
+		rows       map[string]map[string]any // key-tuple string -> {column: value}
+		keyValues  map[string][]string
+	}
+	groups := make(map[string]*groupBuild)
 
-		for i, u := range review.UnknownOps {
-			_, err = tx.Exec(
-				"INSERT OR REPLACE INTO unknown_ops (object_id, op_id, object_type, op_type, op_version, op_index) VALUES (?, ?, ?, ?, ?, ?)",
-				objectID, u.Commit, u.ObjectType, u.OpType, u.OpVersion, i,
-			)
-			if err != nil {
-				return fmt.Errorf("projection: insert unknown op %s: %w", u.Commit, err)
-			}
-		}
+	for _, tk := range sortedTargetKeys(td) {
+		plan := td.Targets[tk]
+		val, has := folded[tk]
 
-	case "comment":
-		comment, err := state.FoldComment(ops)
-		if err != nil {
-			return fmt.Errorf("projection: fold comment %s: %w", objectID, err)
-		}
-
-		var anchorStr string
-		if comment.Anchor != nil {
-			b, err := json.Marshal(comment.Anchor)
-			if err != nil {
-				return fmt.Errorf("projection: marshal anchor for comment %s: %w", objectID, err)
-			}
-			anchorStr = string(b)
-		}
-
-		deletedInt := 0
-		if comment.Deleted {
-			deletedInt = 1
-		}
-
-		var resolvedVal any
-		if comment.Resolved != nil {
-			if *comment.Resolved {
-				resolvedVal = 1
+		switch {
+		case plan.Column != "":
+			cols = append(cols, plan.Column)
+			if has {
+				vals = append(vals, columnValue(plan.ValueType, val))
 			} else {
-				resolvedVal = 0
+				vals = append(vals, nil)
+			}
+			if plan.PosOpIDColumn != "" {
+				cols = append(cols, plan.PosOpIDColumn)
+				if has {
+					vals = append(vals, positionOpID(orderedOps, td.ObjectType, tk, rules))
+				} else {
+					vals = append(vals, nil)
+				}
+			}
+			if plan.MembersTable != "" && has {
+				if err := writeMembersRows(tx, plan.MembersTable, objectID, val); err != nil {
+					return err
+				}
+			}
+
+		case plan.ChildTable != "":
+			if !has {
+				continue
+			}
+			if err := writeChildRows(tx, plan, objectID, val); err != nil {
+				return err
+			}
+
+		case plan.GroupTable != "":
+			if !has {
+				continue
+			}
+			g, ok := groups[plan.GroupTable]
+			if !ok {
+				var table *ddlTable
+				for i := range td.Children {
+					if td.Children[i].Name == plan.GroupTable {
+						table = &td.Children[i]
+						break
+					}
+				}
+				g = &groupBuild{table: table, keyColumns: plan.KeyColumns, rows: make(map[string]map[string]any), keyValues: make(map[string][]string)}
+				groups[plan.GroupTable] = g
+			}
+			entries, _ := val.([]any)
+			for _, e := range entries {
+				m, ok := e.(map[string]any)
+				if !ok {
+					continue
+				}
+				keyArr, _ := m["key"].([]string)
+				ks := strings.Join(keyArr, "\x00")
+				if g.rows[ks] == nil {
+					g.rows[ks] = make(map[string]any)
+					g.keyValues[ks] = keyArr
+				}
+				g.rows[ks][plan.ValueColumn] = columnValue(plan.ValueType, m["value"])
 			}
 		}
+	}
 
-		_, err = tx.Exec(
-			"INSERT INTO comments (object_id, subject_type, subject_id, text, in_reply_to, anchor, deleted, resolved, resolved_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			objectID, comment.Subject.ObjectType, comment.Subject.ObjectID, comment.Text, comment.InReplyTo, anchorStr, deletedInt, resolvedVal, comment.ResolvedBy,
-		)
-		if err != nil {
-			return fmt.Errorf("projection: insert comment %s: %w", objectID, err)
+	cols = append(cols, "unknown_fields")
+	if unknownFields == "" {
+		vals = append(vals, nil)
+	} else {
+		vals = append(vals, unknownFields)
+	}
+
+	placeholders := strings.Repeat("?, ", len(cols)-1) + "?"
+	insertSQL := "INSERT INTO " + td.Table.Name + " (" + strings.Join(cols, ", ") + ") VALUES (" + placeholders + ")"
+	if _, err := tx.Exec(insertSQL, vals...); err != nil {
+		return fmt.Errorf("projection: insert %s row %s: %w", td.Table.Name, objectID, err)
+	}
+
+	var groupNames []string
+	for name := range groups {
+		groupNames = append(groupNames, name)
+	}
+	sort.Strings(groupNames)
+	for _, name := range groupNames {
+		g := groups[name]
+		if g.table == nil {
+			continue
 		}
-
-		for i, u := range comment.UnknownOps {
-			_, err = tx.Exec(
-				"INSERT OR REPLACE INTO unknown_ops (object_id, op_id, object_type, op_type, op_version, op_index) VALUES (?, ?, ?, ?, ?, ?)",
-				objectID, u.Commit, u.ObjectType, u.OpType, u.OpVersion, i,
-			)
-			if err != nil {
-				return fmt.Errorf("projection: insert unknown op %s: %w", u.Commit, err)
+		var keyTuples []string
+		for ks := range g.rows {
+			keyTuples = append(keyTuples, ks)
+		}
+		sort.Strings(keyTuples)
+		for _, ks := range keyTuples {
+			row := g.rows[ks]
+			keyVals := g.keyValues[ks]
+			gCols := []string{"object_id"}
+			gVals := []any{objectID}
+			for i, kc := range g.keyColumns {
+				gCols = append(gCols, kc)
+				if i < len(keyVals) {
+					gVals = append(gVals, keyVals[i])
+				} else {
+					gVals = append(gVals, "")
+				}
+			}
+			var memberCols []string
+			for _, c := range g.table.Columns {
+				if strings.HasPrefix(c.Name, "f_") {
+					memberCols = append(memberCols, c.Name)
+				}
+			}
+			for _, c := range memberCols {
+				gCols = append(gCols, c)
+				gVals = append(gVals, row[c])
+			}
+			ph := strings.Repeat("?, ", len(gCols)-1) + "?"
+			insertSQL := "INSERT INTO " + g.table.Name + " (" + strings.Join(gCols, ", ") + ") VALUES (" + ph + ")"
+			if _, err := tx.Exec(insertSQL, gVals...); err != nil {
+				return fmt.Errorf("projection: insert %s row: %w", g.table.Name, err)
 			}
 		}
+	}
 
-	case "issue":
-		issue, err := state.FoldIssue(ops)
-		if err != nil {
-			return fmt.Errorf("projection: fold issue %s: %w", objectID, err)
+	if len(td.AppendGroups) > 0 {
+		skip := make(map[string]bool, len(unknownOps))
+		for _, u := range unknownOps {
+			skip[u.Commit] = true
 		}
-
-		posOpID := issuePositionOpID(orderedOps)
-		var estVal any
-		if issue.Estimate != nil {
-			estVal = *issue.Estimate
-		}
-
-		_, err = tx.Exec(
-			"INSERT INTO issues (object_id, title, description, state, reason, priority, estimate, position, position_op_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			objectID, issue.Title, issue.Description, issue.State, issue.Reason, issue.Priority, estVal, issue.Position, posOpID,
-		)
-		if err != nil {
-			return fmt.Errorf("projection: insert issue %s: %w", objectID, err)
-		}
-
-		for _, assignee := range issue.Assignees {
-			_, err = tx.Exec(
-				"INSERT INTO issue_assignees (issue_object_id, assignee) VALUES (?, ?)",
-				objectID, assignee,
-			)
-			if err != nil {
-				return fmt.Errorf("projection: insert issue assignee %s (%s): %w", objectID, assignee, err)
-			}
-		}
-
-		for _, label := range issue.Labels {
-			_, err = tx.Exec(
-				"INSERT INTO issue_labels (issue_object_id, label) VALUES (?, ?)",
-				objectID, label,
-			)
-			if err != nil {
-				return fmt.Errorf("projection: insert issue label %s (%s): %w", objectID, label, err)
-			}
-		}
-
-		for _, link := range issue.Links {
-			_, err = tx.Exec(
-				"INSERT INTO issue_links (issue_object_id, target, target_type, relation) VALUES (?, ?, ?, ?)",
-				objectID, link.Target, link.TargetType, link.Relation,
-			)
-			if err != nil {
-				return fmt.Errorf("projection: insert issue link %s (%s): %w", objectID, link.Target, err)
-			}
-		}
-
-		for i, u := range issue.UnknownOps {
-			_, err = tx.Exec(
-				"INSERT OR REPLACE INTO unknown_ops (object_id, op_id, object_type, op_type, op_version, op_index) VALUES (?, ?, ?, ?, ?, ?)",
-				objectID, u.Commit, u.ObjectType, u.OpType, u.OpVersion, i,
-			)
-			if err != nil {
-				return fmt.Errorf("projection: insert unknown op %s: %w", u.Commit, err)
-			}
-		}
-
-	case "project":
-		project, err := state.FoldProject(ops)
-		if err != nil {
-			return fmt.Errorf("projection: fold project %s: %w", objectID, err)
-		}
-
-		_, err = tx.Exec(
-			"INSERT INTO projects (object_id, title, description, status, reason) VALUES (?, ?, ?, ?, ?)",
-			objectID, project.Title, project.Description, project.Status, project.Reason,
-		)
-		if err != nil {
-			return fmt.Errorf("projection: insert project %s: %w", objectID, err)
-		}
-
-		for _, iss := range project.Issues {
-			_, err = tx.Exec(
-				"INSERT INTO project_issues (project_object_id, issue) VALUES (?, ?)",
-				objectID, iss,
-			)
-			if err != nil {
-				return fmt.Errorf("projection: insert project issue %s (%s): %w", objectID, iss, err)
-			}
-		}
-
-		for i, u := range project.UnknownOps {
-			_, err = tx.Exec(
-				"INSERT OR REPLACE INTO unknown_ops (object_id, op_id, object_type, op_type, op_version, op_index) VALUES (?, ?, ?, ?, ?, ?)",
-				objectID, u.Commit, u.ObjectType, u.OpType, u.OpVersion, i,
-			)
-			if err != nil {
-				return fmt.Errorf("projection: insert unknown op %s: %w", u.Commit, err)
-			}
-		}
-
-	case "cycle":
-		cycle, err := state.FoldCycle(ops)
-		if err != nil {
-			return fmt.Errorf("projection: fold cycle %s: %w", objectID, err)
-		}
-
-		_, err = tx.Exec(
-			"INSERT INTO cycles (object_id, title, description, starts_at, ends_at) VALUES (?, ?, ?, ?, ?)",
-			objectID, cycle.Title, cycle.Description, cycle.StartsAt, cycle.EndsAt,
-		)
-		if err != nil {
-			return fmt.Errorf("projection: insert cycle %s: %w", objectID, err)
-		}
-
-		for _, iss := range cycle.Issues {
-			_, err = tx.Exec(
-				"INSERT INTO cycle_issues (cycle_object_id, issue) VALUES (?, ?)",
-				objectID, iss,
-			)
-			if err != nil {
-				return fmt.Errorf("projection: insert cycle issue %s (%s): %w", objectID, iss, err)
-			}
-		}
-
-		for i, u := range cycle.UnknownOps {
-			_, err = tx.Exec(
-				"INSERT OR REPLACE INTO unknown_ops (object_id, op_id, object_type, op_type, op_version, op_index) VALUES (?, ?, ?, ?, ?, ?)",
-				objectID, u.Commit, u.ObjectType, u.OpType, u.OpVersion, i,
-			)
-			if err != nil {
-				return fmt.Errorf("projection: insert unknown op %s: %w", u.Commit, err)
-			}
-		}
-
-	case "workflow-state":
-		ws, err := state.FoldWorkflowState(ops)
-		if err != nil {
-			return fmt.Errorf("projection: fold workflow-state %s: %w", objectID, err)
-		}
-
-		posOpID := workflowStatePositionOpID(orderedOps)
-		_, err = tx.Exec(
-			"INSERT INTO workflow_states (object_id, name, type, position, color, description, op_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-			objectID, ws.Name, ws.Type, ws.Position, ws.Color, ws.Description, posOpID,
-		)
-		if err != nil {
-			return fmt.Errorf("projection: insert workflow_state %s: %w", objectID, err)
-		}
-
-		for i, u := range ws.UnknownOps {
-			_, err = tx.Exec(
-				"INSERT OR REPLACE INTO unknown_ops (object_id, op_id, object_type, op_type, op_version, op_index) VALUES (?, ?, ?, ?, ?, ?)",
-				objectID, u.Commit, u.ObjectType, u.OpType, u.OpVersion, i,
-			)
-			if err != nil {
-				return fmt.Errorf("projection: insert unknown op %s: %w", u.Commit, err)
-			}
-		}
-
-	case "label":
-		lbl, err := state.FoldLabel(ops)
-		if err != nil {
-			return fmt.Errorf("projection: fold label %s: %w", objectID, err)
-		}
-
-		_, err = tx.Exec(
-			"INSERT INTO labels (object_id, name, color, description, author_name, author_email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-			objectID, lbl.Name, lbl.Color, lbl.Description, authorName, authorEmail, createdAt, updatedAt,
-		)
-		if err != nil {
-			return fmt.Errorf("projection: insert label %s: %w", objectID, err)
-		}
-
-		for i, u := range lbl.UnknownOps {
-			_, err = tx.Exec(
-				"INSERT OR REPLACE INTO unknown_ops (object_id, op_id, object_type, op_type, op_version, op_index) VALUES (?, ?, ?, ?, ?, ?)",
-				objectID, u.Commit, u.ObjectType, u.OpType, u.OpVersion, i,
-			)
-			if err != nil {
-				return fmt.Errorf("projection: insert unknown op %s: %w", u.Commit, err)
-			}
-		}
-
-	case "document":
-		doc, err := state.FoldDocument(ops)
-		if err != nil {
-			return fmt.Errorf("projection: fold document %s: %w", objectID, err)
-		}
-
-		stateJSON, err := json.Marshal(doc)
-		if err != nil {
-			return fmt.Errorf("projection: marshal document state %s: %w", objectID, err)
-		}
-
-		_, err = tx.Exec(
-			"INSERT INTO documents (object_id, title, author_name, author_email, created_at, updated_at, state_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
-			objectID, doc.Title, authorName, authorEmail, createdAt, updatedAt, string(stateJSON),
-		)
-		if err != nil {
-			return fmt.Errorf("projection: insert document %s: %w", objectID, err)
-		}
-
-		for _, link := range doc.Links {
-			_, err = tx.Exec(
-				"INSERT INTO document_links (document_id, target, target_type, relation) VALUES (?, ?, ?, ?)",
-				objectID, link.Target, link.TargetType, link.Relation,
-			)
-			if err != nil {
-				return fmt.Errorf("projection: insert document link %s (%s): %w", objectID, link.Target, err)
-			}
-		}
-
-		for _, label := range doc.Labels {
-			_, err = tx.Exec(
-				"INSERT INTO document_labels (document_id, label) VALUES (?, ?)",
-				objectID, label,
-			)
-			if err != nil {
-				return fmt.Errorf("projection: insert document label %s (%s): %w", objectID, label, err)
-			}
-		}
-
-		for i, u := range doc.UnknownOps {
-			_, err = tx.Exec(
-				"INSERT OR REPLACE INTO unknown_ops (object_id, op_id, object_type, op_type, op_version, op_index) VALUES (?, ?, ?, ?, ?, ?)",
-				objectID, u.Commit, u.ObjectType, u.OpType, u.OpVersion, i,
-			)
-			if err != nil {
-				return fmt.Errorf("projection: insert unknown op %s: %w", u.Commit, err)
-			}
-		}
-
-	case "section":
-		sec, err := state.FoldSection(ops)
-		if err != nil {
-			return fmt.Errorf("projection: fold section %s: %w", objectID, err)
-		}
-
-		stateJSON, err := json.Marshal(sec)
-		if err != nil {
-			return fmt.Errorf("projection: marshal section state %s: %w", objectID, err)
-		}
-
-		posOpID := sectionPositionOpID(orderedOps)
-
-		var bodyStr string
-		conflictedInt := 0
-		if sec.IsConflicted() {
-			conflictedInt = 1
-			bBytes, _ := json.Marshal(sec.ConflictBodies())
-			bodyStr = string(bBytes)
-		} else {
-			bodyStr = sec.SettledBody()
-		}
-
-		deletedInt := 0
-		if sec.Deleted {
-			deletedInt = 1
-		}
-
-		_, err = tx.Exec(
-			"INSERT INTO sections (object_id, document_id, position, op_id, title, body, conflicted, deleted, author_name, author_email, created_at, updated_at, state_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			objectID, sec.DocumentID, sec.Position, posOpID, sec.Title, bodyStr, conflictedInt, deletedInt, authorName, authorEmail, createdAt, updatedAt, string(stateJSON),
-		)
-		if err != nil {
-			return fmt.Errorf("projection: insert section %s: %w", objectID, err)
-		}
-
-		for i, u := range sec.UnknownOps {
-			_, err = tx.Exec(
-				"INSERT OR REPLACE INTO unknown_ops (object_id, op_id, object_type, op_type, op_version, op_index) VALUES (?, ?, ?, ?, ?, ?)",
-				objectID, u.Commit, u.ObjectType, u.OpType, u.OpVersion, i,
-			)
-			if err != nil {
-				return fmt.Errorf("projection: insert unknown op %s: %w", u.Commit, err)
-			}
-		}
-
-	case "settings":
-		sett, err := state.FoldSettings(ops)
-		if err != nil {
-			return fmt.Errorf("projection: fold settings %s: %w", objectID, err)
-		}
-
-		unkJSON, err := json.Marshal(sett.UnknownKeys)
-		if err != nil {
-			unkJSON = []byte("{}")
-		}
-
-		allowZero := 0
-		if sett.AllowZeroEstimates {
-			allowZero = 1
-		}
-		cyclesEnabled := 0
-		if sett.CyclesEnabled {
-			cyclesEnabled = 1
-		}
-		triageEnabled := 0
-		if sett.TriageEnabled {
-			triageEnabled = 1
-		}
-
-		_, err = tx.Exec(
-			"INSERT INTO settings (object_id, name, identifier, timezone, estimate_scale, allow_zero_estimates, cycles_enabled, cycle_duration_weeks, cycle_start_day, cycle_cooldown_weeks, triage_enabled, unknown_keys, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			objectID, sett.Name, sett.Identifier, sett.Timezone, sett.EstimateScale, allowZero, cyclesEnabled, sett.CycleDurationWeeks, sett.CycleStartDay, sett.CycleCooldownWeeks, triageEnabled, string(unkJSON), updatedAt,
-		)
-		if err != nil {
-			return fmt.Errorf("projection: insert settings %s: %w", objectID, err)
-		}
-
-		for i, u := range sett.UnknownOps {
-			_, err = tx.Exec(
-				"INSERT OR REPLACE INTO unknown_ops (object_id, op_id, object_type, op_type, op_version, op_index) VALUES (?, ?, ?, ?, ?, ?)",
-				objectID, u.Commit, u.ObjectType, u.OpType, u.OpVersion, i,
-			)
-			if err != nil {
-				return fmt.Errorf("projection: insert unknown op %s: %w", u.Commit, err)
-			}
-		}
-
-	default:
-		// Preserved-but-unreduced ops: record in unknown_ops
-		for i, op := range ops {
-			_, err = tx.Exec(
-				"INSERT OR REPLACE INTO unknown_ops (object_id, op_id, object_type, op_type, op_version, op_index) VALUES (?, ?, ?, ?, ?, ?)",
-				objectID, op.ID, op.ObjectType, op.OpType, op.OpVersion, i,
-			)
-			if err != nil {
-				return fmt.Errorf("projection: insert unreduced op %s: %w", op.ID, err)
+		for _, ag := range td.AppendGroups {
+			if err := writeAppendGroupRows(tx, ag, objectID, orderedOps, skip); err != nil {
+				return err
 			}
 		}
 	}
@@ -511,6 +261,451 @@ func materializeObject(tx *sql.Tx, objectID string, ops []codec.Op) error {
 	return nil
 }
 
+func sortedTargetKeys(td *typeDescriptor) []string {
+	keys := make([]string, 0, len(td.Targets))
+	for k := range td.Targets {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// writeChildRows writes one row per element of a set-union,
+// set-observed-remove, or multi-value target's folded value into its child
+// table. multi-value folds to an ordered list ([]any); set-union and
+// set-observed-remove fold to a sorted []string. multi-value's folded value
+// is a bare string, not a list, when settled (one maximal write) — the
+// reader derives `conflicted` as row-count > 1 and the settled body as the
+// sole row, so a settled write still needs exactly one row here. An append
+// target carries no plan at all (see appendGroupPlan and
+// writeAppendGroupRows below) and so never reaches this function.
+func writeChildRows(tx *sql.Tx, plan *targetPlan, objectID string, val any) error {
+	var items []any
+	switch v := val.(type) {
+	case []string:
+		for _, s := range v {
+			items = append(items, s)
+		}
+	case []any:
+		items = v
+	case string:
+		items = []any{v}
+	default:
+		return nil
+	}
+
+	for i, it := range items {
+		converted := columnValue(plan.ValueType, it)
+		var err error
+		if plan.ChildKind == "idx" {
+			_, err = tx.Exec("INSERT INTO "+plan.ChildTable+" (object_id, idx, value) VALUES (?, ?, ?)", objectID, i, converted)
+		} else {
+			_, err = tx.Exec("INSERT INTO "+plan.ChildTable+" (object_id, item) VALUES (?, ?)", objectID, converted)
+		}
+		if err != nil {
+			return fmt.Errorf("projection: insert %s row for %s: %w", plan.ChildTable, objectID, err)
+		}
+	}
+	return nil
+}
+
+// writeAppendGroupRows writes one row per op that matches any of an append
+// group's envelopes and isn't already quarantined into unknown_ops, in the
+// object's total order — the same op-level filter state.Fold and the typed
+// review reducer both apply via fold.Uninterpretable against the same
+// rules, so a wholly rejected op contributes no row here either. Each row
+// carries one column per grouped target, NULL where that particular op's
+// body omitted the field: the row is the pairing, fixed once at write time,
+// rather than something a reader reconstructs by zipping
+// independently-ordered per-field lists back together (WRIT-189 round 2
+// MAJOR-1).
+//
+// A target declared under more than one envelope (a version bump, or a
+// second op_type agreeing on every merge attribute, spec/schema-ops.md §8)
+// has to accept rows from every one of them, not just one representative,
+// to match what state.Fold's own target-keyed accumulator accumulates
+// (WRIT-189 round 3 MAJOR-1) — ag.Envelopes (built purely from the rule
+// index in ddl.go, via buildAppendGroups) is the full set.
+//
+// This never inspects td, rules, or any field name: ag.Envelopes and
+// ag.Members are its only inputs besides the raw ops, so it materializes an
+// envelope declared by an arbitrary log schema exactly as it does review's
+// built-in revision push.
+func writeAppendGroupRows(tx *sql.Tx, ag appendGroupPlan, objectID string, orderedOps []codec.Op, skip map[string]bool) error {
+	idx := 0
+	for _, op := range orderedOps {
+		if skip[op.ID] {
+			continue
+		}
+		if !appendGroupEnvelopeMatches(ag.Envelopes, op) {
+			continue
+		}
+
+		var body map[string]any
+		if len(op.Body) > 0 {
+			if err := json.Unmarshal(op.Body, &body); err != nil {
+				return fmt.Errorf("projection: unmarshal op %s body for %s: %w", op.ID, ag.Table, err)
+			}
+		}
+
+		cols := make([]string, 0, len(ag.Members)+2)
+		vals := make([]any, 0, len(ag.Members)+2)
+		cols = append(cols, "object_id", "idx")
+		vals = append(vals, objectID, idx)
+		for _, m := range ag.Members {
+			cols = append(cols, m.Column)
+			// A member's body key is per-envelope, not the target key
+			// itself: two envelopes can reach the same target through two
+			// different field names (a version bump, or a second op_type
+			// agreeing on every merge attribute, spec/schema-ops.md §8), and
+			// reading body[m.Key] — the target key — silently NULLs every
+			// row whenever a rule declares target(...) distinct from field,
+			// with the value landing in neither unknown_fields nor
+			// unknown_ops (WRIT-189 round 4 MAJOR-1). fieldForOp resolves
+			// the field this op's own envelope actually uses, mirroring
+			// state.Fold's per-op rule dispatch (engine/internal/fold).
+			field, ok := fieldForOp(m.Fields, op)
+			if !ok {
+				vals = append(vals, nil)
+				continue
+			}
+			// Presence alone gates a write, matching the fold (spec/fold.md
+			// §5.1's empty-scalar contract, mirrored by every accumulator
+			// including append's): an explicit JSON null is a written nil,
+			// not the same as the field never appearing in the body. Both
+			// still land as SQL NULL here — columnValue itself already
+			// treats a nil value as NULL for every value_type — but the
+			// gate is "was it present", not "was it present and non-null"
+			// (WRIT-189 round 3 MINOR-5).
+			if v, ok := body[field]; ok {
+				vals = append(vals, columnValue(m.ValueType, v))
+			} else {
+				vals = append(vals, nil)
+			}
+		}
+
+		ph := strings.Repeat("?, ", len(cols)-1) + "?"
+		if _, err := tx.Exec("INSERT INTO "+ag.Table+" ("+strings.Join(cols, ", ")+") VALUES ("+ph+")", vals...); err != nil {
+			return fmt.Errorf("projection: insert %s row for %s: %w", ag.Table, objectID, err)
+		}
+		idx++
+	}
+	return nil
+}
+
+// appendGroupEnvelopeMatches reports whether op matches at least one of
+// envelopes — the same op_type/op_version wildcard semantics
+// opMatchesRuleLite applies for a single rule, applied here across every
+// envelope an append group's members are declared under (WRIT-189 round 3
+// MAJOR-1: a target declared under two envelopes must accept ops from
+// either, not just whichever one buildTypeDescriptor picked as its
+// representative rule).
+func appendGroupEnvelopeMatches(envelopes []appendGroupEnvelope, op codec.Op) bool {
+	for _, e := range envelopes {
+		if e.OpType != op.OpType {
+			continue
+		}
+		if e.OpVersion != 0 && op.OpVersion != 0 && op.OpVersion != e.OpVersion {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// fieldForOp returns the body key op's own envelope reads a member's value
+// from: the Field of the one appendGroupFieldSource among fields whose
+// (op_type, op_version) matches op. false means no rule declaring this
+// member was declared under an envelope op matches, so it takes no value
+// from op at all — distinct from the field being merely absent from op's
+// body, which still yields a written NULL below.
+//
+// This is a plain first-match scan, and first-match is only safe because
+// fields cannot contain two entries sharing one exact (op_type, op_version)
+// envelope with two different Field values: ddl.go detects that shape while
+// building fields (the loop building appendGroupMember.Fields) and withholds
+// the whole type for it before a typeDescriptor is ever produced, the same
+// no-winner idiom identCollision already applies to a colliding identifier
+// (WRIT-189 round 5 MAJOR-1). An earlier version of this comment claimed
+// first-match "reproduces" state.Fold's own per-op rule dispatch
+// (engine/internal/fold) — that was false independent of ordering: fold's
+// matchedRulesByField admits a rule only if some op in the object's history
+// actually writes that rule's Field, while fields here is unfiltered, so
+// first-match could select a field the fold would never have considered.
+// Withholding the ambiguous shape at the source, rather than trying to
+// mirror fold's admission logic here, is what makes fields safe to scan in
+// order at all: with the ambiguous shape gone, at most one entry can ever
+// match a given op's exact envelope, so which one is "first" no longer
+// matters.
+func fieldForOp(fields []appendGroupFieldSource, op codec.Op) (string, bool) {
+	for _, f := range fields {
+		if f.OpType != op.OpType {
+			continue
+		}
+		if f.OpVersion != 0 && op.OpVersion != 0 && f.OpVersion != op.OpVersion {
+			continue
+		}
+		return f.Field, true
+	}
+	return "", false
+}
+
+// writeMembersRows populates a target's generic members table from its
+// folded value, when that value decodes to a JSON object: one row per
+// top-level key, so a reader can filter two members of the same object
+// together via two indexed EXISTS lookups instead of an unindexed scan.
+// A value that is not object-shaped (or fails to decode) writes nothing —
+// the members table stays a pure performance index, never a second source
+// of truth for the scalar column, which already holds the value verbatim.
+func writeMembersRows(tx *sql.Tx, table, objectID string, raw any) error {
+	var obj map[string]any
+	switch v := raw.(type) {
+	case json.RawMessage:
+		if err := json.Unmarshal(v, &obj); err != nil {
+			return nil
+		}
+	case []byte:
+		if err := json.Unmarshal(v, &obj); err != nil {
+			return nil
+		}
+	case map[string]any:
+		obj = v
+	default:
+		return nil
+	}
+	if len(obj) == 0 {
+		return nil
+	}
+
+	keys := make([]string, 0, len(obj))
+	for k := range obj {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		val := toText(obj[k])
+		if _, err := tx.Exec("INSERT INTO "+table+" (object_id, member, value) VALUES (?, ?, ?)", objectID, k, val); err != nil {
+			return fmt.Errorf("projection: insert %s row for %s: %w", table, objectID, err)
+		}
+	}
+	return nil
+}
+
+// columnValue converts a folded Go value into the form its declared
+// value_type's SQL column expects: int and number to their numeric SQLite
+// affinities, bool to 0/1, and everything else — including an untyped
+// value, which for create-once arrives as raw JSON bytes and for anything
+// else falls back to a defensive re-marshal — to text.
+//
+// create-once always hands back raw JSON bytes verbatim regardless of
+// value_type (byte-exact preservation for every non-normalizing value,
+// spec/value-types.md), so a create-once string, int, bool, or any other
+// typed field arrives here as json.RawMessage holding e.g. `"c-reply-1"` —
+// quotes included — not the Go string "c-reply-1". Every value_type except
+// the truly untyped one (value_type == "", where the raw bytes are the
+// point: an arbitrary JSON object like comment.subject, preserved verbatim
+// including unknown members and key order) decodes those bytes back into a
+// native Go value before the switch below runs, so a create-once column
+// reads back exactly as an lww column of the same value_type would.
+func columnValue(valueType string, v any) any {
+	if v == nil {
+		return nil
+	}
+	if raw, ok := rawJSONBytes(v); ok {
+		if valueType == "" {
+			return toText(v)
+		}
+		var decoded any
+		if err := json.Unmarshal(raw, &decoded); err == nil {
+			v = decoded
+		}
+	}
+	switch valueType {
+	case "int":
+		switch n := v.(type) {
+		case float64:
+			return int64(n)
+		case int64:
+			return n
+		case int:
+			return int64(n)
+		}
+		return nil
+	case "number":
+		switch n := v.(type) {
+		case float64:
+			return n
+		case int64:
+			return float64(n)
+		case int:
+			return float64(n)
+		}
+		return nil
+	case "bool":
+		if b, ok := v.(bool); ok {
+			if b {
+				return 1
+			}
+			return 0
+		}
+		return nil
+	default:
+		return toText(v)
+	}
+}
+
+// rawJSONBytes reports whether v is the raw-bytes shape create-once's
+// accumulator produces (json.RawMessage, or a bare []byte for defensive
+// measure), returning the bytes.
+func rawJSONBytes(v any) ([]byte, bool) {
+	switch t := v.(type) {
+	case json.RawMessage:
+		return []byte(t), true
+	case []byte:
+		return t, true
+	}
+	return nil, false
+}
+
+// toText renders v as the string a TEXT column stores. create-once's raw
+// bytes (json.RawMessage, for an untyped target such as comment.subject)
+// pass through verbatim — the exact bytes a producer wrote, unknown members
+// and key order included — rather than being decoded and re-marshaled.
+func toText(v any) any {
+	switch t := v.(type) {
+	case string:
+		return t
+	case json.RawMessage:
+		return string(t)
+	case []byte:
+		return string(t)
+	case bool:
+		if t {
+			return "true"
+		}
+		return "false"
+	default:
+		b, err := json.Marshal(t)
+		if err != nil {
+			return fmt.Sprintf("%v", t)
+		}
+		return string(b)
+	}
+}
+
+// opMatchesRuleLite mirrors engine/internal/fold's unexported opMatchesRule:
+// object_type, op_type and op_version filters, empty meaning "matches
+// anything" on either side. Position op-id derivation and unknown-field
+// detection both need this and neither can reach the internal fold package
+// (it is not on the projection's import allowlist), so it is reproduced
+// here rather than exported solely for this.
+func opMatchesRuleLite(op codec.Op, r state.Rule) bool {
+	if r.OpType != "" && r.OpType != op.OpType {
+		return false
+	}
+	if r.OpVersion != 0 && op.OpVersion != 0 && r.OpVersion != op.OpVersion {
+		return false
+	}
+	if r.ObjectType != "" && op.ObjectType != "" && r.ObjectType != op.ObjectType {
+		return false
+	}
+	return true
+}
+
+// positionOpID finds, among ops matching a rule bound to targetKey, the id
+// of the last op in the total order that carried a string at that rule's
+// field — the id ORDER BY position ASC, ..._op_id ASC tiebreaks on. One
+// generic helper replaces the three near-identical per-type ones
+// (issuePositionOpID, sectionPositionOpID, workflowStatePositionOpID) that
+// existed before every position target got this companion column
+// mechanically. This is a projection-side derivation over ops the fold
+// already ordered: no fold change, no I/O.
+func positionOpID(orderedOps []codec.Op, objectType, targetKey string, rules []state.Rule) string {
+	var posOpID string
+	for _, op := range orderedOps {
+		for _, r := range rules {
+			if r.TargetKey() != targetKey || r.ValueType != "position" {
+				continue
+			}
+			if !opMatchesRuleLite(op, r) {
+				continue
+			}
+			var body map[string]any
+			if len(op.Body) > 0 {
+				if err := json.Unmarshal(op.Body, &body); err != nil {
+					continue
+				}
+			}
+			if _, ok := body[r.Field].(string); ok {
+				posOpID = op.ID
+			}
+			break
+		}
+	}
+	return posOpID
+}
+
+// computeUnknownFields scans every op whose (op_type, op_version) matched at
+// least one installed rule — an op already fully quarantined in unknownOps
+// contributes nothing here, it is tracked there instead — for body keys no
+// rule bound to that op's (op_type, op_version) names as its Field,
+// last-write-wins per key over the total order. This is the generic
+// expression of settings.FoldSettings's unknown_keys collection: the same
+// semantics, computed once for every declared type instead of one type's
+// hand-written case.
+func computeUnknownFields(orderedOps []codec.Op, rules []state.Rule, unknownOps []state.UnknownOp) string {
+	skip := make(map[string]bool, len(unknownOps))
+	for _, u := range unknownOps {
+		skip[u.Commit] = true
+	}
+
+	result := make(map[string]any)
+	for _, op := range orderedOps {
+		if skip[op.ID] {
+			continue
+		}
+		var matchedAny bool
+		knownFields := make(map[string]bool)
+		for _, r := range rules {
+			if !opMatchesRuleLite(op, r) {
+				continue
+			}
+			matchedAny = true
+			knownFields[r.Field] = true
+		}
+		if !matchedAny || len(op.Body) == 0 {
+			continue
+		}
+		var body map[string]json.RawMessage
+		if err := json.Unmarshal(op.Body, &body); err != nil {
+			continue
+		}
+		for k, raw := range body {
+			if knownFields[k] {
+				continue
+			}
+			var v any
+			if err := json.Unmarshal(raw, &v); err != nil {
+				continue
+			}
+			result[k] = v
+		}
+	}
+
+	if len(result) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(result)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// determineObjectType determines the object type from an ops slice,
+// prioritizing create ops with non-empty ObjectType, then the first
+// non-empty ObjectType, then ops[0].ObjectType if non-empty, else "".
 func determineObjectType(ops []codec.Op) string {
 	for _, op := range ops {
 		if op.OpType == "create" && op.ObjectType != "" {
@@ -528,56 +723,60 @@ func determineObjectType(ops []codec.Op) string {
 	return ""
 }
 
-func deleteObjectState(tx *sql.Tx, objectID string) error {
-	queries := []string{
-		"DELETE FROM objects WHERE object_id = ?",
-		"DELETE FROM unknown_ops WHERE object_id = ?",
-		"DELETE FROM reviews WHERE object_id = ?",
-		"DELETE FROM review_revisions WHERE review_object_id = ?",
-		"DELETE FROM review_assignees WHERE review_object_id = ?",
-		"DELETE FROM review_labels WHERE review_object_id = ?",
-		"DELETE FROM review_links WHERE review_object_id = ?",
-		"DELETE FROM approvals WHERE review_object_id = ?",
-		"DELETE FROM ci_statuses WHERE review_object_id = ?",
-		"DELETE FROM comments WHERE object_id = ?",
-		"DELETE FROM anchor_resolutions WHERE comment_object_id = ?",
-		"DELETE FROM issues WHERE object_id = ?",
-		"DELETE FROM issue_assignees WHERE issue_object_id = ?",
-		"DELETE FROM issue_labels WHERE issue_object_id = ?",
-		"DELETE FROM issue_links WHERE issue_object_id = ?",
-		"DELETE FROM projects WHERE object_id = ?",
-		"DELETE FROM project_issues WHERE project_object_id = ?",
-		"DELETE FROM cycles WHERE object_id = ?",
-		"DELETE FROM cycle_issues WHERE cycle_object_id = ?",
-		"DELETE FROM workflow_states WHERE object_id = ?",
-		"DELETE FROM labels WHERE object_id = ?",
-		"DELETE FROM documents WHERE object_id = ?",
-		"DELETE FROM document_links WHERE document_id = ?",
-		"DELETE FROM document_labels WHERE document_id = ?",
-		"DELETE FROM sections WHERE object_id = ?",
-		"DELETE FROM settings WHERE object_id = ?",
-	}
-	for _, q := range queries {
-		if _, err := tx.Exec(q, objectID); err != nil {
-			return fmt.Errorf("projection: delete object state (%s): %w", q, err)
+// deleteObjectState removes objectID's row from substrate (objects,
+// unknown_ops, anchor_resolutions) and, if a prior materialization recorded
+// a type for it that desc still declares, from that type's own generated
+// tables. An object's type is not expected to change across
+// re-materializations; if the prior type's tables no longer exist in desc
+// (the type was dropped from the schema), TestSchemaShrinkMovesOpsToUnknownOps
+// covers that path — ApplySchema itself already dropped those tables, so
+// there is nothing here left to clean.
+func deleteObjectState(tx *sql.Tx, desc *schemaDescriptor, objectID string) error {
+	var priorType sql.NullString
+	_ = tx.QueryRow("SELECT object_type FROM objects WHERE object_id = ?", objectID).Scan(&priorType)
+
+	if priorType.Valid && desc != nil {
+		if td, ok := desc.types[priorType.String]; ok {
+			if _, err := tx.Exec("DELETE FROM "+td.Table.Name+" WHERE object_id = ?", objectID); err != nil {
+				return fmt.Errorf("projection: delete %s row (%s): %w", td.Table.Name, objectID, err)
+			}
+			for _, child := range td.Children {
+				if _, err := tx.Exec("DELETE FROM "+child.Name+" WHERE object_id = ?", objectID); err != nil {
+					return fmt.Errorf("projection: delete %s rows (%s): %w", child.Name, objectID, err)
+				}
+			}
 		}
+	}
+
+	if _, err := tx.Exec("DELETE FROM objects WHERE object_id = ?", objectID); err != nil {
+		return fmt.Errorf("projection: delete object state (objects, %s): %w", objectID, err)
+	}
+	if _, err := tx.Exec("DELETE FROM unknown_ops WHERE object_id = ?", objectID); err != nil {
+		return fmt.Errorf("projection: delete object state (unknown_ops, %s): %w", objectID, err)
+	}
+	if _, err := tx.Exec("DELETE FROM anchor_resolutions WHERE object_id = ?", objectID); err != nil {
+		return fmt.Errorf("projection: delete object state (anchor_resolutions, %s): %w", objectID, err)
 	}
 	return nil
 }
 
 type commentToResolve struct {
 	objectID   string
+	target     string
 	anchorJSON string
 }
 
-// materializeAnchors resolves comment anchors against current target commits in code_tips.
-func materializeAnchors(tx *sql.Tx, s storage.Storer) (int, error) {
-	// 1. Prune resolutions whose target_commit is no longer in code_tips
+// materializeAnchors resolves comment anchors against current target commits
+// in code_tips. Which columns to read anchors from is driven by
+// desc.anchorColumns — every scalar target whose declared value_type is
+// "anchor" — rather than a hard-coded read of comments.anchor: comment's
+// create/anchor is simply the one case in the shipped vocabulary that
+// declares value_type "anchor" today.
+func materializeAnchors(tx *sql.Tx, desc *schemaDescriptor, s storage.Storer) (int, error) {
 	if _, err := tx.Exec("DELETE FROM anchor_resolutions WHERE target_commit NOT IN (SELECT tip FROM code_tips)"); err != nil {
 		return 0, fmt.Errorf("projection: prune stale anchor resolutions: %w", err)
 	}
 
-	// 2. Fetch distinct target commits from code_tips
 	rows, err := tx.Query("SELECT DISTINCT tip FROM code_tips WHERE tip != ''")
 	if err != nil {
 		return 0, fmt.Errorf("projection: query code_tips: %w", err)
@@ -594,29 +793,30 @@ func materializeAnchors(tx *sql.Tx, s storage.Storer) (int, error) {
 	if err := rows.Err(); err != nil {
 		return 0, fmt.Errorf("projection: iterate code_tips: %w", err)
 	}
-
-	if len(targetCommits) == 0 {
+	if len(targetCommits) == 0 || desc == nil {
 		return 0, nil
 	}
 
-	// 3. Fetch all comments with non-empty anchor
-	cRows, err := tx.Query("SELECT object_id, anchor FROM comments WHERE anchor != '' AND anchor != 'null'")
-	if err != nil {
-		return 0, fmt.Errorf("projection: query comments with anchors: %w", err)
-	}
 	var comments []commentToResolve
-	for cRows.Next() {
-		var c commentToResolve
-		if err := cRows.Scan(&c.objectID, &c.anchorJSON); err != nil {
-			_ = cRows.Close()
-			return 0, fmt.Errorf("projection: scan comment: %w", err)
+	for _, ref := range desc.anchorColumns {
+		cRows, err := tx.Query("SELECT object_id, " + ref.Column + " FROM " + ref.Table + " WHERE " + ref.Column + " IS NOT NULL AND " + ref.Column + " != '' AND " + ref.Column + " != 'null'")
+		if err != nil {
+			return 0, fmt.Errorf("projection: query anchors from %s.%s: %w", ref.Table, ref.Column, err)
 		}
-		comments = append(comments, c)
+		for cRows.Next() {
+			var c commentToResolve
+			if err := cRows.Scan(&c.objectID, &c.anchorJSON); err != nil {
+				_ = cRows.Close()
+				return 0, fmt.Errorf("projection: scan anchor from %s.%s: %w", ref.Table, ref.Column, err)
+			}
+			c.target = ref.Target
+			comments = append(comments, c)
+		}
+		_ = cRows.Close()
+		if err := cRows.Err(); err != nil {
+			return 0, fmt.Errorf("projection: iterate anchors from %s.%s: %w", ref.Table, ref.Column, err)
+		}
 	}
-	if err := cRows.Err(); err != nil {
-		return 0, fmt.Errorf("projection: iterate comments: %w", err)
-	}
-
 	if len(comments) == 0 {
 		return 0, nil
 	}
@@ -625,8 +825,7 @@ func materializeAnchors(tx *sql.Tx, s storage.Storer) (int, error) {
 	resolvedCount := 0
 
 	for _, targetCommit := range targetCommits {
-		// Find comments that already have resolutions for this targetCommit
-		resRows, err := tx.Query("SELECT DISTINCT comment_object_id FROM anchor_resolutions WHERE target_commit = ?", targetCommit)
+		resRows, err := tx.Query("SELECT DISTINCT object_id FROM anchor_resolutions WHERE target_commit = ?", targetCommit)
 		if err != nil {
 			return resolvedCount, fmt.Errorf("projection: query existing resolutions: %w", err)
 		}
@@ -676,8 +875,8 @@ func materializeAnchors(tx *sql.Tx, s storage.Storer) (int, error) {
 					endLine = res.Old.Range.End
 				}
 				_, err = tx.Exec(
-					"INSERT OR REPLACE INTO anchor_resolutions (comment_object_id, target_commit, side, outcome, match, path, start_line, end_line, reason) VALUES (?, ?, 'old', ?, ?, ?, ?, ?, ?)",
-					comm.objectID, targetCommit, res.Old.Outcome, res.Old.Match, res.Old.Path, startLine, endLine, res.Old.Reason,
+					"INSERT OR REPLACE INTO anchor_resolutions (object_id, target, target_commit, side, outcome, match, path, start_line, end_line, reason) VALUES (?, ?, ?, 'old', ?, ?, ?, ?, ?, ?)",
+					comm.objectID, comm.target, targetCommit, res.Old.Outcome, res.Old.Match, res.Old.Path, startLine, endLine, res.Old.Reason,
 				)
 				if err != nil {
 					return resolvedCount, fmt.Errorf("projection: insert anchor resolution old (%s, %s): %w", comm.objectID, targetCommit, err)
@@ -692,8 +891,8 @@ func materializeAnchors(tx *sql.Tx, s storage.Storer) (int, error) {
 					endLine = res.New.Range.End
 				}
 				_, err = tx.Exec(
-					"INSERT OR REPLACE INTO anchor_resolutions (comment_object_id, target_commit, side, outcome, match, path, start_line, end_line, reason) VALUES (?, ?, 'new', ?, ?, ?, ?, ?, ?)",
-					comm.objectID, targetCommit, res.New.Outcome, res.New.Match, res.New.Path, startLine, endLine, res.New.Reason,
+					"INSERT OR REPLACE INTO anchor_resolutions (object_id, target, target_commit, side, outcome, match, path, start_line, end_line, reason) VALUES (?, ?, ?, 'new', ?, ?, ?, ?, ?, ?)",
+					comm.objectID, comm.target, targetCommit, res.New.Outcome, res.New.Match, res.New.Path, startLine, endLine, res.New.Reason,
 				)
 				if err != nil {
 					return resolvedCount, fmt.Errorf("projection: insert anchor resolution new (%s, %s): %w", comm.objectID, targetCommit, err)
@@ -733,77 +932,3 @@ func materializeCommitTree(s storage.Storer, commitHash string) (map[string][]by
 	}
 	return files, nil
 }
-
-func workflowStatePositionOpID(orderedOps []codec.Op) string {
-	var posOpID string
-	for _, op := range orderedOps {
-		if op.ObjectType != "workflow-state" || op.OpVersion != 1 {
-			continue
-		}
-		var body map[string]any
-		if len(op.Body) > 0 {
-			if err := json.Unmarshal(op.Body, &body); err != nil {
-				continue
-			}
-		}
-		if body == nil {
-			continue
-		}
-		if op.OpType == "create" || op.OpType == "update" {
-			if _, ok := body["position"].(string); ok {
-				posOpID = op.ID
-			}
-		}
-	}
-	return posOpID
-}
-
-func sectionPositionOpID(orderedOps []codec.Op) string {
-	var posOpID string
-	for _, op := range orderedOps {
-		if op.ObjectType != "section" || op.OpVersion != 1 {
-			continue
-		}
-		var body map[string]any
-		if len(op.Body) > 0 {
-			if err := json.Unmarshal(op.Body, &body); err != nil {
-				continue
-			}
-		}
-		if body == nil {
-			continue
-		}
-		if op.OpType == "create" || op.OpType == "move" || op.OpType == "update" {
-			if _, ok := body["position"].(string); ok {
-				posOpID = op.ID
-			}
-		}
-	}
-	return posOpID
-}
-
-func issuePositionOpID(orderedOps []codec.Op) string {
-	var posOpID string
-	for _, op := range orderedOps {
-		if op.ObjectType != "issue" || op.OpVersion != 1 {
-			continue
-		}
-		var body map[string]any
-		if len(op.Body) > 0 {
-			if err := json.Unmarshal(op.Body, &body); err != nil {
-				continue
-			}
-		}
-		if body == nil {
-			continue
-		}
-		if op.OpType == "create" || op.OpType == "update" || op.OpType == "set-state" {
-			if _, ok := body["position"].(string); ok {
-				posOpID = op.ID
-			}
-		}
-	}
-	return posOpID
-}
-
-

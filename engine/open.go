@@ -213,6 +213,38 @@ func Open(path string, opts ...Option) (*Store, error) {
 		localRepoID: string(localRepoID),
 	}
 
+	// Ensure the projection's generated tables exist before any caller can
+	// read from it, whether or not autoRefresh ever runs a Refresh: Open
+	// creates only substrate tables, and a fresh checkout's generated tables
+	// come solely from an ApplySchema call.
+	//
+	// Resolving the schema costs a cold dag.Store.Enumerate the very first
+	// time it runs in a process (Store.vocabularies' cache starts empty),
+	// which is linear in the DAG's total op count — unavoidable the one
+	// time there is truly nothing to reuse. But projDB.Open just reloaded
+	// this cache's generated-table list from meta with no DAG access at all
+	// (loadPersistedTables): a reopened cache already has its tables,
+	// correctly shaped for whatever schema last applied, so paying for a
+	// full resolve here on every single process start — including a pure
+	// read on an otherwise warm cache — was pure waste (MAJOR-2, WRIT-189
+	// round 1: 6.3x slower Open at 2,000 refs, paid by every CLI
+	// invocation). Only a genuinely fresh cache, which has no generated
+	// tables yet, pays for it here; a real schema change since the cache
+	// was last written is caught lazily, the same way any other log change
+	// is — by autoRefresh, or an explicit Store.Refresh call, whichever
+	// runs first.
+	if !projDB.HasGeneratedTables() {
+		initialRules, err := s.rules(context.Background())
+		if err != nil {
+			_ = projDB.Close()
+			return nil, fmt.Errorf("writ: resolve schema: %w", err)
+		}
+		if err := projDB.ApplySchema(initialRules); err != nil {
+			_ = projDB.Close()
+			return nil, fmt.Errorf("writ: apply schema: %w", err)
+		}
+	}
+
 	s.Reviews = &Reviews{store: s}
 	s.Issues = &Issues{store: s}
 	s.Comments = &Comments{store: s}

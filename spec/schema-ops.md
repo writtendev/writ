@@ -51,10 +51,10 @@ carries its own namespace. Namespace is a property of the schema object
   directly, exactly as `engine/state`'s own tests do for every other
   vocabulary.
 - **No projection tables.** Schema ops land in the projection's existing
-  `unknown_ops` bucket via `materialize.go`'s `default:` branch, exactly
-  like any object type with no materializer. `Store.Schema` (below) folds
-  from the DAG, not the projection, so nothing depends on projection
-  support existing.
+  `unknown_ops` bucket, exactly like any object type the resolved rule
+  index does not declare a table for. `Store.Schema` (below) folds from
+  the DAG, not the projection, so nothing depends on projection support
+  existing.
 
 ---
 
