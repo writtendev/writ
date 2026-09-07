@@ -41,6 +41,11 @@ const (
 	KindSettings      = "settings"
 	KindSchemaPlan    = "schema.plan"
 	KindSchemaApply   = "schema.apply"
+	KindSchemaShow    = "schema.show"
+	KindObjectCreate  = "object.create"
+	KindObjectApply   = "object.apply"
+	KindObjectShow    = "object.show"
+	KindObjectList    = "object.list"
 )
 
 // Envelope wraps all machine-readable output in a single versioned container.
@@ -967,4 +972,173 @@ type SchemaApply struct {
 	Created     bool            `json:"created"`
 	OpsAppended int             `json:"ops_appended"`
 	Ops         []SchemaOpEntry `json:"ops"`
+}
+
+// FromUnknownOps converts unknown ops to wire form, preserving order.
+// Collections are always non-nil so they serialize as `[]`.
+func FromUnknownOps(ops []writ.UnknownOp) []UnknownOp {
+	out := make([]UnknownOp, len(ops))
+	for i, u := range ops {
+		out[i] = UnknownOp{Commit: u.Commit, ObjectType: u.ObjectType, OpType: u.OpType, OpVersion: u.OpVersion}
+	}
+	return out
+}
+
+// ObjectCreated is the `object.create` JSON payload.
+type ObjectCreated struct {
+	ObjectID   string `json:"object_id"`
+	ObjectType string `json:"object_type"`
+}
+
+// ObjectApplied is the `object.apply` JSON payload.
+type ObjectApplied struct {
+	ObjectID string `json:"object_id"`
+	OpType   string `json:"op_type"`
+}
+
+// Object is the `object.show` JSON payload: the folded state of one
+// collaborative object of any schema-declared type. Fields is an OPEN MAP
+// KEYED BY TARGET KEY, not a fixed field set -- the one place this wire
+// format's usual additive-only, never-retyped promise needs a
+// schema-shaped carve-out, because the object type it describes is data,
+// not a Go struct this package ships.
+type Object struct {
+	ObjectID   string         `json:"object_id"`
+	ObjectType string         `json:"object_type"`
+	Fields     map[string]any `json:"fields"`
+	UnknownOps []UnknownOp    `json:"unknown_ops"`
+}
+
+// FromObject converts a folded writ.Object to wire form.
+func FromObject(o writ.Object) Object {
+	fields := o.Fields
+	if fields == nil {
+		fields = map[string]any{}
+	}
+	return Object{
+		ObjectID:   o.ObjectID,
+		ObjectType: o.ObjectType,
+		Fields:     fields,
+		UnknownOps: FromUnknownOps(o.UnknownOps),
+	}
+}
+
+// ObjectSummary is a single row in the `object list` cross-type output.
+// It carries no op id: ARCHITECTURE.md §Public API shape keeps the wire
+// layer schema-shaped, never git-shaped -- callers see no SHAs unless they
+// ask, and a list row is not asking. op_count is fine, since it is a count,
+// not an identifier.
+type ObjectSummary struct {
+	ObjectID   string    `json:"object_id"`
+	ObjectType string    `json:"object_type"`
+	Author     Author    `json:"author"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+	OpCount    int       `json:"op_count"`
+}
+
+// FromObjectResultSummary converts one cross-type object query row to wire form.
+func FromObjectResultSummary(r writ.ObjectResult) ObjectSummary {
+	return ObjectSummary{
+		ObjectID:   r.ObjectID,
+		ObjectType: r.ObjectType,
+		Author:     Author{Name: r.Author.Name, Email: r.Author.Email},
+		CreatedAt:  r.CreatedAt,
+		UpdatedAt:  r.UpdatedAt,
+		OpCount:    r.OpCount,
+	}
+}
+
+// FromObjectResultSummaries converts cross-type object query rows to wire
+// form. Collections are always non-nil so they serialize as `[]`.
+func FromObjectResultSummaries(results []writ.ObjectResult) []ObjectSummary {
+	out := make([]ObjectSummary, len(results))
+	for i, r := range results {
+		out[i] = FromObjectResultSummary(r)
+	}
+	return out
+}
+
+// SchemaTypeField is the wire form of one field declaration within a
+// schema-declared type's op vocabulary (`schema show`).
+type SchemaTypeField struct {
+	Name       string            `json:"field"`
+	OpType     string            `json:"op_type"`
+	OpVersion  int64             `json:"op_version"`
+	ValueType  string            `json:"value_type,omitempty"`
+	Enum       []string          `json:"enum,omitempty"`
+	MaxLength  int64             `json:"max_length,omitempty"`
+	Strategy   string            `json:"strategy,omitempty"`
+	Key        []string          `json:"key,omitempty"`
+	KeyTypes   map[string]string `json:"key_types,omitempty"`
+	Lattice    []string          `json:"lattice,omitempty"`
+	Target     string            `json:"target,omitempty"`
+	Deprecated bool              `json:"deprecated,omitempty"`
+}
+
+// SchemaTypeOp is the wire form of one op type declared within a
+// schema-declared type's vocabulary (`schema show`).
+type SchemaTypeOp struct {
+	OpType      string `json:"op_type"`
+	OpVersion   int64  `json:"op_version"`
+	Description string `json:"description,omitempty"`
+}
+
+// SchemaTypeInfo is the `schema.show` JSON payload for one object type: the
+// vocabulary installed and folding right now (Store.Types), not what
+// `writ schema plan`/`apply` would write (Store.Schema) -- see the
+// command's own Long text.
+type SchemaTypeInfo struct {
+	Name        string            `json:"type"`
+	Description string            `json:"description,omitempty"`
+	Deprecated  bool              `json:"deprecated,omitempty"`
+	Fields      []SchemaTypeField `json:"fields,omitempty"`
+	Ops         []SchemaTypeOp    `json:"ops,omitempty"`
+}
+
+// FromSchemaTypeInfo converts one Store.Types entry to wire form. Fields
+// and Ops are built as non-nil (possibly empty) slices, but -- unlike this
+// file's other From* converters -- SchemaTypeInfo declares both
+// `omitempty`, so a field-less or op-less type's empty slice is omitted
+// from the wire output entirely rather than serializing as `[]`. See
+// docs/cli-json.md's schema.show table ("Omitted when empty").
+func FromSchemaTypeInfo(t writ.SchemaType) SchemaTypeInfo {
+	fields := make([]SchemaTypeField, len(t.Fields))
+	for i, f := range t.Fields {
+		fields[i] = SchemaTypeField{
+			Name:       f.Name,
+			OpType:     f.OpType,
+			OpVersion:  f.OpVersion,
+			ValueType:  f.ValueType,
+			Enum:       f.Enum,
+			MaxLength:  f.MaxLength,
+			Strategy:   f.Strategy,
+			Key:        f.Key,
+			KeyTypes:   f.KeyTypes,
+			Lattice:    f.Lattice,
+			Target:     f.Target,
+			Deprecated: f.Deprecated,
+		}
+	}
+	ops := make([]SchemaTypeOp, len(t.Ops))
+	for i, o := range t.Ops {
+		ops[i] = SchemaTypeOp{OpType: o.OpType, OpVersion: o.OpVersion, Description: o.Description}
+	}
+	return SchemaTypeInfo{
+		Name:        t.Name,
+		Description: t.Description,
+		Deprecated:  t.Deprecated,
+		Fields:      fields,
+		Ops:         ops,
+	}
+}
+
+// FromSchemaTypeInfos converts Store.Types' result to wire form. Each
+// entry's Fields/Ops omit when empty -- see FromSchemaTypeInfo.
+func FromSchemaTypeInfos(types []writ.SchemaType) []SchemaTypeInfo {
+	out := make([]SchemaTypeInfo, len(types))
+	for i, t := range types {
+		out[i] = FromSchemaTypeInfo(t)
+	}
+	return out
 }

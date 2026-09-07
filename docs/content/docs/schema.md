@@ -10,6 +10,7 @@ Connect the `writ.schema` working-tree source file to the schema objects in the 
 ```console
 writ schema plan [--json]
 writ schema apply [--json]
+writ schema show [<type>] [--json]
 ```
 
 ## What `writ.schema` is
@@ -55,6 +56,12 @@ There is no `--object-id` flag. Every case it would serve is a repository alread
 
 Two writers who each create the repository's *first* schema object while offline still end up with two schema objects, unrecoverably: nothing here can tell "no schema object exists yet" from "one exists but I haven't fetched it," and a well-known canonical object id (the way `settings` has one) was considered and rejected — `spec/schema-ops.md` explicitly denies `schema` one in normative text, and `spec/identifiers.md` makes random minting a producer MUST. Closing this needs a normative spec change, tracked separately (WRIT-199); fetch and sync before running `writ schema apply` for the first time in a repository, and coordinate the first schema object out of band if more than one person might create it concurrently.
 
+## `show`
+
+Reports the vocabulary actually installed and folding right now (`Store.Types`): built-in types overlaid by whatever the log declares. This answers a different question than `plan`/`apply` do — theirs is the working-tree `writ.schema` file's own view; `show`'s is what the log has actually folded to. With no `<type>`, prints one bare type name per line, deliberately bare so shell completion can be a plain `$(writ schema show)` call with nothing to parse. With `<type>`, prints that type's declared ops and fields, including the constraints `writ object create`/`apply` leave to the producer validator rather than re-checking at the CLI (`enum`, `max_length`, and the rest — see `object.md` and `docs/cli-json.md`'s `schema.show` field table). Each field row also names the target key it folds into when that target differs from the field's own name — the one attribute a caller needs to reconcile `-field <name>` on `object create`/`apply` with the target-keyed `fields` map `object show` reports back.
+
+`schema show schema` is a special case: `schema` never appears in the bare-name listing and is not one of `Store.Types`' entries — it is writ's one hard-coded object type (`spec/schema-ops.md`), not schema-declared, so it has no `Fields`/`Ops` this command's usual machinery resolves. Naming it explicitly still succeeds rather than failing "not declared" (that reads exactly as wrong as the same failure would for `writ object list schema`, which lists real `schema` rows once `writ schema apply` has run); it just prints the bare type name with no ops or fields, since there is nothing else here to report.
+
 ## JSON output
 
-Both verbs support `--json` (`schema.plan` and `schema.apply` in `docs/cli-json.md`), reporting the target object id, its namespace, whether it was minted fresh, and the ops appended (or that would be) as their normative wire bodies — the same shape a conforming implementation of `spec/schema-ops.md` reads and writes. `writ schema plan --json` omits `object_id` on a creation plan (`created: true`): `plan` mints no id of its own, so there is no id yet that a later `apply` is bound to reuse. `writ schema apply --json` always reports the real id, since apply resolves and mints its own target and then writes to exactly that id.
+All three verbs support `--json` (`schema.plan`, `schema.apply`, and `schema.show` in `docs/cli-json.md`). `plan` and `apply` report the target object id, its namespace, whether it was minted fresh, and the ops appended (or that would be) as their normative wire bodies — the same shape a conforming implementation of `spec/schema-ops.md` reads and writes. `writ schema plan --json` omits `object_id` on a creation plan (`created: true`): `plan` mints no id of its own, so there is no id yet that a later `apply` is bound to reuse. `writ schema apply --json` always reports the real id, since apply resolves and mints its own target and then writes to exactly that id. `writ schema show --json` reports the resolved vocabulary itself: an array of types with no `<type>` argument, or one type's full declaration with it.

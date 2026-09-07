@@ -44,6 +44,7 @@ var rootCommand = &command{
 		commentCmd,
 		docCmd,
 		issueCmd,
+		objectCmd,
 		reviewCmd,
 		stateCmd,
 		labelCmd,
@@ -303,6 +304,104 @@ var issueLabelCmd = &command{
 		"writ issue label 01J8ABC -add bug",
 		"writ issue label 01J8ABC -remove duplicate",
 		"writ issue label 01J8ABC --json",
+	},
+}
+
+var objectCmd = &command{
+	Name:      "object",
+	Short:     "Generic create, apply, show, and list over any schema-declared object type",
+	UsageLine: "Usage: writ object [-C <dir>] <subcommand> [arguments]",
+	Long: "Create, apply ops to, show, and list collaborative objects of any type the installed\n" +
+		"vocabulary declares (see `writ schema show`). This is plumbing, not porcelain: writ\n" +
+		"knows no per-type verbs (no `title`, no `assignee`) because it does not know what an\n" +
+		"issue or a review is -- only the schema in the log does. Prefer --json here for scripts\n" +
+		"and agents; a nicer per-type CLI is a job for whatever layer owns the schema.",
+	Flags: []flagSpec{
+		{
+			Name:  "C",
+			Arg:   "<dir>",
+			Usage: "Run as if writ was started in <dir>",
+		},
+	},
+	Subs: []*command{
+		objectCreateCmd,
+		objectApplyCmd,
+		objectShowCmd,
+		objectListCmd,
+	},
+}
+
+var objectCreateCmd = &command{
+	Name:      "create",
+	Short:     "Create a new object of a schema-declared type",
+	UsageLine: "Usage: writ object create [-C <dir>] <type> <op-type> [-field <k>=<v>]... [-op-version <n>] [--json]",
+	Long: "Append the op that starts a new object of <type>, using <op-type>'s field rules\n" +
+		"from the installed vocabulary (`writ schema show <type>`) to parse each -field value.",
+	Flags: []flagSpec{
+		{Name: "C"},
+		{Name: "field", Repeatable: true},
+		{Name: "op-version"},
+		{Name: "json"},
+	},
+	Examples: []string{
+		"writ object create ticket create -field title=\"Fix the thing\"",
+		"writ object create ticket create -field title=\"Fix the thing\" --json",
+	},
+}
+
+var objectApplyCmd = &command{
+	Name:      "apply",
+	Short:     "Apply a further op to an existing object",
+	UsageLine: "Usage: writ object apply [-C <dir>] <object-id> <op-type> [-field <k>=<v>]... [-op-version <n>] [--json]",
+	Long:      "Append a further op against an existing object, causally following its current frontier.",
+	Flags: []flagSpec{
+		{Name: "C"},
+		{Name: "field", Repeatable: true},
+		{Name: "op-version"},
+		{Name: "json"},
+	},
+	Examples: []string{
+		"writ object apply 01J8ABC update -field title=\"Renamed\"",
+	},
+}
+
+var objectShowCmd = &command{
+	Name:      "show",
+	Short:     "Show an object's folded state",
+	UsageLine: "Usage: writ object show [-C <dir>] <object-id> [--json]",
+	Long:      "Fold an object's state directly from the log and print it, keyed by target field.",
+	Flags: []flagSpec{
+		{Name: "C"},
+		{Name: "json"},
+	},
+	Examples: []string{
+		"writ object show 01J8ABC",
+		"writ object show 01J8ABC --json",
+	},
+}
+
+var objectListCmd = &command{
+	Name:      "list",
+	Short:     "List objects across or within a type",
+	UsageLine: "Usage: writ object list [-C <dir>] [<type>] [-author <a>]... [-text <q>] [-include-deleted] [-limit N] [-offset N] [-sort <order>] [--json]",
+	Long:      "List collaborative objects, optionally filtered to one schema-declared type.",
+	Flags: []flagSpec{
+		{Name: "C"},
+		{Name: "author", Repeatable: true},
+		{Name: "text"},
+		{Name: "include-deleted"},
+		{Name: "limit"},
+		{Name: "offset"},
+		{Name: "sort", Values: []string{
+			"created_at_asc", "created_at_desc",
+			"updated_at_asc", "updated_at_desc",
+		}},
+		{Name: "json"},
+	},
+	Examples: []string{
+		"writ object list",
+		"writ object list ticket",
+		"writ object list ticket -text urgent --json",
 	},
 }
 
@@ -724,9 +823,9 @@ var settingsSetCmd = &command{
 
 var schemaCmd = &command{
 	Name:      "schema",
-	Short:     "Plan and apply the writ.schema working-tree file",
+	Short:     "Plan, apply, and show the schema-declared vocabulary",
 	UsageLine: "Usage: writ schema [-C <dir>] <subcommand> [arguments]",
-	Long:      "Connect the writ.schema working-tree source file to the schema objects in the log.",
+	Long:      "Connect the writ.schema working-tree source file to the schema objects in the log (plan, apply), and report the vocabulary actually installed and folding right now (show).",
 	Flags: []flagSpec{
 		{
 			Name:  "C",
@@ -737,6 +836,7 @@ var schemaCmd = &command{
 	Subs: []*command{
 		schemaPlanCmd,
 		schemaApplyCmd,
+		schemaShowCmd,
 	},
 }
 
@@ -767,6 +867,25 @@ var schemaApplyCmd = &command{
 	Examples: []string{
 		"writ schema apply",
 		"writ schema apply --json",
+	},
+}
+
+var schemaShowCmd = &command{
+	Name:      "show",
+	Short:     "Show the vocabulary actually installed and folding now",
+	UsageLine: "Usage: writ schema show [-C <dir>] [<type>] [--json]",
+	Long: "Report the vocabulary Store.Types resolves right now -- built-in types overlaid by\n" +
+		"whatever the log declares -- which is not the same question `writ schema plan`/`apply`\n" +
+		"answer (the working-tree writ.schema file's own view). With no <type>, print one bare\n" +
+		"type name per line. With <type>, print that type's declared ops and fields.",
+	Flags: []flagSpec{
+		{Name: "C"},
+		{Name: "json"},
+	},
+	Examples: []string{
+		"writ schema show",
+		"writ schema show ticket",
+		"writ schema show ticket --json",
 	},
 }
 
@@ -1074,6 +1193,11 @@ func init() {
 		"settings set":       func() *flag.FlagSet { fs, _ := newSettingsSetFlagSet(""); return fs },
 		"schema plan":        func() *flag.FlagSet { fs, _ := newSchemaPlanFlagSet(""); return fs },
 		"schema apply":       func() *flag.FlagSet { fs, _ := newSchemaApplyFlagSet(""); return fs },
+		"schema show":        func() *flag.FlagSet { fs, _ := newSchemaShowFlagSet(""); return fs },
+		"object create":      func() *flag.FlagSet { fs, _ := newObjectCreateFlagSet(""); return fs },
+		"object apply":       func() *flag.FlagSet { fs, _ := newObjectApplyFlagSet(""); return fs },
+		"object show":        func() *flag.FlagSet { fs, _ := newObjectShowFlagSet(""); return fs },
+		"object list":        func() *flag.FlagSet { fs, _ := newObjectListFlagSet(""); return fs },
 		"sync":               func() *flag.FlagSet { fs, _ := newSyncFlagSet(""); return fs },
 	}
 }

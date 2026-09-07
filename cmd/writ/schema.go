@@ -42,6 +42,8 @@ func runSchema(ctx context.Context, defaultDir string, args []string, stdout, st
 		return runSchemaPlan(ctx, defaultDir, args[1:], stdout, stderr)
 	case "apply":
 		return runSchemaApply(ctx, defaultDir, args[1:], stdout, stderr)
+	case "show":
+		return runSchemaShow(ctx, defaultDir, args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "writ schema: unknown command %q\n\n", args[0])
 		renderUsage(stderr, []string{"schema"}, schemaCmd)
