@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-
-	"github.com/writtendev/writ/spec"
 )
 
 func runCompletion(args []string, stdout, stderr io.Writer) int {
@@ -41,24 +39,9 @@ func escapeFishDesc(s string) string {
 }
 
 func flagEnumChoices(flagName string, cmdPath []string) string {
-	p := strings.Join(cmdPath, " ")
 	switch flagName {
-	case "status":
-		if p == "review list" {
-			return strings.Join(spec.ReviewStatuses(), " ")
-		}
-		return ""
-	case "verdict":
-		return strings.Join(spec.ApprovalVerdicts(), " ")
-	case "relation":
-		return strings.Join(spec.LinkRelations(), " ")
 	case "sort":
-		return "created_at_asc created_at_desc updated_at_asc updated_at_desc title_asc title_desc"
-	case "type":
-		if p == "state create" || p == "state update" {
-			return strings.Join(spec.WorkflowStateTypes(), " ")
-		}
-		return ""
+		return "created_at_asc created_at_desc updated_at_asc updated_at_desc"
 	default:
 		return ""
 	}
@@ -112,7 +95,7 @@ _writ() {
             COMPREPLY=($(compgen -W "-C -h -help --help" -- "$cur"))
             return 0
         fi
-        COMPREPLY=($(compgen -W "init comment issue object review schema sync version completion help" -- "$cur"))
+        COMPREPLY=($(compgen -W "init object schema sync version completion help" -- "$cur"))
         return 0
     fi
 
@@ -132,30 +115,6 @@ _writ() {
                 return 0
             fi
             ;;
-        comment)
-            if [ -z "$subcmd" ]; then
-                if [[ "$cur" == -* ]]; then
-                    COMPREPLY=($(compgen -W "-C -h -help --help" -- "$cur"))
-                    return 0
-                fi
-                COMPREPLY=($(compgen -W "edit delete" -- "$cur"))
-                return 0
-            fi
-            case "$subcmd" in
-                edit)
-                    if [[ "$cur" == -* ]]; then
-                        COMPREPLY=($(compgen -W "-C -m -json --json -h -help --help" -- "$cur"))
-                        return 0
-                    fi
-                    ;;
-                delete)
-                    if [[ "$cur" == -* ]]; then
-                        COMPREPLY=($(compgen -W "-C -json --json -h -help --help" -- "$cur"))
-                        return 0
-                    fi
-                    ;;
-            esac
-            ;;
         sync)
             if [[ "$cur" == -* ]]; then
                 COMPREPLY=($(compgen -W "-C -status --status -json --json -h -help --help" -- "$cur"))
@@ -170,95 +129,17 @@ _writ() {
             ;;
         help)
             if [ -z "$subcmd" ]; then
-                COMPREPLY=($(compgen -W "init comment issue object review schema sync version completion help" -- "$cur"))
+                COMPREPLY=($(compgen -W "init object schema sync version completion help" -- "$cur"))
                 return 0
             fi
             case "$subcmd" in
-                comment)
-                    COMPREPLY=($(compgen -W "edit delete" -- "$cur"))
-                    return 0
-                    ;;
-                issue)
-                    COMPREPLY=($(compgen -W "create status comment assign list link label" -- "$cur"))
-                    return 0
-                    ;;
                 object)
                     COMPREPLY=($(compgen -W "create apply show list" -- "$cur"))
-                    return 0
-                    ;;
-                review)
-                    COMPREPLY=($(compgen -W "open comment approve assign label link status list" -- "$cur"))
                     return 0
                     ;;
                 schema)
                     COMPREPLY=($(compgen -W "plan apply show" -- "$cur"))
                     return 0
-                    ;;
-            esac
-            ;;
-        issue)
-            if [ -z "$subcmd" ]; then
-                if [[ "$cur" == -* ]]; then
-                    COMPREPLY=($(compgen -W "-C -h -help --help" -- "$cur"))
-                    return 0
-                fi
-                COMPREPLY=($(compgen -W "create status comment assign list link label" -- "$cur"))
-                return 0
-            fi
-            case "$subcmd" in
-                create)
-                    if [[ "$cur" == -* ]]; then
-                        COMPREPLY=($(compgen -W "-C -title -description -state -fixes -relates -h -help --help" -- "$cur"))
-                        return 0
-                    fi
-                    ;;
-                status)
-                    if [[ "$cur" == -* ]]; then
-                        COMPREPLY=($(compgen -W "-C -reason -json --json -h -help --help" -- "$cur"))
-                        return 0
-                    fi
-                    ;;
-                comment)
-                    if [[ "$cur" == -* ]]; then
-                        COMPREPLY=($(compgen -W "-C -m -reply-to -resolve -unresolve -h -help --help" -- "$cur"))
-                        return 0
-                    fi
-                    ;;
-                assign)
-                    if [[ "$cur" == -* ]]; then
-                        COMPREPLY=($(compgen -W "-C -add -remove -h -help --help" -- "$cur"))
-                        return 0
-                    fi
-                    ;;
-                list)
-                    case "$prev" in
-                        -sort|--sort)
-                            COMPREPLY=($(compgen -W "created_at_asc created_at_desc updated_at_asc updated_at_desc title_asc title_desc" -- "$cur"))
-                            return 0
-                            ;;
-                    esac
-                    if [[ "$cur" == -* ]]; then
-                        COMPREPLY=($(compgen -W "-C -state -assignee -label -author -text -limit -sort -json --json -h -help --help" -- "$cur"))
-                        return 0
-                    fi
-                    ;;
-                link)
-                    case "$prev" in
-                        -relation|--relation)
-                            COMPREPLY=($(compgen -W "fixes relates none" -- "$cur"))
-                            return 0
-                            ;;
-                    esac
-                    if [[ "$cur" == -* ]]; then
-                        COMPREPLY=($(compgen -W "-C -target -relation -target-type -h -help --help" -- "$cur"))
-                        return 0
-                    fi
-                    ;;
-                label)
-                    if [[ "$cur" == -* ]]; then
-                        COMPREPLY=($(compgen -W "-C -add -remove -json --json -h -help --help" -- "$cur"))
-                        return 0
-                    fi
                     ;;
             esac
             ;;
@@ -326,102 +207,6 @@ _writ() {
                     ;;
             esac
             ;;
-        review)
-            if [ -z "$subcmd" ]; then
-                if [[ "$cur" == -* ]]; then
-                    COMPREPLY=($(compgen -W "-C -h -help --help" -- "$cur"))
-                    return 0
-                fi
-                COMPREPLY=($(compgen -W "open comment approve assign label link status list" -- "$cur"))
-                return 0
-            fi
-            case "$subcmd" in
-                open)
-                    if [[ "$cur" == -* ]]; then
-                        COMPREPLY=($(compgen -W "-C -title -description -base -head -draft -h -help --help" -- "$cur"))
-                        return 0
-                    fi
-                    ;;
-                comment)
-                    if [[ "$cur" == -* ]]; then
-                        COMPREPLY=($(compgen -W "-C -m -reply-to -resolve -unresolve -h -help --help" -- "$cur"))
-                        return 0
-                    fi
-                    ;;
-                approve)
-                    case "$prev" in
-                        -verdict|--verdict)
-                            COMPREPLY=($(compgen -W "approve request-changes none" -- "$cur"))
-                            return 0
-                            ;;
-                    esac
-                    if [[ "$cur" == -* ]]; then
-                        COMPREPLY=($(compgen -W "-C -verdict -revision -m -subject -h -help --help" -- "$cur"))
-                        return 0
-                    fi
-                    ;;
-                assign)
-                    if [[ "$cur" == -* ]]; then
-                        COMPREPLY=($(compgen -W "-C -add -remove -h -help --help" -- "$cur"))
-                        return 0
-                    fi
-                    ;;
-                label)
-                    if [[ "$cur" == -* ]]; then
-                        COMPREPLY=($(compgen -W "-C -add -remove -h -help --help" -- "$cur"))
-                        return 0
-                    fi
-                    ;;
-                link)
-                    case "$prev" in
-                        -relation|--relation)
-                            COMPREPLY=($(compgen -W "fixes relates none" -- "$cur"))
-                            return 0
-                            ;;
-                    esac
-                    if [[ "$cur" == -* ]]; then
-                        COMPREPLY=($(compgen -W "-C -target -relation -target-type -h -help --help" -- "$cur"))
-                        return 0
-                    fi
-                    ;;
-                status)
-                    if [[ "$cur" == -* ]]; then
-                        COMPREPLY=($(compgen -W "-C -reason -merge-commit -json --json -h -help --help" -- "$cur"))
-                        return 0
-                    fi
-                    # Check positional count after subcommand
-                    local pos_count=0
-                    local j=$((subcmd_idx + 1))
-                    while [ $j -lt $cword ]; do
-                        case "${words[j]}" in
-                            -C|-reason|--reason|-merge-commit|--merge-commit) j=$((j + 2)) ;;
-                            -*) j=$((j + 1)) ;;
-                            *) pos_count=$((pos_count + 1)); j=$((j + 1)) ;;
-                        esac
-                    done
-                    if [ $pos_count -eq 1 ]; then
-                        COMPREPLY=($(compgen -W "draft open closed merged" -- "$cur"))
-                        return 0
-                    fi
-                    ;;
-                list)
-                    case "$prev" in
-                        -status|--status)
-                            COMPREPLY=($(compgen -W "draft open closed merged" -- "$cur"))
-                            return 0
-                            ;;
-                        -sort|--sort)
-                            COMPREPLY=($(compgen -W "created_at_asc created_at_desc updated_at_asc updated_at_desc title_asc title_desc" -- "$cur"))
-                            return 0
-                            ;;
-                    esac
-                    if [[ "$cur" == -* ]]; then
-                        COMPREPLY=($(compgen -W "-C -status -assignee -label -author -text -limit -sort -json --json -h -help --help" -- "$cur"))
-                        return 0
-                    fi
-                    ;;
-            esac
-            ;;
         schema)
             if [ -z "$subcmd" ]; then
                 if [[ "$cur" == -* ]]; then
@@ -472,10 +257,7 @@ _writ() {
         command)
             commands=(
                 'init:Initialize writ configuration'
-                'comment:Manage comments'
-                'issue:Manage issues'
                 'object:Generic create, apply, show, and list over any schema-declared object type'
-                'review:Manage code reviews'
                 'schema:Plan, apply, and show the schema-declared vocabulary'
                 'sync:Synchronize collaborative SDLC operations'
                 'version:Print the writ version'
@@ -491,9 +273,6 @@ _writ() {
                         '(-C)-C[Run as if writ was started in <dir>]:directory:_files -/' \
                         '(-h -help --help)'{-h,-help,--help}'[Show help]' \
                         '*:remote:_git_remotes'
-                    ;;
-                comment)
-                    _writ_comment
                     ;;
                 sync)
                     _arguments -s -S \
@@ -512,279 +291,18 @@ _writ() {
                     ;;
                 help)
                     _arguments -s -S \
-                        '1:command:(init comment issue object review schema sync version completion help)' \
+                        '1:command:(init object schema sync version completion help)' \
                         '2:subcommand:->help_subcommand'
                     case $line[1] in
-                        comment) _values 'comment subcommand' edit delete ;;
-                        issue) _values 'issue subcommand' create status comment assign list link label ;;
                         object) _values 'object subcommand' create apply show list ;;
-                        review) _values 'review subcommand' open comment approve assign label link status list ;;
                         schema) _values 'schema subcommand' plan apply show ;;
                     esac
-                    ;;
-                issue)
-                    _writ_issue
                     ;;
                 object)
                     _writ_object
                     ;;
-                review)
-                    _writ_review
-                    ;;
                 schema)
                     _writ_schema
-                    ;;
-            esac
-            ;;
-    esac
-}
-
-_writ_comment() {
-    local curcontext="$curcontext" state line
-    typeset -A opt_args
-
-    _arguments -C \
-        '(-C)-C[Run as if writ was started in <dir>]:directory:_files -/' \
-        '(-h -help --help)'{-h,-help,--help}'[Show help information]' \
-        '1: :->subcommand' \
-        '*:: :->args'
-
-    case $state in
-        subcommand)
-            local -a subcommands
-            subcommands=(
-                'edit:Edit an existing comment'
-                'delete:Delete a comment (tombstone)'
-            )
-            _describe -t subcommands 'comment subcommand' subcommands
-            ;;
-        args)
-            case $line[1] in
-                edit)
-                    _arguments -s -S \
-                        '(-C)-C[Run as if writ was started in <dir>]:directory:_files -/' \
-                        '-m[Comment message]:message:' \
-                        '--json[Output result as JSON]' \
-                        '-json[Output result as JSON]' \
-                        '(-h -help --help)'{-h,-help,--help}'[Show help]' \
-                        '1:comment ID:'
-                    ;;
-                delete)
-                    _arguments -s -S \
-                        '(-C)-C[Run as if writ was started in <dir>]:directory:_files -/' \
-                        '--json[Output result as JSON]' \
-                        '-json[Output result as JSON]' \
-                        '(-h -help --help)'{-h,-help,--help}'[Show help]' \
-                        '1:comment ID:'
-                    ;;
-            esac
-            ;;
-    esac
-}
-
-_writ_issue() {
-    local curcontext="$curcontext" state line
-    typeset -A opt_args
-
-    _arguments -C \
-        '(-C)-C[Run as if writ was started in <dir>]:directory:_files -/' \
-        '(-h -help --help)'{-h,-help,--help}'[Show help]' \
-        '1: :->subcommand' \
-        '*:: :->args'
-
-    case $state in
-        subcommand)
-            local -a subcommands
-            subcommands=(
-                'create:Create a new issue'
-                'status:View or update issue status'
-                'comment:Add a comment to an issue or resolve a thread'
-                'assign:Add or remove issue assignees'
-                'list:List issues'
-                'link:Manage issue cross-reference links'
-                'label:Add or remove issue labels'
-            )
-            _describe -t subcommands 'issue subcommand' subcommands
-            ;;
-        args)
-            case $line[1] in
-                create)
-                    _arguments -s -S \
-                        '(-C)-C[Run as if writ was started in <dir>]:directory:_files -/' \
-                        '-title[Issue title]:title:' \
-                        '-description[Issue description]:description:' \
-                        '-state[Initial issue state]:state:' \
-                        '*-fixes[Add fixes cross-reference link]:ref:' \
-                        '*-relates[Add relates cross-reference link]:ref:' \
-                        '(-h -help --help)'{-h,-help,--help}'[Show help]'
-                    ;;
-                status)
-                    _arguments -s -S \
-                        '(-C)-C[Run as if writ was started in <dir>]:directory:_files -/' \
-                        '-reason[Reason for status change]:reason:' \
-                        '(--json -json)'{--json,-json}'[Output result as JSON]' \
-                        '(-h -help --help)'{-h,-help,--help}'[Show help]' \
-                        '1:issue ID:' \
-                        '2:state:'
-                    ;;
-                comment)
-                    _arguments -s -S \
-                        '(-C)-C[Run as if writ was started in <dir>]:directory:_files -/' \
-                        '-m[Comment message text]:message:' \
-                        '-reply-to[Comment ID to reply to]:comment ID:' \
-                        '-resolve[Mark comment thread as resolved]' \
-                        '-unresolve[Mark comment thread as unresolved]' \
-                        '(-h -help --help)'{-h,-help,--help}'[Show help]' \
-                        '1:issue ID:'
-                    ;;
-                assign)
-                    _arguments -s -S \
-                        '(-C)-C[Run as if writ was started in <dir>]:directory:_files -/' \
-                        '*-add[Add assignee, a scheme:value person identifier]:assignee:' \
-                        '*-remove[Remove assignee, a scheme:value person identifier]:assignee:' \
-                        '(-h -help --help)'{-h,-help,--help}'[Show help]' \
-                        '1:issue ID:'
-                    ;;
-                list)
-                    _arguments -s -S \
-                        '(-C)-C[Run as if writ was started in <dir>]:directory:_files -/' \
-                        '*-state[Filter by issue state]:state:' \
-                        '*-assignee[Filter by assignee]:assignee:' \
-                        '*-label[Filter by label]:label:' \
-                        '*-author[Filter by author]:author:' \
-                        '-text[Filter by text query]:text:' \
-                        '-limit[Maximum issues to return]:limit:' \
-                        '-sort[Sort order]:sort:(created_at_asc created_at_desc updated_at_asc updated_at_desc title_asc title_desc)' \
-                        '(--json -json)'{--json,-json}'[Output result as JSON]' \
-                        '(-h -help --help)'{-h,-help,--help}'[Show help]'
-                    ;;
-                link)
-                    _arguments -s -S \
-                        '(-C)-C[Run as if writ was started in <dir>]:directory:_files -/' \
-                        '-target[Target reference]:ref:' \
-                        '-relation[Link relation]:relation:(fixes relates none)' \
-                        '-target-type[Target object type]:type:' \
-                        '(-h -help --help)'{-h,-help,--help}'[Show help]' \
-                        '1:issue ID:'
-                    ;;
-                label)
-                    _arguments -s -S \
-                        '(-C)-C[Run as if writ was started in <dir>]:directory:_files -/' \
-                        '*-add[Add label]:label:' \
-                        '*-remove[Remove label]:label:' \
-                        '(--json -json)'{--json,-json}'[Output result as JSON]' \
-                        '(-h -help --help)'{-h,-help,--help}'[Show help]' \
-                        '1:issue ID:'
-                    ;;
-            esac
-            ;;
-    esac
-}
-
-_writ_review() {
-    local curcontext="$curcontext" state line
-    typeset -A opt_args
-
-    _arguments -C \
-        '(-C)-C[Run as if writ was started in <dir>]:directory:_files -/' \
-        '(-h -help --help)'{-h,-help,--help}'[Show help]' \
-        '1: :->subcommand' \
-        '*:: :->args'
-
-    case $state in
-        subcommand)
-            local -a subcommands
-            subcommands=(
-                'open:Create a new code review'
-                'comment:Add a comment to a review'
-                'approve:Record a review verdict'
-                'assign:Add or remove review assignees'
-                'label:Add or remove review labels'
-                'link:Manage review cross-reference links'
-                'status:View or update review status'
-                'list:List code reviews'
-            )
-            _describe -t subcommands 'review subcommand' subcommands
-            ;;
-        args)
-            case $line[1] in
-                open)
-                    _arguments -s -S \
-                        '(-C)-C[Run as if writ was started in <dir>]:directory:_files -/' \
-                        '-title[Review title]:title:' \
-                        '-description[Review description]:description:' \
-                        '-base[Base revision commit or ref]:ref:_git_revisions' \
-                        '-head[Head revision commit or ref]:ref:_git_revisions' \
-                        '-draft[Create review in draft state]' \
-                        '(-h -help --help)'{-h,-help,--help}'[Show help]'
-                    ;;
-                comment)
-                    _arguments -s -S \
-                        '(-C)-C[Run as if writ was started in <dir>]:directory:_files -/' \
-                        '-m[Comment message text]:message:' \
-                        '-reply-to[Comment ID to reply to]:comment ID:' \
-                        '-resolve[Mark comment thread as resolved]' \
-                        '-unresolve[Mark comment thread as unresolved]' \
-                        '(-h -help --help)'{-h,-help,--help}'[Show help]' \
-                        '1:review ID:'
-                    ;;
-                approve)
-                    _arguments -s -S \
-                        '(-C)-C[Run as if writ was started in <dir>]:directory:_files -/' \
-                        '-verdict[Review verdict]:verdict:(approve request-changes none)' \
-                        '-revision[Revision commit ref or SHA]:revision:_git_revisions' \
-                        '-m[Review verdict message]:message:' \
-                        '-subject[Subject identity]:subject:' \
-                        '(-h -help --help)'{-h,-help,--help}'[Show help]' \
-                        '1:review ID:'
-                    ;;
-                assign)
-                    _arguments -s -S \
-                        '(-C)-C[Run as if writ was started in <dir>]:directory:_files -/' \
-                        '*-add[Add assignee, a scheme:value person identifier]:assignee:' \
-                        '*-remove[Remove assignee, a scheme:value person identifier]:assignee:' \
-                        '(-h -help --help)'{-h,-help,--help}'[Show help]' \
-                        '1:review ID:'
-                    ;;
-                label)
-                    _arguments -s -S \
-                        '(-C)-C[Run as if writ was started in <dir>]:directory:_files -/' \
-                        '*-add[Add label]:label:' \
-                        '*-remove[Remove label]:label:' \
-                        '(-h -help --help)'{-h,-help,--help}'[Show help]' \
-                        '1:review ID:'
-                    ;;
-                link)
-                    _arguments -s -S \
-                        '(-C)-C[Run as if writ was started in <dir>]:directory:_files -/' \
-                        '-target[Target reference]:ref:' \
-                        '-relation[Link relation]:relation:(fixes relates none)' \
-                        '-target-type[Target object type]:type:' \
-                        '(-h -help --help)'{-h,-help,--help}'[Show help]' \
-                        '1:review ID:'
-                    ;;
-                status)
-                    _arguments -s -S \
-                        '(-C)-C[Run as if writ was started in <dir>]:directory:_files -/' \
-                        '-reason[Reason for status change]:reason:' \
-                        '-merge-commit[Merge commit ref or SHA]:commit:_git_revisions' \
-                        '(--json -json)'{--json,-json}'[Output result as JSON]' \
-                        '(-h -help --help)'{-h,-help,--help}'[Show help]' \
-                        '1:review ID:' \
-                        '2:status:(draft open closed merged)'
-                    ;;
-                list)
-                    _arguments -s -S \
-                        '(-C)-C[Run as if writ was started in <dir>]:directory:_files -/' \
-                        '*-status[Filter by review status]:status:(draft open closed merged)' \
-                        '*-assignee[Filter by assignee]:assignee:' \
-                        '*-label[Filter by label]:label:' \
-                        '*-author[Filter by author]:author:' \
-                        '-text[Filter by text query]:text:' \
-                        '-limit[Maximum reviews to return]:limit:' \
-                        '-sort[Sort order]:sort:(created_at_asc created_at_desc updated_at_asc updated_at_desc title_asc title_desc)' \
-                        '(--json -json)'{--json,-json}'[Output result as JSON]' \
-                        '(-h -help --help)'{-h,-help,--help}'[Show help]'
                     ;;
             esac
             ;;
@@ -984,30 +502,9 @@ complete -c writ -l help -s h -d 'Show help information'
 	}
 
 	fmt.Fprintln(w, `
-# Subcommands for comment`)
-	for _, sub := range commentCmd.Subs {
-		fmt.Fprintf(w, "complete -c writ -n '__fish_writ_needs_subcommand comment' -f -a '%s' -d '%s'\n",
-			sub.Name, escapeFishDesc(sub.Short))
-	}
-
-	fmt.Fprintln(w, `
-# Subcommands for issue`)
-	for _, sub := range issueCmd.Subs {
-		fmt.Fprintf(w, "complete -c writ -n '__fish_writ_needs_subcommand issue' -f -a '%s' -d '%s'\n",
-			sub.Name, escapeFishDesc(sub.Short))
-	}
-
-	fmt.Fprintln(w, `
 # Subcommands for object`)
 	for _, sub := range objectCmd.Subs {
 		fmt.Fprintf(w, "complete -c writ -n '__fish_writ_needs_subcommand object' -f -a '%s' -d '%s'\n",
-			sub.Name, escapeFishDesc(sub.Short))
-	}
-
-	fmt.Fprintln(w, `
-# Subcommands for review`)
-	for _, sub := range reviewCmd.Subs {
-		fmt.Fprintf(w, "complete -c writ -n '__fish_writ_needs_subcommand review' -f -a '%s' -d '%s'\n",
 			sub.Name, escapeFishDesc(sub.Short))
 	}
 
@@ -1023,11 +520,8 @@ complete -c writ -l help -s h -d 'Show help information'
 complete -c writ -n '__fish_writ_using_command completion' -f -a 'bash zsh fish'
 
 # Subcommands for help
-complete -c writ -n '__fish_writ_needs_subcommand help' -f -a 'init comment issue object review schema sync version completion help'
-complete -c writ -n '__fish_writ_needs_subcommand help comment' -f -a 'edit delete'
-complete -c writ -n '__fish_writ_needs_subcommand help issue' -f -a 'create status comment assign list link label'
+complete -c writ -n '__fish_writ_needs_subcommand help' -f -a 'init object schema sync version completion help'
 complete -c writ -n '__fish_writ_needs_subcommand help object' -f -a 'create apply show list'
-complete -c writ -n '__fish_writ_needs_subcommand help review' -f -a 'open comment approve assign label link status list'
 complete -c writ -n '__fish_writ_needs_subcommand help schema' -f -a 'plan apply show'
 
 # <type> completion for object create/list and schema show, from the vocabulary the installed schema declares.
@@ -1064,18 +558,13 @@ complete -c writ -n '__fish_writ_using_command schema show' -f -a '(writ schema 
 			} else if f.Name == "C" {
 				fmt.Fprintf(w, "complete -c writ -n '%s' %s -d '%s' -r -a '(__fish_complete_directories)'\n",
 					cond, optFlag, desc)
-			} else if f.Name == "draft" || f.Name == "json" || f.Name == "resolve" || f.Name == "unresolve" || f.Name == "status" && cmd.Name == "sync" {
+			} else if f.Name == "json" || f.Name == "status" && cmd.Name == "sync" {
 				fmt.Fprintf(w, "complete -c writ -n '%s' %s -d '%s'\n",
 					cond, optFlag, desc)
 			} else {
 				fmt.Fprintf(w, "complete -c writ -n '%s' %s -d '%s' -r\n",
 					cond, optFlag, desc)
 			}
-		}
-
-		// Positional enums
-		if cmd.Name == "status" && len(path) == 2 && path[0] == "review" {
-			fmt.Fprintf(w, "complete -c writ -n '%s' -f -a 'draft open closed merged'\n", cond)
 		}
 	}
 

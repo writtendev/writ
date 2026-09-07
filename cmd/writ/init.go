@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/engine/dag"
 	"github.com/writtendev/writ/engine/identity"
 	"github.com/writtendev/writ/engine/schemasrc"
@@ -288,13 +287,7 @@ func runInit(ctx context.Context, defaultDir string, args []string, stdout, stde
 		}
 	}
 
-	// 7. Seed default workflow states if writable and none exist
-	if initStore, err := writ.Open(repoRoot); err == nil {
-		defer initStore.Close()
-		_ = initStore.WorkflowStates.SeedDefaults(ctx)
-	}
-
-	// 8. Write a starter writ.schema, working-tree repositories only. A
+	// 7. Write a starter writ.schema, working-tree repositories only. A
 	// bare repository has no working tree to put a source file in
 	// (gitInfo.WorkTree is "" for one — resolved in step 2, not repoRoot
 	// itself, which the earlier `--is-bare-repository` branch already set

@@ -23,10 +23,8 @@ func TestCompletion_Bash(t *testing.T) {
 
 	// Verify all subcommands mentioned
 	expectedWords := []string{
-		"init", "comment", "issue", "review", "sync", "completion", "help",
-		"open", "comment", "approve", "status", "list", "create", "assign", "link", "label",
-		"edit", "delete",
-		"approve", "request-changes", "draft", "merged", "closed",
+		"init", "object", "schema", "sync", "completion", "help",
+		"create", "apply", "show", "list", "plan",
 	}
 	for _, word := range expectedWords {
 		if !strings.Contains(script, word) {
@@ -34,15 +32,9 @@ func TestCompletion_Bash(t *testing.T) {
 		}
 	}
 
-	// Verify double-dash enum flag support
-	if !strings.Contains(script, "-verdict|--verdict") || !strings.Contains(script, "-status|--status") {
-		t.Errorf("bash completion missing double-dash flag matching for enums")
-	}
-
-	// Issue state has no fixed vocabulary (states are per-repo workflow states),
-	// so completion must not offer a hardcoded list for it.
-	if strings.Contains(script, "-state|--state") {
-		t.Errorf("bash completion should not offer enum completions for -state (workflow states are per-repo)")
+	// Verify double-dash enum flag support for -sort
+	if !strings.Contains(script, "-sort|--sort") {
+		t.Errorf("bash completion missing double-dash flag matching for -sort")
 	}
 
 	if _, err := exec.LookPath("bash"); err == nil {
@@ -68,10 +60,8 @@ func TestCompletion_Zsh(t *testing.T) {
 	}
 
 	expectedWords := []string{
-		"init", "comment", "issue", "review", "sync", "completion", "help",
-		"open", "comment", "approve", "status", "list", "create", "assign", "link", "label",
-		"edit", "delete",
-		"approve", "request-changes", "draft", "merged", "closed",
+		"init", "object", "schema", "sync", "completion", "help",
+		"create", "apply", "show", "list", "plan",
 	}
 	for _, word := range expectedWords {
 		if !strings.Contains(script, word) {
@@ -106,10 +96,8 @@ func TestCompletion_Fish(t *testing.T) {
 	}
 
 	expectedWords := []string{
-		"init", "comment", "issue", "review", "sync", "completion", "help",
-		"open", "comment", "approve", "status", "list", "create", "assign", "link", "label",
-		"edit", "delete",
-		"approve", "request-changes", "draft", "merged", "closed",
+		"init", "object", "schema", "sync", "completion", "help",
+		"create", "apply", "show", "list", "plan",
 	}
 	for _, word := range expectedWords {
 		if !strings.Contains(script, word) {
@@ -118,7 +106,7 @@ func TestCompletion_Fish(t *testing.T) {
 	}
 
 	// Verify Round 2 Finding 1 & 2: __fish_writ_needs_subcommand and __fish_writ_args exist
-	if !strings.Contains(script, "__fish_writ_needs_subcommand issue") || !strings.Contains(script, "__fish_writ_needs_subcommand comment") || !strings.Contains(script, "__fish_writ_args") {
+	if !strings.Contains(script, "__fish_writ_needs_subcommand object") || !strings.Contains(script, "__fish_writ_needs_subcommand schema") || !strings.Contains(script, "__fish_writ_args") {
 		t.Errorf("fish completion missing __fish_writ_needs_subcommand or __fish_writ_args")
 	}
 
@@ -128,8 +116,8 @@ func TestCompletion_Fish(t *testing.T) {
 	}
 
 	// Verify Finding 5: single char options use -s
-	if strings.Contains(script, "-l C ") || strings.Contains(script, "-l m ") {
-		t.Errorf("fish completion uses -l for single-letter options (-C or -m)")
+	if strings.Contains(script, "-l C ") {
+		t.Errorf("fish completion uses -l for single-letter options (-C)")
 	}
 
 	if _, err := exec.LookPath("fish"); err == nil {

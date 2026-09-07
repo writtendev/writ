@@ -24,6 +24,25 @@ func dummySigner() writ.Signer {
 	})
 }
 
+// applyTicketSchemaViaStore applies ticketObjectTestSchema against store
+// directly (writeSchemaFile + buildSchemaPlan + Store.ApplySchema), rather
+// than through the CLI's own `schema apply` (applyTicketObjectSchema in
+// object_test.go): a sync test harness's git config carries fake SSH
+// signing key material that could never actually sign, so every write here
+// goes through store's own dummySigner instead of real identity-based
+// signing.
+func applyTicketSchemaViaStore(t *testing.T, ctx context.Context, store *writ.Store, dir string) {
+	t.Helper()
+	writeSchemaFile(t, dir, ticketObjectTestSchema)
+	planRes, err := buildSchemaPlan(ctx, store, dir)
+	if err != nil {
+		t.Fatalf("build schema plan: %v", err)
+	}
+	if err := store.ApplySchema(ctx, planRes.ops); err != nil {
+		t.Fatalf("apply schema: %v", err)
+	}
+}
+
 func setupSyncTestHarness(t *testing.T) (bareDir, aliceDir, bobDir string) {
 	t.Helper()
 	requireGit(t)
@@ -93,17 +112,45 @@ func TestSync_RoundTripAndRefold(t *testing.T) {
 	_, aliceDir, bobDir := setupSyncTestHarness(t)
 	ctx := context.Background()
 
-	// Alice creates a review
+	// Alice declares the ticket type, so Bob's fold below has a vocabulary
+	// to fold "ticket" objects through.
 	sA, err := writ.Open(aliceDir, writ.WithSigner(dummySigner()))
 	if err != nil {
 		t.Fatalf("Open Alice failed: %v", err)
 	}
-	revID, err := sA.Reviews.Create(ctx, writ.NewReview{
-		Title: "Round Trip Sync Review",
+	applyTicketSchemaViaStore(t, ctx, sA, aliceDir)
+	sA.Close()
+
+	// Alice syncs the schema op via CLI
+	var stdoutSchemaA, stderrSchemaA bytes.Buffer
+	codeSchemaA := run(ctx, []string{"-C", aliceDir, "sync"}, &stdoutSchemaA, &stderrSchemaA)
+	if codeSchemaA != 0 {
+		t.Fatalf("Alice schema sync exited with %d; stderr: %s", codeSchemaA, stderrSchemaA.String())
+	}
+	if !strings.Contains(stdoutSchemaA.String(), "origin: pushed") {
+		t.Errorf("Alice schema stdout does not mention pushed ops: %s", stdoutSchemaA.String())
+	}
+	var stdoutSchemaB, stderrSchemaB bytes.Buffer
+	codeSchemaB := run(ctx, []string{"-C", bobDir, "sync"}, &stdoutSchemaB, &stderrSchemaB)
+	if codeSchemaB != 0 {
+		t.Fatalf("Bob schema sync exited with %d; stderr: %s", codeSchemaB, stderrSchemaB.String())
+	}
+	if !strings.Contains(stdoutSchemaB.String(), "origin: fetched") {
+		t.Errorf("Bob schema stdout does not mention fetched ops: %s", stdoutSchemaB.String())
+	}
+
+	// Alice creates a ticket
+	sA, err = writ.Open(aliceDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Reopen Alice failed: %v", err)
+	}
+	objectID, err := sA.Objects.Create(ctx, "ticket", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Round Trip Sync Ticket"},
 	})
 	if err != nil {
 		sA.Close()
-		t.Fatalf("Alice create review: %v", err)
+		t.Fatalf("Alice create object: %v", err)
 	}
 	sA.Close()
 
@@ -127,19 +174,22 @@ func TestSync_RoundTripAndRefold(t *testing.T) {
 		t.Errorf("Bob stdout does not mention fetched 1 op: %s", stdoutB.String())
 	}
 
-	// Verify Bob's projection has Alice's review (refold happened)
+	// Verify Bob's projection has Alice's ticket (refold happened)
 	sB, err := writ.Open(bobDir)
 	if err != nil {
 		t.Fatalf("Open Bob failed: %v", err)
 	}
 	defer sB.Close()
 
-	resB, err := sB.Query.Review(revID)
-	if err != nil {
-		t.Fatalf("Bob Query.Review failed: %v", err)
+	if _, err := sB.Query.Object(objectID); err != nil {
+		t.Fatalf("Bob Query.Object failed: %v", err)
 	}
-	if resB.Review.Title != "Round Trip Sync Review" {
-		t.Errorf("Bob review title = %q, want 'Round Trip Sync Review'", resB.Review.Title)
+	objB, err := sB.Objects.Get(ctx, objectID)
+	if err != nil {
+		t.Fatalf("Bob Objects.Get failed: %v", err)
+	}
+	if objB.Fields["title"] != "Round Trip Sync Ticket" {
+		t.Errorf("Bob object title = %v, want 'Round Trip Sync Ticket'", objB.Fields["title"])
 	}
 }
 
@@ -172,17 +222,31 @@ func TestSync_StatusOffline(t *testing.T) {
 	_, aliceDir, _ := setupSyncTestHarness(t)
 	ctx := context.Background()
 
-	// Alice creates a review
+	// Alice declares and syncs the ticket type first, so it is not itself
+	// the unsynced op this test measures below.
 	sA, err := writ.Open(aliceDir, writ.WithSigner(dummySigner()))
 	if err != nil {
 		t.Fatalf("Open Alice failed: %v", err)
 	}
-	_, err = sA.Reviews.Create(ctx, writ.NewReview{
-		Title: "Offline Status Review",
+	applyTicketSchemaViaStore(t, ctx, sA, aliceDir)
+	sA.Close()
+	var stdoutSchema, stderrSchema bytes.Buffer
+	if code := run(ctx, []string{"-C", aliceDir, "sync"}, &stdoutSchema, &stderrSchema); code != 0 {
+		t.Fatalf("Alice schema sync exited with %d; stderr: %s", code, stderrSchema.String())
+	}
+
+	// Alice creates a ticket
+	sA, err = writ.Open(aliceDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Reopen Alice failed: %v", err)
+	}
+	_, err = sA.Objects.Create(ctx, "ticket", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Offline Status Ticket"},
 	})
 	if err != nil {
 		sA.Close()
-		t.Fatalf("Alice create review: %v", err)
+		t.Fatalf("Alice create object: %v", err)
 	}
 
 	// Check status via public engine API
@@ -410,17 +474,31 @@ func TestSync_JSONOutput(t *testing.T) {
 	_, aliceDir, _ := setupSyncTestHarness(t)
 	ctx := context.Background()
 
-	// Alice creates a review
+	// Alice declares and syncs the ticket type first, so it is not itself
+	// the unsynced op the assertions below count.
 	sA, err := writ.Open(aliceDir, writ.WithSigner(dummySigner()))
 	if err != nil {
 		t.Fatalf("Open Alice failed: %v", err)
 	}
-	_, err = sA.Reviews.Create(ctx, writ.NewReview{
-		Title: "JSON Output Review",
+	applyTicketSchemaViaStore(t, ctx, sA, aliceDir)
+	sA.Close()
+	var stdoutSchema, stderrSchema bytes.Buffer
+	if code := run(ctx, []string{"-C", aliceDir, "sync"}, &stdoutSchema, &stderrSchema); code != 0 {
+		t.Fatalf("Alice schema sync exited with %d; stderr: %s", code, stderrSchema.String())
+	}
+
+	// Alice creates a ticket
+	sA, err = writ.Open(aliceDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Reopen Alice failed: %v", err)
+	}
+	_, err = sA.Objects.Create(ctx, "ticket", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "JSON Output Ticket"},
 	})
 	if err != nil {
 		sA.Close()
-		t.Fatalf("Alice create review: %v", err)
+		t.Fatalf("Alice create object: %v", err)
 	}
 	sA.Close()
 
@@ -432,7 +510,7 @@ func TestSync_JSONOutput(t *testing.T) {
 	}
 
 	type statusEnvelope struct {
-		SchemaVersion int `json:"schema_version"`
+		SchemaVersion int    `json:"schema_version"`
 		Kind          string `json:"kind"`
 		Data          []struct {
 			Remote   string `json:"remote"`
@@ -461,7 +539,7 @@ func TestSync_JSONOutput(t *testing.T) {
 	}
 
 	type syncEnvelope struct {
-		SchemaVersion int `json:"schema_version"`
+		SchemaVersion int    `json:"schema_version"`
 		Kind          string `json:"kind"`
 		Data          []struct {
 			Remote         string `json:"remote"`
@@ -494,7 +572,7 @@ func TestSync_JSONOutput(t *testing.T) {
 		t.Fatalf("sync multi-remote exited with %d (want 7); stderr: %s", codeMulti, stderrMulti.String())
 	}
 	type multiEnvelope struct {
-		SchemaVersion int `json:"schema_version"`
+		SchemaVersion int    `json:"schema_version"`
 		Kind          string `json:"kind"`
 		Data          []struct {
 			Remote   string `json:"remote"`
