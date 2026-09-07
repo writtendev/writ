@@ -14,6 +14,7 @@ import (
 	"github.com/go-git/go-git/v5/storage"
 	"github.com/writtendev/writ/engine/codec"
 	"github.com/writtendev/writ/engine/dag"
+	"github.com/writtendev/writ/engine/state"
 )
 
 // ObjectChange describes the modifications made to a collaborative object in an incremental refresh batch.
@@ -53,6 +54,7 @@ type Stats struct {
 type refreshConfig struct {
 	targetRefs   []string
 	enumOverride *dag.EnumerateResult
+	rules        map[string][]state.Rule
 }
 
 // Option configures a Refresh or Rebuild pass.
@@ -63,6 +65,19 @@ type Option func(*refreshConfig)
 func WithTargetRefs(refs ...string) Option {
 	return func(c *refreshConfig) {
 		c.targetRefs = append(c.targetRefs, refs...)
+	}
+}
+
+// WithSchema supplies the rule index (RulesFromSchemas' shape: the built-in
+// vocabulary overlaid by whatever the log declares, log wins per type) a
+// Refresh or Rebuild pass applies before folding anything. The projection
+// cannot resolve schemas itself — package writ resolves once and passes the
+// result in, here and in Store.ApplySchema. Omitting it (or passing nil) is
+// only for a caller that has already applied a schema on this *DB directly
+// and wants this pass to keep using it.
+func WithSchema(rules map[string][]state.Rule) Option {
+	return func(c *refreshConfig) {
+		c.rules = rules
 	}
 }
 
@@ -81,9 +96,30 @@ func (d *DB) Refresh(store *dag.Store, opts ...Option) (Stats, error) {
 		opt(cfg)
 	}
 
+	if cfg.rules != nil {
+		if err := d.ApplySchema(cfg.rules); err != nil {
+			return Stats{}, fmt.Errorf("projection: apply schema: %w", err)
+		}
+	}
+	if err := d.requireMaterializationPlan(); err != nil {
+		return Stats{}, err
+	}
+
 	targetTips, err := resolveTargetTips(store.Storer(), cfg.targetRefs)
 	if err != nil {
 		return Stats{}, fmt.Errorf("projection: resolve target tips: %w", err)
+	}
+
+	// A schema change (ApplySchema above, or one applied by another process
+	// sharing this file) dropped and recreated the generated tables: nothing
+	// in them is derivable from an incremental delta on top of a schema that
+	// no longer exists, so this pass takes the full-rebuild path exactly as
+	// a rewound tip does — the droppable-cache answer to a schema change is
+	// drop and rebuild, never migrate.
+	if needsRebuild, err := loadMetaBool(d.db, "needs_rebuild"); err != nil {
+		return Stats{}, err
+	} else if needsRebuild {
+		return d.rebuildWithConfig(store, cfg, targetTips)
 	}
 
 	// 1. Read stored chain tips
@@ -168,18 +204,19 @@ func (d *DB) Refresh(store *dag.Store, opts ...Option) (Stats, error) {
 	}
 
 	// Refold only touched objects
+	desc := d.descriptor()
 	for objID := range enumRes.Ops {
 		opsForObj, err := readOpsForObject(tx, objID)
 		if err != nil {
 			return Stats{}, fmt.Errorf("projection: read ops for object %s: %w", objID, err)
 		}
-		if err := materializeObject(tx, objID, opsForObj); err != nil {
+		if err := materializeObject(tx, desc, objID, opsForObj); err != nil {
 			return Stats{}, fmt.Errorf("projection: materialize object %s: %w", objID, err)
 		}
 	}
 
 	// Materialize / re-resolve anchors against current code_tips
-	anchorsResolved, err := materializeAnchors(tx, store.Storer())
+	anchorsResolved, err := materializeAnchors(tx, desc, store.Storer())
 	if err != nil {
 		return Stats{}, fmt.Errorf("projection: materialize anchors: %w", err)
 	}
@@ -254,6 +291,15 @@ func (d *DB) Rebuild(store *dag.Store, opts ...Option) (Stats, error) {
 		opt(cfg)
 	}
 
+	if cfg.rules != nil {
+		if err := d.ApplySchema(cfg.rules); err != nil {
+			return Stats{}, fmt.Errorf("projection: apply schema: %w", err)
+		}
+	}
+	if err := d.requireMaterializationPlan(); err != nil {
+		return Stats{}, err
+	}
+
 	targetTips, err := resolveTargetTips(store.Storer(), cfg.targetRefs)
 	if err != nil {
 		return Stats{}, fmt.Errorf("projection: resolve target tips: %w", err)
@@ -268,6 +314,8 @@ func (d *DB) rebuildWithConfig(store *dag.Store, cfg *refreshConfig, targetTips 
 		return Stats{}, fmt.Errorf("projection: cold enumerate: %w", err)
 	}
 
+	desc := d.descriptor()
+
 	tx, err := d.db.Begin()
 	if err != nil {
 		return Stats{}, fmt.Errorf("projection: begin rebuild transaction: %w", err)
@@ -276,13 +324,20 @@ func (d *DB) rebuildWithConfig(store *dag.Store, cfg *refreshConfig, targetTips 
 		_ = tx.Rollback()
 	}()
 
-	// Clear all projection tables
-	for _, t := range projectionTables {
+	// Clear every substrate table except meta (which carries schema_version,
+	// schema_digest and schema_tables, none of which a data rebuild should
+	// touch) and every generated table the current descriptor knows about.
+	for _, t := range substrateTables {
 		if t == "meta" {
 			continue
 		}
 		if _, err := tx.Exec("DELETE FROM " + t); err != nil {
 			return Stats{}, fmt.Errorf("projection: truncate table %s: %w", t, err)
+		}
+	}
+	for _, t := range desc.allTables() {
+		if _, err := tx.Exec("DELETE FROM " + t.Name); err != nil {
+			return Stats{}, fmt.Errorf("projection: truncate table %s: %w", t.Name, err)
 		}
 	}
 
@@ -315,15 +370,19 @@ func (d *DB) rebuildWithConfig(store *dag.Store, cfg *refreshConfig, targetTips 
 		if err != nil {
 			return Stats{}, fmt.Errorf("projection: read ops for object %s: %w", objID, err)
 		}
-		if err := materializeObject(tx, objID, opsForObj); err != nil {
+		if err := materializeObject(tx, desc, objID, opsForObj); err != nil {
 			return Stats{}, fmt.Errorf("projection: materialize object %s: %w", objID, err)
 		}
 	}
 
 	// Materialize anchors
-	anchorsResolved, err := materializeAnchors(tx, store.Storer())
+	anchorsResolved, err := materializeAnchors(tx, desc, store.Storer())
 	if err != nil {
 		return Stats{}, fmt.Errorf("projection: materialize anchors: %w", err)
+	}
+
+	if _, err := tx.Exec("DELETE FROM meta WHERE key = 'needs_rebuild'"); err != nil {
+		return Stats{}, fmt.Errorf("projection: clear needs_rebuild: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {

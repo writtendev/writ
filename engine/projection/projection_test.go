@@ -27,8 +27,11 @@ func TestOpenCloseMemory(t *testing.T) {
 	// and section tables. WRIT-106 took it to 12 for issue priority,
 	// estimate, and position columns. WRIT-110 took it to 13 for settings
 	// table. WRIT-182 took it to 14, dropping the repos/repo_remotes tables.
-	if v := projection.SchemaVersion(); v != 14 {
-		t.Fatalf("expected schema version 14, got %d", v)
+	// WRIT-189 took it to 15: every per-type table is now generated from the
+	// schema in the log instead of hand-written, invalidated by a separate
+	// digest key rather than this one.
+	if v := projection.SchemaVersion(); v != 15 {
+		t.Fatalf("expected schema version 15, got %d", v)
 	}
 
 	var version string

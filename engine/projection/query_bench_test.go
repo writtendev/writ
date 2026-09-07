@@ -29,6 +29,9 @@ func openBenchDB(tb testing.TB) *projection.DB {
 	if err != nil {
 		tb.Fatalf("projection.Open: %v", err)
 	}
+	if err := db.ApplySchema(testRules()); err != nil {
+		tb.Fatalf("ApplySchema: %v", err)
+	}
 
 	seedBenchDB(tb, db)
 	return db
@@ -51,7 +54,7 @@ func seedBenchDB(tb testing.TB, db *projection.DB) {
 	}
 	defer objStmt.Close()
 
-	revStmt, err := tx.Prepare("INSERT INTO reviews (object_id, title, description, status, merge_commit, reason) VALUES (?, ?, ?, ?, ?, ?)")
+	revStmt, err := tx.Prepare("INSERT INTO o_review (object_id, f_title, f_description, f_status, f_merge_commit, f_reason) VALUES (?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		tb.Fatalf("prepare reviews: %v", err)
 	}
@@ -78,12 +81,21 @@ func seedBenchDB(tb testing.TB, db *projection.DB) {
 		}
 	}
 
-	// 2. Bulk insert comments
-	commStmt, err := tx.Prepare("INSERT INTO comments (object_id, subject_type, subject_id, text, in_reply_to, anchor, deleted) VALUES (?, ?, ?, ?, ?, ?, ?)")
+	// 2. Bulk insert comments. f_subject holds the raw JSON bytes create-once
+	// preserves verbatim for the untyped `subject` target — the same shape
+	// materializeObject writes, and the shape CommentFilter's subject_type /
+	// subject_id filters read back via json_extract.
+	commStmt, err := tx.Prepare("INSERT INTO o_comment (object_id, f_subject, f_text, f_in_reply_to, f_anchor, f_deleted) VALUES (?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		tb.Fatalf("prepare comments: %v", err)
 	}
 	defer commStmt.Close()
+
+	memberStmt, err := tx.Prepare("INSERT INTO o_comment__subject__members (object_id, member, value) VALUES (?, ?, ?)")
+	if err != nil {
+		tb.Fatalf("prepare subject members: %v", err)
+	}
+	defer memberStmt.Close()
 
 	for i := 0; i < benchNumComments; i++ {
 		commID := fmt.Sprintf("comm-%d", i)
@@ -98,28 +110,36 @@ func seedBenchDB(tb testing.TB, db *projection.DB) {
 			inReplyTo = fmt.Sprintf("comm-%d", parentIndex)
 		}
 
+		subject := fmt.Sprintf(`{"object_type":"review","object_id":%q}`, revID)
+
 		if _, err := objStmt.Exec(commID, "comment", 1, "op-"+commID, author.name, author.email, createdAt, createdAt); err != nil {
 			tb.Fatalf("insert comm object: %v", err)
 		}
-		if _, err := commStmt.Exec(commID, "review", revID, fmt.Sprintf("Comment %d content", i), inReplyTo, "", 0); err != nil {
+		if _, err := commStmt.Exec(commID, subject, fmt.Sprintf("Comment %d content", i), inReplyTo, "", 0); err != nil {
 			tb.Fatalf("insert comment: %v", err)
+		}
+		if _, err := memberStmt.Exec(commID, "object_type", "review"); err != nil {
+			tb.Fatalf("insert subject member object_type: %v", err)
+		}
+		if _, err := memberStmt.Exec(commID, "object_id", revID); err != nil {
+			tb.Fatalf("insert subject member object_id: %v", err)
 		}
 	}
 
 	// 3. Bulk insert issues
-	issStmt, err := tx.Prepare("INSERT INTO issues (object_id, title, description, state, reason) VALUES (?, ?, ?, ?, ?)")
+	issStmt, err := tx.Prepare("INSERT INTO o_issue (object_id, f_title, f_description, f_state, f_reason) VALUES (?, ?, ?, ?, ?)")
 	if err != nil {
 		tb.Fatalf("prepare issues: %v", err)
 	}
 	defer issStmt.Close()
 
-	asStmt, err := tx.Prepare("INSERT INTO issue_assignees (issue_object_id, assignee) VALUES (?, ?)")
+	asStmt, err := tx.Prepare("INSERT INTO o_issue__assignees (object_id, item) VALUES (?, ?)")
 	if err != nil {
 		tb.Fatalf("prepare assignees: %v", err)
 	}
 	defer asStmt.Close()
 
-	lblStmt, err := tx.Prepare("INSERT INTO issue_labels (issue_object_id, label) VALUES (?, ?)")
+	lblStmt, err := tx.Prepare("INSERT INTO o_issue__labels (object_id, item) VALUES (?, ?)")
 	if err != nil {
 		tb.Fatalf("prepare labels: %v", err)
 	}

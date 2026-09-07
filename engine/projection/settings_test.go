@@ -59,7 +59,7 @@ func TestProjectionSettingsLifecycle(t *testing.T) {
 	}
 
 	// 3. Refresh projection
-	if _, err := db.Refresh(store); err != nil {
+	if _, err := db.Refresh(store, projection.WithSchema(testRules())); err != nil {
 		t.Fatalf("db.Refresh failed: %v", err)
 	}
 
@@ -99,6 +99,76 @@ func TestProjectionSettingsLifecycle(t *testing.T) {
 	}
 	if res.Settings.UnknownKeys["custom_plugin_field"] != "hello" {
 		t.Errorf("UnknownKeys['custom_plugin_field'] = %v, want 'hello'", res.Settings.UnknownKeys["custom_plugin_field"])
+	}
+}
+
+// TestProjectionSettingsPartialWritePreservesFoldDefaults reproduces WRIT-189
+// round 1's MAJOR-1 finding: a settings object whose only op writes "name"
+// left every other register's column NULL, and DB.Settings() used to read a
+// NULL column back as SQL's own zero value ("" / 0) via COALESCE rather than
+// state.DefaultSettings()' non-zero defaults — diverging from
+// state.FoldSettings, which starts from DefaultSettings() and only
+// overwrites a field an op's body actually names, so a field no op has ever
+// set keeps its default forever, not just until the object's first write.
+func TestProjectionSettingsPartialWritePreservesFoldDefaults(t *testing.T) {
+	ctx := context.Background()
+	_, store := createTestStore(t, "0123456789abcdef")
+
+	db, err := projection.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:) failed: %v", err)
+	}
+	defer db.Close()
+
+	env := codec.Envelope{
+		ObjectID:   state.DefaultSettingsObjectID,
+		ObjectType: "settings",
+		OpType:     "set",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"name": "Only Name Set"}`),
+	}
+	raw, _ := codec.EncodePayload(env)
+	env.Raw = raw
+	if _, err := store.Append(ctx, env, nil); err != nil {
+		t.Fatalf("store.Append failed: %v", err)
+	}
+
+	if _, err := db.Refresh(store, projection.WithSchema(testRules())); err != nil {
+		t.Fatalf("db.Refresh failed: %v", err)
+	}
+
+	res, err := db.Settings()
+	if err != nil {
+		t.Fatalf("db.Settings failed: %v", err)
+	}
+
+	want := state.DefaultSettings()
+	if res.Settings.Name != "Only Name Set" {
+		t.Errorf("Name = %q, want %q", res.Settings.Name, "Only Name Set")
+	}
+	if res.Settings.Timezone != want.Timezone {
+		t.Errorf("Timezone = %q, want default %q", res.Settings.Timezone, want.Timezone)
+	}
+	if res.Settings.EstimateScale != want.EstimateScale {
+		t.Errorf("EstimateScale = %q, want default %q", res.Settings.EstimateScale, want.EstimateScale)
+	}
+	if res.Settings.CycleDurationWeeks != want.CycleDurationWeeks {
+		t.Errorf("CycleDurationWeeks = %d, want default %d", res.Settings.CycleDurationWeeks, want.CycleDurationWeeks)
+	}
+	if res.Settings.CycleStartDay != want.CycleStartDay {
+		t.Errorf("CycleStartDay = %d, want default %d", res.Settings.CycleStartDay, want.CycleStartDay)
+	}
+	if res.Settings.CycleCooldownWeeks != want.CycleCooldownWeeks {
+		t.Errorf("CycleCooldownWeeks = %d, want default %d", res.Settings.CycleCooldownWeeks, want.CycleCooldownWeeks)
+	}
+	if res.Settings.AllowZeroEstimates != want.AllowZeroEstimates {
+		t.Errorf("AllowZeroEstimates = %v, want default %v", res.Settings.AllowZeroEstimates, want.AllowZeroEstimates)
+	}
+	if res.Settings.CyclesEnabled != want.CyclesEnabled {
+		t.Errorf("CyclesEnabled = %v, want default %v", res.Settings.CyclesEnabled, want.CyclesEnabled)
+	}
+	if res.Settings.TriageEnabled != want.TriageEnabled {
+		t.Errorf("TriageEnabled = %v, want default %v", res.Settings.TriageEnabled, want.TriageEnabled)
 	}
 }
 
@@ -147,7 +217,7 @@ func TestProjectionSettingsDeterministicSelection(t *testing.T) {
 		t.Fatalf("store.Append canonical failed: %v", err)
 	}
 
-	if _, err := db.Refresh(store); err != nil {
+	if _, err := db.Refresh(store, projection.WithSchema(testRules())); err != nil {
 		t.Fatalf("db.Refresh failed: %v", err)
 	}
 

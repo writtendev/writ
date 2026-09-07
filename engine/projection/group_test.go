@@ -142,22 +142,25 @@ func TestGroupIssuesByStateUnresolvedStateLandsUnknown(t *testing.T) {
 		t.Fatalf("Open(:memory:): %v", err)
 	}
 	defer db.Close()
+	if err := db.ApplySchema(testRules()); err != nil {
+		t.Fatalf("ApplySchema: %v", err)
+	}
 
 	rawDB := db.DB()
 
 	insertObject(t, rawDB, "ws-todo", "workflow-state", 1, "op-ws-1", "A", "a@example.com", 900, 900)
-	execSQL(t, rawDB, "INSERT INTO workflow_states (object_id, name, type, position, color, description, op_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		"ws-todo", "Todo", "unstarted", "V", "", "", "op-ws-1")
+	execSQL(t, rawDB, "INSERT INTO o_workflow_state (object_id, f_name, f_type, f_position, f_position__op_id, f_color, f_description) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		"ws-todo", "Todo", "unstarted", "V", "op-ws-1", "", "")
 	insertObject(t, rawDB, "ws-done", "workflow-state", 1, "op-ws-2", "A", "a@example.com", 910, 910)
-	execSQL(t, rawDB, "INSERT INTO workflow_states (object_id, name, type, position, color, description, op_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		"ws-done", "Done", "completed", "s", "", "", "op-ws-2")
+	execSQL(t, rawDB, "INSERT INTO o_workflow_state (object_id, f_name, f_type, f_position, f_position__op_id, f_color, f_description) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		"ws-done", "Done", "completed", "s", "op-ws-2", "", "")
 
 	insertObject(t, rawDB, "iss-known", "issue", 1, "op-1", "A", "a@example.com", 1000, 1000)
-	execSQL(t, rawDB, "INSERT INTO issues (object_id, title, description, state, reason) VALUES (?, ?, ?, ?, ?)",
+	execSQL(t, rawDB, "INSERT INTO o_issue (object_id, f_title, f_description, f_state, f_reason) VALUES (?, ?, ?, ?, ?)",
 		"iss-known", "Known state issue", "", "ws-todo", "")
 
 	insertObject(t, rawDB, "iss-unresolved", "issue", 1, "op-2", "A", "a@example.com", 1010, 1010)
-	execSQL(t, rawDB, "INSERT INTO issues (object_id, title, description, state, reason) VALUES (?, ?, ?, ?, ?)",
+	execSQL(t, rawDB, "INSERT INTO o_issue (object_id, f_title, f_description, f_state, f_reason) VALUES (?, ?, ?, ?, ?)",
 		"iss-unresolved", "Unresolved state issue", "", "not-a-real-state", "")
 
 	groups, err := db.GroupIssues(projection.GroupByState, projection.IssueFilter{})
@@ -193,6 +196,9 @@ func TestGroupIssuesByPriority(t *testing.T) {
 		t.Fatalf("Open(:memory:): %v", err)
 	}
 	defer db.Close()
+	if err := db.ApplySchema(testRules()); err != nil {
+		t.Fatalf("ApplySchema: %v", err)
+	}
 
 	rawDB := db.DB()
 	insertObject(t, rawDB, "iss-u", "issue", 1, "op-1", "A", "a@example.com", 1000, 1000)
@@ -200,13 +206,13 @@ func TestGroupIssuesByPriority(t *testing.T) {
 	insertObject(t, rawDB, "iss-h2", "issue", 1, "op-3", "A", "a@example.com", 1020, 1020)
 	insertObject(t, rawDB, "iss-n", "issue", 1, "op-4", "A", "a@example.com", 1030, 1030)
 
-	execSQL(t, rawDB, "INSERT INTO issues (object_id, title, description, state, reason, priority, position, position_op_id) VALUES (?, ?, ?, ?, '', ?, ?, ?)",
+	execSQL(t, rawDB, "INSERT INTO o_issue (object_id, f_title, f_description, f_state, f_reason, f_priority, f_position, f_position__op_id) VALUES (?, ?, ?, ?, '', ?, ?, ?)",
 		"iss-u", "Urgent issue", "", "open", 1, "V", "op-1")
-	execSQL(t, rawDB, "INSERT INTO issues (object_id, title, description, state, reason, priority, position, position_op_id) VALUES (?, ?, ?, ?, '', ?, ?, ?)",
+	execSQL(t, rawDB, "INSERT INTO o_issue (object_id, f_title, f_description, f_state, f_reason, f_priority, f_position, f_position__op_id) VALUES (?, ?, ?, ?, '', ?, ?, ?)",
 		"iss-h2", "High issue 2", "", "open", 2, "aV", "op-3")
-	execSQL(t, rawDB, "INSERT INTO issues (object_id, title, description, state, reason, priority, position, position_op_id) VALUES (?, ?, ?, ?, '', ?, ?, ?)",
+	execSQL(t, rawDB, "INSERT INTO o_issue (object_id, f_title, f_description, f_state, f_reason, f_priority, f_position, f_position__op_id) VALUES (?, ?, ?, ?, '', ?, ?, ?)",
 		"iss-h1", "High issue 1", "", "open", 2, "V", "op-2")
-	execSQL(t, rawDB, "INSERT INTO issues (object_id, title, description, state, reason, priority, position, position_op_id) VALUES (?, ?, ?, ?, '', ?, ?, ?)",
+	execSQL(t, rawDB, "INSERT INTO o_issue (object_id, f_title, f_description, f_state, f_reason, f_priority, f_position, f_position__op_id) VALUES (?, ?, ?, ?, '', ?, ?, ?)",
 		"iss-n", "None issue", "", "open", 0, "V", "op-4")
 
 	groups, err := db.GroupIssues(projection.GroupByPriority, projection.IssueFilter{})

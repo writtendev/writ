@@ -15,6 +15,7 @@ import (
 	"github.com/writtendev/writ/engine/dag"
 	"github.com/writtendev/writ/engine/identity"
 	"github.com/writtendev/writ/engine/projection"
+	"github.com/writtendev/writ/engine/state"
 )
 
 func createTestStore(t *testing.T, writerID string) (*git.Repository, *dag.Store) {
@@ -74,7 +75,7 @@ func TestIncrementalRefoldMatchesColdRebuild(t *testing.T) {
 		t.Fatalf("store.Append env1 failed: %v", err)
 	}
 
-	stats1, err := db.Refresh(store)
+	stats1, err := db.Refresh(store, projection.WithSchema(testRules()))
 	if err != nil {
 		t.Fatalf("Refresh 1 failed: %v", err)
 	}
@@ -95,7 +96,7 @@ func TestIncrementalRefoldMatchesColdRebuild(t *testing.T) {
 	}
 
 	var title, desc string
-	err = db.DB().QueryRow("SELECT title, description FROM reviews WHERE object_id = 'rev-1'").Scan(&title, &desc)
+	err = db.DB().QueryRow("SELECT f_title, f_description FROM o_review WHERE object_id = 'rev-1'").Scan(&title, &desc)
 	if err != nil {
 		t.Fatalf("query review failed: %v", err)
 	}
@@ -121,7 +122,7 @@ func TestIncrementalRefoldMatchesColdRebuild(t *testing.T) {
 		t.Fatalf("store.Append env3 failed: %v", err)
 	}
 
-	stats2, err := db.Refresh(store)
+	stats2, err := db.Refresh(store, projection.WithSchema(testRules()))
 	if err != nil {
 		t.Fatalf("Refresh 2 failed: %v", err)
 	}
@@ -147,7 +148,7 @@ func TestIncrementalRefoldMatchesColdRebuild(t *testing.T) {
 	}
 
 	// 3. Cold rebuild comparison
-	statsCold, err := db.Rebuild(store)
+	statsCold, err := db.Rebuild(store, projection.WithSchema(testRules()))
 	if err != nil {
 		t.Fatalf("Rebuild failed: %v", err)
 	}
@@ -195,7 +196,7 @@ func TestNewWriterNamespaceDetected(t *testing.T) {
 		t.Fatalf("storeA.Append: %v", err)
 	}
 
-	stats1, err := db.Refresh(storeA)
+	stats1, err := db.Refresh(storeA, projection.WithSchema(testRules()))
 	if err != nil {
 		t.Fatalf("Refresh 1: %v", err)
 	}
@@ -216,7 +217,7 @@ func TestNewWriterNamespaceDetected(t *testing.T) {
 	}
 
 	// Refresh should discover Writer B's new chain with no stored cursor
-	stats2, err := db.Refresh(storeA)
+	stats2, err := db.Refresh(storeA, projection.WithSchema(testRules()))
 	if err != nil {
 		t.Fatalf("Refresh 2: %v", err)
 	}
@@ -225,7 +226,7 @@ func TestNewWriterNamespaceDetected(t *testing.T) {
 	}
 
 	var verdict string
-	err = db.DB().QueryRow("SELECT verdict FROM approvals WHERE review_object_id = 'rev-multi' AND subject = 'email:writerb@example.com'").Scan(&verdict)
+	err = db.DB().QueryRow("SELECT f_verdict FROM o_review__k_subject_revision WHERE object_id = 'rev-multi' AND k_subject = 'email:writerb@example.com'").Scan(&verdict)
 	if err != nil {
 		t.Fatalf("query approval failed: %v", err)
 	}
@@ -235,7 +236,7 @@ func TestNewWriterNamespaceDetected(t *testing.T) {
 
 	// Verify equal to cold rebuild
 	incDump, _ := db.DumpTables()
-	_, _ = db.Rebuild(storeA)
+	_, _ = db.Rebuild(storeA, projection.WithSchema(testRules()))
 	coldDump, _ := db.DumpTables()
 
 	if !reflect.DeepEqual(incDump, coldDump) {
@@ -259,7 +260,7 @@ func TestRollbackTriggersRebuild(t *testing.T) {
 	env2 := makeReviewEnv("rev-rb", "update", 1, map[string]any{"title": "Title 2"})
 	_, _ = store.Append(ctx, env2, nil)
 
-	_, err = db.Refresh(store)
+	_, err = db.Refresh(store, projection.WithSchema(testRules()))
 	if err != nil {
 		t.Fatalf("Refresh before rewind failed: %v", err)
 	}
@@ -298,7 +299,7 @@ func TestRollbackTriggersRebuild(t *testing.T) {
 	}
 
 	// Refresh should detect rollback (previous tip is not ancestor of new tip) and rebuild
-	stats, err := db.Refresh(store)
+	stats, err := db.Refresh(store, projection.WithSchema(testRules()))
 	if err != nil {
 		t.Fatalf("Refresh after rewind failed: %v", err)
 	}
@@ -307,7 +308,7 @@ func TestRollbackTriggersRebuild(t *testing.T) {
 	}
 
 	var title string
-	err = db.DB().QueryRow("SELECT title FROM reviews WHERE object_id = 'rev-rb'").Scan(&title)
+	err = db.DB().QueryRow("SELECT f_title FROM o_review WHERE object_id = 'rev-rb'").Scan(&title)
 	if err != nil {
 		t.Fatalf("query title: %v", err)
 	}
@@ -329,7 +330,7 @@ func TestDisappearedChainTriggersRebuild(t *testing.T) {
 	env1 := makeReviewEnv("rev-del", "create", 1, map[string]any{"title": "Title Del"})
 	_, _ = store.Append(ctx, env1, nil)
 
-	_, err = db.Refresh(store)
+	_, err = db.Refresh(store, projection.WithSchema(testRules()))
 	if err != nil {
 		t.Fatalf("Refresh: %v", err)
 	}
@@ -342,7 +343,7 @@ func TestDisappearedChainTriggersRebuild(t *testing.T) {
 	}
 
 	// Refresh should detect chain disappeared and rebuild
-	stats, err := db.Refresh(store)
+	stats, err := db.Refresh(store, projection.WithSchema(testRules()))
 	if err != nil {
 		t.Fatalf("Refresh after ref delete failed: %v", err)
 	}
@@ -399,7 +400,7 @@ func TestRefresh_WithTargetRefsResolution(t *testing.T) {
 	_, _ = store.Append(ctx, env, nil)
 
 	// Refresh with short branch name "main", remote branch "origin/feat", lightweight tag "v1.0", and annotated tag "v2.0"
-	_, err = db.Refresh(store, projection.WithTargetRefs("main", "origin/feat", "v1.0", "v2.0"))
+	_, err = db.Refresh(store, projection.WithSchema(testRules()), projection.WithTargetRefs("main", "origin/feat", "v1.0", "v2.0"))
 	if err != nil {
 		t.Fatalf("Refresh with target refs failed: %v", err)
 	}
@@ -452,7 +453,7 @@ func TestRefresh_TargetRefTagBeatsBranch(t *testing.T) {
 	env := makeReviewEnv("rev-precedence", "create", 1, map[string]any{"title": "Precedence"})
 	_, _ = store.Append(ctx, env, nil)
 
-	if _, err := db.Refresh(store, projection.WithTargetRefs("release")); err != nil {
+	if _, err := db.Refresh(store, projection.WithSchema(testRules()), projection.WithTargetRefs("release")); err != nil {
 		t.Fatalf("Refresh failed: %v", err)
 	}
 
@@ -484,7 +485,7 @@ func TestRefreshIncrementalEmptyObjectType(t *testing.T) {
 		t.Fatalf("store.Append env1 failed: %v", err)
 	}
 
-	stats1, err := db.Refresh(store)
+	stats1, err := db.Refresh(store, projection.WithSchema(testRules()))
 	if err != nil {
 		t.Fatalf("Refresh 1 failed: %v", err)
 	}
@@ -528,7 +529,7 @@ func TestRefreshIncrementalEmptyObjectType(t *testing.T) {
 		DecodedCommits: 1,
 	}
 
-	stats2, err := db.Refresh(store, projection.WithEnumOverrideForTest(deltaEnum))
+	stats2, err := db.Refresh(store, projection.WithSchema(testRules()), projection.WithEnumOverrideForTest(deltaEnum))
 	if err != nil {
 		t.Fatalf("Refresh 2 failed: %v", err)
 	}
@@ -571,3 +572,185 @@ func TestDetermineObjectTypePrecedence(t *testing.T) {
 	}
 }
 
+// TestCollidingLogDeclaredTypeStaysOpenable is WRIT-189 round 1's MAJOR-3
+// finding, exercised at the level Store.Open actually calls: a log-declared
+// object type ("review--base-head") whose generated table name collides
+// with review's own built-in base/head append-group table
+// ("o_review__base_head" — round 2 MAJOR-1 folded the separate "base" and
+// "head" child tables into this one shared table, so that is what a
+// collision has to target now) used to fail buildDescriptor with a hard
+// error, which propagated all the way
+// through ApplySchema and would have made writ.Open fail forever — data one
+// writer wrote (a legal object type name under op-envelope's grammar)
+// bricking the whole repository for every writer, with nothing removable
+// from the log to fix it. Refresh (and so ApplySchema) must instead
+// withhold only the colliding type's tables: its ops fall to unknown_ops,
+// and review's own tables — including the one it collided with — are
+// unaffected.
+func TestCollidingLogDeclaredTypeStaysOpenable(t *testing.T) {
+	ctx := context.Background()
+	_, store := createTestStore(t, "0123456789abcdef")
+
+	db, err := projection.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:) failed: %v", err)
+	}
+	defer db.Close()
+
+	// The ordinary store.Append path enforces producer validation against
+	// the built-in embedded vocabulary when no schema-aware resolver is
+	// wired up (as in this package's tests), which would refuse to write an
+	// op for "review--base-head" long before it ever reached buildDescriptor —
+	// that gate is orthogonal to this finding (a real repo reaches
+	// buildDescriptor with such an op only once a log-declared schema
+	// object has already made it writable). So, exactly like
+	// TestRefreshIncrementalEmptyObjectType, this constructs the colliding
+	// op directly and hands it to Refresh via WithEnumOverrideForTest,
+	// which is the same shape store.EnumerateSince itself would have
+	// produced, with no producer-validation gate to route around.
+	reviewEnv := makeReviewEnv("rev-1", "create", 1, map[string]any{"title": "T"})
+	reviewOp, err := store.Append(ctx, reviewEnv, nil)
+	if err != nil {
+		t.Fatalf("store.Append review failed: %v", err)
+	}
+
+	stats1, err := db.Refresh(store, projection.WithSchema(testRules()))
+	if err != nil {
+		t.Fatalf("Refresh 1 failed: %v", err)
+	}
+	if len(stats1.Changed) != 1 || stats1.Changed[0].ObjectType != "review" {
+		t.Fatalf("unexpected stats1: %+v", stats1)
+	}
+
+	payload := []byte(`{"body":{"title":"colliding type"},"object_id":"collider-1","object_type":"review--base-head","op_type":"create","op_version":1}`)
+	collidingOp := codec.Op{
+		ID: "op-collider-1",
+		Envelope: codec.Envelope{
+			ObjectID:   "collider-1",
+			ObjectType: "review--base-head",
+			OpType:     "create",
+			OpVersion:  1,
+			Body:       []byte(`{"title":"colliding type"}`),
+			Raw:        payload,
+		},
+		Author: codec.Identity{
+			Name:  "Test Writer",
+			Email: "writer@example.com",
+			When:  time.Unix(1700000002, 0).UTC(),
+		},
+		Committer: codec.Identity{
+			Name:  "Test Writer",
+			Email: "writer@example.com",
+			When:  time.Unix(1700000002, 0).UTC(),
+		},
+		Message: "writ: create review--base-head/collider-1\n",
+	}
+
+	deltaEnum := &dag.EnumerateResult{
+		Ops: map[string][]codec.Op{
+			"collider-1": {collidingOp},
+		},
+		Cursors: dag.CursorSet{
+			"refs/writ/0123456789abcdef/review":            reviewOp.ID,
+			"refs/writ/0123456789abcdef/review--base-head": "op-collider-1",
+		},
+		DecodedCommits: 1,
+	}
+
+	rules := testRules()
+	rules["review--base-head"] = []state.Rule{
+		{OpType: "create", Field: "title", Strategy: "lww", ValueType: "string", ObjectType: "review--base-head"},
+	}
+
+	// The regression: this call used to return a "generated table name...
+	// is not unique" error, which is exactly what would have made
+	// writ.Open fail on every subsequent attempt to open this repository.
+	if _, err := db.Refresh(store, projection.WithSchema(rules), projection.WithEnumOverrideForTest(deltaEnum)); err != nil {
+		t.Fatalf("Refresh with colliding log-declared type failed: %v", err)
+	}
+
+	var reviewTitle string
+	if err := db.DB().QueryRow("SELECT f_title FROM o_review WHERE object_id = 'rev-1'").Scan(&reviewTitle); err != nil {
+		t.Fatalf("query o_review failed: %v", err)
+	}
+	if reviewTitle != "T" {
+		t.Fatalf("o_review.f_title = %q, want %q", reviewTitle, "T")
+	}
+
+	var unknownCount int
+	if err := db.DB().QueryRow(
+		"SELECT COUNT(*) FROM unknown_ops WHERE object_id = 'collider-1' AND object_type = 'review--base-head'",
+	).Scan(&unknownCount); err != nil {
+		t.Fatalf("query unknown_ops failed: %v", err)
+	}
+	if unknownCount != 1 {
+		t.Fatalf("expected the colliding type's op in unknown_ops, got count=%d", unknownCount)
+	}
+}
+
+// TestFirstApplySchemaAfterSchemaLessRefreshRebuilds is WRIT-189 round 1's
+// MEDIUM-4 finding: Refresh(store) with no schema at all folds every op to
+// unknown_ops for lack of any installed rules, exactly like an absent
+// schema always has. A later Refresh(store, WithSchema(rules)) is then this
+// cache's first-ever ApplySchema (no prior digest recorded), which used to
+// skip needs_rebuild unconditionally on that basis — leaving the
+// incremental path to see the object's chain tip already at HEAD and so
+// re-fold nothing, permanently stranding it in unknown_ops with its
+// generated table forever empty. A first-ever ApplySchema must still force
+// a rebuild when the cache already holds data folded before any schema
+// existed.
+func TestFirstApplySchemaAfterSchemaLessRefreshRebuilds(t *testing.T) {
+	ctx := context.Background()
+	_, store := createTestStore(t, "0123456789abcdef")
+
+	db, err := projection.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:) failed: %v", err)
+	}
+	defer db.Close()
+
+	env := makeReviewEnv("rev-1", "create", 1, map[string]any{"title": "T"})
+	if _, err := store.Append(ctx, env, nil); err != nil {
+		t.Fatalf("store.Append failed: %v", err)
+	}
+
+	// 1. Schema-less refresh: no installed rules, so the review falls to
+	// unknown_ops exactly like the absent-schema path always has.
+	if _, err := db.Refresh(store); err != nil {
+		t.Fatalf("Refresh (no schema) failed: %v", err)
+	}
+	var unknownBefore int
+	if err := db.DB().QueryRow("SELECT COUNT(*) FROM unknown_ops WHERE object_id = 'rev-1'").Scan(&unknownBefore); err != nil {
+		t.Fatalf("query unknown_ops failed: %v", err)
+	}
+	if unknownBefore != 1 {
+		t.Fatalf("expected rev-1 in unknown_ops before any schema, got count=%d", unknownBefore)
+	}
+
+	// 2. First-ever ApplySchema on this cache. The regression: this used to
+	// leave needs_rebuild unset, so the incremental path below would see no
+	// delta (the chain tip was already recorded) and never re-fold rev-1.
+	stats, err := db.Refresh(store, projection.WithSchema(testRules()))
+	if err != nil {
+		t.Fatalf("Refresh (with schema) failed: %v", err)
+	}
+	if !stats.Rebuilt {
+		t.Fatalf("expected the first ApplySchema over already-materialized data to force a rebuild, got Rebuilt=false")
+	}
+
+	var title string
+	if err := db.DB().QueryRow("SELECT f_title FROM o_review WHERE object_id = 'rev-1'").Scan(&title); err != nil {
+		t.Fatalf("query o_review failed (rev-1 never got materialized): %v", err)
+	}
+	if title != "T" {
+		t.Fatalf("o_review.f_title = %q, want %q", title, "T")
+	}
+
+	var unknownAfter int
+	if err := db.DB().QueryRow("SELECT COUNT(*) FROM unknown_ops WHERE object_id = 'rev-1'").Scan(&unknownAfter); err != nil {
+		t.Fatalf("query unknown_ops failed: %v", err)
+	}
+	if unknownAfter != 0 {
+		t.Fatalf("expected rev-1 no longer in unknown_ops once review has installed rules, got count=%d", unknownAfter)
+	}
+}

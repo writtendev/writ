@@ -99,6 +99,15 @@ type Store struct {
 	// Chains call plus a full Schema/Enumerate re-resolve on every append.
 	vocabChains      map[string]dag.DiscoveredChain
 	vocabFingerprint string
+
+	// ruleCache is the fold-rule counterpart to vocabCache: the built-in
+	// vocabulary overlaid by whatever the log declares (RulesFromSchemas),
+	// log wins per type. It is recomputed in the same cache-miss branch as
+	// vocabCache (Store.vocabularies), behind the same dag.Chains
+	// fingerprint, so it never costs a second Schema()/Enumerate fold: both
+	// are thin projections of the one resolveSchemaTypes pass over the same
+	// folded schema objects.
+	ruleCache map[string][]Rule
 }
 
 // Close closes the underlying projection database and releases associated resources.
@@ -152,7 +161,12 @@ func (s *Store) Refresh(ctx context.Context) (RefreshStats, error) {
 		return RefreshStats{}, fmt.Errorf("writ: store is closed")
 	}
 
-	var opts []projection.Option
+	rules, err := s.rules(ctx)
+	if err != nil {
+		return RefreshStats{}, fmt.Errorf("writ: refresh projection: resolve rules: %w", err)
+	}
+
+	opts := []projection.Option{projection.WithSchema(rules)}
 	if len(s.targetRefs) > 0 {
 		opts = append(opts, projection.WithTargetRefs(s.targetRefs...))
 	}
@@ -180,7 +194,12 @@ func (s *Store) Rebuild(ctx context.Context) (RefreshStats, error) {
 		return RefreshStats{}, fmt.Errorf("writ: store is closed")
 	}
 
-	var opts []projection.Option
+	rules, err := s.rules(ctx)
+	if err != nil {
+		return RefreshStats{}, fmt.Errorf("writ: rebuild projection: resolve rules: %w", err)
+	}
+
+	opts := []projection.Option{projection.WithSchema(rules)}
 	if len(s.targetRefs) > 0 {
 		opts = append(opts, projection.WithTargetRefs(s.targetRefs...))
 	}

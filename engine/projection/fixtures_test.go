@@ -58,7 +58,7 @@ func TestFixturesIncrementalVsColdAndFoldAgreement(t *testing.T) {
 			}
 			defer dbCold.Close()
 
-			statsCold, err := dbCold.Refresh(store)
+			statsCold, err := dbCold.Refresh(store, projection.WithSchema(testRules()))
 			if err != nil {
 				t.Fatalf("dbCold.Refresh: %v", err)
 			}
@@ -103,7 +103,7 @@ func TestFixturesIncrementalVsColdAndFoldAgreement(t *testing.T) {
 			defer dbInc.Close()
 
 			// Initial refresh at starting commit of each ref
-			_, err = dbInc.Refresh(store)
+			_, err = dbInc.Refresh(store, projection.WithSchema(testRules()))
 			if err != nil {
 				t.Fatalf("dbInc.Refresh initial: %v", err)
 			}
@@ -126,7 +126,7 @@ func TestFixturesIncrementalVsColdAndFoldAgreement(t *testing.T) {
 					}
 				}
 				if movedAny {
-					_, err := dbInc.Refresh(store)
+					_, err := dbInc.Refresh(store, projection.WithSchema(testRules()))
 					if err != nil {
 						t.Fatalf("dbInc.Refresh step %d: %v", step, err)
 					}
@@ -138,7 +138,7 @@ func TestFixturesIncrementalVsColdAndFoldAgreement(t *testing.T) {
 				refName := plumbing.ReferenceName(refNameStr)
 				_ = repo.Storer.SetReference(plumbing.NewReferenceFromStrings(refName.String(), finalHash.String()))
 			}
-			_, err = dbInc.Refresh(store)
+			_, err = dbInc.Refresh(store, projection.WithSchema(testRules()))
 			if err != nil {
 				t.Fatalf("dbInc.Refresh final: %v", err)
 			}
@@ -266,14 +266,14 @@ func TestFixturesIncrementalVsColdAndFoldAgreement(t *testing.T) {
 						t.Fatalf("writ.FoldProject for %s in %s: %v", objID, desc.Name, err)
 					}
 					var title, descText, status, reason string
-					err = dbCold.DB().QueryRow("SELECT title, description, status, reason FROM projects WHERE object_id = ?", objID).Scan(&title, &descText, &status, &reason)
+					err = dbCold.DB().QueryRow("SELECT COALESCE(f_title, ''), COALESCE(f_description, ''), COALESCE(f_status, ''), COALESCE(f_reason, '') FROM o_project WHERE object_id = ?", objID).Scan(&title, &descText, &status, &reason)
 					if err != nil {
 						t.Fatalf("query project %s: %v", objID, err)
 					}
 					if title != projState.Title || descText != projState.Description || status != projState.Status || reason != projState.Reason {
 						t.Fatalf("project %s in %s differs between fold and projection", objID, desc.Name)
 					}
-					issRows, err := dbCold.DB().Query("SELECT issue FROM project_issues WHERE project_object_id = ? ORDER BY issue ASC", objID)
+					issRows, err := dbCold.DB().Query("SELECT item FROM o_project__issue WHERE object_id = ? ORDER BY item ASC", objID)
 					if err != nil {
 						t.Fatalf("query project_issues %s: %v", objID, err)
 					}
@@ -296,14 +296,14 @@ func TestFixturesIncrementalVsColdAndFoldAgreement(t *testing.T) {
 						t.Fatalf("writ.FoldCycle for %s in %s: %v", objID, desc.Name, err)
 					}
 					var title, descText, startsAt, endsAt string
-					err = dbCold.DB().QueryRow("SELECT title, description, starts_at, ends_at FROM cycles WHERE object_id = ?", objID).Scan(&title, &descText, &startsAt, &endsAt)
+					err = dbCold.DB().QueryRow("SELECT COALESCE(f_title, ''), COALESCE(f_description, ''), COALESCE(f_starts_at, ''), COALESCE(f_ends_at, '') FROM o_cycle WHERE object_id = ?", objID).Scan(&title, &descText, &startsAt, &endsAt)
 					if err != nil {
 						t.Fatalf("query cycle %s: %v", objID, err)
 					}
 					if title != cycleState.Title || descText != cycleState.Description || startsAt != cycleState.StartsAt || endsAt != cycleState.EndsAt {
 						t.Fatalf("cycle %s in %s differs between fold and projection", objID, desc.Name)
 					}
-					issRows, err := dbCold.DB().Query("SELECT issue FROM cycle_issues WHERE cycle_object_id = ? ORDER BY issue ASC", objID)
+					issRows, err := dbCold.DB().Query("SELECT item FROM o_cycle__issue WHERE object_id = ? ORDER BY item ASC", objID)
 					if err != nil {
 						t.Fatalf("query cycle_issues %s: %v", objID, err)
 					}
