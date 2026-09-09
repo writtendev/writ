@@ -194,6 +194,67 @@ Preservation requires specific guarantees across all four engine subsystems:
   exclude, or rewrite ops during fetch or push based on op type, version, or
   interpretability.
 
+## Targets a projection declines
+
+A projection is a query surface, not a second source of truth, and its row
+shape is narrower than the fold's. A conforming implementation MAY decline to
+give one target key a queryable representation when its own storage cannot
+express what the fold blesses — for instance a tabular projection pairing one
+row per operation with one column per target, faced with an operation that
+writes two body fields sharing one `append` target and so contributes two
+entries to that target at a single position of $L$ (`spec/fold.md` §5's
+canonical rule order).
+
+These bounds are a refinement of `FC-13`, not free-standing rules, and carry
+no `FC-n` of their own. `FC-13` requires a cache to be rebuildable from the
+raw DAG without losing or mutating anything; what follows says what that
+means when the fold is interpretable but the row shape is not wide enough to
+hold it. They are deliberately not new numbered rules: every `FC-n` is cited
+by an instance of the `forward-compat` corpus, and that corpus classifies one
+operation at a time against the reader profile, where a declined target
+changes no operation's disposition. `FC-13`'s row in §Normative rules summary
+points here, so an implementer conforming against that table reaches these
+bounds rather than finding the over-broad withhold permitted by silence.
+`engine/projection`'s own tests are what pin them executably.
+
+Declining is bounded:
+
+- It MUST NOT change what the fold computes. Folded state read from
+  the log is unaffected by what any cache can hold, and a reader going through
+  the fold still sees every entry.
+- It MUST NOT silently discard the declined target's written values.
+  A body field bound to a declined target MUST be routed to the
+  same "preserve and ignore" channel an unrecognized body field takes
+  (§Unknown fields) rather than dropped on the floor. What that channel can
+  hold is the channel's own limit, and is not a further licence to drop:
+  where it is a per-object register keyed by body field — as the SQLite
+  projection's `unknown_fields` column is — a declined target written by
+  several operations retains the latest write per body field, not every
+  write. The accumulated value the fold computes (every entry, ordered by $L$
+  and, within one operation, by canonical rule order) is then reachable only
+  through the fold. A consumer that needs every entry of a declined target
+  MUST read it through the fold; for that target the projection is not a
+  substitute, which is what "a query surface, not a second source of truth"
+  amounts to here. An implementation MAY give a declined target a channel
+  that keeps every entry, and none is required to.
+- It MUST decline no more than the unrepresentable target itself.
+  Withholding a whole object type — and with it every unrelated operation,
+  target and row of that type — because one target is unrepresentable is not
+  a decline but data loss on the query surface, and is prohibited. So is
+  withholding a representable target because it shares a table, an envelope
+  or any other implementation grouping with an unrepresentable one: a target
+  the projection's own shape can express MUST materialize, and an operation
+  that never writes the declined target MUST materialize normally.
+- The decision MUST be a function of the schema alone, so that
+  dropping and rebuilding the cache reproduces it exactly (`FC-13`).
+
+A projection MAY still withhold a whole object type for a reason that is
+genuinely about the type — a generated table or column name colliding with
+one another type already owns, or a target key that is not a legal
+identifier in the storage engine — since there is then no narrower unit to
+withhold. That case remains covered by `FC-1`: the type's operations are
+retained verbatim as uninterpretable rather than discarded.
+
 ## Explicit prohibitions ("Never drop")
 
 To prevent data destruction across client generations, conforming implementations
@@ -239,7 +300,7 @@ state from the same operations, violating convergence.
 | `FC-10` | Readers MUST NOT downgrade or guess semantics for an `op_version` higher than they implement; higher versions MUST be treated as uninterpretable. | Reader / Fold |
 | `FC-11` | Decoders that re-emit ops MUST retain and write back the exact original payload bytes rather than re-serializing lossy parsed structs. | Codec |
 | `FC-12` | Fold MUST NOT error, crash, or abort when encountering uninterpretable ops. | Fold |
-| `FC-13` | Projection caches MUST be fully rebuildable from the raw DAG without losing or mutating uninterpretable ops. | Projection |
+| `FC-13` | Projection caches MUST be fully rebuildable from the raw DAG without losing or mutating uninterpretable ops. Where a projection's row shape cannot express a target the fold computes, §Targets a projection declines refines this rule and bounds the decline: it MUST NOT change what the fold computes, MUST route the declined target's body fields to the unknown-field channel rather than discard them, MUST decline no more than the unrepresentable target itself — never a whole object type, and never a representable target that merely shares a table, envelope or other implementation grouping with it — and MUST decide it from the schema alone so a rebuild reproduces it. | Projection |
 | `FC-14` | Sync transport MUST NOT filter, prune, or inspect ops based on op type, version, or interpretability. | Sync |
 | `FC-15` | An uninterpretable op MUST NOT invalidate or fail the containing collaborative object or other valid ops in the DAG. | Engine / DAG |
 | `FC-16` | An op referencing an object ID not present in the local store MUST fold normally without error; readers MUST NOT drop or reject operations due to unresolvable object references. The referencing state carries the unresolved ID and heals when the target object's operations arrive. | Fold / Projection |

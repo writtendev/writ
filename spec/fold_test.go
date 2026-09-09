@@ -191,11 +191,20 @@ func TestMergeVectors(t *testing.T) {
 // sortedFieldNames returns fields's keys in a fixed, deterministic order.
 // vec.Fields is a Go map, whose iteration order Go deliberately randomizes
 // per range statement; a vector whose rules collide on Target (the
-// object-type scoping vectors, spec/fold.md §5) must produce the same
-// accumulator-building order — and, for engine.Fold's break-after-first-match
-// dispatch, the same *choice* of rule — on every run and in both the
-// reference and engine rule-building loops, not whichever order the map
-// hashed to this time.
+// object-type scoping vectors, and the two-fields-one-target vectors,
+// spec/fold.md §5) must build its rule slice the same way on every run in
+// both the reference and engine rule-building loops, not whichever order
+// the map hashed to this time.
+//
+// This decides nothing normative. Both folds apply every matching rule
+// rather than stopping at the first, and both order a target's matching
+// rules by spec/fold.md §5's canonical rule order — ascending (op_type,
+// op_version, field) — before applying any of them (WRIT-201), so a
+// vector's expected_state is a function of rule content alone. These keys
+// are harness-local labels: the two-fields-one-target vectors deliberately
+// sort here into the *reverse* of canonical rule order, so a fold that
+// took its order from this slice instead of from the rules would fail
+// them.
 func sortedFieldNames(fields map[string]spec.StrategyConfig) []string {
 	names := make([]string, 0, len(fields))
 	for name := range fields {

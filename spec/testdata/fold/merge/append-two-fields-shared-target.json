@@ -1,0 +1,24 @@
+{
+  "name": "append-two-fields-shared-target",
+  "description": "WRIT-201's reachable case: two different body fields, 'x' and 'y', are separately declared as append rules sharing one target ('log') under one exact (op_type, op_version) envelope — nothing in spec/fold.md §5 forbids this, the same way a version bump or a second op_type sharing a target is allowed, and CheckTargetCollision (spec/fieldrules.go) permits it because both rules agree on every merge attribute. A single operation writes both fields at once. Every matching rule MUST apply its write (spec/fold.md §5's 'every rule that matches an operation applies'), not only the first one a rule table happens to list: the folded list carries both entries, not one. Before WRIT-201, engine/internal/fold broke after the first matching rule per op and dropped the second field's entry, while spec/reffold.go already applied both. The list order is fixed by spec/fold.md §5's canonical rule order — a target's matching rules contribute in ascending (op_type, op_version, field), so 'x' precedes 'y' — and by nothing else. These two rules are deliberately labelled so that sorting the labels yields the reverse order (the 'y' rule first): an implementation that took its order from the sequence its rule table happens to list, load or enumerate rules in, rather than from the rules themselves, folds this vector to ['y-val', 'x-val'] and fails it.",
+  "object_id": "obj-1",
+  "fields": {
+    "listed_first_writes_y": { "strategy": "append", "op_type": "widget-note", "op_version": 1, "field": "y", "target": "log", "value_type": "string" },
+    "listed_second_writes_x": { "strategy": "append", "op_type": "widget-note", "op_version": 1, "field": "x", "target": "log", "value_type": "string" }
+  },
+  "ops": [
+    {
+      "id": "op-1",
+      "parents": [],
+      "time": 100,
+      "object_id": "obj-1",
+      "object_type": "widget",
+      "op_type": "widget-note",
+      "op_version": 1,
+      "body": { "x": "x-val", "y": "y-val" }
+    }
+  ],
+  "expected_state": {
+    "log": ["x-val", "y-val"]
+  }
+}

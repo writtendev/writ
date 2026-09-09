@@ -41,6 +41,22 @@ func (r Rule) TargetKey() string {
 	return r.Field
 }
 
+// ruleOrderLess is the canonical rule order spec/fold.md §5 requires two
+// rules bound to one target to contribute in: ascending op_type (code unit
+// order), then op_version, then field. Every component is rule content a
+// reader of the schema can derive for itself, which is what makes two
+// independent implementations fold the same log to the same state when one
+// operation writes two fields sharing a target.
+func ruleOrderLess(a, b Rule) bool {
+	if a.OpType != b.OpType {
+		return a.OpType < b.OpType
+	}
+	if a.OpVersion != b.OpVersion {
+		return a.OpVersion < b.OpVersion
+	}
+	return a.Field < b.Field
+}
+
 // NormalizesKey reports whether keyCol is declared as a person-ref key column
 // (spec/value-types.md): normalization is intrinsic to the person-ref value
 // type rather than a separate rule attribute.
@@ -234,6 +250,20 @@ func Fold(ops []codec.Op, rules []Rule) (ObjectState, error) {
 		}
 	}
 
+	// Canonical rule order (spec/fold.md §5): a target's matching rules
+	// contribute in ascending (op_type, op_version, field), never in the
+	// order the caller's slice happened to list them. Where one operation
+	// writes two fields sharing a target, the order-sensitive strategies
+	// (append's list position; a same-operation lww, create-once or
+	// keyed-lww write) would otherwise make folded state a function of a
+	// caller's slice order rather than of the signed log and the schema —
+	// the WRIT-186 defect class. A rule table declares at most one rule per
+	// (op_type, op_version, field) tuple, so this comparison is total: no
+	// stable sort is needed for it to be deterministic.
+	for _, frs := range matchedRulesByField {
+		sort.Slice(frs, func(i, j int) bool { return ruleOrderLess(frs[i], frs[j]) })
+	}
+
 	// Instantiate strategy accumulators for each target key
 	accumulators := make(map[string]Accumulator, len(matchedRulesByField))
 	for targetKey, fieldRules := range matchedRulesByField {
@@ -245,7 +275,20 @@ func Fold(ops []codec.Op, rules []Rule) (ObjectState, error) {
 		accumulators[targetKey] = acc
 	}
 
-	// Walk total order L once, dispatching to matching field accumulators
+	// Walk total order L once, dispatching to matching field accumulators.
+	// Every matching rule applies its write, not just the first one found:
+	// rules sharing a target MUST agree on strategy (spec/fold.md §5), so an
+	// accumulator applying a second matching rule's write is applying the
+	// same strategy again, exactly as it would for a second op — never a
+	// contest between competing behaviors to pick a winner from. Breaking
+	// after the first match here silently dropped the second field of an
+	// operation that writes two fields sharing one target under one
+	// (op_type, op_version) envelope — reachable the moment a schema
+	// declares it (WRIT-201) — where spec/reffold.go, the normative
+	// reference, already applies both. fieldRules is in canonical rule
+	// order by the time this runs (see the sort above), so where the
+	// strategy cares which of an operation's two writes lands first, both
+	// implementations agree without consulting either caller's slice order.
 	for _, o := range orderedOps {
 		if rejected[o.Op.ID] {
 			continue
@@ -259,7 +302,6 @@ func Fold(ops []codec.Op, rules []Rule) (ObjectState, error) {
 					if err := acc.Apply(r, o.Op, bm, rbm); err != nil {
 						return ObjectState{}, fmt.Errorf("fold: applying op %s to target %q: %w", o.Op.ID, targetKey, err)
 					}
-					break
 				}
 			}
 		}

@@ -353,40 +353,66 @@ func TestAppendGroupOmittedFieldPairing(t *testing.T) {
 	}
 }
 
-// TestAppendGroupAmbiguousFieldFallsToUnknownOps is WRIT-189 round 5's
-// MAJOR-1 finding at materialize level: ddl_internal_test.go's
-// TestAmbiguousAppendFieldWithholdsTables pins that buildDescriptor withholds
-// a type whose append rules bind one target to two different Fields under
-// one exact (op_type, op_version) envelope; this test pins the consequence a
-// caller of Refresh actually observes — the object's ops land in
-// unknown_ops (no o_widget table exists at all to hold a silently-NULLed
-// row), for both rule orderings, even though the value ("yb") is plainly
-// present in the op's own body and state.Fold folds it successfully.
-func TestAppendGroupAmbiguousFieldFallsToUnknownOps(t *testing.T) {
+// TestAppendGroupAmbiguousFieldWithholdsTargetNotGroup is the
+// materialize-level half of ddl_internal_test.go's
+// TestAmbiguousAppendFieldWithholdsTargetNotGroup: two append rules binding
+// one target ("note") to two different Fields under one exact (op_type,
+// op_version) envelope, fed the shape WRIT-201's own conformance vector pins
+// — one op writing *both* fields, which spec/fold.md §5 rules folds to a
+// two-entry list.
+//
+// The group's one row per op, one column per member target shape cannot
+// hold two entries for one target from one op, so "note" is withheld. What
+// a caller of Refresh observes is the scope of that decline
+// (spec/forward-compatibility.md §Targets a projection declines):
+// o_widget exists and carries the unrelated f_title, the create op that
+// never touches the target materializes instead of being dumped into
+// unknown_ops, no o_widget__note table exists, and the declined target's
+// writes land in unknown_fields rather than being dropped.
+//
+// The "tags" target is what pins the *narrowness*. It is reached by one
+// field under one envelope — precisely the shape the group table has always
+// held — and shares an envelope with "note" only because buildAppendGroups
+// unions same-envelope targets, an implementation grouping that says nothing
+// about tags. So it keeps a table of its own, named for the members that
+// survived, with its row; its writes must not appear in unknown_fields at
+// all. Withholding it would be the prohibited case one granularity down
+// from the whole-type withhold (WRIT-201 round 2 MEDIUM-1).
+//
+// Order-independent. (WRIT-189 round 5 withheld the whole type here, which
+// put the create op in unknown_ops and left the values in neither
+// unknown_fields nor unknown_ops.)
+func TestAppendGroupAmbiguousFieldWithholdsTargetNotGroup(t *testing.T) {
 	base := time.Unix(1700000000, 0).UTC()
 	opCreate := makeWidgetOp("op-create-1", nil, "create", map[string]any{"title": "T"}, base)
-	opNote := makeWidgetOp("op-note-1", []string{"op-create-1"}, "note", map[string]any{"b": "yb"}, base.Add(1*time.Second))
+	opNote := makeWidgetOp("op-note-1", []string{"op-create-1"}, "note", map[string]any{"a": "xa", "b": "yb", "tag": "t1"}, base.Add(1*time.Second))
 	ops := []codec.Op{opCreate, opNote}
 
 	titleRule := state.Rule{OpType: "create", Field: "title", Strategy: "lww", ValueType: "string", ObjectType: "widget"}
 	noteFieldA := state.Rule{OpType: "note", OpVersion: 1, Field: "a", Target: "note", Strategy: "append", ValueType: "string", ObjectType: "widget"}
 	noteFieldB := state.Rule{OpType: "note", OpVersion: 1, Field: "b", Target: "note", Strategy: "append", ValueType: "string", ObjectType: "widget"}
+	tagRule := state.Rule{OpType: "note", OpVersion: 1, Field: "tag", Target: "tags", Strategy: "append", ValueType: "string", ObjectType: "widget"}
 
-	// state.Fold itself resolves this shape deterministically regardless of
-	// rule order — the probe that makes clear this is a projection-side
-	// withhold, not a fold-level rejection.
-	want, err := state.Fold(ops, []state.Rule{titleRule, noteFieldA, noteFieldB})
+	// state.Fold applies every matching rule, in canonical rule order
+	// (ascending (op_type, op_version, field)), so it takes both entries
+	// whichever way the rule slice is ordered — the probe that makes clear
+	// this is a projection-side decline, not a fold-level rejection.
+	want, err := state.Fold(ops, []state.Rule{titleRule, tagRule, noteFieldB, noteFieldA})
 	if err != nil {
 		t.Fatalf("state.Fold failed: %v", err)
 	}
 	wantNotes, ok := want.State["note"].([]any)
-	if !ok || !reflect.DeepEqual(wantNotes, []any{"yb"}) {
-		t.Fatalf("test setup: state.Fold's note = %#v, want [\"yb\"]", want.State["note"])
+	if !ok || !reflect.DeepEqual(wantNotes, []any{"xa", "yb"}) {
+		t.Fatalf("test setup: state.Fold's note = %#v, want [\"xa\", \"yb\"]", want.State["note"])
+	}
+	wantTags, ok := want.State["tags"].([]any)
+	if !ok || !reflect.DeepEqual(wantTags, []any{"t1"}) {
+		t.Fatalf("test setup: state.Fold's tags = %#v, want [\"t1\"]", want.State["tags"])
 	}
 
 	orderings := map[string][]state.Rule{
-		"a-then-b": {titleRule, noteFieldA, noteFieldB},
-		"b-then-a": {titleRule, noteFieldB, noteFieldA},
+		"a-then-b": {titleRule, noteFieldA, noteFieldB, tagRule},
+		"b-then-a": {titleRule, tagRule, noteFieldB, noteFieldA},
 	}
 
 	for name, rules := range orderings {
@@ -416,8 +442,36 @@ func TestAppendGroupAmbiguousFieldFallsToUnknownOps(t *testing.T) {
 			if err := db.DB().QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'o_widget'").Scan(&tableCount); err != nil {
 				t.Fatalf("query sqlite_master: %v", err)
 			}
+			if tableCount != 1 {
+				t.Fatalf("o_widget is missing — declining one target must not withhold the whole type")
+			}
+			if err := db.DB().QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'o_widget__note'").Scan(&tableCount); err != nil {
+				t.Fatalf("query sqlite_master: %v", err)
+			}
 			if tableCount != 0 {
-				t.Fatalf("expected o_widget to be withheld (no table), but it exists")
+				t.Fatalf("o_widget__note exists; the unrepresentable target must get no table")
+			}
+			if err := db.DB().QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'o_widget__note_tags'").Scan(&tableCount); err != nil {
+				t.Fatalf("query sqlite_master: %v", err)
+			}
+			if tableCount != 0 {
+				t.Fatalf("o_widget__note_tags exists; a group's table is named for the members that survived the decline")
+			}
+
+			// The representable group-mate keeps its table and its row. Losing
+			// it to "note" would be exactly the collateral §Targets a projection declines prohibits.
+			if err := db.DB().QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'o_widget__tags'").Scan(&tableCount); err != nil {
+				t.Fatalf("query sqlite_master: %v", err)
+			}
+			if tableCount != 1 {
+				t.Fatal("o_widget__tags is missing; a representable target must not be withheld for sharing an envelope with an unrepresentable one (§Targets a projection declines)")
+			}
+			var tagVal sql.NullString
+			if err := db.DB().QueryRow("SELECT f_tags FROM o_widget__tags WHERE object_id = ? ORDER BY idx ASC", "w-1").Scan(&tagVal); err != nil {
+				t.Fatalf("query o_widget__tags: %v", err)
+			}
+			if !tagVal.Valid || tagVal.String != "t1" {
+				t.Fatalf("o_widget__tags.f_tags = %v (valid=%v), want \"t1\"", tagVal.String, tagVal.Valid)
 			}
 
 			var objType string
@@ -426,6 +480,25 @@ func TestAppendGroupAmbiguousFieldFallsToUnknownOps(t *testing.T) {
 			}
 			if objType != "widget" {
 				t.Fatalf("objects.object_type = %q, want \"widget\"", objType)
+			}
+
+			var title sql.NullString
+			var unknownFields sql.NullString
+			if err := db.DB().QueryRow("SELECT f_title, unknown_fields FROM o_widget WHERE object_id = ?", "w-1").Scan(&title, &unknownFields); err != nil {
+				t.Fatalf("query o_widget: %v", err)
+			}
+			if !title.Valid || title.String != "T" {
+				t.Fatalf("o_widget.f_title = %v (valid=%v), want \"T\" — an unrelated target must still materialize", title.String, title.Valid)
+			}
+			if !unknownFields.Valid {
+				t.Fatal("o_widget.unknown_fields is NULL; a declined target's written values must be preserved, not dropped")
+			}
+			var gotUnknown map[string]any
+			if err := json.Unmarshal([]byte(unknownFields.String), &gotUnknown); err != nil {
+				t.Fatalf("unmarshal unknown_fields %q: %v", unknownFields.String, err)
+			}
+			if !reflect.DeepEqual(gotUnknown, map[string]any{"a": "xa", "b": "yb"}) {
+				t.Fatalf("o_widget.unknown_fields = %#v, want exactly the declined target's writes — \"tag\" materialized in its own table and must not be here too", gotUnknown)
 			}
 
 			rows, err := db.DB().Query("SELECT op_id FROM unknown_ops WHERE object_id = ? ORDER BY op_index ASC", "w-1")
@@ -444,10 +517,100 @@ func TestAppendGroupAmbiguousFieldFallsToUnknownOps(t *testing.T) {
 			if err := rows.Err(); err != nil {
 				t.Fatalf("iterate unknown_ops: %v", err)
 			}
-			want := []string{"op-create-1", "op-note-1"}
-			if !reflect.DeepEqual(opIDs, want) {
-				t.Fatalf("unknown_ops op_ids = %#v, want %#v — withheld type's ops must all fall to unknown_ops", opIDs, want)
+			if len(opIDs) != 0 {
+				t.Fatalf("unknown_ops op_ids = %#v, want none — declining one target must not quarantine ops, least of all a create that never writes it", opIDs)
 			}
 		})
+	}
+}
+
+// TestDeclinedTargetUnknownFieldsIsLastWritePerField pins what §Targets a projection declines claims
+// and, just as importantly, what it does not.
+//
+// A declined append target is an accumulator, but unknown_fields is a
+// per-object register keyed by body field: computeUnknownFields walks the
+// object's whole op history doing result[k] = v, so a declined target written
+// by several ops keeps only the latest write per field. Fed three ops —
+// create{title}, note{a:x1,b:y1}, note{a:x2,b:y2} — the fold's "note" is a
+// four-entry list while unknown_fields holds two entries, and the other two
+// are reachable only through the fold.
+//
+// spec/forward-compatibility.md §Targets a projection declines says exactly
+// that. An earlier draft of it promised the declined target's values
+// "stay reachable from the projection and not only from the log", which was
+// true only for the single-op case (WRIT-201 round 2 MEDIUM-2); the rule now
+// requires the routing — never discarded, never quarantined — and states the
+// channel's own limit rather than a guarantee the register cannot keep. This
+// test is what stops the text and the code drifting apart again, so it
+// asserts the lossy value deliberately.
+//
+// It also pins FC-13 for this path: the decline is a function of the
+// schema alone, so a from-scratch Rebuild reproduces every byte of it.
+func TestDeclinedTargetUnknownFieldsIsLastWritePerField(t *testing.T) {
+	base := time.Unix(1700000000, 0).UTC()
+	ops := []codec.Op{
+		makeWidgetOp("op-create-1", nil, "create", map[string]any{"title": "T"}, base),
+		makeWidgetOp("op-note-1", []string{"op-create-1"}, "note", map[string]any{"a": "x1", "b": "y1"}, base.Add(1*time.Second)),
+		makeWidgetOp("op-note-2", []string{"op-note-1"}, "note", map[string]any{"a": "x2", "b": "y2"}, base.Add(2*time.Second)),
+	}
+
+	rules := []state.Rule{
+		{OpType: "create", Field: "title", Strategy: "lww", ValueType: "string", ObjectType: "widget"},
+		{OpType: "note", OpVersion: 1, Field: "a", Target: "note", Strategy: "append", ValueType: "string", ObjectType: "widget"},
+		{OpType: "note", OpVersion: 1, Field: "b", Target: "note", Strategy: "append", ValueType: "string", ObjectType: "widget"},
+	}
+
+	// The fold has all four entries; the projection is what cannot hold them.
+	folded, err := state.Fold(ops, rules)
+	if err != nil {
+		t.Fatalf("state.Fold failed: %v", err)
+	}
+	if got := folded.State["note"]; !reflect.DeepEqual(got, []any{"x1", "y1", "x2", "y2"}) {
+		t.Fatalf("state.Fold's note = %#v, want [\"x1\",\"y1\",\"x2\",\"y2\"]", got)
+	}
+
+	// A fresh in-memory DB per pass is the droppable-cache check in its
+	// strongest form: nothing at all carries over, so the second pass
+	// reproduces the decline and its unknown_fields from the schema and the
+	// log alone (FC-13). Rebuild cannot stand in here — it re-walks the
+	// real store, which this synthetic op set never reaches.
+	read := func(t *testing.T, stage string) map[string]any {
+		t.Helper()
+		_, store := createTestStore(t, "0123456789abcdef")
+		db, err := projection.Open(":memory:")
+		if err != nil {
+			t.Fatalf("%s: Open(:memory:) failed: %v", stage, err)
+		}
+		defer db.Close()
+
+		enumRes := &dag.EnumerateResult{
+			Ops:            map[string][]codec.Op{"w-1": ops},
+			Cursors:        dag.CursorSet{"refs/writ/0123456789abcdef/widget": "op-note-2"},
+			DecodedCommits: len(ops),
+		}
+		if _, err := db.Refresh(store, projection.WithSchema(map[string][]state.Rule{"widget": rules}), projection.WithEnumOverrideForTest(enumRes)); err != nil {
+			t.Fatalf("%s: Refresh failed: %v", stage, err)
+		}
+
+		var unknownFields sql.NullString
+		if err := db.DB().QueryRow("SELECT unknown_fields FROM o_widget WHERE object_id = ?", "w-1").Scan(&unknownFields); err != nil {
+			t.Fatalf("%s: query o_widget: %v", stage, err)
+		}
+		if !unknownFields.Valid {
+			t.Fatalf("%s: unknown_fields is NULL; a declined target's writes must be routed here, not discarded (§Targets a projection declines)", stage)
+		}
+		var got map[string]any
+		if err := json.Unmarshal([]byte(unknownFields.String), &got); err != nil {
+			t.Fatalf("%s: unmarshal unknown_fields %q: %v", stage, unknownFields.String, err)
+		}
+		return got
+	}
+
+	want := map[string]any{"a": "x2", "b": "y2"}
+	if got := read(t, "first build"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("unknown_fields = %#v, want %#v — the latest write per body field, which is all a per-key register holds (§Targets a projection declines)", got, want)
+	}
+	if got := read(t, "rebuilt from scratch"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("unknown_fields after dropping and rebuilding the cache = %#v, want %#v unchanged (FC-13)", got, want)
 	}
 }

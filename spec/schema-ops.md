@@ -485,10 +485,12 @@ the no-rewriting-history rule.
 
 This needs one qualification the generic fold's own mechanics impose
 (`spec/fold.md` §5): `Fold` groups matched rules by **target key alone**,
-not by `op_version`, and instantiates one accumulator from whichever
-matching rule a caller's slice lists first. Two rules that share a target
-and a strategy are indistinguishable to the accumulator regardless of
-which one is "first" — so a version bump:
+not by `op_version`, and instantiates one accumulator per target from the
+first of its matching rules in canonical rule order (ascending `(op_type,
+op_version, field)`), which for a version bump of one `(op_type, field)`
+is the lowest `op_version`. Two rules that share a target and a strategy
+are indistinguishable to the accumulator regardless of which one is
+"first" — so a version bump:
 
 - **MAY freely change** `value_type`, `enum`, `max_length`, `key`, or
   `key_types` while keeping the same `target` (or omitting `target`,
@@ -509,9 +511,10 @@ which one is "first" — so a version bump:
   written under it becoming an `UnknownOp` — is pinned by
   `spec/fixtures/testdata/descriptions/schema-driven-version-bump-lattice-collision.yaml`.
 - **MUST declare a distinct `target`** when it changes `strategy`: reusing
-  a target across a strategy change is order-dependent, which is exactly
-  what two conforming implementations disagreeing over rule-slice order
-  would expose. `engine/schema.go`'s resolver enforces this: a version
+  a target across a strategy change makes the older version's strategy
+  silently run over the newer version's writes, since canonical rule order
+  hands the accumulator the lower `op_version`'s rule — neither rule's
+  declared behavior. `engine/schema.go`'s resolver enforces this: a version
   bump that changes `strategy` while reusing a `target` already bound to a
   different strategy is rejected — the rule is dropped, not installed, and
   reported (§9) alongside an `object_type` collision.

@@ -72,7 +72,7 @@ func materializeObject(tx *sql.Tx, desc *schemaDescriptor, objectID string, ops 
 		return fmt.Errorf("projection: fold %s %s: %w", objectType, objectID, err)
 	}
 
-	unknownFields := computeUnknownFields(orderedOps, rules, folded.UnknownOps)
+	unknownFields := computeUnknownFields(orderedOps, rules, folded.UnknownOps, td.WithheldTargets)
 	if err := writeTypeRow(tx, td, objectID, folded.State, rules, orderedOps, unknownFields, folded.UnknownOps); err != nil {
 		return err
 	}
@@ -424,9 +424,14 @@ func appendGroupEnvelopeMatches(envelopes []appendGroupEnvelope, op codec.Op) bo
 // fields cannot contain two entries sharing one exact (op_type, op_version)
 // envelope with two different Field values: ddl.go detects that shape while
 // building fields (the loop building appendGroupMember.Fields) and withholds
-// the whole type for it before a typeDescriptor is ever produced, the same
-// no-winner idiom identCollision already applies to a colliding identifier
-// (WRIT-189 round 5 MAJOR-1). An earlier version of this comment claimed
+// that one target alone — no column, recorded in WithheldTargets with its
+// fields routed to unknown_fields — before a typeDescriptor carrying it is
+// ever produced (WRIT-189 round 5 MAJOR-1, rescoped from a whole-type
+// withhold by WRIT-201, then rescoped again from a whole-group withhold to
+// this single-target scope by WRIT-201 review round 2 MEDIUM-1: state.Fold
+// appends both fields' entries, which one row per op cannot hold, but a
+// group-mate reached by one field per envelope is unaffected and keeps its
+// column). An earlier version of this comment claimed
 // first-match "reproduces" state.Fold's own per-op rule dispatch
 // (engine/internal/fold) — that was false independent of ordering: fold's
 // matchedRulesByField admits a rule only if some op in the object's history
@@ -655,7 +660,27 @@ func positionOpID(orderedOps []codec.Op, objectType, targetKey string, rules []s
 // unknown_keys collection — the same semantics, computed once for every
 // declared type instead of one type's hand-written case; that hand-written
 // case is gone, so this is now simply the one implementation.
-func computeUnknownFields(orderedOps []codec.Op, rules []state.Rule, unknownOps []state.UnknownOp) string {
+//
+// withheldTargets are target keys the descriptor declined to give a column
+// (ddl.go's append-group loop, WRIT-201): a rule bound to one of them still
+// matched, so the op is not quarantined, but its field has nowhere to land
+// in SQL. It counts as unknown here rather than being dropped, which is what
+// spec/forward-compatibility.md §Targets a projection declines requires.
+//
+// That routing stops where this map does, and deliberately: a withheld append
+// target is an accumulator, but result is a per-key register, so a target
+// written by several ops keeps only the latest write per body field. The
+// entries the fold accumulated are complete only through the fold, never
+// through this column, and spec/forward-compatibility.md §Targets a
+// projection declines says exactly that rather than promising more.
+// Accumulating here instead would give one JSON blob two different
+// semantics — a register for a genuinely unknown field, a list for a
+// withheld target — that no consumer can tell apart without the schema, and
+// it still could not reproduce the fold's value, whose entries interleave
+// across the targets' fields in canonical rule order. The shape that does
+// hold them is the row-per-entry table redesign the append-group loop
+// defers, not a second meaning for this column.
+func computeUnknownFields(orderedOps []codec.Op, rules []state.Rule, unknownOps []state.UnknownOp, withheldTargets map[string]bool) string {
 	skip := make(map[string]bool, len(unknownOps))
 	for _, u := range unknownOps {
 		skip[u.Commit] = true
@@ -673,6 +698,9 @@ func computeUnknownFields(orderedOps []codec.Op, rules []state.Rule, unknownOps 
 				continue
 			}
 			matchedAny = true
+			if withheldTargets[r.TargetKey()] {
+				continue
+			}
 			knownFields[r.Field] = true
 		}
 		if !matchedAny || len(op.Body) == 0 {

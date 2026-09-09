@@ -382,9 +382,10 @@ type ticket {
 Version 2 gives `priority` a distinct `target` because it changes
 `strategy` from `lww` to `lattice`; version 1's `priority` keeps the
 default target (`priority`, the field name). Reusing one target across a
-strategy change is what `fold.md` §5 calls order-dependent — the generic
-fold groups matched rules by target key alone and instantiates one
-accumulator from whichever rule a caller's slice lists first — and is
+strategy change is what `fold.md` §5 forbids — the generic fold groups
+matched rules by target key alone and instantiates one accumulator per
+target from the first of its matching rules in canonical rule order, so
+version 1's `lww` would silently run over version 2's writes — and is
 exactly what `target(...)` exists to avoid.
 
 ## 8. Grammar reference: value types and merge strategies
