@@ -690,6 +690,30 @@ type resolvedSchemaTypes struct {
 	conflicts []SchemaConflict
 }
 
+// keyColumnKey identifies one key column within one (op_type, op_version) —
+// the unit spec.CheckKeyColumnAgreement is run over, and the unit a
+// disagreement withholds every participating rule for. The (op_type,
+// op_version) half is the scope a producer resolves a key column's declared
+// type in (engine/codec/schema.go's validateFieldsAgainstRules), so the
+// grouping here and the lookup there see the same rule set.
+type keyColumnKey struct {
+	codec.OpVersionKey
+	Column string
+}
+
+// keyColumnKeyLess orders key columns so the conflicts a schema resolves to
+// are reported in an order that is a function of the schema alone, never of
+// map iteration or declaration order (WRIT-186).
+func keyColumnKeyLess(a, b keyColumnKey) bool {
+	if a.OpType != b.OpType {
+		return a.OpType < b.OpType
+	}
+	if a.OpVersion != b.OpVersion {
+		return a.OpVersion < b.OpVersion
+	}
+	return a.Column < b.Column
+}
+
 // toFieldRule builds the spec.FieldRule form of a schema-declared field,
 // used to run it through spec.ValidateFieldRule and spec.CheckTargetAgreement
 // (both defined against that type) and, for a non-contested type, to
@@ -781,11 +805,13 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 			descriptions[t.Name] = t.Description
 			deprecatedTypes[t.Name] = t.Deprecated
 
-			// Pass 1: grammar and spec.ValidateFieldRule, per field — each
-			// failure dropped with its own SchemaConflict, exactly as
-			// before. survivingRules mirrors survivingFields index for
-			// index so pass 2 below can go from a target's rules back to
-			// the state.SchemaField values it withholds or installs.
+			// Pass 1: grammar and spec.ValidateFieldRule, per field —
+			// each failure dropped with its own SchemaConflict. Both are
+			// properties of a single rule in isolation, so a per-field
+			// loop is the whole check; the two set-level passes below
+			// group what survives. survivingRules mirrors survivingFields
+			// index for index so those passes can go from a rule back to
+			// the state.SchemaField value they withhold or install.
 			var survivingFields []state.SchemaField
 			var survivingRules []spec.FieldRule
 			for _, f := range t.Fields {
@@ -813,18 +839,82 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 				survivingRules = append(survivingRules, sr)
 			}
 
-			// Pass 2: spec.CheckTargetAgreement, per target, over every
-			// grammar- and rule-valid field the type declares — not
-			// incrementally as each field is validated (WRIT-211): a
-			// candidate-vs-bound check picks a survivor and so is
-			// order-dependent whenever the shared-target agreement
-			// relation it tests is not transitive, exactly the defect
-			// class WRIT-186 named for map iteration and WRIT-198 named
-			// for fieldRules[0]. Grouping every survivor by TargetKey()
-			// first and checking each target's whole set once makes the
-			// installed rule set a function of the schema alone.
+			withheld := make([]bool, len(survivingFields))
+
+			// Pass 2: spec.CheckKeyColumnAgreement, per (op_type,
+			// op_version) key column, over every grammar- and rule-valid
+			// field the type declares. Set-level for exactly the reason
+			// pass 3 below is (WRIT-211, WRIT-214 round 5): the superseded
+			// candidate-vs-bound form had to pick a survivor when two
+			// rules disagreed, and which one it picked turned on
+			// fieldKeyLess — on op_type and field names — so renaming a
+			// field, and nothing else, changed which rules installed, how
+			// many conflicts were reported, and the folded state. A key
+			// column is scoped by (op_type, op_version) plus column name,
+			// genuinely orthogonal to TargetKey(), which is why the check
+			// belongs on its own axis; but orthogonal is not the same as
+			// order-independent, and it is not decoupled from pass 3
+			// either — a rule withheld here is a rule pass 3 no longer
+			// sees when it groups by target — so it is grouped and checked
+			// as a whole set first, and every rule participating in a
+			// disagreeing column is withheld together, no winner picked.
+			byKeyColumn := make(map[keyColumnKey][]int) // (op_type, op_version, column) -> indices into survivingRules
+			var keyColumnKeys []keyColumnKey
+			byOpVersion := make(map[codec.OpVersionKey][]int)
+			for i, sr := range survivingRules {
+				ovk := codec.OpVersionKey{OpType: sr.OpType, OpVersion: sr.OpVersion}
+				byOpVersion[ovk] = append(byOpVersion[ovk], i)
+			}
+			for ovk, idxs := range byOpVersion {
+				inScope := make([]spec.FieldRule, len(idxs))
+				for j, idx := range idxs {
+					inScope[j] = survivingRules[idx]
+				}
+				for _, col := range spec.KeyColumnsBound(inScope) {
+					ck := keyColumnKey{OpVersionKey: ovk, Column: col}
+					for _, idx := range idxs {
+						if spec.ParticipatesInKeyColumn(survivingRules[idx], col) {
+							byKeyColumn[ck] = append(byKeyColumn[ck], idx)
+						}
+					}
+					keyColumnKeys = append(keyColumnKeys, ck)
+				}
+			}
+			sort.Slice(keyColumnKeys, func(i, j int) bool { return keyColumnKeyLess(keyColumnKeys[i], keyColumnKeys[j]) })
+
+			for _, ck := range keyColumnKeys {
+				idxs := byKeyColumn[ck]
+				columnRules := make([]spec.FieldRule, len(idxs))
+				for j, idx := range idxs {
+					columnRules[j] = survivingRules[idx]
+				}
+				if err := spec.CheckKeyColumnAgreement(ck.Column, columnRules); err != nil {
+					conflicts = append(conflicts, SchemaConflict{
+						ObjectType: t.Name,
+						ObjectIDs:  []string{sch.ObjectID},
+						Reason:     err.Error(),
+					})
+					for _, idx := range idxs {
+						withheld[idx] = true
+					}
+				}
+			}
+
+			// Pass 3: spec.CheckTargetAgreement, per target, over every
+			// field still standing after pass 2 — not incrementally as
+			// each field is validated (WRIT-211): a candidate-vs-bound
+			// check picks a survivor and so is order-dependent whenever
+			// the shared-target agreement relation it tests is not
+			// transitive, exactly the defect class WRIT-186 named for map
+			// iteration and WRIT-198 named for fieldRules[0]. Grouping
+			// every survivor by TargetKey() first and checking each
+			// target's whole set once makes the installed rule set a
+			// function of the schema alone.
 			byTarget := make(map[string][]int) // TargetKey() -> indices into survivingFields/survivingRules
 			for i, sr := range survivingRules {
+				if withheld[i] {
+					continue
+				}
 				byTarget[sr.TargetKey()] = append(byTarget[sr.TargetKey()], i)
 			}
 			targetKeys := make([]string, 0, len(byTarget))
@@ -833,7 +923,6 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 			}
 			sort.Strings(targetKeys)
 
-			withheld := make([]bool, len(survivingFields))
 			for _, tk := range targetKeys {
 				idxs := byTarget[tk]
 				targetRules := make([]spec.FieldRule, len(idxs))
@@ -925,7 +1014,12 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 //     no-winner idiom: spec.CheckTargetAgreement withholds every rule bound
 //     to that target, not only the one that would have been "the last one
 //     in," so which rules install can never depend on the order the schema
-//     happened to declare them in (WRIT-211).
+//     happened to declare them in (WRIT-211). Rules that share a keyed-lww
+//     key column within one (op_type, op_version) but disagree on its
+//     key_types entry, and a dual-role name that is both a tombstone field
+//     and some rule's key column — a combination no value can ever satisfy
+//     — are rejected on the same terms by spec.CheckKeyColumnAgreement,
+//     which withholds every rule participating in the column (WRIT-214).
 //
 // Schema objects are visited in ascending ObjectID order so two conforming
 // implementations build the same index from the same input regardless of

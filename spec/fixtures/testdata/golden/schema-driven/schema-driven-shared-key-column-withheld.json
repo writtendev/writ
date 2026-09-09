@@ -1,0 +1,109 @@
+{
+  "schemas": [
+    {
+      "object_id": "sch-acme",
+      "schema": {
+        "object_id": "sch-acme",
+        "namespace": "acme",
+        "types": [
+          {
+            "type": "gadget",
+            "fields": [
+              {
+                "field": "aa",
+                "op_type": "approve",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "keyed-lww",
+                "key": [
+                  "subject"
+                ],
+                "key_types": {
+                  "subject": "person-ref"
+                }
+              },
+              {
+                "field": "mm",
+                "op_type": "approve",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "keyed-lww",
+                "key": [
+                  "subject",
+                  "phase"
+                ],
+                "key_types": {
+                  "phase": "string",
+                  "subject": "string"
+                }
+              },
+              {
+                "field": "zz",
+                "op_type": "approve",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "keyed-lww",
+                "key": [
+                  "subject"
+                ],
+                "key_types": {
+                  "subject": "person-ref"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "conflicts": [
+    {
+      "object_type": "gadget",
+      "object_ids": [
+        "sch-acme"
+      ],
+      "reason": "field rule (approve, 1, mm) declares key column \"subject\" as \"string\", disagreeing with field \"aa\"'s rule for the same (op_type, op_version), which declares it \"person-ref\"; every keyed-lww rule sharing a key column within one (op_type, op_version) must agree on that column's key_types entry, because a producer resolves a key column's declared type by column name alone (spec/op-envelope.md §Producer validation rule 3) -- no winner is picked, so every rule bound to this column is withheld"
+    }
+  ],
+  "objects": [
+    {
+      "object_id": "gadget-1",
+      "object_type": "gadget",
+      "total_order": [
+        {
+          "commit": "56b5d640679443e628f9d0cb2279cd79907cdab8",
+          "t_star": 1767225900
+        },
+        {
+          "commit": "0fc927faed12a257e75f0a03ccb06795acff0760",
+          "t_star": 1767225960
+        },
+        {
+          "commit": "0352b5dfb2660defb220009443da8a4f0bb63403",
+          "t_star": 1767226020
+        }
+      ],
+      "state": {},
+      "unknown_ops": [
+        {
+          "commit": "56b5d640679443e628f9d0cb2279cd79907cdab8",
+          "object_type": "gadget",
+          "op_type": "approve",
+          "op_version": 1
+        },
+        {
+          "commit": "0fc927faed12a257e75f0a03ccb06795acff0760",
+          "object_type": "gadget",
+          "op_type": "approve",
+          "op_version": 1
+        },
+        {
+          "commit": "0352b5dfb2660defb220009443da8a4f0bb63403",
+          "object_type": "gadget",
+          "op_type": "approve",
+          "op_version": 1
+        }
+      ]
+    }
+  ]
+}

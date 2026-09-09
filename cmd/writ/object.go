@@ -31,6 +31,7 @@ import (
 
 	"github.com/writtendev/writ/cmd/writ/internal/wire"
 	"github.com/writtendev/writ/engine"
+	"github.com/writtendev/writ/engine/codec"
 )
 
 func runObject(ctx context.Context, defaultDir string, args []string, stdout, stderr io.Writer) int {
@@ -195,18 +196,58 @@ func lookupSchemaField(types []writ.SchemaType, objectType, opType string, opVer
 	return nil
 }
 
-// declaredFieldNames lists the field names the given (object type, op type,
-// op version) actually declares, sorted, for use in an "undeclared field"
-// error message.
+// lookupSchemaKeyColumn reports whether name is a keyed-lww key column of
+// some field declared for the fully-specified (object type, op type, op
+// version) tuple (spec/op-envelope.md §Producer validation rule 3): a
+// keyed-lww field's key columns travel in the op body but are not
+// themselves declared fields, so a caller that already tried
+// lookupSchemaField and got nil checks here before refusing the name.
+func lookupSchemaKeyColumn(types []writ.SchemaType, objectType, opType string, opVersion int64, name string) bool {
+	for i := range types {
+		if types[i].Name != objectType {
+			continue
+		}
+		for j := range types[i].Fields {
+			f := &types[i].Fields[j]
+			if f.OpType != opType || f.OpVersion != opVersion || f.Strategy != "keyed-lww" {
+				continue
+			}
+			if _, ok := f.KeyTypes[name]; ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// declaredFieldNames lists the field and keyed-lww key column names the
+// given (object type, op type, op version) actually declares, sorted and
+// deduplicated, for use in an "undeclared field" error message -- a key
+// column is exactly as declared as a field for -field/-field-json purposes
+// (spec/op-envelope.md §Producer validation rule 3), so it belongs in the
+// list a rejection points at.
 func declaredFieldNames(types []writ.SchemaType, objectType, opType string, opVersion int64) []string {
+	seen := make(map[string]bool)
 	var names []string
+	add := func(name string) {
+		if !seen[name] {
+			seen[name] = true
+			names = append(names, name)
+		}
+	}
 	for i := range types {
 		if types[i].Name != objectType {
 			continue
 		}
 		for _, f := range types[i].Fields {
-			if f.OpType == opType && f.OpVersion == opVersion {
-				names = append(names, f.Name)
+			if f.OpType != opType || f.OpVersion != opVersion {
+				continue
+			}
+			add(f.Name)
+			if f.Strategy == "keyed-lww" {
+				for col := range f.KeyTypes {
+					add(col)
+				}
 			}
 		}
 	}
@@ -284,6 +325,25 @@ type fieldEntry struct {
 // (spec/value-types.md's "untyped" exception: a two-field record folded
 // whole under create-once, so there is no value_type to key type-directed
 // parsing off of). See WRIT-209.
+//
+// A key given via -field that names a keyed-lww key column (lookupSchemaKeyColumn
+// true) is a string pass-through, never routed through convertFieldValue's
+// key_types entry, whether or not the same name is ALSO a declared field
+// (lookupSchemaField non-nil): a key column's value MUST be a JSON string
+// on the wire regardless of its declared value type (spec/op-envelope.md
+// §Producer validation rule 3), so converting e.g. an "int"-typed key
+// column to a JSON number here would hand the producer an op it can only
+// reject -- and where the name is also a declared field, the field's own
+// value_type is what the producer checks the string's *content* against
+// (canonicalKeyColumnContent), not a reason to convert it to that type's
+// ordinary JSON shape here. Checking lookupSchemaKeyColumn unconditionally,
+// not only when lookupSchemaField returns nil, is what makes a dual-role
+// field (spec/testdata/producer/cases/keyed-lww-key-column-also-a-field-int-decoded.json's
+// shape) writable via -field at all: gating it on lookupSchemaField
+// returning nil left convertFieldValue converting the dual-role case to
+// its ordinary JSON shape instead, which the producer's key-column floor
+// always refused. -field-json is unaffected either way -- it already
+// decodes whatever JSON the caller wrote, key column or not.
 func parseFieldFlags(fieldRaw, fieldJSONRaw []string, objectType, opType string, opVersion int64, types []writ.SchemaType) (map[string]any, error) {
 	var order []string
 	grouped := make(map[string][]fieldEntry)
@@ -315,7 +375,14 @@ func parseFieldFlags(fieldRaw, fieldJSONRaw []string, objectType, opType string,
 	fields := make(map[string]any, len(order))
 	for _, key := range order {
 		rule := lookupSchemaField(types, objectType, opType, opVersion, key)
-		if rule == nil {
+		// lookupSchemaKeyColumn is checked unconditionally, not only when
+		// rule == nil: a name can be both a declared field and another
+		// rule's keyed-lww key column (spec/op-envelope.md §Producer
+		// validation rule 3), and that dual role is exactly what
+		// determines how -field converts it below, whether or not it is
+		// also a declared field.
+		isKeyColumn := lookupSchemaKeyColumn(types, objectType, opType, opVersion, key)
+		if rule == nil && !isKeyColumn {
 			declared := declaredFieldNames(types, objectType, opType, opVersion)
 			if len(declared) == 0 {
 				return nil, fmt.Errorf("field %q is not declared for %s %s (it declares no fields)", key, objectType, opType)
@@ -334,11 +401,16 @@ func parseFieldFlags(fieldRaw, fieldJSONRaw []string, objectType, opType string,
 		for i, e := range entries {
 			var cv any
 			var err error
-			if e.viaJSON {
+			switch {
+			case e.viaJSON:
 				if uerr := json.Unmarshal([]byte(e.raw), &cv); uerr != nil {
 					err = fmt.Errorf("invalid JSON value %q: %v", e.raw, uerr)
 				}
-			} else {
+			case isKeyColumn:
+				// String pass-through: see the isKeyColumn note on
+				// parseFieldFlags's doc comment above.
+				cv = e.raw
+			default:
 				cv, err = convertFieldValue(rule.ValueType, e.raw)
 			}
 			if err != nil {
@@ -357,6 +429,29 @@ func parseFieldFlags(fieldRaw, fieldJSONRaw []string, objectType, opType string,
 		}
 	}
 	return fields, nil
+}
+
+// renderObjectMutationErr is renderErr for the two commands that write op
+// bodies through -field/-field-json (object create, object apply): on top
+// of renderErr's generic handling, it points a caller at -field-json when
+// the rejection names a keyed-lww key column, which is the one class of
+// schema violation -field structurally cannot always self-diagnose --
+// -field's string pass-through and type-directed conversion (parseFieldFlags)
+// hand a key column's value to the producer unvalidated, deferring to
+// exactly the check that then refuses it, so the rejection is the first
+// place the caller learns the value was wrong. The engine's own message
+// already names the working spelling where the producer can compute one
+// (canonicalKeyColumnContent's "(want %q)", validateCanonicalTimestamp's
+// same pattern); what it cannot name is the CLI flag that sets a value as
+// literal JSON instead of leaving -field to convert or pass it through.
+func renderObjectMutationErr(w io.Writer, err error) int {
+	code := renderErr(w, err)
+	var rejErr *codec.RejectError
+	if errors.As(err, &rejErr) && rejErr.Reason == codec.RejectSchemaViolation && strings.Contains(rejErr.Error(), "key column") {
+		fmt.Fprintln(w, "writ: a keyed-lww key column's value must already be its exact wire encoding -- "+
+			"-field-json <key>=<json> sets it as literal JSON instead of -field's pass-through/conversion")
+	}
+	return code
 }
 
 type objectCreateOpts struct {
@@ -435,7 +530,7 @@ func runObjectCreate(ctx context.Context, defaultDir string, args []string, stdo
 
 	id, err := store.Objects.Create(ctx, objectType, writ.NewOp{Type: opType, Version: version, Fields: fields})
 	if err != nil {
-		return renderErr(stderr, err)
+		return renderObjectMutationErr(stderr, err)
 	}
 
 	if opts.jsonMode {
@@ -535,7 +630,7 @@ func runObjectApply(ctx context.Context, defaultDir string, args []string, stdou
 	}
 
 	if err := store.Objects.Apply(ctx, objectID, writ.NewOp{Type: opType, Version: version, Fields: fields}); err != nil {
-		return renderErr(stderr, err)
+		return renderObjectMutationErr(stderr, err)
 	}
 
 	if opts.jsonMode {

@@ -1,0 +1,105 @@
+name: schema-driven-dual-role-tombstone-key-column
+description: >
+  WRIT-214: a rule combination no value can ever satisfy is refused where
+  the schema resolves, not discovered one write at a time. "flag" is a
+  declared field with strategy tombstone, and "verdict" is a keyed-lww
+  field keyed on key(flag) — so "flag" is dual-role, both a declared field
+  and another rule's key column, within one (op_type, op_version). A key
+  column's value MUST be a JSON string whatever its key_types entry says,
+  because fold's keyed-lww strategy treats a non-string key component as
+  uninterpretable (spec/fold.md §5); tombstone's reducer requires the raw
+  body value to already be a JSON boolean. A JSON value is never both, so
+  no value a producer could write satisfies both roles and the field could
+  never be written. Refusing that once per write leaves the schema
+  declarable and the field permanently unwritable, which is the failure
+  mode WRIT-214 exists to remove rather than relocate: the resolver now
+  reports one SchemaConflict and withholds both rules — neither is at
+  fault alone, so the same "no winner is picked" response a disagreeing
+  key column gets (spec/schema-ops.md §8) applies here. With no installed
+  rule for "approve" v1, the op below folds to no state and becomes an
+  UnknownOp, which is exactly what a reader that had folded a signed op
+  under those rules would have quarantined it as anyway. (pins: reader)
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: define-type
+            parents: [create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "gadget"
+            expect: accept
+
+          - id: define-field-flag
+            parents: [define-type]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "approve"
+                op_version: "1"
+                field: "flag"
+                value_type: "bool"
+                strategy: "tombstone"
+            expect: accept
+
+          - id: define-field-verdict
+            parents: [define-field-flag]
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "approve"
+                op_version: "1"
+                field: "verdict"
+                value_type: "string"
+                strategy: "keyed-lww"
+                key: ["flag"]
+                key_types:
+                  flag: "bool"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/gadget
+    history:
+      - commits:
+          - id: approve-1
+            author: alice
+            timestamp: 2026-01-01T00:04:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: approve
+              op_version: 1
+              body:
+                verdict: "approve"
+                flag: "true"
+            expect: accept

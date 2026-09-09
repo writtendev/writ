@@ -158,6 +158,284 @@ func TestObjectCLI_EndToEnd_NeverHeardOfType(t *testing.T) {
 	}
 }
 
+// TestObjectCLI_KeyedLWWKeyColumn is WRIT-214's acceptance criterion, run
+// end to end against a real binary: a consumer writ.schema declaring a
+// keyed-lww field compiles, applies, and accepts ops against that field,
+// folding two ops with different key-column values to two independent
+// register entries rather than one. Before the fix, the CLI's own
+// -field/-field-json gate refused the key column outright, and the engine
+// refused the key column with it.
+//
+// A body carrying the declared field alone, no key column, is a separate,
+// still-open footgun this PR does not address: it is silently accepted and
+// every such write folds onto the same empty key
+// (TestObjectCLI_KeyedLWWKeyColumn_KeyColumnAbsentStillCollapsesToEmptyKey
+// pins today's behavior). Requiring a keyed-lww field's key columns to be
+// present is a wider rule than rule 3's declared-ness/value-conformance
+// check this PR implements, and is being tracked as a follow-up rather than
+// folded in here.
+//
+// fullTestSchema (cmd/writ/schema_test.go) already declares exactly this
+// shape -- standup's approval op, verdict keyed-lww key(subject
+// person-ref) -- so this reuses it rather than declaring a third schema.
+func TestObjectCLI_KeyedLWWKeyColumn(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, fullTestSchema)
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code := run(context.Background(), []string{
+		"object", "create", "-C", env.repoDir, "standup", "approval",
+		"-field", "verdict=approve",
+		"-field", "subject=email:alice@example.com",
+		"--json",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("object create failed with %d; stderr: %s", code, stderr.String())
+	}
+	var created wire.ObjectCreated
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectCreate, &created)
+	objectID := created.ObjectID
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run(context.Background(), []string{
+		"object", "apply", "-C", env.repoDir, objectID, "approval",
+		"-field", "verdict=approve",
+		"-field", "subject=email:bob@example.com",
+		"--json",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("object apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run(context.Background(), []string{"object", "show", "-C", env.repoDir, objectID, "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("object show failed with %d; stderr: %s", code, stderr.String())
+	}
+	var obj wire.Object
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectShow, &obj)
+	if len(obj.UnknownOps) != 0 {
+		t.Fatalf("unexpected unknown ops: %+v", obj.UnknownOps)
+	}
+	entries, ok := obj.Fields["verdict"].([]any)
+	if !ok || len(entries) != 2 {
+		t.Fatalf("verdict = %#v, want two independent keyed-lww register entries, one per subject", obj.Fields["verdict"])
+	}
+}
+
+// TestObjectCLI_KeyedLWWKeyColumn_UndeclaredKeyColumnStillRefused is the
+// regression the widening in lookupSchemaKeyColumn/declaredFieldNames must
+// not loosen: a body key that is neither a declared field nor a key column
+// of any rule for this (object type, op type, op version) is still refused,
+// naming both the declared fields and key columns in its error.
+func TestObjectCLI_KeyedLWWKeyColumn_UndeclaredKeyColumnStillRefused(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, fullTestSchema)
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code := run(context.Background(), []string{
+		"object", "create", "-C", env.repoDir, "standup", "approval",
+		"-field", "verdict=approve",
+		"-field", "subject=email:alice@example.com",
+		"-field", "reviewer=email:carol@example.com",
+	}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatal("object create accepted a field neither declared nor a key column")
+	}
+	if !strings.Contains(stderr.String(), `field "reviewer" is not declared`) {
+		t.Errorf("stderr = %q, want it to name the undeclared field", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "subject") {
+		t.Errorf("stderr = %q, want the declares list to include the key column \"subject\"", stderr.String())
+	}
+}
+
+// TestObjectCLI_KeyedLWWKeyColumn_KeyColumnAbsentStillCollapsesToEmptyKey
+// pins the footgun this PR's own ticket named but did not scope a fix for
+// (see TestObjectCLI_KeyedLWWKeyColumn's comment): nothing in
+// validateFieldsAgainstRules requires a keyed-lww field's key columns to
+// also be present, so a body carrying the field alone is accepted, and
+// keyedLWWAccumulator.Apply's "an absent key column contributes the empty
+// component" collapses every such write onto one register. Before WRIT-214,
+// keyed-lww was unreachable for a consumer schema at all, so this was
+// academic; after it, it is live. This test exists so a future change to
+// require key-column presence has something concrete to flip, rather than
+// this remaining an unpinned, easy-to-forget gap.
+func TestObjectCLI_KeyedLWWKeyColumn_KeyColumnAbsentStillCollapsesToEmptyKey(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, fullTestSchema)
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code := run(context.Background(), []string{
+		"object", "create", "-C", env.repoDir, "standup", "approval",
+		"-field", "verdict=approve",
+		"--json",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("object create without the key column unexpectedly refused with %d; stderr: %s", code, stderr.String())
+	}
+	var created wire.ObjectCreated
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectCreate, &created)
+	objectID := created.ObjectID
+
+	// A second write also omitting subject -- e.g. a second approver who
+	// forgot the same -field -- must land on the very same empty-key
+	// register as the first, not a register of its own, for this to be
+	// the collapse the ticket named rather than two independent writes
+	// that both happen to lack a subject.
+	stdout.Reset()
+	stderr.Reset()
+	code = run(context.Background(), []string{
+		"object", "apply", "-C", env.repoDir, objectID, "approval",
+		"-field", "verdict=block",
+		"--json",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("object apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run(context.Background(), []string{"object", "show", "-C", env.repoDir, objectID, "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("object show failed with %d; stderr: %s", code, stderr.String())
+	}
+	var obj wire.Object
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectShow, &obj)
+	// Both writes collapse onto the same empty-key register: "block" (the
+	// later write) wins LWW over "approve" (the earlier one) at that one
+	// register, so exactly one entry survives instead of two independent
+	// approvals.
+	entries, ok := obj.Fields["verdict"].([]any)
+	if !ok || len(entries) != 1 {
+		t.Fatalf("verdict = %#v, want exactly one keyed-lww register entry (both writes collapsed onto the empty key)", obj.Fields["verdict"])
+	}
+}
+
+// dualRoleKeyColumnTestSchema declares "seq" both as an ordinary int/lww
+// field and as another rule's keyed-lww key column typed int -- the exact
+// shape spec/testdata/producer/cases/keyed-lww-key-column-also-a-field-int-decoded.json
+// pins as producer-accepted -- so TestObjectCLI_DualRoleKeyColumnWritableViaField
+// can drive it end to end through a real binary.
+const dualRoleKeyColumnTestSchema = `namespace acme
+description "Dual-role key column vocabulary"
+
+type widget {
+  op approve 1 {
+    seq      int     lww
+    verdict  string  keyed-lww  key(seq int)
+  }
+}
+`
+
+// TestObjectCLI_DualRoleKeyColumnWritableViaField is WRIT-214 round 5's
+// acceptance case: before the fix, parseFieldFlags only checked
+// lookupSchemaKeyColumn when lookupSchemaField returned nil, so a name that
+// is BOTH a declared field and another rule's keyed-lww key column always
+// went through convertFieldValue's type-directed conversion -- emitting a
+// JSON number for "seq" here -- which the producer's keyed-lww key-column
+// floor (spec/op-envelope.md §Producer validation rule 3) always refuses, a
+// shape the producer corpus pins as accepted but the CLI could never
+// actually produce. lookupSchemaKeyColumn is now checked unconditionally,
+// so "seq" gets the same string pass-through a key-column-only name gets,
+// and the caller types its canonical decimal spelling directly.
+func TestObjectCLI_DualRoleKeyColumnWritableViaField(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, dualRoleKeyColumnTestSchema)
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code := run(context.Background(), []string{
+		"object", "create", "-C", env.repoDir, "widget", "approve",
+		"-field", "verdict=approve",
+		"-field", "seq=7",
+		"--json",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("object create failed with %d; stderr: %s", code, stderr.String())
+	}
+	var created wire.ObjectCreated
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectCreate, &created)
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run(context.Background(), []string{"object", "show", "-C", env.repoDir, created.ObjectID, "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("object show failed with %d; stderr: %s", code, stderr.String())
+	}
+	var obj wire.Object
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectShow, &obj)
+	if len(obj.UnknownOps) != 0 {
+		t.Fatalf("unexpected unknown ops: %+v", obj.UnknownOps)
+	}
+	// lww stores the body value verbatim (spec/fold.md §5): the producer
+	// wrote "seq" as the JSON string "7", not the JSON integer 7, because
+	// the same body value also has to satisfy "verdict"'s key-column
+	// floor, so the folded state carries that same string, unchanged.
+	if seq, _ := obj.Fields["seq"].(string); seq != "7" {
+		t.Errorf("seq = %#v, want the string \"7\" (lww stores the dual-role body value verbatim)", obj.Fields["seq"])
+	}
+	entries, ok := obj.Fields["verdict"].([]any)
+	if !ok || len(entries) != 1 {
+		t.Fatalf("verdict = %#v, want one keyed-lww register entry", obj.Fields["verdict"])
+	}
+}
+
+// TestObjectCLI_DualRoleKeyColumnRejectionHintsFieldJSON pins the other half
+// of the round 5 fix: -field's pass-through hands a key column's value to
+// the producer unvalidated (see parseFieldFlags's doc comment), so a value
+// that is not the exact canonical spelling -- "7.0" here, decoding to the
+// same integer as "7" but not its canonical decimal text -- is only ever
+// caught engine-side. renderObjectMutationErr adds a pointer to -field-json
+// on top of the engine's own message (which already names the canonical
+// spelling it wants) for exactly this class of rejection.
+func TestObjectCLI_DualRoleKeyColumnRejectionHintsFieldJSON(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, dualRoleKeyColumnTestSchema)
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code := run(context.Background(), []string{
+		"object", "create", "-C", env.repoDir, "widget", "approve",
+		"-field", "verdict=approve",
+		"-field", "seq=7.0",
+	}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatalf("object create accepted a non-canonical dual-role key column value, stdout: %s", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "key column") {
+		t.Errorf("stderr does not name the key column rejection: %q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "-field-json") {
+		t.Errorf("stderr does not point at -field-json: %q", stderr.String())
+	}
+}
+
 // untypedFieldTestSchema declares a type with a field that has no declared
 // value_type at all -- spec/value-types.md's "untyped" exception, written
 // with the schema-source DSL's `untyped` keyword (spec/schema-source.md

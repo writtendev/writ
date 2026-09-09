@@ -170,15 +170,141 @@ invalid. Before the op commit is built, the producer MUST verify that:
    (`spec/schemas/op-envelope.schema.json`).
 2. The payload is byte-canonical per the byte-equality rule above.
 3. The payload satisfies the declared fields for its `(object_type,
-   op_type, op_version)`: every key present in `body` has a rule the
-   schema object governing `object_type` declares, and every field whose
-   rule declares a `value_type` ([`spec/value-types.md`](value-types.md))
-   holds a value conforming to it.
+   op_type, op_version)`: every key present in `body` is **declared** —
+   either a rule the schema object governing `object_type` names by
+   `field`, or a member of `key` on some rule of that same
+   `(op_type, op_version)` whose `strategy` is `keyed-lww` — and every
+   field whose rule declares a `value_type`
+   ([`spec/value-types.md`](value-types.md)) holds a value conforming to
+   it. A `keyed-lww` key column need not also be declared as a field: it
+   travels in `body` to address the write's register, not to carry a
+   value of its own, and writ's own `schema` vocabulary is the worked
+   example — `deprecate-type`'s `type` key column is never itself a
+   `define-field`. Where a key names both a field and a key column of
+   another rule, the field rule governs the value's declared *type* — but
+   the JSON-string floor below still applies on top, because fold checks
+   every key column present in the body whether or not the same name also
+   carries a field rule.
 4. The `op_type` and `op_version` are ones the schema object governing
    `object_type` declares. A producer never legitimately authors an op
    type or an op version it cannot interpret; where it appears to, the
    cause is a typo, and the op it would write is one no reader will ever
    interpret either.
+
+A `keyed-lww` key column's value MUST be a JSON string regardless of what
+its `key_types` entry says — JSON `null` included, which is not tolerated
+here the way it is for an ordinary field's absent-shaped "no write" —
+because fold's `keyed-lww` strategy treats a non-string key component,
+`null` included, as uninterpretable ([`spec/fold.md`](fold.md) §5's "Key
+components are strings", enforced via §7.1). This floor binds a key column
+unconditionally, including one that is also a declared field: the field
+rule governs the value's type (rule 3 above), but does not exempt the same
+value from also being a JSON string when fold would key on it. A value
+satisfying an `int` or `bool` field's own `value_type` — a JSON number or
+boolean — is not a JSON string, so a name playing both roles can only be
+written when the field's own encoding is already string-shaped, or when its
+value is encoded as the string form the paragraph below describes — and
+that string form is what the field's own `value_type` is checked against
+too, not the raw string: a producer decodes the content before typechecking
+on both sides of the union, the field-rule side exactly as the key-column
+side, or an `int`/`number`/`bool`/`anchor` field that doubles as a key
+column would satisfy no encoding at all and be permanently unwritable.
+
+That resolution assumes the field's own merge strategy does not itself
+inspect the value's raw JSON shape beyond "is this a JSON string" — true of
+every strategy but one. `tombstone`'s reducer requires the *raw* body value
+to already be a JSON boolean, never a string carrying `"true"`/`"false"` as
+encoded content the way the paragraph above lets `int`, `number`, `bool`,
+and `anchor` field values do ([`spec/fold.md`](fold.md) §7.1, enforced via
+`fold.Uninterpretable`/`fold.ruleAccepts`). A `tombstone` field that also
+names a keyed-lww key column of another rule is therefore refused for
+*every* value, not merely encoded differently: the key-column floor's
+JSON-string requirement and `tombstone`'s own JSON-boolean requirement can
+never both hold for the same body value, whatever the field's own
+`value_type` says (`tombstone`'s is unset or `bool`, never one of the
+decodable members above).
+
+The value's *content* MUST additionally conform to the governing entry —
+the field's own `value_type` when the name is also a declared field
+(the paragraph above), the key column's `key_types` entry otherwise —
+checked the same way a field's value is checked against its `value_type`.
+For a catalogue member whose ordinary encoding is already a JSON string
+*and* whose own validation already admits exactly one spelling per value —
+`string`, `text`, `person-ref`, `object-ref`, `git-oid`, `position` — the
+key column's value *is* that content, unchanged: the JSON-string floor
+above and the content check are the same string. For `int`, `number`,
+`bool`, and `anchor`, whose ordinary encoding is a JSON integer, number,
+boolean, or object respectively, the key column's string content is
+instead read as that encoding, in text: `"7"` decodes to the JSON integer
+`7`, `"true"` to the JSON boolean `true`, and a compact JSON object's text
+to the `anchor` value itself. This is not a new constraint —
+[`spec/schema-ops.md`](schema-ops.md) §3.1 already lives with it for
+`op_version`, which travels as the decimal string `"1"` rather than the
+JSON integer `1` wherever it is a key component — only its extension from
+`int` alone to every non-string-shaped catalogue member.
+
+The content MUST be that value's canonical JSON encoding, not merely text
+that happens to parse to the right shape: the decimal string with no
+leading zero, leading `+`, trailing fractional zero, exponent, or
+surrounding whitespace; the literal `true`/`false`; or the object's
+*compact* encoding, with no insignificant whitespace and members in the
+sorted order [`spec/canonicalization.md`](canonicalization.md) already
+defines for canonical JSON generally. `"7"`, `"7.0"`, `" 7"`, `"1e3"`, and
+`"-0"` all decode to the same JSON number, but fold's `keyed-lww`
+strategy ([`spec/fold.md`](fold.md) §5) keys a register on the key
+column's raw string, not on the number it denotes — admitting every
+spelling that merely parses would let two producers who mean the same key
+address two registers that never converge, the opposite of what a
+`keyed-lww` column exists for. A key column whose content parses but is
+not that canonical spelling is a producer rejection, the same as content
+that does not parse at all.
+
+`timestamp` is the one catalogue member whose ordinary encoding is already
+a JSON string but whose own grammar ([`spec/value-types.md`](value-types.md))
+admits more than one spelling of the same instant, so it does not belong
+in the "unchanged" bucket above despite needing no decode step: an RFC 3339
+timestamp carries a UTC offset or an explicit numeric one, and optional
+fractional seconds of any precision, so `"2024-01-01T00:00:00Z"`,
+`"2024-01-01T01:00:00+01:00"`, and `"2024-01-01T00:00:00.000Z"` all name the
+same instant with three different byte strings. Fold keys a `keyed-lww`
+register on the byte string, not the instant it denotes (`value.Normalize`
+is the identity for `timestamp` — normalization is intrinsic only to
+`person-ref`, per its catalogue entry above), so a `timestamp` key column's
+value MUST already be in that instant's one canonical spelling: UTC (a `Z`
+offset, never a numeric one) with fractional seconds present only when
+nonzero and written with no trailing zero digits — the same
+one-spelling-per-value discipline the paragraph above holds `int` and
+`number`'s decimal text to, applied here to a value that is already a JSON
+string. A key column value that parses as a conforming `timestamp` but is
+not that canonical spelling is a producer rejection, the same as one whose
+content does not parse at all.
+
+A `key_types` entry of `enum` is the one catalogue member this second
+check cannot fully apply, decoding or not: `key_types` names a column's
+type only, with no slot for the member list an `enum` field's own `enum`
+attribute would supply, so an enum-typed key column is held to the
+JSON-string floor above and checked no further. Two `keyed-lww` rules
+within the same `(op_type,
+op_version)` that share a key column name MUST agree on that column's
+`key_types` entry, even when their `key` tuples otherwise differ: a
+producer resolves a key column's declared type by column name alone, not
+by which rule's `key` it belongs to, so a schema whose rules disagree has
+every rule participating in that column withheld, rather than letting one
+rule's entry silently govern the other's column
+(`spec.CheckKeyColumnAgreement`, the same set-level, "no winner is ever
+picked" standard [`spec/schema-ops.md`](schema-ops.md) §8 holds a shared
+`target` to, applied to a shared key column instead).
+
+The same resolver check refuses the one dual-role combination the
+JSON-string floor makes unsatisfiable: a field rule whose `field` is also
+some rule's key column for the same `(op_type, op_version)` MUST NOT use
+strategy `tombstone`, because `tombstone`'s reducer requires the raw body
+value to already be a JSON boolean and a JSON value is never both a
+boolean and a string. Such a schema does not resolve — both rules are
+withheld — so a producer never sees the combination from a resolved
+schema; a `Vocabularies` assembled by hand rather than by a resolver is
+refused the same values at write time, since the producer must never
+accept what every reader quarantines.
 
 "The schema object governing `object_type`" resolves through a fixed,
 exclusive precedence — exactly one tier ever applies to a given op, so no

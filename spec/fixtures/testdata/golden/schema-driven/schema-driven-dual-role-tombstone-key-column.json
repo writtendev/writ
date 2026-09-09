@@ -1,0 +1,68 @@
+{
+  "schemas": [
+    {
+      "object_id": "sch-acme",
+      "schema": {
+        "object_id": "sch-acme",
+        "namespace": "acme",
+        "types": [
+          {
+            "type": "gadget",
+            "fields": [
+              {
+                "field": "flag",
+                "op_type": "approve",
+                "op_version": 1,
+                "value_type": "bool",
+                "strategy": "tombstone"
+              },
+              {
+                "field": "verdict",
+                "op_type": "approve",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "keyed-lww",
+                "key": [
+                  "flag"
+                ],
+                "key_types": {
+                  "flag": "bool"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "conflicts": [
+    {
+      "object_type": "gadget",
+      "object_ids": [
+        "sch-acme"
+      ],
+      "reason": "field rule (approve, 1, flag) uses strategy tombstone on a name that is also a keyed-lww key column of a rule for the same (op_type, op_version); tombstone's reducer requires the raw body value to already be a JSON boolean (engine/internal/fold/reject.go), which is never the JSON string a key column's value must be (spec/fold.md §5), so no value ever satisfies both roles and the field could never be written -- no winner is picked, so every rule participating in column \"flag\" is withheld"
+    }
+  ],
+  "objects": [
+    {
+      "object_id": "gadget-1",
+      "object_type": "gadget",
+      "total_order": [
+        {
+          "commit": "ca6a74703fb17fdaf82575b3617689a1ec1d3a23",
+          "t_star": 1767225840
+        }
+      ],
+      "state": {},
+      "unknown_ops": [
+        {
+          "commit": "ca6a74703fb17fdaf82575b3617689a1ec1d3a23",
+          "object_type": "gadget",
+          "op_type": "approve",
+          "op_version": 1
+        }
+      ]
+    }
+  ]
+}
