@@ -2,11 +2,11 @@
   "refs": [
     {
       "name": "refs/writ/alice/widget",
-      "commit": "d7283ef69bc5ad1ad42ee70d7642f689c0c362bc"
+      "commit": "9044c989b7d7fbb586f6436cd3bab27633eedb8b"
     },
     {
       "name": "refs/writ/bob/widget",
-      "commit": "e9a71bfbb5b326f71663a602198f507d1ec751f3"
+      "commit": "48cbf66f8137ed7a9dc43bdb7df8a4d5a09aeefc"
     }
   ],
   "generations": [
@@ -15,45 +15,45 @@
       "index": 0,
       "commits": [
         {
-          "sha": "06e7bb2b50f98c9dfff9220945cb7e3ad5763778",
-          "tree": "61b79174356accda4bf798144b65adba37cf0f86",
+          "sha": "f63b430ffcd8f3e6193ce85e0df20afaa204a1b6",
+          "tree": "35d301efac562e4b04ada372754357eec095d3b8",
           "parents": [],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:00:00Z",
-          "message": "writ: create widget/widget-01\n",
+          "message": "writ: create acme.widget/widget-01\n",
           "signed": true
         },
         {
-          "sha": "eb3ec0ce619556b50689e71d43c7671d62983d00",
-          "tree": "801d4ded94be5bcf9b6a0d67ccdf7975397fccb4",
+          "sha": "1f5a709c24e7aa0bf58fd018866669a566a314ae",
+          "tree": "d43ac3a8c1c31a9c44f4483d81b39d4cb5c5385d",
           "parents": [
-            "06e7bb2b50f98c9dfff9220945cb7e3ad5763778"
+            "f63b430ffcd8f3e6193ce85e0df20afaa204a1b6"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:01:00Z",
-          "message": "writ: update widget/widget-01\n",
+          "message": "writ: update acme.widget/widget-01\n",
           "signed": true
         },
         {
-          "sha": "31d569fc457b327450bb3650a583f42704d84daf",
-          "tree": "d57595526a06f55be0513b89e31758514f13a4bf",
+          "sha": "06723e2e4f14414a01bfe0f82d6a0fc4cc7de7c7",
+          "tree": "e299281f32b34ae3274629bf83cfc51f0cc9fb0b",
           "parents": [
-            "eb3ec0ce619556b50689e71d43c7671d62983d00"
+            "1f5a709c24e7aa0bf58fd018866669a566a314ae"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:03:00Z",
-          "message": "writ: custom-op custom-object/x\n",
+          "message": "writ: custom-op acme.custom-object/x\n",
           "signed": true
         },
         {
-          "sha": "d7283ef69bc5ad1ad42ee70d7642f689c0c362bc",
-          "tree": "f280a3136248abf2a56d6e17c4d8417ba68bf639",
+          "sha": "9044c989b7d7fbb586f6436cd3bab27633eedb8b",
+          "tree": "95ba8e7f7cd37ee371ad0d9395e8481c0aee6996",
           "parents": [
-            "31d569fc457b327450bb3650a583f42704d84daf"
+            "06723e2e4f14414a01bfe0f82d6a0fc4cc7de7c7"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:04:00Z",
-          "message": "writ: publish widget/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n",
+          "message": "writ: publish acme.widget/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n",
           "signed": true
         }
       ]
@@ -63,24 +63,24 @@
       "index": 0,
       "commits": [
         {
-          "sha": "93d3c366753b975c178c2090f3130bf5b0af0256",
-          "tree": "791b3409f942f01da493f64ae78bb3f021ef1d4d",
+          "sha": "d8a18bbe2249cb0d68121df9ee408aa3434b767c",
+          "tree": "df44b7fc832eb0214ecbbe045012372464bd7fe8",
           "parents": [],
           "author": "Bob Example \u003cbob@example.test\u003e",
           "timestamp": "2026-01-01T00:00:30Z",
-          "message": "writ: create widget/widget-02\n",
+          "message": "writ: create acme.widget/widget-02\n",
           "signed": true
         },
         {
-          "sha": "e9a71bfbb5b326f71663a602198f507d1ec751f3",
-          "tree": "be78a4a433c0bf5e8c1d6dc865621f2033bbe9c9",
+          "sha": "48cbf66f8137ed7a9dc43bdb7df8a4d5a09aeefc",
+          "tree": "5d799934efe254da7ca53db8bfbef58f31b67e22",
           "parents": [
-            "93d3c366753b975c178c2090f3130bf5b0af0256",
-            "eb3ec0ce619556b50689e71d43c7671d62983d00"
+            "d8a18bbe2249cb0d68121df9ee408aa3434b767c",
+            "1f5a709c24e7aa0bf58fd018866669a566a314ae"
           ],
           "author": "Bob Example \u003cbob@example.test\u003e",
           "timestamp": "2026-01-01T00:02:00Z",
-          "message": "writ: create gadget/widget-01\n",
+          "message": "writ: create acme.gadget/widget-01\n",
           "signed": true
         }
       ]

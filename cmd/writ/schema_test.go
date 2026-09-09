@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -16,6 +17,8 @@ import (
 
 	"github.com/writtendev/writ/cmd/writ/internal/wire"
 	"github.com/writtendev/writ/engine"
+	"github.com/writtendev/writ/engine/schemasrc"
+	"github.com/writtendev/writ/engine/state"
 )
 
 // writeSchemaFile overwrites the working-tree writ.schema in dir.
@@ -902,6 +905,124 @@ func runSchemaSyncOrFatal(t *testing.T, dir string) {
 	var stdout, stderr bytes.Buffer
 	if code := run(context.Background(), []string{"-C", dir, "sync"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("sync in %s failed with %d; stdout: %s stderr: %s", dir, code, stdout.String(), stderr.String())
+	}
+}
+
+// TestResolveSchemaTarget_SquattedForeignTypeDoesNotBlockReuse and
+// TestResolveSchemaTarget_SquattedForeignTypeDoesNotBlockFreshMint pin the
+// WRIT-217 round-1 review's medium finding on contestedTypeOwners: a
+// hand-crafted (or otherwise non-schemasrc) schema object squatting a
+// wire type outside its own namespace — "acme.standup" declared by a
+// schema object whose own namespace is "evil" — is exactly the shape
+// engine/schema.go's RulesFromSchemas drops and never installs (WRIT-217
+// §6.3, TypeIsQualifiedForNamespace). contestedTypeOwners must agree: it
+// must not treat that squat as already binding the type, or a single
+// foreign-namespace define-type in the log would make `writ schema
+// apply` refuse a legitimate namespace owner forever, for a reason
+// RulesFromSchemas itself contradicts. These call resolveSchemaTarget
+// directly with hand-built []state.Schema — no CLI, no repo — so the
+// squat's shape needs no schemasrc producibility, exactly like the
+// review's own reproduction.
+func TestResolveSchemaTarget_SquattedForeignTypeDoesNotBlockReuse(t *testing.T) {
+	target := state.Schema{
+		ObjectID:  "schema:acme",
+		Namespace: "acme",
+		Types:     []state.SchemaType{{Name: "acme.standup"}},
+	}
+	squat := state.Schema{
+		ObjectID:  "schema:evil",
+		Namespace: "evil",
+		Types:     []state.SchemaType{{Name: "acme.retro"}},
+	}
+	f := &schemasrc.File{
+		Namespace: "acme",
+		Types: []*schemasrc.Type{
+			{Name: "standup"},
+			{Name: "retro"}, // qualifies to "acme.retro" — the squatted name
+		},
+	}
+
+	got, err := resolveSchemaTarget([]state.Schema{target, squat}, f)
+	if err != nil {
+		t.Fatalf("expected the squat to be ignored and the reuse to succeed, got error: %v", err)
+	}
+	if got != target.ObjectID {
+		t.Fatalf("resolveSchemaTarget = %q, want the reused target %q", got, target.ObjectID)
+	}
+}
+
+func TestResolveSchemaTarget_SquattedForeignTypeDoesNotBlockFreshMint(t *testing.T) {
+	squat := state.Schema{
+		ObjectID:  "schema:evil",
+		Namespace: "evil",
+		Types:     []state.SchemaType{{Name: "acme.standup"}},
+	}
+	f := &schemasrc.File{
+		Namespace: "acme",
+		Types:     []*schemasrc.Type{{Name: "standup"}},
+	}
+
+	got, err := resolveSchemaTarget([]state.Schema{squat}, f)
+	if err != nil {
+		t.Fatalf("expected the squat to be ignored and a fresh mint to succeed, got error: %v", err)
+	}
+	if want := deriveSchemaObjectID("acme"); got != want {
+		t.Fatalf("resolveSchemaTarget = %q, want a fresh object id %q", got, want)
+	}
+}
+
+// TestContestedTypeOwners_FiltersToLegitimateBindings, together with
+// TestContestedTypeNames_FormatsSortedQuotedNames and
+// TestContestedTypeParts_NamesEachOwner below, unit-test contestedTypeOwners,
+// contestedTypeNames and contestedTypeParts directly — the three functions
+// the round-1 review found at 0% coverage after this ticket's test
+// removals, reached in production only from resolveSchemaTarget's three
+// refusal messages. Those messages are themselves unreachable from
+// legitimate (non-squat) data by construction: a wire type two schema
+// objects can legitimately both bind always implies they share a
+// namespace, which resolveSchemaTarget's own namespace-match grouping
+// catches first (either as the reuse target itself, excluded here, or as
+// the "namespace declared by more than one schema object" refusal before
+// contestedTypeOwners is ever called). Testing the three functions
+// directly, with hand-built input, is what actually pins their behavior.
+func TestContestedTypeOwners_FiltersToLegitimateBindings(t *testing.T) {
+	schemas := []state.Schema{
+		{ObjectID: "schema:acme", Namespace: "acme", Types: []state.SchemaType{{Name: "acme.standup"}}},
+		{ObjectID: "schema:evil", Namespace: "evil", Types: []state.SchemaType{{Name: "acme.retro"}}},
+	}
+	declared := map[string]bool{"acme.standup": true, "acme.retro": true}
+
+	owners := contestedTypeOwners(schemas, "", declared)
+
+	if want := (map[string]string{"acme.standup": "schema:acme"}); !reflect.DeepEqual(owners, want) {
+		t.Fatalf("contestedTypeOwners = %+v, want %+v (the squatted \"acme.retro\" excluded)", owners, want)
+	}
+}
+
+func TestContestedTypeOwners_ExcludesGivenObjectID(t *testing.T) {
+	schemas := []state.Schema{
+		{ObjectID: "schema:acme", Namespace: "acme", Types: []state.SchemaType{{Name: "acme.standup"}}},
+	}
+	declared := map[string]bool{"acme.standup": true}
+
+	if owners := contestedTypeOwners(schemas, "schema:acme", declared); len(owners) != 0 {
+		t.Fatalf("expected the excluded object's own binding to not contest itself, got %+v", owners)
+	}
+}
+
+func TestContestedTypeNames_FormatsSortedQuotedNames(t *testing.T) {
+	contested := map[string]string{"bigco.retro": "schema:bigco", "acme.standup": "schema:acme"}
+	if got, want := contestedTypeNames(contested), `"acme.standup", "bigco.retro"`; got != want {
+		t.Fatalf("contestedTypeNames = %q, want %q", got, want)
+	}
+}
+
+func TestContestedTypeParts_NamesEachOwner(t *testing.T) {
+	contested := map[string]string{"acme.standup": "schema:acme"}
+	got := contestedTypeParts(contested)
+	want := `"acme.standup" (already bound by schema object schema:acme)`
+	if got != want {
+		t.Fatalf("contestedTypeParts = %q, want %q", got, want)
 	}
 }
 

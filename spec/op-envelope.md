@@ -141,7 +141,10 @@ content addressing never depend on encoder quirks.
   value must take; whether a non-`schema` `object_type` is required to
   be qualified is a schema-layer rule (`spec/schema-ops.md` §2) this
   envelope layer deliberately does not know or enforce. Deliberately not
-  a closed enum — see forward compatibility below.
+  a closed enum — see forward compatibility below. A trailing segment of
+  `lock` is grammar-legal here but unwritable as a chain — git rejects
+  any ref path component ending in `.lock`; see
+  [`spec/ref-layout.md`](ref-layout.md) §4.
 - `op_type` (string, required) — the operation's type within its object
   type's vocabulary (e.g. `create`). Lowercase `^[a-z][a-z0-9-]*$`, at
   most 64 characters — unlike `object_type`, `op_type` is never

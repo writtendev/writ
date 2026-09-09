@@ -15,7 +15,7 @@
           "t_star": 1767225630
         },
         {
-          "commit": "93855a84eac061ddbe6e4a732ebb7e5019740aef",
+          "commit": "cd5a679b6e438cc71a98304c705b3944a6951904",
           "label": "alice-mix-opaque-telemetry",
           "t_star": 1767225660
         },
@@ -25,7 +25,7 @@
           "t_star": 1767225720
         },
         {
-          "commit": "557a31e657e65eb37a3c2830a28cb96fd1f5d827",
+          "commit": "317bbdf7ba7c73291aaf404117a85b94da2a6d9e",
           "label": "alice-mix-post",
           "t_star": 1767225720
         },
@@ -35,7 +35,7 @@
           "t_star": 1767225780
         },
         {
-          "commit": "8037e1a505646eabba5fa2eb8a184aad4d07d489",
+          "commit": "b9a8519f833e8e2d25c13400e90debb693d4c733",
           "label": "bob-mix-close",
           "t_star": 1767225780
         }
@@ -52,9 +52,9 @@
           "op_version": 2
         },
         {
-          "commit": "93855a84eac061ddbe6e4a732ebb7e5019740aef",
+          "commit": "cd5a679b6e438cc71a98304c705b3944a6951904",
           "label": "alice-mix-opaque-telemetry",
-          "object_type": "telemetry",
+          "object_type": "acme.telemetry",
           "op_type": "emit",
           "op_version": 1
         },
@@ -66,7 +66,7 @@
           "op_version": 1
         },
         {
-          "commit": "557a31e657e65eb37a3c2830a28cb96fd1f5d827",
+          "commit": "317bbdf7ba7c73291aaf404117a85b94da2a6d9e",
           "label": "alice-mix-post",
           "object_type": "acme.gadget",
           "op_type": "post",
@@ -80,7 +80,7 @@
           "op_version": 1
         },
         {
-          "commit": "8037e1a505646eabba5fa2eb8a184aad4d07d489",
+          "commit": "b9a8519f833e8e2d25c13400e90debb693d4c733",
           "label": "bob-mix-close",
           "object_type": "acme.widget",
           "op_type": "close",

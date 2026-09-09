@@ -507,10 +507,21 @@ func resolveSchemaTarget(schemas []state.Schema, f *schemasrc.File) (string, err
 	}
 }
 
-// contestedTypeOwners returns, for each name in declared already bound by
-// some schema object other than exclude (schemaByObjectID's "" never
-// matches a real object id, so exclude == "" excludes nothing), the id of
-// the object that binds it.
+// contestedTypeOwners returns, for each name in declared already
+// legitimately bound by some schema object other than exclude
+// (schemaByObjectID's "" never matches a real object id, so exclude == ""
+// excludes nothing), the id of the object that binds it.
+//
+// "Legitimately" means writ.TypeIsQualifiedForNamespace(t.Name,
+// s.Namespace) — the exact predicate RulesFromSchemas gates installation
+// on (engine/schema.go, WRIT-217 §6.3). A type name some other schema
+// object's Types carries but that is not qualified for that object's own
+// namespace — bare, foreign-namespace-qualified, or multi-dot — is a
+// squat RulesFromSchemas already drops and never installs rules for, so
+// it must not contest a legitimate binding here either: this function
+// disagreeing with the resolver is exactly the bug that let one
+// foreign-namespace define-type permanently refuse a legitimate
+// namespace's `writ schema apply`.
 func contestedTypeOwners(schemas []state.Schema, exclude string, declared map[string]bool) map[string]string {
 	owners := make(map[string]string)
 	for _, s := range schemas {
@@ -518,7 +529,7 @@ func contestedTypeOwners(schemas []state.Schema, exclude string, declared map[st
 			continue
 		}
 		for _, t := range s.Types {
-			if declared[t.Name] {
+			if declared[t.Name] && writ.TypeIsQualifiedForNamespace(t.Name, s.Namespace) {
 				owners[t.Name] = s.ObjectID
 			}
 		}

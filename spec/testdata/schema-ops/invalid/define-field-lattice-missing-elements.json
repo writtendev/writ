@@ -1,1 +1,1 @@
-{"body":{"enum":["draft","done"],"field":"status","op_type":"set-status","op_version":"1","strategy":"lattice","type":"standup","value_type":"enum"},"object_id":"sch-acme","object_type":"schema","op_type":"define-field","op_version":1}
+{"body":{"enum":["draft","done"],"field":"status","op_type":"set-status","op_version":"1","strategy":"lattice","type":"acme.standup","value_type":"enum"},"object_id":"sch-acme","object_type":"schema","op_type":"define-field","op_version":1}

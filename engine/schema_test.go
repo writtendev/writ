@@ -176,15 +176,16 @@ func TestRulesFromSchemas_DifferentNamespacesSameBareTypeBothInstall(t *testing.
 // TestRulesFromSchemas_UnqualifiedConsumerTypeDroppedNotInstalled pins
 // WRIT-217's answer to "is the qualified form ever optional?": no. A
 // declared type whose name does not carry its own schema's namespace
-// prefix — bare, or qualified under someone else's namespace — is dropped
-// and reported as a conflict, exactly like any other invalid declaration,
-// never installed. This is the resolver-level gate that actually closes
-// the global object_type namespace: the envelope grammar alone cannot
-// enforce it (spec/op-envelope.md has no notion of namespace), so this is
-// the one place that does.
+// prefix — bare, qualified under someone else's namespace, or carrying
+// more than one dot — is dropped and reported as a conflict, exactly like
+// any other invalid declaration, never installed. This is the
+// resolver-level gate that actually closes the global object_type
+// namespace: the envelope grammar alone cannot enforce it
+// (spec/op-envelope.md has no notion of namespace), so this is the one
+// place that does.
 func TestRulesFromSchemas_UnqualifiedConsumerTypeDroppedNotInstalled(t *testing.T) {
-	// One schema object, one namespace, two bad declarations — kept to a
-	// single ObjectID so the only conflicts reachable are the two
+	// One schema object, one namespace, three bad declarations — kept to a
+	// single ObjectID so the only conflicts reachable are the three
 	// namespace-qualification failures under test, with no cross-object
 	// namespace collision (TestRulesFromSchemas_NamespaceCollisionDoesNotWithholdRulesAlone)
 	// muddying the count.
@@ -194,6 +195,7 @@ func TestRulesFromSchemas_UnqualifiedConsumerTypeDroppedNotInstalled(t *testing.
 		Types: []state.SchemaType{
 			{Name: "standup", Fields: []state.SchemaField{mkField("standup", "create", 1, "summary", "lww")}},
 			{Name: "bigco.retro", Fields: []state.SchemaField{mkField("retro", "create", 1, "notes", "lww")}},
+			{Name: "acme.foo.bar", Fields: []state.SchemaField{mkField("foo.bar", "create", 1, "title", "lww")}},
 		},
 	}
 
@@ -204,8 +206,11 @@ func TestRulesFromSchemas_UnqualifiedConsumerTypeDroppedNotInstalled(t *testing.
 	if _, ok := rules["bigco.retro"]; ok {
 		t.Errorf("expected the foreign-namespace-qualified type dropped, got %+v", rules["bigco.retro"])
 	}
-	if len(conflicts) != 2 {
-		t.Fatalf("expected 2 conflicts (one per unqualified declaration), got %+v", conflicts)
+	if _, ok := rules["acme.foo.bar"]; ok {
+		t.Errorf("expected the multi-dot type dropped, got %+v", rules["acme.foo.bar"])
+	}
+	if len(conflicts) != 3 {
+		t.Fatalf("expected 3 conflicts (one per unqualified declaration), got %+v", conflicts)
 	}
 	for _, c := range conflicts {
 		if !strings.Contains(c.Reason, "not qualified with this schema object's own namespace") {

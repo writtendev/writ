@@ -648,21 +648,34 @@ func validOpTypeGrammar(opType string) bool {
 	return opType != "" && len(opType) <= opTypeMaxLength && opTypeGrammar.MatchString(opType)
 }
 
-// typeIsQualifiedForNamespace reports whether a declared type name is
-// exactly "<namespace>.<segment>" for a non-empty segment (WRIT-217): the
-// resolver-level gate that closes the global object_type namespace the
-// envelope grammar alone cannot, since spec/op-envelope.md's object_type
-// pattern only admits an optional dot and has no notion of which schema
-// object's namespace, if any, a given declaration is entitled to use. An
-// empty namespace (a schema whose own "create" op never set one) qualifies
-// nothing — there is no prefix to require agreement with, so every type
-// name it declares is refused here, not silently admitted as bare.
-func typeIsQualifiedForNamespace(typeName, namespace string) bool {
+// TypeIsQualifiedForNamespace reports whether a declared type name is
+// exactly "<namespace>.<segment>" for a non-empty, single-segment
+// remainder (WRIT-217): the resolver-level gate that closes the global
+// object_type namespace the envelope grammar alone cannot, since
+// spec/op-envelope.md's object_type pattern only admits an optional dot
+// and has no notion of which schema object's namespace, if any, a given
+// declaration is entitled to use. An empty namespace (a schema whose own
+// "create" op never set one) qualifies nothing — there is no prefix to
+// require agreement with, so every type name it declares is refused here,
+// not silently admitted as bare. A remainder carrying its own dot (a
+// multi-dot type name, e.g. "acme.foo.bar" under namespace "acme") is
+// refused too: it is not the single segment §6.3 requires, and admitting
+// it would install a type whose ops engine/dag's objectTypeRegexp can
+// never write and that schemasrc.Render cannot round-trip.
+//
+// Exported so cmd/writ's own contested-type guard (schema.go's
+// contestedTypeOwners) can filter against exactly this predicate instead
+// of re-deriving it: the two disagreeing was itself a WRIT-217 review
+// finding.
+func TypeIsQualifiedForNamespace(typeName, namespace string) bool {
 	if namespace == "" {
 		return false
 	}
 	prefix := namespace + "."
-	return strings.HasPrefix(typeName, prefix) && len(typeName) > len(prefix)
+	if !strings.HasPrefix(typeName, prefix) || len(typeName) <= len(prefix) {
+		return false
+	}
+	return !strings.Contains(typeName[len(prefix):], ".")
 }
 
 // resolvedSchemaTypes is the shared collision/validation pass over folded
@@ -805,7 +818,7 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 			// t.Name: a hand-crafted define-type squatting a name outside
 			// its own namespace must not contest another schema's
 			// legitimate binding of that same wire type.
-			if !typeIsQualifiedForNamespace(t.Name, sch.Namespace) {
+			if !TypeIsQualifiedForNamespace(t.Name, sch.Namespace) {
 				conflicts = append(conflicts, SchemaConflict{
 					ObjectType: t.Name,
 					Namespace:  sch.Namespace,
@@ -845,7 +858,7 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 			// inferred from contested[t.Name] alone — otherwise an
 			// unqualified declaration's own fields would still populate
 			// fields[t.Name] and end up installed regardless.
-			if t.Name == "schema" || contested[t.Name] || !typeIsQualifiedForNamespace(t.Name, sch.Namespace) {
+			if t.Name == "schema" || contested[t.Name] || !TypeIsQualifiedForNamespace(t.Name, sch.Namespace) {
 				continue
 			}
 

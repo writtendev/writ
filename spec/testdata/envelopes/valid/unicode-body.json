@@ -1,1 +1,1 @@
-{"body":{"text":"café 中文 😀"},"object_id":"g-9d","object_type":"gadget","op_type":"create","op_version":1}
+{"body":{"text":"café 中文 😀"},"object_id":"g-9d","object_type":"acme.gadget","op_type":"create","op_version":1}

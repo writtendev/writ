@@ -6,11 +6,11 @@
     },
     {
       "name": "refs/writ/0123456789abcdef/widget",
-      "commit": "109851af42de69c488770bf96663805793e4855b"
+      "commit": "e82ae26be4847027a8179ddc87ef2b48976c28da"
     },
     {
       "name": "refs/writ/fedcba9876543210/widget",
-      "commit": "ede70950de03c37fa83a61f36172753594da6195"
+      "commit": "db4a22a0b58cf0c827bdd943c9c8ba7f30b57a62"
     }
   ],
   "generations": [
@@ -120,21 +120,21 @@
           "signed": true
         },
         {
-          "sha": "43d901f0f43bd46ecb29d4cefce65517a171826a",
-          "tree": "b201618c9cce7f37387be873cffe580241fbb19b",
+          "sha": "7f7252038889b6295ee52963ecfa1cbac18e5f69",
+          "tree": "35df85a887eac9d262a8a08eb3d95b7186dd43d2",
           "parents": [
             "6578e66cae2a2ccabeaa8e482177a53a1b652ed4"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:01:00Z",
-          "message": "writ: emit telemetry/telem-01\n",
+          "message": "writ: emit acme.telemetry/telem-01\n",
           "signed": true
         },
         {
-          "sha": "109851af42de69c488770bf96663805793e4855b",
+          "sha": "e82ae26be4847027a8179ddc87ef2b48976c28da",
           "tree": "c45fdc338666a0e2efe21fa73e3f30d27c26097e",
           "parents": [
-            "43d901f0f43bd46ecb29d4cefce65517a171826a"
+            "7f7252038889b6295ee52963ecfa1cbac18e5f69"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:02:00Z",
@@ -157,11 +157,11 @@
           "signed": true
         },
         {
-          "sha": "ede70950de03c37fa83a61f36172753594da6195",
+          "sha": "db4a22a0b58cf0c827bdd943c9c8ba7f30b57a62",
           "tree": "3f8bb82ab17178a8ae47211c33fd7d8f1c53a94c",
           "parents": [
             "f56ac0446071b15de9b2d5584e3609c0359f9c0c",
-            "109851af42de69c488770bf96663805793e4855b"
+            "e82ae26be4847027a8179ddc87ef2b48976c28da"
           ],
           "author": "Bob Example \u003cbob@example.test\u003e",
           "timestamp": "2026-01-01T00:03:00Z",

@@ -98,20 +98,20 @@
     },
     {
       "ref": "refs/writ/0123456789abcdef/widget",
-      "commit": "93855a84eac061ddbe6e4a732ebb7e5019740aef",
+      "commit": "cd5a679b6e438cc71a98304c705b3944a6951904",
       "parents": [
         "4c0569b0e823a108b71926e1ef7a67f30d5f9ba7"
       ],
-      "blob_sha": "0293715ef07066ff3b94d87e6298e9cc3df4668b",
-      "canonical_payload": "{\"body\":{\"metric\":\"session_start\",\"value\":100},\"object_id\":\"widget-mixed-01\",\"object_type\":\"telemetry\",\"op_type\":\"emit\",\"op_version\":1}",
+      "blob_sha": "7938ee61f574f60c00ced01059a685d2eee283e1",
+      "canonical_payload": "{\"body\":{\"metric\":\"session_start\",\"value\":100},\"object_id\":\"widget-mixed-01\",\"object_type\":\"acme.telemetry\",\"op_type\":\"emit\",\"op_version\":1}",
       "declared_disposition": "opaque",
       "observed_disposition": "opaque"
     },
     {
       "ref": "refs/writ/0123456789abcdef/widget",
-      "commit": "557a31e657e65eb37a3c2830a28cb96fd1f5d827",
+      "commit": "317bbdf7ba7c73291aaf404117a85b94da2a6d9e",
       "parents": [
-        "93855a84eac061ddbe6e4a732ebb7e5019740aef"
+        "cd5a679b6e438cc71a98304c705b3944a6951904"
       ],
       "blob_sha": "b1d87cfca49368a2efcefc8485224f5b9c124c8c",
       "canonical_payload": "{\"body\":{\"text\":\"Alice post on mixed widget\"},\"object_id\":\"widget-mixed-01\",\"object_type\":\"acme.gadget\",\"op_type\":\"post\",\"op_version\":1}",
@@ -129,10 +129,10 @@
     },
     {
       "ref": "refs/writ/fedcba9876543210/widget",
-      "commit": "8037e1a505646eabba5fa2eb8a184aad4d07d489",
+      "commit": "b9a8519f833e8e2d25c13400e90debb693d4c733",
       "parents": [
         "cf46431148355b0b850fabfd2ab62383cab870c3",
-        "557a31e657e65eb37a3c2830a28cb96fd1f5d827"
+        "317bbdf7ba7c73291aaf404117a85b94da2a6d9e"
       ],
       "blob_sha": "60adfb281e2638a3df465425c2b9ece1e1692430",
       "canonical_payload": "{\"body\":{\"reason\":\"confirmed\"},\"object_id\":\"widget-mixed-01\",\"object_type\":\"acme.widget\",\"op_type\":\"close\",\"op_version\":1}",
@@ -221,8 +221,8 @@
       "op_version": 1
     },
     {
-      "op_id": "93855a84eac061ddbe6e4a732ebb7e5019740aef",
-      "object_type": "telemetry",
+      "op_id": "cd5a679b6e438cc71a98304c705b3944a6951904",
+      "object_type": "acme.telemetry",
       "op_type": "emit",
       "op_version": 1
     },

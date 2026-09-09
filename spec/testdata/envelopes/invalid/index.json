@@ -42,7 +42,22 @@
   {
     "file": "object-type-uppercase.json",
     "rejects": "schema",
-    "reason": "object_type must match ^[a-z][a-z0-9-]*$; uppercase is not allowed"
+    "reason": "object_type must match ^[a-z][a-z0-9-]{0,63}(\\.[a-z][a-z0-9-]{0,63})?$; uppercase is not allowed in either segment"
+  },
+  {
+    "file": "object-type-multi-dot.json",
+    "rejects": "schema",
+    "reason": "object_type contains more than one dot; the qualified form is exactly one optional dot separating two segments, not an arbitrary path (WRIT-217)"
+  },
+  {
+    "file": "object-type-segment-too-long-bare.json",
+    "rejects": "schema",
+    "reason": "object_type's single segment exceeds the per-segment 64-character limit (65 chars)"
+  },
+  {
+    "file": "object-type-segment-too-long-qualified.json",
+    "rejects": "schema",
+    "reason": "object_type's first segment exceeds the per-segment 64-character limit (65 chars) even though the qualified whole and the second segment are each otherwise legal"
   },
   {
     "file": "body-array.json",

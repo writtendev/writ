@@ -1,1 +1,1 @@
-{"body":{"action":"init","target":"theta"},"object_id":"o-101","object_type":"telemetry","op_type":"ping","op_version":1}
+{"body":{"action":"init","target":"theta"},"object_id":"o-101","object_type":"acme.telemetry","op_type":"ping","op_version":1}

@@ -6,11 +6,11 @@
     },
     {
       "name": "refs/writ/0123456789abcdef/widget",
-      "commit": "557a31e657e65eb37a3c2830a28cb96fd1f5d827"
+      "commit": "317bbdf7ba7c73291aaf404117a85b94da2a6d9e"
     },
     {
       "name": "refs/writ/fedcba9876543210/widget",
-      "commit": "8037e1a505646eabba5fa2eb8a184aad4d07d489"
+      "commit": "b9a8519f833e8e2d25c13400e90debb693d4c733"
     },
     {
       "name": "refs/writ/0123456789abcdef/widget-control",
@@ -128,21 +128,21 @@
           "signed": true
         },
         {
-          "sha": "93855a84eac061ddbe6e4a732ebb7e5019740aef",
-          "tree": "56e3055807ee423cccf644f4ec23334bf707488c",
+          "sha": "cd5a679b6e438cc71a98304c705b3944a6951904",
+          "tree": "b338c6b3d3081cf664eb50de339d58e590945d83",
           "parents": [
             "4c0569b0e823a108b71926e1ef7a67f30d5f9ba7"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:01:00Z",
-          "message": "writ: emit telemetry/widget-mixed-01\n",
+          "message": "writ: emit acme.telemetry/widget-mixed-01\n",
           "signed": true
         },
         {
-          "sha": "557a31e657e65eb37a3c2830a28cb96fd1f5d827",
+          "sha": "317bbdf7ba7c73291aaf404117a85b94da2a6d9e",
           "tree": "44065679ad8e39d0d4b54f0933c9c24ee5e9b8e7",
           "parents": [
-            "93855a84eac061ddbe6e4a732ebb7e5019740aef"
+            "cd5a679b6e438cc71a98304c705b3944a6951904"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:02:00Z",
@@ -165,11 +165,11 @@
           "signed": true
         },
         {
-          "sha": "8037e1a505646eabba5fa2eb8a184aad4d07d489",
+          "sha": "b9a8519f833e8e2d25c13400e90debb693d4c733",
           "tree": "1a6ede29ea8797e335916b43ddaec7af90d2b53f",
           "parents": [
             "cf46431148355b0b850fabfd2ab62383cab870c3",
-            "557a31e657e65eb37a3c2830a28cb96fd1f5d827"
+            "317bbdf7ba7c73291aaf404117a85b94da2a6d9e"
           ],
           "author": "Bob Example \u003cbob@example.test\u003e",
           "timestamp": "2026-01-01T00:03:00Z",

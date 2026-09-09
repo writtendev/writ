@@ -2,10 +2,10 @@
   "objects": [
     {
       "object_id": "telem-01",
-      "object_type": "telemetry",
+      "object_type": "acme.telemetry",
       "total_order": [
         {
-          "commit": "43d901f0f43bd46ecb29d4cefce65517a171826a",
+          "commit": "7f7252038889b6295ee52963ecfa1cbac18e5f69",
           "label": "alice-unknown-object",
           "t_star": 1767225660
         }
@@ -13,9 +13,9 @@
       "state": {},
       "unknown_ops": [
         {
-          "commit": "43d901f0f43bd46ecb29d4cefce65517a171826a",
+          "commit": "7f7252038889b6295ee52963ecfa1cbac18e5f69",
           "label": "alice-unknown-object",
-          "object_type": "telemetry",
+          "object_type": "acme.telemetry",
           "op_type": "emit",
           "op_version": 1
         }
@@ -23,7 +23,7 @@
     },
     {
       "object_id": "widget-01",
-      "object_type": "acme.gadget",
+      "object_type": "acme.widget",
       "total_order": [
         {
           "commit": "6578e66cae2a2ccabeaa8e482177a53a1b652ed4",
@@ -36,12 +36,12 @@
           "t_star": 1767225630
         },
         {
-          "commit": "109851af42de69c488770bf96663805793e4855b",
+          "commit": "e82ae26be4847027a8179ddc87ef2b48976c28da",
           "label": "alice-nested-body",
           "t_star": 1767225720
         },
         {
-          "commit": "ede70950de03c37fa83a61f36172753594da6195",
+          "commit": "db4a22a0b58cf0c827bdd943c9c8ba7f30b57a62",
           "label": "bob-unknown-body-field",
           "t_star": 1767225780
         }
@@ -58,14 +58,14 @@
           "op_version": 1
         },
         {
-          "commit": "109851af42de69c488770bf96663805793e4855b",
+          "commit": "e82ae26be4847027a8179ddc87ef2b48976c28da",
           "label": "alice-nested-body",
           "object_type": "acme.gadget",
           "op_type": "post",
           "op_version": 1
         },
         {
-          "commit": "ede70950de03c37fa83a61f36172753594da6195",
+          "commit": "db4a22a0b58cf0c827bdd943c9c8ba7f30b57a62",
           "label": "bob-unknown-body-field",
           "object_type": "acme.widget",
           "op_type": "close",

@@ -14,7 +14,7 @@ refs:
             timestamp: 2026-01-01T00:00:00Z
             message: "writ: create widget/r1\n"
             files:
-              op.json: '{"body":{},"object_id":"r1","object_type":"widget","op_type":"create","op_version":1}'
+              op.json: '{"body":{},"object_id":"r1","object_type":"acme.widget","op_type":"create","op_version":1}'
               extra.txt: "unauthorized extra file"
             expect:
               reject: extra-tree-entry
@@ -23,7 +23,7 @@ refs:
             timestamp: 2026-01-01T00:01:00Z
             message: "writ: create widget/r1\n"
             files:
-              subdir/op.json: '{"body":{},"object_id":"r1","object_type":"widget","op_type":"create","op_version":1}'
+              subdir/op.json: '{"body":{},"object_id":"r1","object_type":"acme.widget","op_type":"create","op_version":1}'
             expect:
               reject: op-json-subdirectory
           - id: tree-missing-op-json
@@ -40,7 +40,7 @@ refs:
             timestamp: 2026-01-01T00:03:00Z
             op:
               object_id: r1
-              object_type: widget
+              object_type: acme.widget
               op_type: create
               op_version: 1
               body: {}
@@ -52,7 +52,7 @@ refs:
             timestamp: 2026-01-01T00:04:00Z
             op:
               object_id: r1
-              object_type: widget
+              object_type: acme.widget
               op_type: create
               op_version: 1
               body: {}

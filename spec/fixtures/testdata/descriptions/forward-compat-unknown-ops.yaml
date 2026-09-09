@@ -158,7 +158,7 @@ refs:
             disposition: opaque
             op:
               object_id: telem-01
-              object_type: telemetry
+              object_type: acme.telemetry
               op_type: emit
               op_version: 1
               body:

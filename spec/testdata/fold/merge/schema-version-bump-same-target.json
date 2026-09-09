@@ -12,7 +12,7 @@
       "parents": [],
       "time": 100,
       "object_id": "obj-1",
-      "object_type": "widget",
+      "object_type": "acme.widget",
       "op_type": "widget-op",
       "op_version": 1,
       "body": { "value": "draft" }
@@ -22,7 +22,7 @@
       "parents": ["op-v1"],
       "time": 200,
       "object_id": "obj-1",
-      "object_type": "widget",
+      "object_type": "acme.widget",
       "op_type": "widget-op",
       "op_version": 2,
       "body": { "value": "approved" }
