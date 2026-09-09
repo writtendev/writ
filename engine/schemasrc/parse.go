@@ -43,6 +43,15 @@ var fieldReserved = map[string]bool{"deprecated": true}
 // fieldReserved.
 const fieldNameReservedReason = "; a bare \"deprecated\" modifier immediately after a field cannot be told apart from a following field's own name with one token of lookahead"
 
+// fieldNameAfterFieldReservedReason is the same diagnostic for the one slot
+// where the parser genuinely cannot know which reading the author meant: a
+// bare "deprecated" in a field's modifier list. Both readings are errors, so
+// the input is invalid either way, but they blame different lines — this one
+// blames the "deprecated" token, and the alternative blames the field after
+// it. Saying so is the honest answer, and stops the message from asserting a
+// field name the author may never have written (WRIT-210).
+const fieldNameAfterFieldReservedReason = "; a bare \"deprecated\" modifier immediately after a field cannot be told apart from a following field's own name with one token of lookahead — if it was meant as the previous field's modifier, the error is in the field declaration after it"
+
 // targetReservedReason is appended to the diagnostic when validateName
 // (or Render's validateNameForRender) rejects deprecated as a
 // target(...) argument. target(...) is fully delimited by its own
@@ -464,37 +473,6 @@ func (p *parser) parseField() *Field {
 		return nil
 	}
 	validateName(p, nameTok, fieldNamePattern, "field name", fieldReserved, fieldNameReservedReason)
-	return p.parseFieldBody(nameTok)
-}
-
-// checkValueTypeStrategyCompat reports [T]/strategy mismatches: [T] is
-// required with a collection strategy and forbidden otherwise
-// (spec/schema-source.md: exactly one spelling per rule, so parse and
-// render stay inverse by construction). untyped fields carry no name to
-// bracket either way, so they are exempt. Shared by parseFieldBody's
-// real field-body parse and deprecatedTrialLooksLikeField's trial below,
-// which needs the same compatibility check but none of the rest of a
-// field body.
-func checkValueTypeStrategyCompat(p *parser, vt ValueType, vtPos Position, strategy string, stratPos Position) {
-	if vt.Kind == ValueTypeNone {
-		return
-	}
-	isCollectionStrategy := strategy == "set-union" || strategy == "set-observed-remove"
-	if isCollectionStrategy && vt.Kind != ValueTypeCollection {
-		p.errorf(vtPos, "strategy %q needs a collection element type '[%s]', not a bare value type", strategy, vt.Name)
-	}
-	if !isCollectionStrategy && vt.Kind == ValueTypeCollection {
-		p.errorf(stratPos, "'[%s]' is only valid with set-union or set-observed-remove, not strategy %q", vt.Name, strategy)
-	}
-}
-
-// parseFieldBody parses everything after a field's name token — value
-// type, strategy, and modifiers — given that nameTok has already been
-// consumed (and, for a real field, already name-validated by the
-// caller). It is split out from parseField only for readability; unlike
-// before WRIT-204 round 2, nothing calls it speculatively any more (see
-// deprecatedTrialLooksLikeField below).
-func (p *parser) parseFieldBody(nameTok token) *Field {
 	f := &Field{Name: nameTok.Text, Pos: nameTok.Pos}
 
 	vt, vtPos, ok := p.parseValueTypeExpr()
@@ -565,7 +543,7 @@ modifiers:
 			// The trial deliberately stops at the strategy-expr and never
 			// reaches this modifier loop again: a run of bare
 			// "deprecated" tokens once made a recursive trial (via
-			// parseFieldBody, which re-entered this same case) cost
+			// parseField's own body, which re-entered this same case) cost
 			// exponential time — 45 tokens took 42s (WRIT-204 round 2).
 			// Whether the tried field goes on to declare its own
 			// modifiers, or nests a reserved-word question of its own, is
@@ -580,7 +558,7 @@ modifiers:
 			trialClean := looksLikeField && len(p.errs) == 0
 			p.errs = savedErrs
 			if trialClean {
-				validateName(p, deprecatedTok, fieldNamePattern, "field name", fieldReserved, fieldNameReservedReason)
+				validateName(p, deprecatedTok, fieldNamePattern, "field name", fieldReserved, fieldNameAfterFieldReservedReason)
 				break modifiers
 			}
 			p.pos, p.lastLine = savedPos, savedLine
@@ -608,14 +586,35 @@ modifiers:
 	return f
 }
 
+// checkValueTypeStrategyCompat reports [T]/strategy mismatches: [T] is
+// required with a collection strategy and forbidden otherwise
+// (spec/schema-source.md: exactly one spelling per rule, so parse and
+// render stay inverse by construction). untyped fields carry no name to
+// bracket either way, so they are exempt. Shared by parseField's real
+// field-body parse and deprecatedTrialLooksLikeField's trial below,
+// which needs the same compatibility check but none of the rest of a
+// field body.
+func checkValueTypeStrategyCompat(p *parser, vt ValueType, vtPos Position, strategy string, stratPos Position) {
+	if vt.Kind == ValueTypeNone {
+		return
+	}
+	isCollectionStrategy := strategy == "set-union" || strategy == "set-observed-remove"
+	if isCollectionStrategy && vt.Kind != ValueTypeCollection {
+		p.errorf(vtPos, "strategy %q needs a collection element type '[%s]', not a bare value type", strategy, vt.Name)
+	}
+	if !isCollectionStrategy && vt.Kind == ValueTypeCollection {
+		p.errorf(stratPos, "'[%s]' is only valid with set-union or set-observed-remove, not strategy %q", vt.Name, strategy)
+	}
+}
+
 // deprecatedTrialLooksLikeField reports whether the tokens starting at
 // the parser's current position read as a value-type-expr followed by a
 // strategy-expr — exactly the lookahead the modifier loop's
 // "deprecated" case above needs to tell whether a bare "deprecated" is
 // this field's modifier or the next field's own (reserved) name.
 //
-// It deliberately does not parse modifiers the way parseFieldBody does:
-// doing so once meant calling parseFieldBody itself, whose modifier loop
+// It deliberately does not parse modifiers the way parseField does:
+// doing so once meant calling parseField's field body itself, whose loop
 // contains this same "deprecated" case, so a run of bare "deprecated"
 // tokens made the trial recurse into itself, and a failing trial at
 // depth k re-parsed the same tail again at depth k-1 — the textbook

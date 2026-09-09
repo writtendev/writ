@@ -569,7 +569,7 @@ func contestedTypeParts(contested map[string]string) string {
 // minting for a brand-new schema object happens here, in the CLI, rather
 // than in the engine, because schemasrc.Compile needs the target id before
 // the engine ever sees a single envelope: there is no "create and get an
-// id back" call for schema the way Reviews.Create or Issues.Create offer
+// id back" call for schema the way the deleted typed create services offered
 // for their own types.
 func newSchemaObjectID() (string, error) {
 	b := make([]byte, 16)

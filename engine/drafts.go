@@ -157,7 +157,7 @@ func (d *Drafts) Discard(ctx context.Context, id string) error {
 // half requiring observed cross-object causal dependencies to follow at
 // parents[1:]. Cross-writer causal edges within one object are unaffected —
 // Objects.Apply still passes projection.Frontier(objectID) and ApplySchema
-// still passes schemaFrontier(...) as parents[1:] (schema.go:547-555) — so
+// still passes schemaFrontier(...) as parents[1:] (see ApplySchema) — so
 // this loss is narrower than "no parents[1:] edge anywhere": what's gone is
 // specifically the cross-object edge from a comment to its subject. An
 // object commented on by another writer is no longer kept reachable by
