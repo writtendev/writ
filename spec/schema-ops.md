@@ -897,5 +897,10 @@ than restating the precedence itself (WRIT-188).
 - `spec/fixtures/testdata/descriptions/schema-driven-identifier-grammar.yaml`
   (WRIT-203) — the reader-side pin: a schema declaring one field with an
   out-of-grammar `target` and one with an out-of-grammar `key` column
-  alongside two legally-declared fields (one of them target-bearing), so
-  the resolver drops only the two malformed rules and installs the rest.
+  alongside two legally-declared fields (one of them target-bearing), plus
+  two sibling pairs — `alpha`/`beta` sharing target `shared` and
+  `gamma`/`delta` sharing key column `subject` — where the malformed
+  sibling also disagrees with its well-formed partner on strategy or key
+  type. The pairs exist to pin that the grammar check runs in the
+  per-rule pass: a malformed rule drops only itself, never the group a
+  grouping pass would have put it in alongside its legitimate sibling.
