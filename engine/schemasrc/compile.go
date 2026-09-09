@@ -56,11 +56,13 @@ type compiledField struct {
 
 // Compile emits the spec/schema-ops.md v1 op sequence a parsed writ.schema
 // file declares. objectID is an explicit, required parameter with no
-// default and nothing derived from f.Namespace: reusing the same
-// object_id across successive applies is load-bearing (WRIT-191) —
-// applying under a fresh id would create a second schema object binding
-// the same object_types, which RulesFromSchemas treats as a collision and
-// responds to by withholding all rules for those types.
+// default; Compile itself derives nothing from f.Namespace — the caller
+// derives it for a brand-new object (schema:<namespace>, WRIT-199) and
+// otherwise reuses the existing one. Reusing the same object_id across
+// successive applies is load-bearing (WRIT-191) — applying under a fresh
+// id would create a second schema object binding the same object_types,
+// which RulesFromSchemas treats as a collision and responds to by
+// withholding all rules for those types.
 //
 // Compile's own emission order is deterministic and canonically sorted
 // (create; then, per type in name order, define-type, deprecate-type,

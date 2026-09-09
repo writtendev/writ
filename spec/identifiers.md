@@ -79,16 +79,56 @@ Two alternative identification schemes were considered and rejected:
    which is incompatible with offline creation and conflict-free concurrent
    pushes.
 
+### The `schema` object type: a derived exception
+
+One object type does not mint a random id: `schema` ([`spec/schema-ops.md`](schema-ops.md)).
+A schema object's identity *is* its namespace, not an arbitrary handle picked
+at creation — so a producer creating one MUST derive the id from the
+`create` op's `namespace` as the literal:
+
+```jsonc
+"schema:acme"
+```
+
+That is, `"schema:" + namespace`.
+
+The reason is convergence, not aesthetics. `writ schema apply` creates a
+schema object with no coordination, the same way any other object is
+created — but two writers who each bootstrap the same namespace offline,
+with no chance to fetch each other's ops first, would otherwise mint two
+different random ids for what is meant to be one object. Both push; the
+repository now holds two schema objects each binding the same
+`object_type`(s), and `RulesFromSchemas` withholds every rule for those
+types, permanently, because it has no way to pick a winner between them
+(see [`spec/schema-ops.md`](schema-ops.md) §3). Deriving the id from the
+namespace makes that collision unreachable: both writers compute the same
+id and append to the same object, and their ops merge through the same
+keyed-lww resolution that already handles any other concurrent edit.
+
+The derivation is total. A namespace is constrained to
+`^[a-z][a-z0-9-]*$`, maximum length 64
+(`spec/schemas/schema-ops.schema.json` `$defs.namespace`), so
+`schema:<namespace>` is always 8–71 characters of printable non-space
+ASCII — within the envelope's own `object_id` bound
+(`^[\x21-\x7e]+$`, 1–256 characters, [`spec/op-envelope.md`](op-envelope.md))
+for every namespace a producer could legally declare, with no separate
+encoding step. It is also unambiguous against the canonical minted form:
+`^[0-9a-f]{32}$` admits no colon, so `schema:<namespace>` can never
+collide with, or be mistaken for, a randomly minted id.
+
 ### Producer and reader conformance
 
 - **Producers MUST** mint object IDs using 128 bits of cryptographically
-  secure randomness formatted as 32 lowercase hexadecimal characters.
+  secure randomness formatted as 32 lowercase hexadecimal characters,
+  **except** for a `schema` object, whose id MUST instead be derived from
+  its namespace as `schema:<namespace>` (see above).
 - **Readers MUST NOT** reject object IDs that fail to match the 32-hex
   lowercase format if they satisfy the envelope's printable non-space ASCII
   constraint (`^[\x21-\x7e]+$`, 1–256 characters). Readers MUST treat
   non-conforming or foreign IDs as opaque identifiers. This forward-compatibility
   rule ensures older readers do not discard objects created by newer or
-  third-party producers.
+  third-party producers — it already covers a derived `schema` id with no
+  change of its own.
 
 ## Person identifiers (`person-id`)
 

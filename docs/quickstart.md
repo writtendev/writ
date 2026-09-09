@@ -94,7 +94,7 @@ writ schema apply
 
 Output:
 ```
-Created schema object 426905eb8b0b65f913ddcfd05905d1d3 (namespace "my-project").
+Created schema object schema:my-project (namespace "my-project").
 Appended 6 op(s).
 ```
 

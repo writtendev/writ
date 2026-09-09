@@ -1,0 +1,40 @@
+{
+  "objects": [
+    {
+      "object_id": "schema:acme",
+      "schema": {
+        "object_id": "schema:acme",
+        "namespace": "acme",
+        "description": "Acme's vocabulary",
+        "types": [
+          {
+            "type": "sprint",
+            "description": "A time-boxed iteration",
+            "fields": [
+              {
+                "field": "name",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              }
+            ]
+          },
+          {
+            "type": "ticket",
+            "description": "A tracked ticket",
+            "fields": [
+              {
+                "field": "title",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,110 @@
+name: schema-independent-bootstrap
+description: >
+  Two writers (Alice and Bob), each on their own chain with no causal edge
+  between them, independently bootstrap the same namespace while offline:
+  both emit a `create` op with the same derived object_id (`schema:acme`,
+  spec/identifiers.md's schema carve-out) and the same namespace, then each
+  declares a type and field the other never mentions. Grouping ops by
+  object_id — the same mechanism any other object uses — folds both
+  writers' ops into one schema object holding the union of their
+  declarations, instead of the two colliding objects a randomly minted id
+  would have produced (spec/schema-ops.md §1.1, §3). The `namespace`
+  create-once register resolves deterministically from two equal-valued
+  writes.
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: alice-create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+                description: "Acme's vocabulary"
+            expect: accept
+
+          - id: alice-define-type
+            parents: [alice-create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "ticket"
+                description: "A tracked ticket"
+            expect: accept
+
+          - id: alice-define-field
+            parents: [alice-define-type]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "ticket"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+  - name: refs/writ/fedcba9876543210/schema
+    history:
+      - commits:
+          - id: bob-create
+            author: bob
+            timestamp: 2026-01-01T00:00:30Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+                description: "Acme's vocabulary"
+            expect: accept
+
+          - id: bob-define-type
+            parents: [bob-create]
+            author: bob
+            timestamp: 2026-01-01T00:01:30Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "sprint"
+                description: "A time-boxed iteration"
+            expect: accept
+
+          - id: bob-define-field
+            parents: [bob-define-type]
+            author: bob
+            timestamp: 2026-01-01T00:02:30Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "sprint"
+                op_type: "create"
+                op_version: "1"
+                field: "name"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept

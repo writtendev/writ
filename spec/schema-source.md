@@ -298,14 +298,18 @@ define-fields whose `TargetKey()` collides while their strategies differ
 (§7) are rejected the same way, at the same time, rather than only at
 resolve time.
 
-`objectID` is an explicit, required parameter with no default and nothing
-derived from `namespace`. Reusing it across successive applies to the
-same schema object is load-bearing: applying a source file under a fresh
-id would create a *second* `schema` object binding the same
+`objectID` is an explicit, required parameter with no default; `Compile`
+itself derives nothing from `namespace`. Reusing it across successive
+applies to the same schema object is load-bearing: applying a source file
+under a fresh id would create a *second* `schema` object binding the same
 `object_type`s, which `RulesFromSchemas` treats as a collision (§6 of
 `schema-ops.md`) and responds to by withholding **all** rules for those
 types — not just the newly applied ones. Whoever calls `Compile` supplies
-the id; this package invents nothing.
+the id; this package invents nothing. The caller (`cmd/writ/schema.go`) is
+where that id now comes from `namespace` for a brand-new object —
+`schema:<namespace>`, per `spec/identifiers.md`'s schema carve-out — but
+that derivation lives in the caller, not here: `Compile` still just takes
+whatever `objectID` it is given.
 
 ## 6. What round-trips, and what does not
 

@@ -1,0 +1,88 @@
+{
+  "refs": [
+    {
+      "name": "refs/writ/0123456789abcdef/schema",
+      "commit": "99455e76f683d6b75d4297d44744ceff2b7a5cb4"
+    },
+    {
+      "name": "refs/writ/fedcba9876543210/schema",
+      "commit": "c15eb0fffebb274d58f84a64458a6f8847ec74a7"
+    }
+  ],
+  "generations": [
+    {
+      "ref": "refs/writ/0123456789abcdef/schema",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "d1c17b76d8c41147abc1c7a9611e72f4609a8bd1",
+          "tree": "8cc6219d236d84116c00a38e2b9f9ab8b2af47ca",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "message": "writ: create schema/schema:acme\n",
+          "signed": true
+        },
+        {
+          "sha": "366d27e7266ff68dbf36f1a49dc671965be3a70b",
+          "tree": "070c414fd5cf4048ea0f338d3b07fff2a30fb7d3",
+          "parents": [
+            "d1c17b76d8c41147abc1c7a9611e72f4609a8bd1"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:01:00Z",
+          "message": "writ: define-type schema/schema:acme\n",
+          "signed": true
+        },
+        {
+          "sha": "99455e76f683d6b75d4297d44744ceff2b7a5cb4",
+          "tree": "4cc6aaccbe814a9ce8c4b8959b7a49f88f8f5a17",
+          "parents": [
+            "366d27e7266ff68dbf36f1a49dc671965be3a70b"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:02:00Z",
+          "message": "writ: define-field schema/schema:acme\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/fedcba9876543210/schema",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "21beade09f805e7b04329e5b3c7ddd46849df020",
+          "tree": "8cc6219d236d84116c00a38e2b9f9ab8b2af47ca",
+          "parents": [],
+          "author": "Bob Example \u003cbob@example.test\u003e",
+          "timestamp": "2026-01-01T00:00:30Z",
+          "message": "writ: create schema/schema:acme\n",
+          "signed": true
+        },
+        {
+          "sha": "912821929660bfb540af7e0f60ebd0336daef61a",
+          "tree": "7c57f4b72bafb240de7905baed7ffbc32d2d76bb",
+          "parents": [
+            "21beade09f805e7b04329e5b3c7ddd46849df020"
+          ],
+          "author": "Bob Example \u003cbob@example.test\u003e",
+          "timestamp": "2026-01-01T00:01:30Z",
+          "message": "writ: define-type schema/schema:acme\n",
+          "signed": true
+        },
+        {
+          "sha": "c15eb0fffebb274d58f84a64458a6f8847ec74a7",
+          "tree": "b7b82f16208ffef2054ef5048093d4984bba82ee",
+          "parents": [
+            "912821929660bfb540af7e0f60ebd0336daef61a"
+          ],
+          "author": "Bob Example \u003cbob@example.test\u003e",
+          "timestamp": "2026-01-01T00:02:30Z",
+          "message": "writ: define-field schema/schema:acme\n",
+          "signed": true
+        }
+      ]
+    }
+  ]
+}
