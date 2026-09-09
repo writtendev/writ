@@ -41,7 +41,6 @@ func ResolveGitDir(path string) (GitDirInfo, error)
 func RulesFromSchemas(schemas []state.Schema) (map[string][]Rule, []SchemaConflict)
 func SchemaFromEnvelopes(envs []codec.Envelope) (Schema, error)
 func SchemaRules() []Rule
-func TypeIsQualifiedForNamespace(typeName, namespace string) bool
 func VocabulariesFromSchemas(schemas []state.Schema) (codec.Vocabularies, []SchemaConflict)
 func WithCacheDir(dir string) Option
 func WithGitBinary(gitBin string) Option

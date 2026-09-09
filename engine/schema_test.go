@@ -437,10 +437,11 @@ func TestRulesFromSchemas_InvalidOpTypeGrammarDroppedNotInstalled(t *testing.T) 
 //     both, wrongly taking gamma down with it.
 func TestRulesFromSchemas_InvalidTargetOrKeyGrammarDroppedNotInstalled(t *testing.T) {
 	sch := state.Schema{
-		ObjectID: "sch-a",
+		ObjectID:  "sch-a",
+		Namespace: "acme",
 		Types: []state.SchemaType{
 			{
-				Name: "standup",
+				Name: "acme.standup",
 				Fields: []state.SchemaField{
 					{Name: "summary", OpType: "create", OpVersion: 1, Strategy: "lww", ValueType: "string"},                                                                                // valid, control
 					{Name: "code", OpType: "create", OpVersion: 1, Strategy: "lww", ValueType: "string", Target: "identifier"},                                                             // valid target, sibling
@@ -463,7 +464,7 @@ func TestRulesFromSchemas_InvalidTargetOrKeyGrammarDroppedNotInstalled(t *testin
 	}
 
 	rules, conflicts := writ.RulesFromSchemas([]state.Schema{sch})
-	got := rules["standup"]
+	got := rules["acme.standup"]
 	if len(got) != 4 {
 		t.Fatalf("expected only the four grammatically valid fields installed, got %+v", got)
 	}
@@ -491,12 +492,12 @@ func TestRulesFromSchemas_InvalidTargetOrKeyGrammarDroppedNotInstalled(t *testin
 	// to UnknownOps rather than hard-erroring.
 	dataOp := codec.Op{
 		Envelope: codec.Envelope{
-			ObjectID: "obj-1", ObjectType: "standup", OpType: "create", OpVersion: 1,
+			ObjectID: "obj-1", ObjectType: "acme.standup", OpType: "create", OpVersion: 1,
 			Body: json.RawMessage(`{"summary":"hi","code":"abc","owner":"alice","Bad Col":"x","tags":"y"}`),
 		},
 		ID: "op-1",
 	}
-	objState, err := writ.Fold([]codec.Op{dataOp}, rules["standup"])
+	objState, err := writ.Fold([]codec.Op{dataOp}, rules["acme.standup"])
 	if err != nil {
 		t.Fatalf("Fold must never see a rule for a grammar-invalid target or key column, got error: %v", err)
 	}
@@ -511,19 +512,19 @@ func TestRulesFromSchemas_InvalidTargetOrKeyGrammarDroppedNotInstalled(t *testin
 	// fold normally under their own, unrelated ops.
 	alphaOp := codec.Op{
 		Envelope: codec.Envelope{
-			ObjectID: "obj-1", ObjectType: "standup", OpType: "set-alpha", OpVersion: 1,
+			ObjectID: "obj-1", ObjectType: "acme.standup", OpType: "set-alpha", OpVersion: 1,
 			Body: json.RawMessage(`{"alpha":"left"}`),
 		},
 		ID: "op-2",
 	}
 	gammaOp := codec.Op{
 		Envelope: codec.Envelope{
-			ObjectID: "obj-1", ObjectType: "standup", OpType: "set-subject", OpVersion: 1,
+			ObjectID: "obj-1", ObjectType: "acme.standup", OpType: "set-subject", OpVersion: 1,
 			Body: json.RawMessage(`{"gamma":"urgent","subject":"person-1","delta":"ignored"}`),
 		},
 		ID: "op-3",
 	}
-	objState2, err := writ.Fold([]codec.Op{alphaOp, gammaOp}, rules["standup"])
+	objState2, err := writ.Fold([]codec.Op{alphaOp, gammaOp}, rules["acme.standup"])
 	if err != nil {
 		t.Fatalf("Fold on alpha/gamma's own ops: %v", err)
 	}
@@ -1127,7 +1128,7 @@ func TestStoreSchemaFoldsEveryLoggedSchemaObject(t *testing.T) {
 
 	appendSchemaOp("sch-b", "create", map[string]any{"namespace": "beta"})
 	appendSchemaOp("sch-a", "create", map[string]any{"namespace": "acme"})
-	appendSchemaOp("sch-a", "define-type", map[string]any{"type": "standup"})
+	appendSchemaOp("sch-a", "define-type", map[string]any{"type": "acme.standup"})
 
 	store, err := writ.Open(dir)
 	if err != nil {
@@ -1148,8 +1149,8 @@ func TestStoreSchemaFoldsEveryLoggedSchemaObject(t *testing.T) {
 	if schemas[0].Namespace != "acme" {
 		t.Errorf("schemas[0].Namespace = %q, want acme", schemas[0].Namespace)
 	}
-	if len(schemas[0].Types) != 1 || schemas[0].Types[0].Name != "standup" {
-		t.Errorf("schemas[0].Types = %+v, want [standup]", schemas[0].Types)
+	if len(schemas[0].Types) != 1 || schemas[0].Types[0].Name != "acme.standup" {
+		t.Errorf("schemas[0].Types = %+v, want [acme.standup]", schemas[0].Types)
 	}
 	if schemas[1].Namespace != "beta" {
 		t.Errorf("schemas[1].Namespace = %q, want beta", schemas[1].Namespace)
@@ -1428,9 +1429,9 @@ func TestSchemaAfterApply_MatchesRealApply(t *testing.T) {
 		store := newStore(t)
 		delta := []codec.Envelope{
 			schemaEnv(t, "sch-fresh", "create", map[string]any{"namespace": "acme"}),
-			schemaEnv(t, "sch-fresh", "define-type", map[string]any{"type": "standup"}),
+			schemaEnv(t, "sch-fresh", "define-type", map[string]any{"type": "acme.standup"}),
 			schemaEnv(t, "sch-fresh", "define-field", map[string]any{
-				"type": "standup", "op_type": "create", "op_version": "1", "field": "title",
+				"type": "acme.standup", "op_type": "create", "op_version": "1", "field": "title",
 				"value_type": "string", "strategy": "lww",
 			}),
 		}
@@ -1443,7 +1444,7 @@ func TestSchemaAfterApply_MatchesRealApply(t *testing.T) {
 		initial := []codec.Envelope{
 			schemaEnv(t, "sch-partial", "create", map[string]any{"namespace": "acme"}),
 			schemaEnv(t, "sch-partial", "define-field", map[string]any{
-				"type": "standup", "op_type": "create", "op_version": "1", "field": "title",
+				"type": "acme.standup", "op_type": "create", "op_version": "1", "field": "title",
 				"value_type": "string", "strategy": "lww",
 			}),
 		}
@@ -1451,9 +1452,9 @@ func TestSchemaAfterApply_MatchesRealApply(t *testing.T) {
 			t.Fatalf("initial ApplySchema failed: %v", err)
 		}
 		delta := []codec.Envelope{
-			schemaEnv(t, "sch-partial", "define-type", map[string]any{"type": "standup", "description": "A daily standup update"}),
+			schemaEnv(t, "sch-partial", "define-type", map[string]any{"type": "acme.standup", "description": "A daily standup update"}),
 			schemaEnv(t, "sch-partial", "define-field", map[string]any{
-				"type": "standup", "op_type": "create", "op_version": "1", "field": "body",
+				"type": "acme.standup", "op_type": "create", "op_version": "1", "field": "body",
 				"value_type": "text", "strategy": "multi-value",
 			}),
 		}
@@ -1466,7 +1467,7 @@ func TestSchemaAfterApply_MatchesRealApply(t *testing.T) {
 		initial := []codec.Envelope{
 			schemaEnv(t, "sch-empty-delta", "create", map[string]any{"namespace": "acme"}),
 			schemaEnv(t, "sch-empty-delta", "define-field", map[string]any{
-				"type": "standup", "op_type": "create", "op_version": "1", "field": "title",
+				"type": "acme.standup", "op_type": "create", "op_version": "1", "field": "title",
 				"value_type": "string", "strategy": "lww",
 			}),
 		}
@@ -1486,7 +1487,7 @@ func TestSchemaAfterApply_MatchesRealApply(t *testing.T) {
 		}
 		delta := []codec.Envelope{
 			schemaEnv(t, "sch-second", "create", map[string]any{"namespace": "beta"}),
-			schemaEnv(t, "sch-second", "define-type", map[string]any{"type": "retro"}),
+			schemaEnv(t, "sch-second", "define-type", map[string]any{"type": "beta.retro"}),
 		}
 		assertSchemaAfterApplyMatchesRealApply(t, store, "sch-second", delta)
 	})
@@ -1505,7 +1506,7 @@ func TestSchemaAfterApply_MatchesRealApply(t *testing.T) {
 			t.Fatalf("ApplySchema for the second object failed: %v", err)
 		}
 		delta := []codec.Envelope{
-			schemaEnv(t, "sch-first", "define-type", map[string]any{"type": "standup"}),
+			schemaEnv(t, "sch-first", "define-type", map[string]any{"type": "acme.standup"}),
 		}
 		assertSchemaAfterApplyMatchesRealApply(t, store, "sch-first", delta)
 	})
@@ -1516,7 +1517,7 @@ func TestSchemaAfterApply_MatchesRealApply(t *testing.T) {
 		initial := []codec.Envelope{
 			schemaEnv(t, "sch-widen", "create", map[string]any{"namespace": "acme"}),
 			schemaEnv(t, "sch-widen", "define-field", map[string]any{
-				"type": "standup", "op_type": "create", "op_version": "1", "field": "title",
+				"type": "acme.standup", "op_type": "create", "op_version": "1", "field": "title",
 				"value_type": "string", "strategy": "lww", "max_length": 50,
 			}),
 		}
@@ -1530,7 +1531,7 @@ func TestSchemaAfterApply_MatchesRealApply(t *testing.T) {
 		// independently (spec/schema-ops.md §8).
 		delta := []codec.Envelope{
 			schemaEnv(t, "sch-widen", "define-field", map[string]any{
-				"type": "standup", "op_type": "create", "op_version": "1", "field": "title",
+				"type": "acme.standup", "op_type": "create", "op_version": "1", "field": "title",
 				"strategy": "lww", "max_length": 200,
 			}),
 		}
@@ -1543,7 +1544,7 @@ func TestSchemaAfterApply_MatchesRealApply(t *testing.T) {
 		initial := []codec.Envelope{
 			schemaEnv(t, "sch-narrow", "create", map[string]any{"namespace": "acme"}),
 			schemaEnv(t, "sch-narrow", "define-field", map[string]any{
-				"type": "standup", "op_type": "create", "op_version": "1", "field": "state",
+				"type": "acme.standup", "op_type": "create", "op_version": "1", "field": "state",
 				"value_type": "string", "enum": []string{"open", "done"}, "strategy": "lww",
 			}),
 		}
@@ -1558,7 +1559,7 @@ func TestSchemaAfterApply_MatchesRealApply(t *testing.T) {
 		// below).
 		delta := []codec.Envelope{
 			schemaEnv(t, "sch-narrow", "define-field", map[string]any{
-				"type": "standup", "op_type": "create", "op_version": "1", "field": "state",
+				"type": "acme.standup", "op_type": "create", "op_version": "1", "field": "state",
 				"value_type": "string", "strategy": "lww",
 			}),
 		}
@@ -1594,7 +1595,7 @@ func TestSchemaAfterApply_MatchesRealApply(t *testing.T) {
 		if err != nil {
 			t.Fatalf("dag.Open (writer B) failed: %v", err)
 		}
-		if _, err := dagB.Append(ctx, schemaEnv(t, "sch-multi", "define-type", map[string]any{"type": "standup"}), []string{createOp.ID}); err != nil {
+		if _, err := dagB.Append(ctx, schemaEnv(t, "sch-multi", "define-type", map[string]any{"type": "acme.standup"}), []string{createOp.ID}); err != nil {
 			t.Fatalf("writer B append failed: %v", err)
 		}
 
@@ -1610,7 +1611,7 @@ func TestSchemaAfterApply_MatchesRealApply(t *testing.T) {
 
 		delta := []codec.Envelope{
 			schemaEnv(t, "sch-multi", "define-field", map[string]any{
-				"type": "standup", "op_type": "create", "op_version": "1", "field": "title",
+				"type": "acme.standup", "op_type": "create", "op_version": "1", "field": "title",
 				"value_type": "string", "strategy": "lww",
 			}),
 		}

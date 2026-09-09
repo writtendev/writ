@@ -914,7 +914,7 @@ func runSchemaSyncOrFatal(t *testing.T, dir string) {
 // wire type outside its own namespace — "acme.standup" declared by a
 // schema object whose own namespace is "evil" — is exactly the shape
 // engine/schema.go's RulesFromSchemas drops and never installs (WRIT-217
-// §6.3, TypeIsQualifiedForNamespace), so it must never be able to block a
+// §6.3, typeIsQualifiedForNamespace), so it must never be able to block a
 // legitimate namespace's own `writ schema apply`. Round 1 fixed this with
 // a type-name filter on resolveSchemaTarget's own contested-type guard
 // (contestedTypeOwners); round 2 found that filter made the guard
