@@ -244,8 +244,9 @@ Comments are never data — `description "..."` is (§6).
   `key`" rule impossible to violate through this grammar.
 * `target(name)` — the state key this field's register lands under
   (`fold.md` §5). Optional on every field; required in practice exactly
-  when a version bump changes strategy while a prior version already
-  claimed the default target (§7). `name` follows the field-name
+  when a version bump would otherwise reuse the default target while
+  disagreeing with a prior version on `strategy` or `lattice` (§7). `name`
+  follows the field-name
   reservation rule (§2), not the closed one: only `deprecated` is off
   limits, so `target(description)` and `target(type)` are both legal.
 * `deprecated` — marks the field discouraged for new writes without
@@ -351,14 +352,15 @@ A field's merge strategy can change from one op version to the next
 without a migration, because field rules are already keyed by
 `(op_type, op_version, field)` (`schema-ops.md` §8): ops written under the
 old version keep folding under the old rules, and ops written under the
-new version fold under the new ones. A version bump changing `strategy`
-while reusing the same `target` as a prior version is order-dependent —
-`fold.md` §5's generic fold groups matched rules by target key alone and
-instantiates one accumulator from whichever rule a caller's slice lists
-first — and `engine/schemasrc.Compile` rejects it at compile time, with a
-line and column, rather than deferring to the resolver: `compileType`
-already holds the whole type when a field is compiled, so nothing about
-this check needs to wait until the type's rules are assembled elsewhere.
+new version fold under the new ones. A version bump that changes
+`strategy`, or that disagrees on `lattice`, while reusing the same
+`target` as a prior version is order-dependent — `fold.md` §5's generic
+fold groups matched rules by target key alone and instantiates one
+accumulator from whichever rule a caller's slice lists first — and
+`engine/schemasrc.Compile` rejects both at compile time, with a line and
+column, rather than deferring to the resolver: `compileType` already
+holds the whole type when a field is compiled, so nothing about this
+check needs to wait until the type's rules are assembled elsewhere.
 Left unchecked here, the same collision is still caught later —
 `RulesFromSchemas` drops the colliding rule and records a
 `SchemaConflict` — but only after the ops are signed into the log and

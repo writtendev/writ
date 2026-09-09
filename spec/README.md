@@ -261,8 +261,8 @@ a repo" is not the whole pipeline; the schema-driven pipeline below is:
    required values), drop and report the ones that fail rather than
    installing them, and detect the two schema-vs-schema conflicts (an
    `object_type` two schema objects both bind, and a version bump that
-   reuses a `target` across a strategy change) per `spec/schema-ops.md` §6
-   and §8. Neither conflict kind picks a winner.
+   reuses a `target` while disagreeing on `strategy` or `lattice`) per
+   `spec/schema-ops.md` §6 and §8. Neither conflict kind picks a winner.
 4. Fold every other object with the rules resolved for its own
    `object_type`. An `object_type` no schema declares (yet) is not a fold
    error: every op on it reports through `UnknownOps`, exactly as any other
