@@ -582,27 +582,49 @@ new problem — it is the same "nothing is ever removed" constraint this
 section already states for a `strategy` change (§8 above) — so it takes
 the same recipe: declare the field again under a **new `op_version`**.
 
-Whether that new declaration also needs a **distinct `target`** is
-exactly the split §8's "MAY freely change" bullet already draws, applied
-to narrowing instead of to an ordinary redeclaration: `value_type`,
-`enum`, `max_length`, `key`, and `key_types` are not consulted by the
-fold at all, so narrowing one of them is a version bump under the *same*
-`target` — `string(200)` narrowed to `string` is `op create 2` declaring
-`title` unbounded again, reusing `target: title` (or omitting it, which
-defaults to the same place `op_version` 1 uses). `lattice` is the one
-attribute §8 excludes from that bullet, because the accumulator reads it
-at fold time, so narrowing it needs a distinct target for the same
-reason §8 already requires one for a `strategy` change: two rules
-sharing a target are indistinguishable to the accumulator regardless of
-which one `Fold` sees first. Narrowing `target` itself is the trivial
-case — reverting to the field-name default is already a target change.
+Whether that new declaration also needs a **distinct `target`** follows
+§8's own two bullets, applied to narrowing instead of to an ordinary
+redeclaration. `value_type`, `enum`, and `max_length` are not consulted
+by the fold at all, so narrowing one of them is a version bump under the
+*same* `target` — `string(200)` narrowed to `string` is `op create 2`
+declaring `title` unbounded again, reusing `target: title` (or omitting
+it, which defaults to the same place `op_version` 1 uses).
+
+`key` and `key_types` read like they belong in that group — §8's MAY
+bullet names both — but narrowing either, in the sense this section
+means (a redeclaration whose body stops carrying the attribute at all,
+leaving the log holding a register the file no longer describes), is
+unreachable without also changing `strategy`: both are required exactly
+when `strategy` is `keyed-lww` and forbidden otherwise
+(`spec/fieldrules.go`'s `ValidateFieldRule`), so a redeclaration that
+drops `key` has, by construction, also stopped declaring `keyed-lww`.
+That is the `strategy`-change case §8's second bullet already governs,
+not the same-target case its first bullet grants for this section's
+narrowing scenario — and correctly so: the accumulator reads the
+matched rule's `Key` and `KeyTypes` on every `Apply` to build the
+register's composite key (`engine/internal/fold/strategy.go`'s
+`keyedLWWAccumulator.Apply`), so two keyed-lww rules sharing a target
+are exactly as order-dependent as two rules disagreeing on `strategy`.
+§8's MAY bullet is still correct as stated: it covers a version bump
+that keeps `key`/`key_types` present and changes their *value* —
+narrowing which columns compose the key while staying `keyed-lww` —
+which never reaches this section's clearing case, because the attribute
+is never absent from the body, only different.
+
+`lattice` is the remaining attribute §8 excludes from its MAY bullet,
+because the accumulator reads it at fold time, so narrowing it needs a
+distinct target for the same reason: two rules sharing a target are
+indistinguishable to the accumulator regardless of which one `Fold`
+sees first. Narrowing `target` itself is the trivial case — reverting
+to the field-name default is already a target change.
+
 `writ schema apply`'s refusal message follows the same split
 (`cmd/writ/schema.go`): it asks for a distinct target only when the
-narrowed attribute is `lattice` or `target`, and for a plain
-`op_version` bump otherwise. The old, wider declaration is not deleted —
-nothing is — it stays live for whatever already writes `op_version` 1,
-exactly as any other version bump leaves the superseded version folding
-on unaffected.
+narrowed attribute is `key`, `key_types`, `lattice`, or `target`, and
+for a plain `op_version` bump otherwise. The old, wider declaration is
+not deleted — nothing is — it stays live for whatever already writes
+`op_version` 1, exactly as any other version bump leaves the superseded
+version folding on unaffected.
 
 ---
 
