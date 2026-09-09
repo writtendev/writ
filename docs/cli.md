@@ -57,18 +57,22 @@ Create a new object of a schema-declared type
 #### Synopsis
 
 ```console
-Usage: writ object create [-C <dir>] <type> <op-type> [-field <k>=<v>]... [-op-version <n>] [--json]
+Usage: writ object create [-C <dir>] <type> <op-type> [-field <k>=<v>]... [-field-json <k>=<v>]... [-op-version <n>] [--json]
 ```
 
 #### Description
 
 Append the op that starts a new object of <type>, using <op-type>'s field rules
 from the installed vocabulary (`writ schema show <type>`) to parse each -field value.
+-field-json sets a field from raw JSON instead, for a field -field cannot express: one
+that is object-shaped, or that declares no value type at all (such as comment.create's
+subject).
 
 #### Flags
 
 - `-C <dir>`: Run as if writ was started in <dir>
 - `-field <k>=<v>`: Field <k>=<v> to set on the creating op (repeatable; repeat the same key for a set)
+- `-field-json <k>=<v>`: Field <k>=<v> to set from raw JSON, skipping type-directed conversion (repeatable; the escape hatch for an object-shaped or untyped field, such as comment.create's subject)
 - `-op-version version`: Explicit op version (default: resolved from the installed vocabulary)
 - `-json`: Output result as JSON
 
@@ -77,6 +81,7 @@ from the installed vocabulary (`writ schema show <type>`) to parse each -field v
 ```bash
 writ object create ticket create -field title="Fix the thing"
 writ object create ticket create -field title="Fix the thing" --json
+writ object create comment create -field-json subject='{"object_type":"review","object_id":"<id>"}' -field text="this allocates in the hot path"
 ```
 
 ### `writ object apply`
@@ -86,17 +91,20 @@ Apply a further op to an existing object
 #### Synopsis
 
 ```console
-Usage: writ object apply [-C <dir>] <object-id> <op-type> [-field <k>=<v>]... [-op-version <n>] [--json]
+Usage: writ object apply [-C <dir>] <object-id> <op-type> [-field <k>=<v>]... [-field-json <k>=<v>]... [-op-version <n>] [--json]
 ```
 
 #### Description
 
 Append a further op against an existing object, causally following its current frontier.
+-field-json sets a field from raw JSON instead of -field's type-directed conversion --
+see `writ object create -h`.
 
 #### Flags
 
 - `-C <dir>`: Run as if writ was started in <dir>
 - `-field <k>=<v>`: Field <k>=<v> to set on the op (repeatable; repeat the same key for a set)
+- `-field-json <k>=<v>`: Field <k>=<v> to set from raw JSON, skipping type-directed conversion (repeatable; the escape hatch for an object-shaped or untyped field, such as comment.create's subject)
 - `-op-version version`: Explicit op version (default: resolved from the installed vocabulary)
 - `-json`: Output result as JSON
 

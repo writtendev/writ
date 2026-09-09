@@ -90,29 +90,37 @@ var objectCmd = &command{
 var objectCreateCmd = &command{
 	Name:      "create",
 	Short:     "Create a new object of a schema-declared type",
-	UsageLine: "Usage: writ object create [-C <dir>] <type> <op-type> [-field <k>=<v>]... [-op-version <n>] [--json]",
+	UsageLine: "Usage: writ object create [-C <dir>] <type> <op-type> [-field <k>=<v>]... [-field-json <k>=<v>]... [-op-version <n>] [--json]",
 	Long: "Append the op that starts a new object of <type>, using <op-type>'s field rules\n" +
-		"from the installed vocabulary (`writ schema show <type>`) to parse each -field value.",
+		"from the installed vocabulary (`writ schema show <type>`) to parse each -field value.\n" +
+		"-field-json sets a field from raw JSON instead, for a field -field cannot express: one\n" +
+		"that is object-shaped, or that declares no value type at all (such as comment.create's\n" +
+		"subject).",
 	Flags: []flagSpec{
 		{Name: "C"},
 		{Name: "field", Repeatable: true},
+		{Name: "field-json", Repeatable: true},
 		{Name: "op-version"},
 		{Name: "json"},
 	},
 	Examples: []string{
 		"writ object create ticket create -field title=\"Fix the thing\"",
 		"writ object create ticket create -field title=\"Fix the thing\" --json",
+		"writ object create comment create -field-json subject='{\"object_type\":\"review\",\"object_id\":\"<id>\"}' -field text=\"this allocates in the hot path\"",
 	},
 }
 
 var objectApplyCmd = &command{
 	Name:      "apply",
 	Short:     "Apply a further op to an existing object",
-	UsageLine: "Usage: writ object apply [-C <dir>] <object-id> <op-type> [-field <k>=<v>]... [-op-version <n>] [--json]",
-	Long:      "Append a further op against an existing object, causally following its current frontier.",
+	UsageLine: "Usage: writ object apply [-C <dir>] <object-id> <op-type> [-field <k>=<v>]... [-field-json <k>=<v>]... [-op-version <n>] [--json]",
+	Long: "Append a further op against an existing object, causally following its current frontier.\n" +
+		"-field-json sets a field from raw JSON instead of -field's type-directed conversion --\n" +
+		"see `writ object create -h`.",
 	Flags: []flagSpec{
 		{Name: "C"},
 		{Name: "field", Repeatable: true},
+		{Name: "field-json", Repeatable: true},
 		{Name: "op-version"},
 		{Name: "json"},
 	},

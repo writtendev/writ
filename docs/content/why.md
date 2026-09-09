@@ -38,6 +38,7 @@ $ writ init                        # writes fetch refspecs into .git/config
 $ writ schema apply                 # appends the schema op; review/issue/comment ship as engine built-ins, not from this file
 $ writ object create review create -field title="Add rate limiting"
 $ writ object apply <id> revision -field base=<base-sha> -field head=<head-sha>
+$ writ object create comment create -field-json subject='{"object_type":"review","object_id":"<id>"}' -field text="this allocates in the hot path"
 $ writ object apply <id> approval -field revision=<head-sha> -field verdict=approve
 $ writ sync                        # git push, to your own ref namespace
 ```

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -153,6 +154,204 @@ func TestObjectCLI_EndToEnd_NeverHeardOfType(t *testing.T) {
 	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectList, &results)
 	if len(results) != 1 || results[0].ObjectID != objectID {
 		t.Fatalf("object list = %#v, want exactly one result for %s", results, objectID)
+	}
+}
+
+// untypedFieldTestSchema declares a type with a field that has no declared
+// value_type at all -- spec/value-types.md's "untyped" exception, written
+// with the schema-source DSL's `untyped` keyword (spec/schema-source.md
+// §3.1) -- to pin that -field-json is a general escape hatch for any
+// consumer schema's untyped/object-shaped field, not special-cased to the
+// built-in comment.create.subject.
+const untypedFieldTestSchema = `namespace acme
+description "Untyped-field vocabulary"
+
+type widget {
+  op create 1 {
+    payload untyped create-once
+  }
+}
+`
+
+// TestObjectCLI_FieldJSON_CommentSubject pins WRIT-209's acceptance case:
+// comment.create's subject is a {object_type, object_id} record
+// (spec/schemas/comment.schema.json) that declares no value_type at all
+// (spec/value-types.md's "untyped" exception), so -field cannot express it
+// -- -field-json is the escape hatch. review and comment are engine
+// built-ins (ARCHITECTURE.md §Object types), so neither needs a schema
+// apply first.
+func TestObjectCLI_FieldJSON_CommentSubject(t *testing.T) {
+	env := initTestRepo(t)
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{
+		"object", "create", "-C", env.repoDir, "review", "create",
+		"-field", "title=Add rate limiting",
+		"--json",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("review create failed with %d; stderr: %s", code, stderr.String())
+	}
+	var review wire.ObjectCreated
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectCreate, &review)
+	reviewID := review.ObjectID
+
+	stdout.Reset()
+	stderr.Reset()
+	subjectJSON := fmt.Sprintf(`{"object_type":"review","object_id":%q}`, reviewID)
+	code = run(context.Background(), []string{
+		"object", "create", "-C", env.repoDir, "comment", "create",
+		"-field-json", "subject=" + subjectJSON,
+		"-field", "text=this allocates in the hot path",
+		"--json",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("comment create failed with %d; stderr: %s", code, stderr.String())
+	}
+	var comment wire.ObjectCreated
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectCreate, &comment)
+	if comment.ObjectType != "comment" {
+		t.Errorf("object_type = %q, want comment", comment.ObjectType)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run(context.Background(), []string{"object", "show", "-C", env.repoDir, comment.ObjectID, "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("object show failed with %d; stderr: %s", code, stderr.String())
+	}
+	var obj wire.Object
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectShow, &obj)
+	subject, ok := obj.Fields["subject"].(map[string]any)
+	if !ok {
+		t.Fatalf("subject = %#v, want a JSON object", obj.Fields["subject"])
+	}
+	if subject["object_type"] != "review" || subject["object_id"] != reviewID {
+		t.Errorf("subject = %#v, want {object_type: review, object_id: %s}", subject, reviewID)
+	}
+	if text, _ := obj.Fields["text"].(string); text != "this allocates in the hot path" {
+		t.Errorf("text = %v, want the comment text", obj.Fields["text"])
+	}
+}
+
+// TestObjectCLI_FieldJSON_UntypedConsumerField pins the ticket's broader
+// claim: "any consumer schema with a nested-object field hits the same
+// wall" -- -field-json is not special-cased to writ's built-in comment
+// type, it works for any (objectType, opType, field) the installed
+// vocabulary declares with no value_type.
+func TestObjectCLI_FieldJSON_UntypedConsumerField(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, untypedFieldTestSchema)
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code := run(context.Background(), []string{
+		"object", "create", "-C", env.repoDir, "widget", "create",
+		"-field-json", `payload={"a":1,"b":["x","y"]}`,
+		"--json",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("widget create failed with %d; stderr: %s", code, stderr.String())
+	}
+	var created wire.ObjectCreated
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectCreate, &created)
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run(context.Background(), []string{"object", "show", "-C", env.repoDir, created.ObjectID, "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("object show failed with %d; stderr: %s", code, stderr.String())
+	}
+	var obj wire.Object
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectShow, &obj)
+	payload, ok := obj.Fields["payload"].(map[string]any)
+	if !ok {
+		t.Fatalf("payload = %#v, want the decoded JSON object", obj.Fields["payload"])
+	}
+	if payload["a"] != float64(1) {
+		t.Errorf("payload[a] = %v, want 1", payload["a"])
+	}
+	b, ok := payload["b"].([]any)
+	if !ok || len(b) != 2 {
+		t.Errorf("payload[b] = %#v, want a 2-element array", payload["b"])
+	}
+}
+
+// TestObjectCLI_FieldJSON_InvalidJSON pins the error path: malformed JSON
+// given to -field-json is refused at the CLI, naming the field, and appends
+// nothing -- mirroring TestObjectCLI_FieldValueTypeErrors for -field.
+func TestObjectCLI_FieldJSON_InvalidJSON(t *testing.T) {
+	env := initTestRepo(t)
+	applyTicketObjectSchema(t, env.repoDir)
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{
+		"object", "create", "-C", env.repoDir, "ticket", "create",
+		"-field", "title=Something",
+		"-field-json", "meta={not valid json",
+	}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatalf("expected a non-zero exit for invalid JSON, got 0")
+	}
+	if !strings.Contains(stderr.String(), "meta") {
+		t.Errorf("stderr does not name the field: %q", stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"object", "list", "-C", env.repoDir, "ticket", "--json"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("object list failed: %s", stderr.String())
+	}
+	var results []wire.ObjectSummary
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectList, &results)
+	if len(results) != 0 {
+		t.Fatalf("expected nothing appended after the refused create, got %d objects", len(results))
+	}
+}
+
+// TestObjectCLI_FieldJSON_UndeclaredField pins that -field-json still
+// refuses a field name the op does not declare, the same way -field does
+// (TestObjectCLI_UndeclaredField): -field-json changes how a declared
+// field's value is converted, not whether the field must be declared.
+func TestObjectCLI_FieldJSON_UndeclaredField(t *testing.T) {
+	env := initTestRepo(t)
+	applyTicketObjectSchema(t, env.repoDir)
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{
+		"object", "create", "-C", env.repoDir, "ticket", "create",
+		"-field-json", `nosuchfield={"a":1}`,
+	}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatalf("expected a non-zero exit for an undeclared field, got 0")
+	}
+	if !strings.Contains(stderr.String(), "nosuchfield") {
+		t.Errorf("stderr does not name the undeclared field: %q", stderr.String())
+	}
+}
+
+// TestObjectCLI_FieldJSON_MixedWithField pins the refusal of giving the same
+// field key to both -field and -field-json, which would otherwise silently
+// pick one interpretation over the other depending on flag order.
+func TestObjectCLI_FieldJSON_MixedWithField(t *testing.T) {
+	env := initTestRepo(t)
+	applyTicketObjectSchema(t, env.repoDir)
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{
+		"object", "create", "-C", env.repoDir, "ticket", "create",
+		"-field", "title=Something",
+		"-field-json", `title="Something else"`,
+	}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatalf("expected a non-zero exit for a field given via both -field and -field-json, got 0")
+	}
+	if !strings.Contains(stderr.String(), "title") {
+		t.Errorf("stderr does not name the conflicting field: %q", stderr.String())
 	}
 }
 

@@ -245,24 +245,56 @@ func convertFieldValue(valueType, raw string) (any, error) {
 	}
 }
 
-// parseFieldFlags groups repeated -field k=v flags by key, looks each key
-// up as a field rule of (objectType, opType, opVersion), converts its
-// value(s) by the field's declared value_type, and returns the resulting op
-// body. A key given more than once becomes a JSON array of the converted
-// elements, in the order given; a key given once stays a scalar.
-func parseFieldFlags(raw []string, objectType, opType string, opVersion int64, types []writ.SchemaType) (map[string]any, error) {
+// fieldEntry is one raw -field or -field-json value, in the order given,
+// tagged with which flag it came from so parseFieldFlags can convert it
+// correctly and refuse mixing the two flags for the same key.
+type fieldEntry struct {
+	raw     string
+	viaJSON bool
+}
+
+// parseFieldFlags groups repeated -field/-field-json k=v flags by key,
+// looks each key up as a field rule of (objectType, opType, opVersion), and
+// returns the resulting op body. A key given more than once becomes a JSON
+// array of the converted elements, in the order given; a key given once
+// stays a scalar.
+//
+// -field converts its value by the field's declared value_type
+// (convertFieldValue). -field-json instead decodes the value as JSON
+// directly, with no type-directed conversion: it is the escape hatch for a
+// field convertFieldValue cannot express -- an object-shaped field (only
+// "anchor" gets object parsing from convertFieldValue; the closed value-type
+// catalogue, spec/value-types.md, has no other object-shaped entry) or a
+// field with no declared value type at all, such as comment.create's
+// subject (spec/value-types.md's "untyped" exception: a two-field record
+// folded whole under create-once, so there is no value_type to key
+// type-directed parsing off of). See WRIT-209.
+func parseFieldFlags(fieldRaw, fieldJSONRaw []string, objectType, opType string, opVersion int64, types []writ.SchemaType) (map[string]any, error) {
 	var order []string
-	grouped := make(map[string][]string)
-	for _, kv := range raw {
-		idx := strings.IndexByte(kv, '=')
-		if idx < 0 {
-			return nil, fmt.Errorf("invalid -field %q: expected key=value", kv)
+	grouped := make(map[string][]fieldEntry)
+	collect := func(raw []string, viaJSON bool) error {
+		flagName := "-field"
+		if viaJSON {
+			flagName = "-field-json"
 		}
-		key, val := kv[:idx], kv[idx+1:]
-		if _, ok := grouped[key]; !ok {
-			order = append(order, key)
+		for _, kv := range raw {
+			idx := strings.IndexByte(kv, '=')
+			if idx < 0 {
+				return fmt.Errorf("invalid %s %q: expected key=value", flagName, kv)
+			}
+			key, val := kv[:idx], kv[idx+1:]
+			if _, ok := grouped[key]; !ok {
+				order = append(order, key)
+			}
+			grouped[key] = append(grouped[key], fieldEntry{raw: val, viaJSON: viaJSON})
 		}
-		grouped[key] = append(grouped[key], val)
+		return nil
+	}
+	if err := collect(fieldRaw, false); err != nil {
+		return nil, err
+	}
+	if err := collect(fieldJSONRaw, true); err != nil {
+		return nil, err
 	}
 
 	fields := make(map[string]any, len(order))
@@ -276,12 +308,30 @@ func parseFieldFlags(raw []string, objectType, opType string, opVersion int64, t
 			return nil, fmt.Errorf("field %q is not declared for %s %s (declares: %s)", key, objectType, opType, strings.Join(declared, ", "))
 		}
 
-		vals := grouped[key]
-		converted := make([]any, len(vals))
-		for i, v := range vals {
-			cv, err := convertFieldValue(rule.ValueType, v)
+		entries := grouped[key]
+		for _, e := range entries[1:] {
+			if e.viaJSON != entries[0].viaJSON {
+				return nil, fmt.Errorf("field %q given via both -field and -field-json: use one or the other", key)
+			}
+		}
+
+		converted := make([]any, len(entries))
+		for i, e := range entries {
+			var cv any
+			var err error
+			if e.viaJSON {
+				if uerr := json.Unmarshal([]byte(e.raw), &cv); uerr != nil {
+					err = fmt.Errorf("invalid JSON value %q: %v", e.raw, uerr)
+				}
+			} else {
+				cv, err = convertFieldValue(rule.ValueType, e.raw)
+			}
 			if err != nil {
-				return nil, fmt.Errorf("-field %s=%s: %v", key, v, err)
+				flagName := "-field"
+				if e.viaJSON {
+					flagName = "-field-json"
+				}
+				return nil, fmt.Errorf("%s %s=%s: %v", flagName, key, e.raw, err)
 			}
 			converted[i] = cv
 		}
@@ -295,10 +345,11 @@ func parseFieldFlags(raw []string, objectType, opType string, opVersion int64, t
 }
 
 type objectCreateOpts struct {
-	dir      string
-	fields   stringSliceFlag
-	opVer    int64
-	jsonMode bool
+	dir       string
+	fields    stringSliceFlag
+	fieldJSON stringSliceFlag
+	opVer     int64
+	jsonMode  bool
 }
 
 func newObjectCreateFlagSet(defaultDir string) (*flag.FlagSet, *objectCreateOpts) {
@@ -306,6 +357,7 @@ func newObjectCreateFlagSet(defaultDir string) (*flag.FlagSet, *objectCreateOpts
 	opts := &objectCreateOpts{}
 	fs.StringVar(&opts.dir, "C", defaultDir, "Run as if writ was started in `<dir>`")
 	fs.Var(&opts.fields, "field", "Field `<k>=<v>` to set on the creating op (repeatable; repeat the same key for a set)")
+	fs.Var(&opts.fieldJSON, "field-json", "Field `<k>=<v>` to set from raw JSON, skipping type-directed conversion (repeatable; the escape hatch for an object-shaped or untyped field, such as comment.create's subject)")
 	fs.Int64Var(&opts.opVer, "op-version", 0, "Explicit op `version` (default: resolved from the installed vocabulary)")
 	fs.BoolVar(&opts.jsonMode, "json", false, "Output result as JSON")
 	fs.Usage = func() {
@@ -360,7 +412,7 @@ func runObjectCreate(ctx context.Context, defaultDir string, args []string, stdo
 		return 1
 	}
 
-	fields, err := parseFieldFlags(opts.fields, objectType, opType, version, types)
+	fields, err := parseFieldFlags(opts.fields, opts.fieldJSON, objectType, opType, version, types)
 	if err != nil {
 		fmt.Fprintf(stderr, "writ object create: %v\n", err)
 		return 1
@@ -384,10 +436,11 @@ func runObjectCreate(ctx context.Context, defaultDir string, args []string, stdo
 }
 
 type objectApplyOpts struct {
-	dir      string
-	fields   stringSliceFlag
-	opVer    int64
-	jsonMode bool
+	dir       string
+	fields    stringSliceFlag
+	fieldJSON stringSliceFlag
+	opVer     int64
+	jsonMode  bool
 }
 
 func newObjectApplyFlagSet(defaultDir string) (*flag.FlagSet, *objectApplyOpts) {
@@ -395,6 +448,7 @@ func newObjectApplyFlagSet(defaultDir string) (*flag.FlagSet, *objectApplyOpts) 
 	opts := &objectApplyOpts{}
 	fs.StringVar(&opts.dir, "C", defaultDir, "Run as if writ was started in `<dir>`")
 	fs.Var(&opts.fields, "field", "Field `<k>=<v>` to set on the op (repeatable; repeat the same key for a set)")
+	fs.Var(&opts.fieldJSON, "field-json", "Field `<k>=<v>` to set from raw JSON, skipping type-directed conversion (repeatable; the escape hatch for an object-shaped or untyped field, such as comment.create's subject)")
 	fs.Int64Var(&opts.opVer, "op-version", 0, "Explicit op `version` (default: resolved from the installed vocabulary)")
 	fs.BoolVar(&opts.jsonMode, "json", false, "Output result as JSON")
 	fs.Usage = func() {
@@ -459,7 +513,7 @@ func runObjectApply(ctx context.Context, defaultDir string, args []string, stdou
 		return 1
 	}
 
-	fields, err := parseFieldFlags(opts.fields, existing.ObjectType, opType, version, types)
+	fields, err := parseFieldFlags(opts.fields, opts.fieldJSON, existing.ObjectType, opType, version, types)
 	if err != nil {
 		fmt.Fprintf(stderr, "writ object apply: %v\n", err)
 		return 1
