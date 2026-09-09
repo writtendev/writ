@@ -388,7 +388,8 @@ type standup {
 // old one, forever, with no representable way to fix it in place
 // (spec/schema-ops.md §8.1, ARCHITECTURE.md §Schema layer, WRIT-200:
 // there deliberately is no op that clears a single attribute — narrowing
-// takes a new op_version with a distinct target instead).
+// takes a new op_version instead, a distinct target only for the
+// attributes the fold itself consults).
 // This is `schemaRemovals`'s attribute check treating that exactly like any
 // other removal: refuse, name the field and the attribute, append nothing.
 //

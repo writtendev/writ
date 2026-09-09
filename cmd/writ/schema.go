@@ -706,11 +706,32 @@ func findSchemaField(t state.SchemaType, opType string, opVersion int64, field s
 // holding an attribute the file no longer declares, forever. There is no
 // op that clears one of these, and there deliberately never will be
 // (spec/schema-ops.md §8.1, ARCHITECTURE.md §Schema layer, WRIT-200):
-// narrowing an attribute takes a new op_version with a distinct target,
-// the same recipe as a strategy change, not a new op. So narrowing any of
-// them is a removal in every sense schemaRemovals already refuses others
-// for.
+// narrowing an attribute takes a new op_version instead, a distinct
+// target only for the ones schemaFieldTargetSensitive names. So narrowing
+// any of them is a removal in every sense schemaRemovals already refuses
+// others for.
 var schemaFieldAttributeKeys = []string{"value_type", "enum", "max_length", "lattice", "key", "key_types", "target"}
+
+// schemaFieldTargetSensitive names the schemaFieldAttributeKeys entries a
+// version bump cannot narrow under the field's existing target:
+// `lattice` because the accumulator reads it at fold time (excluded from
+// §8's "MAY freely change" bullet for exactly that reason, the same
+// reason a `strategy` change MUST declare a distinct target), and
+// `target` itself, whose narrowing is by definition a target change.
+// Every other entry — value_type, enum, max_length, key, key_types — is
+// validation-only and unaffected by which rule the fold sees first at a
+// shared target, so §8 already lets a version bump narrow it under the
+// same target (spec/schema-ops.md §8.1).
+var schemaFieldTargetSensitive = map[string]bool{"lattice": true, "target": true}
+
+// schemaAttributeNarrowingAdvice is the recipe schemaRemovals points a
+// refused narrowing at, matching spec/schema-ops.md §8.1's split exactly.
+func schemaAttributeNarrowingAdvice(attr string) string {
+	if schemaFieldTargetSensitive[attr] {
+		return "declare a new op_version with a distinct target instead"
+	}
+	return "declare a new op_version instead; the same target is fine"
+}
 
 // schemaFieldHasAttribute reports whether current's folded state carries a
 // non-zero value for one of schemaFieldAttributeKeys.
@@ -866,8 +887,8 @@ func schemaRemovals(current, planned state.Schema, compiled []codec.Envelope) ([
 				}
 				if _, present := body[attr]; !present {
 					problems = append(problems, fmt.Sprintf(
-						"field %q on op %s version %d of type %q: attribute %q was removed; nothing is ever removed from the log — declare a new op_version with a distinct target instead (spec/schema-ops.md §8.1)",
-						cf.Name, cf.OpType, cf.OpVersion, ct.Name, attr))
+						"field %q on op %s version %d of type %q: attribute %q was removed; nothing is ever removed from the log — %s (spec/schema-ops.md §8.1)",
+						cf.Name, cf.OpType, cf.OpVersion, ct.Name, attr, schemaAttributeNarrowingAdvice(attr)))
 				}
 			}
 		}

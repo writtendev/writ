@@ -543,8 +543,10 @@ ever reaches the log.
 `define-field`'s body carries `value_type`, `enum`, `max_length`, `key`,
 `key_types`, `lattice`, and `target` only when set (§4), and each is its
 own independent `keyed-lww` register at `(type, op_type, op_version,
-field)` (§5's table, one row per attribute), overwritten only when a
-later op's body actually carries that key. There is no vocabulary that
+field)` — nine distinct targets, one per attribute
+(`testdata/schema-ops/field-rules.json`; §5's table shows one row for
+`define-field` as a whole, not one per attribute) — overwritten only when
+a later op's body actually carries that key. There is no vocabulary that
 clears one: an op whose body omits `enum` does not remove a previously
 declared `enum`, it leaves the existing register standing, forever
 (`testdata/fold/merge/schema-narrow-field-attribute-not-cleared.json`
@@ -573,24 +575,34 @@ vocabulary, either way touching this document, the JSON schema,
 `testdata/schema-ops/field-rules.json`, `state.SchemaRules`, and fixtures
 together, and a clearing op additionally needs a story for what clearing
 means under concurrent writers (a clear racing a redeclaration is a new
-conflict shape this document does not otherwise have). Nothing has
-shipped yet (AGENTS.md), so that cost would buy a capability against no
-installed base, for a limitation with a working, already-implemented
-answer: **the decision is to accept it.** Narrowing an attribute is not a
+conflict shape this document does not otherwise have). That cost would
+buy a capability the recipe below already delivers without a wire
+change: **the decision is to accept it.** Narrowing an attribute is not a
 new problem — it is the same "nothing is ever removed" constraint this
 section already states for a `strategy` change (§8 above) — so it takes
-the same recipe: declare the field again under a **new `op_version`, with
-a distinct `target`**. A fresh `target` sidesteps needing to reason,
-attribute by attribute, about which of the seven are actually consulted
-by the fold at a shared target (§8 above answers that only for `strategy`
-and `lattice`); it is always sufficient, and it is what
-`writ schema apply`'s refusal message already tells the caller
-(`cmd/writ/schema.go`). `string(200)` narrowed to `string` is not
-representable as an edit to `op create 1`; it is representable as `op
-create 2` declaring `title` unbounded under its own target. The old,
-wider declaration is not deleted — nothing is — it stays live for
-whatever already writes `op_version` 1, exactly as any other version
-bump leaves the superseded version folding on unaffected.
+the same recipe: declare the field again under a **new `op_version`**.
+
+Whether that new declaration also needs a **distinct `target`** is
+exactly the split §8's "MAY freely change" bullet already draws, applied
+to narrowing instead of to an ordinary redeclaration: `value_type`,
+`enum`, `max_length`, `key`, and `key_types` are not consulted by the
+fold at all, so narrowing one of them is a version bump under the *same*
+`target` — `string(200)` narrowed to `string` is `op create 2` declaring
+`title` unbounded again, reusing `target: title` (or omitting it, which
+defaults to the same place `op_version` 1 uses). `lattice` is the one
+attribute §8 excludes from that bullet, because the accumulator reads it
+at fold time, so narrowing it needs a distinct target for the same
+reason §8 already requires one for a `strategy` change: two rules
+sharing a target are indistinguishable to the accumulator regardless of
+which one `Fold` sees first. Narrowing `target` itself is the trivial
+case — reverting to the field-name default is already a target change.
+`writ schema apply`'s refusal message follows the same split
+(`cmd/writ/schema.go`): it asks for a distinct target only when the
+narrowed attribute is `lattice` or `target`, and for a plain
+`op_version` bump otherwise. The old, wider declaration is not deleted —
+nothing is — it stays live for whatever already writes `op_version` 1,
+exactly as any other version bump leaves the superseded version folding
+on unaffected.
 
 ---
 
