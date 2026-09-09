@@ -632,8 +632,8 @@ type FoldResult struct {
 // op types keep preserve-and-ignore untouched. The check reads the value at
 // the declared field and, where the strategy consumes a collection, its
 // immediate elements. It never recurses — fold treats structured payloads such
-// as comment anchors as opaque data (spec/fold.md §6), so an anchor whose
-// context collar is null is well formed.
+// as anchors as opaque data (spec/fold.md §6), so an anchor whose context
+// collar is null is well formed.
 func uninterpretable(op MergeOp, rules []FieldRule) bool {
 	for _, r := range rules {
 		if !opMatchesRule(op, r) {

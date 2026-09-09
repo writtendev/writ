@@ -294,10 +294,11 @@ func tableHasRows(tx *sql.Tx, table string) (bool, error) {
 }
 
 // ApplySchema builds a schemaDescriptor from rules (RulesFromSchemas' shape:
-// the built-in vocabulary overlaid by whatever the log declares, log wins
-// per type — the projection cannot resolve schemas itself, so it consumes
-// an already-merged, already-validated index) and reconciles it against
-// whatever generated tables exist on disk.
+// every object type a consumer's schema declares — writ hard-codes no
+// object type but `schema`, so there is no built-in vocabulary to overlay —
+// the projection cannot resolve schemas itself, so it consumes an
+// already-validated index) and reconciles it against whatever generated
+// tables exist on disk.
 //
 // The meta keys (schema_digest, schema_tables, schema_descriptor,
 // schema_query_shapes) are written every call, regardless of whether the

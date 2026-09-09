@@ -5,7 +5,8 @@ import (
 	"github.com/writtendev/writ/engine/state"
 )
 
-// Anchor is a content-based comment position object (v1).
+// Anchor is a content-based position in code (v1), a value type any
+// schema-declared object can carry (spec/anchors.md).
 // Fold carries anchors verbatim as data per spec/fold.md §6.
 type Anchor = resolve.Anchor
 

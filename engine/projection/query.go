@@ -111,10 +111,9 @@ func objectsTextClause(desc *schemaDescriptor, restrictTypes []string) (clause s
 // clause for any other type would be dead weight), replacing the single
 // built-in literal (o_comment.f_deleted) WRIT-189 round 3 MAJOR-2
 // hard-coded here (WRIT-192). A type with more than one tombstone-strategy
-// target — none exist in the shipped vocabulary, but the schema DSL does
-// not forbid it — is excluded when any one of its tombstone targets folded
-// true (the generated clause is an AND of "not deleted" per column, so a
-// single deleted-true column fails it).
+// target — the schema DSL does not forbid one — is excluded when any one
+// of its tombstone targets folded true (the generated clause is an AND of
+// "not deleted" per column, so a single deleted-true column fails it).
 //
 // Reads desc.queryShapes/queryOrder for the same reason objectsTextClause
 // does — see its doc comment (WRIT-192 round 2 MAJOR-1).

@@ -61,7 +61,7 @@ type refreshConfig struct {
 // Option configures a Refresh or Rebuild pass.
 type Option func(*refreshConfig)
 
-// WithTargetRefs specifies explicit code ref names to resolve comment anchors against.
+// WithTargetRefs specifies explicit code ref names to resolve anchors against.
 // If omitted, Refresh defaults to resolving against HEAD's ref.
 func WithTargetRefs(refs ...string) Option {
 	return func(c *refreshConfig) {

@@ -274,14 +274,16 @@ func buildAppendGroups(rules []state.Rule) []*appendGroupInfo {
 
 // anchorColumnRef names one scalar column whose declared value_type is
 // "anchor" — anchor_resolutions is driven off these, generically, rather
-// than a hard-coded read of comments.anchor. Target is the bare target key
-// (e.g. "anchor"), recorded verbatim into anchor_resolutions.target so a
-// second anchor-valued target sharing the same table would still resolve
-// into distinguishable rows.
+// than a hard-coded read of one type's own anchor column. Target is the bare
+// target key (e.g. "anchor"), recorded verbatim into anchor_resolutions.target
+// so a second anchor-valued target sharing the same table would still resolve
+// into distinguishable rows. ObjectType is the declared type the column
+// belongs to, carried through so a reader can name it (e.g. in an error).
 type anchorColumnRef struct {
-	Table  string
-	Column string
-	Target string
+	Table      string
+	Column     string
+	Target     string
+	ObjectType string
 }
 
 // typeDescriptor is everything the materializer and the generic readers need
@@ -423,9 +425,9 @@ func (d *schemaDescriptor) createSQL() string {
 // buildDescriptor generates a schemaDescriptor from a validated rule index
 // (RulesFromSchemas' shape, exactly: map[object_type][]Rule). It performs no
 // I/O and consults nothing beyond rules: the projection cannot resolve
-// schemas itself, so the caller passes in an index already merged and
-// validated (built-in vocabulary overlaid by whatever the log declares,
-// log-over-built-in per type).
+// schemas itself, so the caller passes in an index already validated —
+// every object type a consumer's schema declares, since writ hard-codes no
+// object type but `schema`.
 func buildDescriptor(rules map[string][]state.Rule) (*schemaDescriptor, error) {
 	objectTypes := make([]string, 0, len(rules))
 	for t := range rules {
@@ -685,12 +687,12 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 				scalarCols = append(scalarCols, ddlColumn{Name: plan.PosOpIDColumn, SQLType: "TEXT"})
 			}
 			if r.ValueType == "anchor" {
-				anchorRefs = append(anchorRefs, anchorColumnRef{Table: tableName, Column: col, Target: tk})
+				anchorRefs = append(anchorRefs, anchorColumnRef{Table: tableName, Column: col, Target: tk, ObjectType: objectType})
 			}
 			// An untyped lww or create-once target's folded value can be an
-			// arbitrary JSON object (comment.subject is the one case in the
-			// shipped vocabulary), so its column carries no index and a
-			// filter on it can't use whole-blob equality — create-once
+			// arbitrary JSON object — any lww or create-once field a schema
+			// declares with no value_type — so its column carries no index
+			// and a filter on it can't use whole-blob equality — create-once
 			// preserves raw bytes including unknown members and key order.
 			// The generic remedy, independent of what this particular
 			// target happens to be: a members child table, one row per
@@ -790,7 +792,7 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 			col := "f_" + tk
 			cols = append(cols, ddlColumn{Name: col, SQLType: sqlType(r.ValueType), Indexed: r.ValueType != ""})
 			if r.ValueType == "anchor" {
-				anchorRefs = append(anchorRefs, anchorColumnRef{Table: g.table, Column: col, Target: tk})
+				anchorRefs = append(anchorRefs, anchorColumnRef{Table: g.table, Column: col, Target: tk, ObjectType: objectType})
 			}
 			targets[tk] = &targetPlan{
 				Strategy: "keyed-lww", ValueType: r.ValueType,

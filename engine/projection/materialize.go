@@ -329,8 +329,8 @@ func writeChildRows(tx *sql.Tx, plan *targetPlan, objectID string, val any) erro
 //
 // This never inspects td, rules, or any field name: ag.Envelopes and
 // ag.Members are its only inputs besides the raw ops, so it materializes an
-// envelope declared by an arbitrary log schema exactly as it does review's
-// built-in revision push.
+// envelope declared by an arbitrary log schema with no special-casing for
+// any one type — writ hard-codes no object type but `schema`.
 func writeAppendGroupRows(tx *sql.Tx, ag appendGroupPlan, objectID string, orderedOps []codec.Op, skip map[string]bool) error {
 	idx := 0
 	for _, op := range orderedOps {
@@ -791,16 +791,17 @@ func deleteObjectState(tx *sql.Tx, desc *schemaDescriptor, objectID string) erro
 
 type commentToResolve struct {
 	objectID   string
+	objectType string
 	target     string
 	anchorJSON string
 }
 
-// materializeAnchors resolves comment anchors against current target commits
-// in code_tips. Which columns to read anchors from is driven by
-// desc.anchorColumns — every scalar target whose declared value_type is
-// "anchor" — rather than a hard-coded read of comments.anchor: comment's
-// create/anchor is simply the one case in the shipped vocabulary that
-// declares value_type "anchor" today.
+// materializeAnchors resolves anchors against current target commits in
+// code_tips. Which columns to read anchors from is driven by
+// desc.anchorColumns — every scalar target, on any schema-declared object
+// type, whose declared value_type is "anchor" — rather than a hard-coded
+// read of one type's own anchor column: writ hard-codes no object type but
+// `schema`, so there is no fixed type to read anchors from any more.
 func materializeAnchors(tx *sql.Tx, desc *schemaDescriptor, s storage.Storer) (int, error) {
 	if _, err := tx.Exec("DELETE FROM anchor_resolutions WHERE target_commit NOT IN (SELECT tip FROM code_tips)"); err != nil {
 		return 0, fmt.Errorf("projection: prune stale anchor resolutions: %w", err)
@@ -839,6 +840,7 @@ func materializeAnchors(tx *sql.Tx, desc *schemaDescriptor, s storage.Storer) (i
 				return 0, fmt.Errorf("projection: scan anchor from %s.%s: %w", ref.Table, ref.Column, err)
 			}
 			c.target = ref.Target
+			c.objectType = ref.ObjectType
 			comments = append(comments, c)
 		}
 		_ = cRows.Close()
@@ -892,7 +894,7 @@ func materializeAnchors(tx *sql.Tx, desc *schemaDescriptor, s storage.Storer) (i
 
 			anchor, err := resolve.ParseAnchor([]byte(comm.anchorJSON))
 			if err != nil {
-				return resolvedCount, fmt.Errorf("projection: parse anchor for comment %s: %w", comm.objectID, err)
+				return resolvedCount, fmt.Errorf("projection: parse anchor for %s %s: %w", comm.objectType, comm.objectID, err)
 			}
 
 			res := resolve.Resolve(anchor, targetTree)

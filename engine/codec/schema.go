@@ -429,9 +429,10 @@ func validateFieldsAgainstRules(rules []spec.FieldRule, body map[string]any, str
 		}
 		params := value.Params{Enum: r.Enum, MaxLength: r.MaxLength}
 		// set-union/set-observed-remove type the elements, not the array; a
-		// bare scalar (e.g. cycle's add-issue.issue) is validated as a single
-		// element, matching the accumulators' own flexibility
-		// (engine/internal/fold/strategy.go).
+		// bare scalar (e.g. the scalar-shaped add-issue/remove-issue vector,
+		// spec/testdata/fold/merge/set-observed-remove-scalar.json) is
+		// validated as a single element, matching the accumulators' own
+		// flexibility (engine/internal/fold/strategy.go).
 		if r.Strategy == "set-union" || r.Strategy == "set-observed-remove" {
 			if items, ok := val.([]any); ok {
 				for _, item := range items {

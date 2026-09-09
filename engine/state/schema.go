@@ -1,13 +1,11 @@
 // Package state's schema.go folds the one object type writ hard-codes:
-// `schema` (ARCHITECTURE.md §Schema layer, WRIT-186). Every other
-// object type — review, comment, issue, and the rest of the shipped SDLC
-// vocabulary today, and any consumer-declared type tomorrow — is data a
-// `schema` object writes into the log; `schema` itself is the single
-// permitted exception, because a schema has to exist before anything else
-// can be typed. SchemaRules is the engine's own built-in table: it is the
-// only rule set that never comes from the log (spec/schema-ops.md
-// §Bootstrap), and this file survives WRIT-194's deletion of the embedded
-// SDLC vocabulary tables.
+// `schema` (ARCHITECTURE.md §Schema layer, WRIT-186). Every other object
+// type is data a `schema` object writes into the log, declared by a
+// consumer; `schema` itself is the single permitted exception, because a
+// schema has to exist before anything else can be typed. SchemaRules is
+// the engine's own built-in table: it is the only rule set that never
+// comes from the log (spec/schema-ops.md §Bootstrap), and this file
+// survives WRIT-194's deletion of the embedded SDLC vocabulary tables.
 package state
 
 import (
