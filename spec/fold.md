@@ -251,6 +251,47 @@ state keys instead of one shared `add`/`remove` pair). A rule table that
 violates this agreement rule is non-conforming, exactly as one that reuses
 a target across a `strategy` change already was.
 
+**Every rule that matches an operation applies.** An operation is not
+limited to the first declared rule that matches it, by declaration order or
+by any other ordering: `Fold` applies the write of **every** rule whose
+`op_type`, `op_version` and object type match the operation (as defined
+above), not only the first one found. Nothing in this specification limits
+a target to being reached by one field: two different body fields MAY
+legally share one target under one exact `(op_type, op_version)` envelope,
+the same way a version bump or a second op_type may (both already
+described above), provided the sharing rules agree on every merge attribute
+the paragraph above requires. When an operation writes more than one such
+field, every matching rule's write lands — an `append` target gains an
+entry for each field the operation writes, a `set-union` or
+`set-observed-remove` target gains each field's elements, and so on for
+every strategy in the catalogue. An implementation that stops after the
+first matching rule (**first-match**) is non-conforming: first-match has no
+normative tie-break to appeal to (nothing in this document ranks one
+matching rule over another), so two conforming first-match implementations
+that discover rules in a different order would disagree on which field's
+write survives, on the same input, deterministically for each but not
+between them — the WRIT-186 defect class of behavior that is a function of
+iteration order rather than of the signed log. Applying every match has no
+such tie-break to get wrong: it has none to make.
+`spec/testdata/fold/merge/append-two-fields-shared-target.json` pins this
+for the reachable case — two body fields sharing one `append` target within
+one envelope, both written by one operation — and both the reference fold
+(`spec/reffold.go`) and the engine reducer (`engine/internal/fold`) apply
+every match identically (WRIT-201).
+
+For the strategies where the relative order operations contribute in is
+itself part of the result — `append` (list position), and, for two writes
+within the very same operation only, `lww`, `create-once` and `keyed-lww`
+(which of two simultaneous writes is treated as later) — that order is the
+order the field-rule table passed to `Fold` lists the matching rules in.
+Whatever resolves a rule table from a schema in the log MUST list it
+deterministically as a function of the schema alone (never of a map's
+iteration order) so that two folds of the same schema and the same
+operations agree; `set-union`, `set-observed-remove`, `tombstone`,
+`lattice` and `multi-value` need no such requirement, because their
+reduction is commutative over which matching rule contributes a write
+first.
+
 **Normalization is intrinsic to `person-ref`.** `spec/value-types.md` §Normalization defines the rule: where a rule's `value_type` (or, for a key component, `key_types` entry) is `person-ref`, the field normalizes per `spec/identifiers.md` automatically. It is not a separate declarative attribute a rule table author repeats field by field, and it is not dispatched by inspecting operation types or field names (such as checking for `op_type == "assign"` or `field == "resolved_by"`) — accumulators remain vocabulary-blind, driven exclusively by the rule's `value_type`/`key_types`.
 
 ### Unified empty-value contract
@@ -517,7 +558,7 @@ implementations:
 
 The normative test vectors and fixture repositories verify compliance:
 - `spec/testdata/fold/order/`: Abstract op graphs testing total order derivation across linear chains, multi-writer forks, equal-$t^*$ ties, skewed clocks, ancestry truncation, and multi-object interleaving.
-- `spec/testdata/fold/merge/`: Op graphs testing each catalogue strategy, including delete/edit interleavings and concurrent mutations. `schema-*.json` cover the `schema` vocabulary specifically (`spec/schema-ops.md`): a bootstrap fold of a whole schema object, a `deprecate-field` write interleaved with a redeclaring `define-field`, concurrent `define-field` ops on one keyed-lww key, the two `target`-remedy vectors this section's version-bump rule states above (`schema-version-bump-same-target.json`, `schema-version-bump-new-target.json`), and `spec/schema-ops.md` §8.1's narrowing vector (`schema-narrow-field-attribute-not-cleared.json`).
+- `spec/testdata/fold/merge/`: Op graphs testing each catalogue strategy, including delete/edit interleavings and concurrent mutations. `schema-*.json` cover the `schema` vocabulary specifically (`spec/schema-ops.md`): a bootstrap fold of a whole schema object, a `deprecate-field` write interleaved with a redeclaring `define-field`, concurrent `define-field` ops on one keyed-lww key, the two `target`-remedy vectors this section's version-bump rule states above (`schema-version-bump-same-target.json`, `schema-version-bump-new-target.json`), and `spec/schema-ops.md` §8.1's narrowing vector (`schema-narrow-field-attribute-not-cleared.json`). `append-two-fields-shared-target.json` pins the "every rule that matches an operation applies" requirement above (WRIT-201): two body fields sharing one `append` target within one `(op_type, op_version)` envelope, both written by one operation, fold to a two-item list under every conforming implementation.
 - `spec/fixtures/testdata/descriptions/fold-*.yaml` and `spec/fixtures/testdata/golden/fold/`: Signed fixture repositories exercising concurrent field edits, multi-device writer races, LWW and tiebreaks, per-field merge strategies, and ancestry truncation.
 - `spec/fixtures/testdata/descriptions/issue-*.yaml` and `spec/fixtures/testdata/golden/issue/`: Signed fixture repositories exercising issue lifecycle, state transitions, concurrent assign and label OR-sets, and cross-repo links.
 - `spec/fixtures/testdata/descriptions/project-*.yaml` and `spec/fixtures/testdata/golden/project/`: Signed fixture repositories exercising project lifecycle, status transitions, and issue membership races.

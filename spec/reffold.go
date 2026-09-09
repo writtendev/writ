@@ -927,6 +927,17 @@ func Fold(ops []MergeOp, rules []FieldRule) (FoldResult, error) {
 	}
 	sort.Strings(targetKeys)
 
+	// Every strategy below walks frs (every rule bound to targetKey, not
+	// just frs[0]) inside its op loop and applies each one that matches —
+	// never breaking after the first. Rules sharing a target MUST agree on
+	// strategy (spec/fold.md §5's "MUST agree on every merge attribute"),
+	// so a second matching rule for the same op is the same strategy
+	// running again, not a competing behavior to choose between: an
+	// operation writing two fields that share one target under one
+	// (op_type, op_version) envelope contributes both writes. This is
+	// deliberate (WRIT-201) — the reference and the engine reducer
+	// (engine/internal/fold) must apply-all identically, and
+	// spec/testdata/fold/merge/append-two-fields-shared-target.json pins it.
 	for _, targetKey := range targetKeys {
 		frs := matchedRulesByField[targetKey]
 		if len(frs) == 0 {

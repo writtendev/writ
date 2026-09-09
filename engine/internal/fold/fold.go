@@ -245,7 +245,17 @@ func Fold(ops []codec.Op, rules []Rule) (ObjectState, error) {
 		accumulators[targetKey] = acc
 	}
 
-	// Walk total order L once, dispatching to matching field accumulators
+	// Walk total order L once, dispatching to matching field accumulators.
+	// Every matching rule applies its write, not just the first one found:
+	// rules sharing a target MUST agree on strategy (spec/fold.md §5), so an
+	// accumulator applying a second matching rule's write is applying the
+	// same strategy again, exactly as it would for a second op — never a
+	// contest between competing behaviors to pick a winner from. Breaking
+	// after the first match here silently dropped the second field of an
+	// operation that writes two fields sharing one target under one
+	// (op_type, op_version) envelope — reachable the moment a schema
+	// declares it (WRIT-201) — where spec/reffold.go, the normative
+	// reference, already applies both.
 	for _, o := range orderedOps {
 		if rejected[o.Op.ID] {
 			continue
@@ -259,7 +269,6 @@ func Fold(ops []codec.Op, rules []Rule) (ObjectState, error) {
 					if err := acc.Apply(r, o.Op, bm, rbm); err != nil {
 						return ObjectState{}, fmt.Errorf("fold: applying op %s to target %q: %w", o.Op.ID, targetKey, err)
 					}
-					break
 				}
 			}
 		}
