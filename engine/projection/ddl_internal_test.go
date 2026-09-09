@@ -279,25 +279,27 @@ func TestIntraTypeCollisionWithholdsTables(t *testing.T) {
 	}
 }
 
-// TestAmbiguousAppendFieldWithholdsTables is WRIT-189 round 5's MAJOR-1
-// finding: two append-strategy rules binding the same target key to two
-// different Fields under one exact (op_type, op_version) envelope is a
-// shape state.Fold resolves deterministically (its matchedRulesByField
-// admits a rule only when some op actually writes that rule's Field) but
-// the projection's own appendGroupMember.Fields — built unfiltered, from
-// every declaring rule regardless of whether any op ever uses it — cannot
-// resolve the same way without reimplementing that admission logic here.
-// Reading fields in encounter order (fieldForOp's first match) instead made
-// which of the two fields won a function of rule-slice order: with body
-// {"b": "yb"}, state.Fold reports note = ["yb"] under either rule ordering,
-// but the old first-match reader produced NULL under one ordering and "yb"
-// under the other — a value in the log materializing as NULL, in neither
-// unknown_fields nor unknown_ops, with byte-identical DDL and digest either
-// way. Exactly like an invalid target or a colliding identifier, the fix is
-// to withhold the whole type rather than guess: buildTypeDescriptor detects
-// the ambiguous shape while building each append member's Fields and
-// withholds before ever producing a typeDescriptor, order-independently.
-func TestAmbiguousAppendFieldWithholdsTables(t *testing.T) {
+// TestAmbiguousAppendFieldWithholdsGroupNotType covers two append-strategy
+// rules binding the same target key to two different Fields under one exact
+// (op_type, op_version) envelope. WRIT-201 made that shape normative:
+// spec/fold.md §5 rules that every matching rule applies, in canonical rule
+// order, so one op writing both fields appends both entries to one list.
+// The append group's table — one row per op, one column per member target —
+// structurally cannot hold two entries for one target from one op, so the
+// group is withheld.
+//
+// What this pins is the scope of that withhold: the *group*, never the
+// type. WRIT-189 round 5 withheld the whole type here, on the premise that
+// state.Fold picked one of the two values deterministically and the
+// projection merely could not tell which. WRIT-201 falsified that premise
+// (fold picks neither — it takes both), and the whole-type withhold cost a
+// consumer every table and every row of the type, including ops that never
+// touch the target, over one unrepresentable target key. So the type table
+// and its unrelated targets are built as usual, the group's table is
+// absent, and the group's member targets are recorded in WithheldTargets
+// for materialize to route into unknown_fields. Order-independent, as
+// before.
+func TestAmbiguousAppendFieldWithholdsGroupNotType(t *testing.T) {
 	titleRule := state.Rule{OpType: "create", Field: "title", Strategy: "lww", ValueType: "string", ObjectType: "widget"}
 	noteFieldA := state.Rule{OpType: "note", OpVersion: 1, Field: "a", Target: "note", Strategy: "append", ValueType: "string", ObjectType: "widget"}
 	noteFieldB := state.Rule{OpType: "note", OpVersion: 1, Field: "b", Target: "note", Strategy: "append", ValueType: "string", ObjectType: "widget"}
@@ -313,11 +315,31 @@ func TestAmbiguousAppendFieldWithholdsTables(t *testing.T) {
 			if err != nil {
 				t.Fatalf("buildDescriptor: %v", err)
 			}
-			if _, ok := desc.types["widget"]; ok {
-				t.Fatalf("expected object type %q to be withheld (no tables), but it has tables", "widget")
+			td, ok := desc.types["widget"]
+			if !ok {
+				t.Fatalf("object type \"widget\" was withheld entirely; only the unrepresentable append group should be")
 			}
-			if len(desc.tables) != 0 {
-				t.Fatalf("expected no generated tables, got %+v", desc.tables)
+			if !td.WithheldTargets["note"] {
+				t.Fatalf("WithheldTargets = %v, want the \"note\" target recorded", td.WithheldTargets)
+			}
+			if len(td.AppendGroups) != 0 {
+				t.Fatalf("AppendGroups = %+v, want none: the only group is unrepresentable", td.AppendGroups)
+			}
+			var names []string
+			for _, tbl := range desc.tables {
+				names = append(names, tbl.Name)
+			}
+			if len(names) != 1 || names[0] != "o_widget" {
+				t.Fatalf("generated tables = %v, want just [o_widget] (no o_widget__note)", names)
+			}
+			var hasTitle bool
+			for _, c := range td.Table.Columns {
+				if c.Name == "f_title" {
+					hasTitle = true
+				}
+			}
+			if !hasTitle {
+				t.Fatalf("o_widget columns = %+v, want the unrelated f_title target still materialized", td.Table.Columns)
 			}
 		})
 	}

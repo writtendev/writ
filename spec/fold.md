@@ -200,7 +200,7 @@ Field merge rules are declared in machine-readable tables (`field-rules.json`, c
 - `op_type` (string): The operation type.
 - `op_version` (integer): The operation schema version.
 - `field` (string): The target field in the operation body.
-- `target` (optional string): The state key in the generic fold map (`ObjectState.State`). Defaults to `field` if omitted. Rules may declare a `target` state key to avoid strategy collisions when multiple op types define identical body field names with differing merge strategies. The same remedy applies across versions of one op type, not only across op types: `Fold` groups matched rules by target key alone (not by `op_version`) and instantiates one accumulator from whichever matching rule a caller's slice lists first, so a `define-field` version bump (`spec/schema-ops.md`) that changes `strategy` while reusing a `target` already bound to a different strategy is order-dependent — two conforming implementations that list rules differently would disagree. A version bump MAY freely change `value_type`, `enum`, `max_length`, `key`, or `key_types` under the same target, because those never change which accumulator factory runs; `lattice` is not on that list, because the `lattice` accumulator reads it to order its semilattice, so a version bump reusing a target MUST still agree on it. A version bump that changes `strategy` MUST declare a distinct `target`, and a rule table that reuses a target across a strategy change is non-conforming.
+- `target` (optional string): The state key in the generic fold map (`ObjectState.State`). Defaults to `field` if omitted. Rules may declare a `target` state key to avoid strategy collisions when multiple op types define identical body field names with differing merge strategies. The same remedy applies across versions of one op type, not only across op types: `Fold` groups matched rules by target key alone (not by `op_version`) and instantiates one accumulator per target from the first of its matching rules in canonical rule order (§Canonical rule order below), which for a version bump is the lowest `op_version`, so a `define-field` version bump (`spec/schema-ops.md`) that changes `strategy` while reusing a `target` already bound to a different strategy would silently run the older version's strategy over the newer version's writes rather than either rule's declared behavior. A version bump MAY freely change `value_type`, `enum`, `max_length`, `key`, or `key_types` under the same target, because those never change which accumulator factory runs; `lattice` is not on that list, because the `lattice` accumulator reads it at fold time to order its semilattice, so reusing a target across a `lattice` change would likewise order the newer version's writes by the older version's semilattice, and a version bump reusing a target MUST still agree on it. A version bump that changes `strategy` MUST declare a distinct `target`, and a rule table that reuses a target across a strategy change is non-conforming.
 - `strategy` (string): Exactly one strategy from the closed catalogue.
 - `key` (array of strings, required for `keyed-lww`): The ordered list of body fields forming the composite key.
 - `lattice` (array of strings, required for `lattice`): The ordered elements of the semilattice.
@@ -279,18 +279,32 @@ one envelope, both written by one operation — and both the reference fold
 (`spec/reffold.go`) and the engine reducer (`engine/internal/fold`) apply
 every match identically (WRIT-201).
 
-For the strategies where the relative order operations contribute in is
-itself part of the result — `append` (list position), and, for two writes
-within the very same operation only, `lww`, `create-once` and `keyed-lww`
-(which of two simultaneous writes is treated as later) — that order is the
-order the field-rule table passed to `Fold` lists the matching rules in.
-Whatever resolves a rule table from a schema in the log MUST list it
-deterministically as a function of the schema alone (never of a map's
-iteration order) so that two folds of the same schema and the same
-operations agree; `set-union`, `set-observed-remove`, `tombstone`,
-`lattice` and `multi-value` need no such requirement, because their
-reduction is commutative over which matching rule contributes a write
-first.
+**Canonical rule order.** Where more than one rule bound to one target
+matches a single operation, those rules contribute their writes in
+ascending `(op_type, op_version, field)`: `op_type` compared in canonical
+code unit order, then `op_version` numerically, then `field` in canonical
+code unit order. This order is a property of `Fold` itself, not of the
+sequence a caller hands its rules in — an implementation MUST NOT let the
+order a rule table happens to list, load or enumerate its rules in reach
+folded state. Every component of the key is rule content, and a rule table
+defines at most one entry per `(op_type, op_version, field)` tuple (§Declarative
+rule tables and value types above), so the order is total and every
+implementation derives the same one from the schema alone.
+
+The order is observable only for the strategies where the relative order
+writes contribute in is itself part of the result — `append` (list
+position), and, for two writes within the very same operation only, `lww`,
+`create-once` and `keyed-lww` (which of two simultaneous writes is treated
+as later). `set-union`, `set-observed-remove`, `tombstone`, `lattice` and
+`multi-value` reduce commutatively over which matching rule contributes
+first, so the order changes nothing for them; it is stated once for every
+strategy rather than per strategy, because an unobservable rule is still a
+rule no implementation may deviate from. Across operations the total order
+$L$ (§4) governs as it always has: canonical rule order resolves only what
+$L$ cannot, two writes originating in one operation and so sharing one
+position in $L$. The order the operation's own body happens to list those
+fields in is not consulted — canonical JSON object member order is a
+property of the encoding, not of the schema.
 
 **Normalization is intrinsic to `person-ref`.** `spec/value-types.md` §Normalization defines the rule: where a rule's `value_type` (or, for a key component, `key_types` entry) is `person-ref`, the field normalizes per `spec/identifiers.md` automatically. It is not a separate declarative attribute a rule table author repeats field by field, and it is not dispatched by inspecting operation types or field names (such as checking for `op_type == "assign"` or `field == "resolved_by"`) — accumulators remain vocabulary-blind, driven exclusively by the rule's `value_type`/`key_types`.
 
@@ -347,7 +361,7 @@ Typed domain serializations (such as language-specific state structs) MAY omit e
 #### 5. `append`
 - **Initial state:** Empty list `[]`.
 - **Reduction:** When an operation in total order $L$ appends an entry (or entries), the entry is added to the tail of the list.
-- **Result:** Entries ordered strictly by the position in $L$ of their producing operations. If a single operation produces multiple entries, their relative order within that operation is preserved. An operation that writes the field with an empty array appends nothing, but it is still a write: the field is present in the generic folded state map with the empty list `[]` as its value, which is the strategy's initial state. It MUST NOT fold to `null`.
+- **Result:** Entries ordered strictly by the position in $L$ of their producing operations. If a single operation produces multiple entries, their relative order within that operation is preserved: entries an operation contributes through two different rules bound to this target are ordered by §5's canonical rule order (ascending `(op_type, op_version, field)`), and entries a single rule contributes from one array-valued field keep that array's own order. An operation that writes the field with an empty array appends nothing, but it is still a write: the field is present in the generic folded state map with the empty list `[]` as its value, which is the strategy's initial state. It MUST NOT fold to `null`.
 - **Entries are values.** An entry is stored verbatim, so an entry of any JSON type reproduces byte-for-byte through canonical encoding and no type constraint applies. `null` is the exception, because it is not a value but the absence of one: a field whose value is `null`, or an array holding a `null` entry, makes the whole operation uninterpretable per §7.1.
 
 #### 6. `tombstone` (Deletion and edit interleavings)
@@ -550,7 +564,7 @@ clients.
 To guarantee that folded state is byte-identical across independent
 implementations:
 - JSON object fields are serialized canonically per `spec/canonicalization.md`.
-- Collections derived from `append` strategies are ordered by the total order $L$.
+- Collections derived from `append` strategies are ordered by the total order $L$, and within one operation — which occupies a single position in $L$ — by §5's canonical rule order, ascending `(op_type, op_version, field)` over the rules that operation matched, then by the order any one rule's own array-valued field lists its entries in.
 - Collections derived from `set-union` and `set-observed-remove` are serialized as JSON arrays sorted in canonical code unit order.
 - Conflicted multi-value registers (`multi-value`) are serialized as JSON arrays of strings sorted in canonical code unit order.
 
@@ -558,7 +572,7 @@ implementations:
 
 The normative test vectors and fixture repositories verify compliance:
 - `spec/testdata/fold/order/`: Abstract op graphs testing total order derivation across linear chains, multi-writer forks, equal-$t^*$ ties, skewed clocks, ancestry truncation, and multi-object interleaving.
-- `spec/testdata/fold/merge/`: Op graphs testing each catalogue strategy, including delete/edit interleavings and concurrent mutations. `schema-*.json` cover the `schema` vocabulary specifically (`spec/schema-ops.md`): a bootstrap fold of a whole schema object, a `deprecate-field` write interleaved with a redeclaring `define-field`, concurrent `define-field` ops on one keyed-lww key, the two `target`-remedy vectors this section's version-bump rule states above (`schema-version-bump-same-target.json`, `schema-version-bump-new-target.json`), and `spec/schema-ops.md` §8.1's narrowing vector (`schema-narrow-field-attribute-not-cleared.json`). `append-two-fields-shared-target.json` pins the "every rule that matches an operation applies" requirement above (WRIT-201): two body fields sharing one `append` target within one `(op_type, op_version)` envelope, both written by one operation, fold to a two-item list under every conforming implementation.
+- `spec/testdata/fold/merge/`: Op graphs testing each catalogue strategy, including delete/edit interleavings and concurrent mutations. `schema-*.json` cover the `schema` vocabulary specifically (`spec/schema-ops.md`): a bootstrap fold of a whole schema object, a `deprecate-field` write interleaved with a redeclaring `define-field`, concurrent `define-field` ops on one keyed-lww key, the two `target`-remedy vectors this section's version-bump rule states above (`schema-version-bump-same-target.json`, `schema-version-bump-new-target.json`), and `spec/schema-ops.md` §8.1's narrowing vector (`schema-narrow-field-attribute-not-cleared.json`). `append-two-fields-shared-target.json` and `lww-two-fields-shared-target.json` pin the "every rule that matches an operation applies" requirement and the canonical rule order above (WRIT-201): two body fields sharing one target within one `(op_type, op_version)` envelope, both written by one operation, fold to a two-item list (and to the `(op_type, op_version, field)`-latest write, respectively) under every conforming implementation. Both label their rules so that sorting the labels gives the reverse of canonical rule order, so an implementation taking its order from its own rule slice fails them.
 - `spec/fixtures/testdata/descriptions/fold-*.yaml` and `spec/fixtures/testdata/golden/fold/`: Signed fixture repositories exercising concurrent field edits, multi-device writer races, LWW and tiebreaks, per-field merge strategies, and ancestry truncation.
 - `spec/fixtures/testdata/descriptions/issue-*.yaml` and `spec/fixtures/testdata/golden/issue/`: Signed fixture repositories exercising issue lifecycle, state transitions, concurrent assign and label OR-sets, and cross-repo links.
 - `spec/fixtures/testdata/descriptions/project-*.yaml` and `spec/fixtures/testdata/golden/project/`: Signed fixture repositories exercising project lifecycle, status transitions, and issue membership races.

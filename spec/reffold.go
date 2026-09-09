@@ -918,6 +918,15 @@ func Fold(ops []MergeOp, rules []FieldRule) (FoldResult, error) {
 		}
 	}
 
+	// Canonical rule order (spec/fold.md §5): a target's matching rules
+	// contribute in ascending (op_type, op_version, field), never in the
+	// order the caller's slice happened to list them. A rule table declares
+	// at most one rule per (op_type, op_version, field) tuple, so this
+	// comparison is total and needs no stable sort to be deterministic.
+	for _, frs := range matchedRulesByField {
+		sort.Slice(frs, func(i, j int) bool { return fieldRuleOrderLess(frs[i], frs[j]) })
+	}
+
 	state := make(map[string]any)
 
 	// Iterate fields in deterministic order
@@ -938,6 +947,10 @@ func Fold(ops []MergeOp, rules []FieldRule) (FoldResult, error) {
 	// deliberate (WRIT-201) — the reference and the engine reducer
 	// (engine/internal/fold) must apply-all identically, and
 	// spec/testdata/fold/merge/append-two-fields-shared-target.json pins it.
+	// Where the strategy cares which of one operation's two writes lands
+	// first (append's list position, a same-operation lww/create-once/
+	// keyed-lww write), frs is already in canonical rule order above, so
+	// neither implementation consults a caller's slice order for it.
 	for _, targetKey := range targetKeys {
 		frs := matchedRulesByField[targetKey]
 		if len(frs) == 0 {

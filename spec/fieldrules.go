@@ -39,6 +39,22 @@ func (r FieldRule) TargetKey() string {
 	return r.Field
 }
 
+// fieldRuleOrderLess is the canonical rule order spec/fold.md §5 requires
+// two rules bound to one target to contribute in: ascending op_type (code
+// unit order), then op_version, then field. Every component is rule content
+// a reader of the schema can derive for itself, which is what makes two
+// independent implementations fold the same log to the same state when one
+// operation writes two fields sharing a target.
+func fieldRuleOrderLess(a, b FieldRule) bool {
+	if a.OpType != b.OpType {
+		return a.OpType < b.OpType
+	}
+	if a.OpVersion != b.OpVersion {
+		return a.OpVersion < b.OpVersion
+	}
+	return a.Field < b.Field
+}
+
 // NormalizesKey reports whether keyCol is declared as a person-ref key column
 // (spec/value-types.md): normalization is intrinsic to the person-ref value
 // type rather than a separate rule attribute.

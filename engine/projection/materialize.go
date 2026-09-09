@@ -72,7 +72,7 @@ func materializeObject(tx *sql.Tx, desc *schemaDescriptor, objectID string, ops 
 		return fmt.Errorf("projection: fold %s %s: %w", objectType, objectID, err)
 	}
 
-	unknownFields := computeUnknownFields(orderedOps, rules, folded.UnknownOps)
+	unknownFields := computeUnknownFields(orderedOps, rules, folded.UnknownOps, td.WithheldTargets)
 	if err := writeTypeRow(tx, td, objectID, folded.State, rules, orderedOps, unknownFields, folded.UnknownOps); err != nil {
 		return err
 	}
@@ -424,9 +424,12 @@ func appendGroupEnvelopeMatches(envelopes []appendGroupEnvelope, op codec.Op) bo
 // fields cannot contain two entries sharing one exact (op_type, op_version)
 // envelope with two different Field values: ddl.go detects that shape while
 // building fields (the loop building appendGroupMember.Fields) and withholds
-// the whole type for it before a typeDescriptor is ever produced, the same
-// no-winner idiom identCollision already applies to a colliding identifier
-// (WRIT-189 round 5 MAJOR-1). An earlier version of this comment claimed
+// the whole append group — no table, no plan, its targets recorded in
+// WithheldTargets and their fields routed to unknown_fields — before a
+// typeDescriptor carrying it is ever produced (WRIT-189 round 5 MAJOR-1,
+// rescoped from a whole-type withhold by WRIT-201, which made that shape
+// normative: state.Fold appends both fields' entries, which one row per op
+// cannot hold). An earlier version of this comment claimed
 // first-match "reproduces" state.Fold's own per-op rule dispatch
 // (engine/internal/fold) — that was false independent of ordering: fold's
 // matchedRulesByField admits a rule only if some op in the object's history
@@ -655,7 +658,14 @@ func positionOpID(orderedOps []codec.Op, objectType, targetKey string, rules []s
 // unknown_keys collection — the same semantics, computed once for every
 // declared type instead of one type's hand-written case; that hand-written
 // case is gone, so this is now simply the one implementation.
-func computeUnknownFields(orderedOps []codec.Op, rules []state.Rule, unknownOps []state.UnknownOp) string {
+//
+// withheldTargets are target keys the descriptor declined to give a table
+// (ddl.go's append-group loop, WRIT-201): a rule bound to one of them still
+// matched, so the op is not quarantined, but its field has nowhere to land
+// in SQL. It counts as unknown here rather than being dropped — the field's
+// value stays reachable through the projection instead of existing only in
+// the log (spec/forward-compatibility.md §Targets a projection declines).
+func computeUnknownFields(orderedOps []codec.Op, rules []state.Rule, unknownOps []state.UnknownOp, withheldTargets map[string]bool) string {
 	skip := make(map[string]bool, len(unknownOps))
 	for _, u := range unknownOps {
 		skip[u.Commit] = true
@@ -673,6 +683,9 @@ func computeUnknownFields(orderedOps []codec.Op, rules []state.Rule, unknownOps 
 				continue
 			}
 			matchedAny = true
+			if withheldTargets[r.TargetKey()] {
+				continue
+			}
 			knownFields[r.Field] = true
 		}
 		if !matchedAny || len(op.Body) == 0 {

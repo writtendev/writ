@@ -286,6 +286,14 @@ type typeDescriptor struct {
 	Children     []ddlTable
 	Targets      map[string]*targetPlan
 	AppendGroups []appendGroupPlan
+	// WithheldTargets are this type's target keys that got no table of
+	// their own because the projection's row shape cannot represent them
+	// (see buildTypeDescriptor's append-group loop). The type itself is
+	// still materialized; every body field bound to one of these targets
+	// lands in unknown_fields instead, preserved verbatim rather than
+	// silently dropped (spec/forward-compatibility.md §Targets a projection
+	// declines).
+	WithheldTargets map[string]bool
 }
 
 // schemaDescriptor is the generator's output: every declared object type's
@@ -545,25 +553,32 @@ func persistedQueryShapes(desc *schemaDescriptor) []persistedQueryShape {
 
 // buildTypeDescriptor generates one object type's tables. ok is false (with
 // a nil error) when a target key or a keyed-lww key component fails
-// identPattern, when the type's generated table or column names collide
+// identPattern, or when the type's generated table or column names collide
 // with an identifier an earlier-processed type (built-in or log-declared)
-// already registered, or when two append-strategy rules bind the same
-// target key to two different Fields under one exact (op_type, op_version)
-// envelope (WRIT-189 round 5 MAJOR-1: state.Fold picks a value deterministic
-// regardless of rule order — see fold's matchedRulesByField — but nothing
-// short of reimplementing that admission logic here could make the
-// projection's own first-match reader agree with it, so the shape is
-// withheld instead of guessed at). Any of these withholds the whole type,
-// not just the offending target, and buildDescriptor never fails the whole
-// schema build over it. A colliding or ambiguous type is data someone else
-// wrote — a legal object type name under op-envelope's grammar, such as
-// "ticket--base", can still generate a table name ("o_ticket__base")
-// another type already owns, and a legal schema can still declare two rules
-// that agree on everything but Field — and WRIT-188 round 3's ruling
-// applies here just as much as there: data another writer wrote must never
-// brick the repository. A withheld type's objects fall to unknown_ops
+// already registered. Either withholds the whole type, and buildDescriptor
+// never fails the whole schema build over it. A colliding type is data
+// someone else wrote — a legal object type name under op-envelope's
+// grammar, such as "ticket--base", can still generate a table name
+// ("o_ticket__base") another type already owns — and WRIT-188 round 3's
+// ruling applies here just as much as there: data another writer wrote must
+// never brick the repository. A withheld type's objects fall to unknown_ops
 // through the same absent-typeDescriptor path an invalid target already
 // takes (materializeObject).
+//
+// One shape withholds less than the whole type: an append group whose
+// members include a target two rules bind to two different Fields under one
+// exact (op_type, op_version) envelope. WRIT-201 made that shape normative
+// — spec/fold.md §5 rules that every matching rule applies, in canonical
+// rule order, so state.Fold contributes *both* fields' entries to one
+// list — and this table shape, one row per op with one column per member
+// target, structurally cannot hold two entries for one target from one op.
+// So the group gets no table and its member targets are recorded in
+// WithheldTargets, whose body fields land in unknown_fields instead
+// (spec/forward-compatibility.md §Targets a projection declines). The type
+// itself, and every other target on it, materializes normally: declining
+// one target must not cost a consumer every table and every row for the
+// type, and it must not push ops that have nothing to do with that target —
+// a create carrying only a title, say — into unknown_ops.
 func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]bool) (*typeDescriptor, []anchorColumnRef, bool, error) {
 	tableName := "o_" + strings.ReplaceAll(objectType, "-", "_")
 
@@ -781,12 +796,14 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 	}
 
 	var appendGroupPlans []appendGroupPlan
+	withheldTargets := make(map[string]bool)
 	for _, g := range buildAppendGroups(rules) {
 		table := tableName + "__" + strings.Join(g.members, "_")
 		cols := []ddlColumn{
 			{Name: "object_id", SQLType: "TEXT"},
 			{Name: "idx", SQLType: "INTEGER"},
 		}
+		unrepresentable := false
 		members := make([]appendGroupMember, 0, len(g.members))
 		for _, tk := range g.members {
 			r := reps[tk]
@@ -799,28 +816,36 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 			// needs the field that specific envelope actually uses (WRIT-189
 			// round 4 MAJOR-1).
 			//
-			// Two of tk's rules can still share one exact (op_type,
-			// op_version) envelope while disagreeing on Field — nothing
-			// upstream forbids it, and fieldForOp's first match would then
-			// pick whichever one happens to come first in rules, which is
-			// order-dependent and can diverge from state.Fold (WRIT-189
-			// round 5 MAJOR-1: body {"b":"yb"} folds to ["yb"] under either
-			// rule order, but first-match projects NULL under one order and
-			// "yb" under the other, with the value landing in neither
-			// unknown_fields nor unknown_ops). fieldForOp cannot fix this by
-			// picking "better" — it has no admission logic of its own to
-			// consult, and reimplementing state.Fold's here would duplicate
-			// the one place that logic is allowed to live. So this loop
-			// detects the ambiguous shape — two distinct Fields declared for
-			// the same tk under the same envelope — and withholds the whole
-			// type for it below, exactly like identCollision's cross-type
-			// collision and the invalid-identifier check above: the type's
-			// objects fall to unknown_ops instead of a column silently
-			// materializing as NULL. A target declared under two *different*
-			// envelopes with two different field names is not this shape —
-			// each envelope still resolves to exactly one field — and stays
-			// on the ordinary path (round 3 MAJOR-1, round 4 MAJOR-1,
-			// verified order-independent again in round 5).
+			// Two of tk's rules can share one exact (op_type, op_version)
+			// envelope while disagreeing on Field — nothing upstream forbids
+			// it, and WRIT-201 made it normative: spec/fold.md §5 rules that
+			// every matching rule applies, in canonical rule order, so
+			// state.Fold appends *both* fields' entries to tk's list for a
+			// single op. This table shape cannot hold that. It is one row per
+			// op with one column per member target — the pairing across
+			// targets is the row, fixed at write time (WRIT-189 round 2
+			// MAJOR-1) — so a target taking two entries from one op has
+			// nowhere to put the second, whichever field fieldForOp resolves.
+			//
+			// (The pre-WRIT-201 reading of this, that state.Fold picks one
+			// value deterministically and the projection merely could not
+			// reproduce which, was wrong: fold picks neither, it takes both.)
+			//
+			// So the group is withheld — no table, no plan — and its member
+			// targets go into withheldTargets, whose fields land in
+			// unknown_fields (spec/forward-compatibility.md §Targets a
+			// projection declines) rather than in a column silently
+			// materializing as NULL. Representing the shape properly needs a
+			// row-per-entry table whose cross-target pairing is redefined,
+			// which is a materializer redesign, not a guess made here.
+			// Withholding the group, not the type, is what keeps an op that
+			// never touches tk out of unknown_ops.
+			//
+			// A target declared under two *different* envelopes with two
+			// different field names is not this shape — each envelope still
+			// resolves to exactly one field, so fieldForOp's scan stays
+			// unambiguous — and stays on the ordinary path (round 3 MAJOR-1,
+			// round 4 MAJOR-1).
 			var fields []appendGroupFieldSource
 			envelopeField := make(map[appendGroupEnvelope]string)
 			for _, rr := range rules {
@@ -829,13 +854,19 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 				}
 				ek := appendGroupEnvelope{OpType: rr.OpType, OpVersion: rr.OpVersion}
 				if prevField, seen := envelopeField[ek]; seen && prevField != rr.Field {
-					collided = true
+					unrepresentable = true
 				} else if !seen {
 					envelopeField[ek] = rr.Field
 				}
 				fields = append(fields, appendGroupFieldSource{OpType: rr.OpType, OpVersion: rr.OpVersion, Field: rr.Field})
 			}
 			members = append(members, appendGroupMember{Key: tk, Column: col, ValueType: r.ValueType, Fields: fields})
+		}
+		if unrepresentable {
+			for _, tk := range g.members {
+				withheldTargets[tk] = true
+			}
+			continue
 		}
 		insertChild(table, ddlTable{Name: table, Columns: cols, PrimaryKey: []string{"object_id", "idx"}})
 		appendGroupPlans = append(appendGroupPlans, appendGroupPlan{
@@ -888,11 +919,12 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 	registerIdents(used, typeTable, childList)
 
 	td := &typeDescriptor{
-		ObjectType:   objectType,
-		Table:        typeTable,
-		Children:     childList,
-		Targets:      targets,
-		AppendGroups: appendGroupPlans,
+		ObjectType:      objectType,
+		Table:           typeTable,
+		Children:        childList,
+		Targets:         targets,
+		AppendGroups:    appendGroupPlans,
+		WithheldTargets: withheldTargets,
 	}
 
 	return td, anchorRefs, true, nil

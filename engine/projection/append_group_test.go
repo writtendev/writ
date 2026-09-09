@@ -353,35 +353,46 @@ func TestAppendGroupOmittedFieldPairing(t *testing.T) {
 	}
 }
 
-// TestAppendGroupAmbiguousFieldFallsToUnknownOps is WRIT-189 round 5's
-// MAJOR-1 finding at materialize level: ddl_internal_test.go's
-// TestAmbiguousAppendFieldWithholdsTables pins that buildDescriptor withholds
-// a type whose append rules bind one target to two different Fields under
-// one exact (op_type, op_version) envelope; this test pins the consequence a
-// caller of Refresh actually observes — the object's ops land in
-// unknown_ops (no o_widget table exists at all to hold a silently-NULLed
-// row), for both rule orderings, even though the value ("yb") is plainly
-// present in the op's own body and state.Fold folds it successfully.
-func TestAppendGroupAmbiguousFieldFallsToUnknownOps(t *testing.T) {
+// TestAppendGroupAmbiguousFieldFallsToUnknownFields is the materialize-level
+// half of ddl_internal_test.go's
+// TestAmbiguousAppendFieldWithholdsGroupNotType: two append rules binding
+// one target to two different Fields under one exact (op_type, op_version)
+// envelope, fed the shape WRIT-201's own conformance vector pins — one op
+// writing *both* fields, which spec/fold.md §5 rules folds to a two-entry
+// list.
+//
+// The group's one row per op, one column per member target shape cannot
+// hold two entries for one target from one op, so the group is withheld.
+// What a caller of Refresh observes is the scope of that decline
+// (spec/forward-compatibility.md §Targets a projection declines): o_widget
+// exists and carries the unrelated f_title, the create op that never
+// touches the target materializes instead of being dumped into
+// unknown_ops, no o_widget__note table exists, and the entries the fold
+// produced are preserved verbatim in unknown_fields rather than lost.
+// Order-independent. (WRIT-189 round 5 withheld the whole type here, which
+// put the create op in unknown_ops and left the values in neither
+// unknown_fields nor unknown_ops.)
+func TestAppendGroupAmbiguousFieldFallsToUnknownFields(t *testing.T) {
 	base := time.Unix(1700000000, 0).UTC()
 	opCreate := makeWidgetOp("op-create-1", nil, "create", map[string]any{"title": "T"}, base)
-	opNote := makeWidgetOp("op-note-1", []string{"op-create-1"}, "note", map[string]any{"b": "yb"}, base.Add(1*time.Second))
+	opNote := makeWidgetOp("op-note-1", []string{"op-create-1"}, "note", map[string]any{"a": "xa", "b": "yb"}, base.Add(1*time.Second))
 	ops := []codec.Op{opCreate, opNote}
 
 	titleRule := state.Rule{OpType: "create", Field: "title", Strategy: "lww", ValueType: "string", ObjectType: "widget"}
 	noteFieldA := state.Rule{OpType: "note", OpVersion: 1, Field: "a", Target: "note", Strategy: "append", ValueType: "string", ObjectType: "widget"}
 	noteFieldB := state.Rule{OpType: "note", OpVersion: 1, Field: "b", Target: "note", Strategy: "append", ValueType: "string", ObjectType: "widget"}
 
-	// state.Fold itself resolves this shape deterministically regardless of
-	// rule order — the probe that makes clear this is a projection-side
-	// withhold, not a fold-level rejection.
-	want, err := state.Fold(ops, []state.Rule{titleRule, noteFieldA, noteFieldB})
+	// state.Fold applies every matching rule, in canonical rule order
+	// (ascending (op_type, op_version, field)), so it takes both entries
+	// whichever way the rule slice is ordered — the probe that makes clear
+	// this is a projection-side decline, not a fold-level rejection.
+	want, err := state.Fold(ops, []state.Rule{titleRule, noteFieldB, noteFieldA})
 	if err != nil {
 		t.Fatalf("state.Fold failed: %v", err)
 	}
 	wantNotes, ok := want.State["note"].([]any)
-	if !ok || !reflect.DeepEqual(wantNotes, []any{"yb"}) {
-		t.Fatalf("test setup: state.Fold's note = %#v, want [\"yb\"]", want.State["note"])
+	if !ok || !reflect.DeepEqual(wantNotes, []any{"xa", "yb"}) {
+		t.Fatalf("test setup: state.Fold's note = %#v, want [\"xa\", \"yb\"]", want.State["note"])
 	}
 
 	orderings := map[string][]state.Rule{
@@ -416,8 +427,14 @@ func TestAppendGroupAmbiguousFieldFallsToUnknownOps(t *testing.T) {
 			if err := db.DB().QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'o_widget'").Scan(&tableCount); err != nil {
 				t.Fatalf("query sqlite_master: %v", err)
 			}
+			if tableCount != 1 {
+				t.Fatalf("o_widget is missing — declining one target must not withhold the whole type")
+			}
+			if err := db.DB().QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'o_widget__note'").Scan(&tableCount); err != nil {
+				t.Fatalf("query sqlite_master: %v", err)
+			}
 			if tableCount != 0 {
-				t.Fatalf("expected o_widget to be withheld (no table), but it exists")
+				t.Fatalf("o_widget__note exists; the unrepresentable append group must get no table")
 			}
 
 			var objType string
@@ -426,6 +443,25 @@ func TestAppendGroupAmbiguousFieldFallsToUnknownOps(t *testing.T) {
 			}
 			if objType != "widget" {
 				t.Fatalf("objects.object_type = %q, want \"widget\"", objType)
+			}
+
+			var title sql.NullString
+			var unknownFields sql.NullString
+			if err := db.DB().QueryRow("SELECT f_title, unknown_fields FROM o_widget WHERE object_id = ?", "w-1").Scan(&title, &unknownFields); err != nil {
+				t.Fatalf("query o_widget: %v", err)
+			}
+			if !title.Valid || title.String != "T" {
+				t.Fatalf("o_widget.f_title = %v (valid=%v), want \"T\" — an unrelated target must still materialize", title.String, title.Valid)
+			}
+			if !unknownFields.Valid {
+				t.Fatal("o_widget.unknown_fields is NULL; a declined target's written values must be preserved, not dropped")
+			}
+			var gotUnknown map[string]any
+			if err := json.Unmarshal([]byte(unknownFields.String), &gotUnknown); err != nil {
+				t.Fatalf("unmarshal unknown_fields %q: %v", unknownFields.String, err)
+			}
+			if !reflect.DeepEqual(gotUnknown, map[string]any{"a": "xa", "b": "yb"}) {
+				t.Fatalf("o_widget.unknown_fields = %#v, want both declined-target writes preserved", gotUnknown)
 			}
 
 			rows, err := db.DB().Query("SELECT op_id FROM unknown_ops WHERE object_id = ? ORDER BY op_index ASC", "w-1")
@@ -444,9 +480,8 @@ func TestAppendGroupAmbiguousFieldFallsToUnknownOps(t *testing.T) {
 			if err := rows.Err(); err != nil {
 				t.Fatalf("iterate unknown_ops: %v", err)
 			}
-			want := []string{"op-create-1", "op-note-1"}
-			if !reflect.DeepEqual(opIDs, want) {
-				t.Fatalf("unknown_ops op_ids = %#v, want %#v — withheld type's ops must all fall to unknown_ops", opIDs, want)
+			if len(opIDs) != 0 {
+				t.Fatalf("unknown_ops op_ids = %#v, want none — declining one target must not quarantine ops, least of all a create that never writes it", opIDs)
 			}
 		})
 	}

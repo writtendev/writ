@@ -1,0 +1,24 @@
+{
+  "name": "lww-two-fields-shared-target",
+  "description": "The register counterpart to append-two-fields-shared-target (WRIT-201). Two body fields, 'x' and 'y', are declared as lww rules sharing one target ('t') under one exact (op_type, op_version) envelope, and one operation writes both. Every matching rule applies (spec/fold.md §5), so both writes land on the same register within a single position of the total order L; spec/fold.md §5's canonical rule order — ascending (op_type, op_version, field) — decides which is treated as later, so 'y' writes after 'x' and the register settles on 'y-val'. As in the append vector, the harness-local labels sort into the reverse order, so an implementation ordering by its own rule slice rather than by rule content folds this to 'x-val' and fails.",
+  "object_id": "obj-1",
+  "fields": {
+    "listed_first_writes_y": { "strategy": "lww", "op_type": "widget-note", "op_version": 1, "field": "y", "target": "t", "value_type": "string" },
+    "listed_second_writes_x": { "strategy": "lww", "op_type": "widget-note", "op_version": 1, "field": "x", "target": "t", "value_type": "string" }
+  },
+  "ops": [
+    {
+      "id": "op-1",
+      "parents": [],
+      "time": 100,
+      "object_id": "obj-1",
+      "object_type": "widget",
+      "op_type": "widget-note",
+      "op_version": 1,
+      "body": { "x": "x-val", "y": "y-val" }
+    }
+  ],
+  "expected_state": {
+    "t": "y-val"
+  }
+}

@@ -194,6 +194,39 @@ Preservation requires specific guarantees across all four engine subsystems:
   exclude, or rewrite ops during fetch or push based on op type, version, or
   interpretability.
 
+## Targets a projection declines
+
+A projection is a query surface, not a second source of truth, and its row
+shape is narrower than the fold's. A conforming implementation MAY decline to
+give one target key a queryable representation when its own storage cannot
+express what the fold blesses — for instance a tabular projection pairing one
+row per operation with one column per target, faced with an operation that
+writes two body fields sharing one `append` target and so contributes two
+entries to that target at a single position of $L$ (`spec/fold.md` §5's
+canonical rule order). Declining is bounded:
+
+- It MUST NOT change what the fold computes. Folded state read from the log
+  is unaffected by what any cache can hold, and a reader going through the
+  fold still sees every entry.
+- It MUST NOT drop the declined target's written values. They are preserved
+  with the same "preserve and ignore" treatment an unrecognized body field
+  gets (§Unknown fields), so they stay reachable from the projection and not
+  only from the log.
+- It MUST decline no more than the target itself. Withholding a whole object
+  type — and with it every unrelated operation, target and row of that type —
+  because one target is unrepresentable is not a decline but data loss on the
+  query surface, and is prohibited. An operation that never writes the
+  declined target MUST materialize normally.
+- The decision MUST be a function of the schema alone, so that dropping and
+  rebuilding the cache reproduces it exactly (`FC-13`).
+
+A projection MAY still withhold a whole object type for a reason that is
+genuinely about the type — a generated table or column name colliding with
+one another type already owns, or a target key that is not a legal
+identifier in the storage engine — since there is then no narrower unit to
+withhold. That case remains covered by `FC-1`: the type's operations are
+retained verbatim as uninterpretable rather than discarded.
+
 ## Explicit prohibitions ("Never drop")
 
 To prevent data destruction across client generations, conforming implementations
