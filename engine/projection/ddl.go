@@ -581,9 +581,11 @@ func persistedQueryShapes(desc *schemaDescriptor) []persistedQueryShape {
 // rule order, so state.Fold contributes *both* fields' entries to one
 // list — and this table shape, one row per op with one column per member
 // target, structurally cannot hold two entries for one target from one op.
-// So the group gets no table and its member targets are recorded in
-// WithheldTargets, whose body fields land in unknown_fields instead
-// (spec/forward-compatibility.md §Targets a projection declines). The type
+// So that target alone is withheld — no column — and recorded in
+// WithheldTargets, its body fields landing in unknown_fields instead
+// (spec/forward-compatibility.md §Targets a projection declines). Its
+// group-mates keep their columns, and the group's table, built from
+// whichever members survive, still forms as long as one does. The type
 // itself, and every other target on it, materializes normally: declining
 // one target must not cost a consumer every table and every row for the
 // type, and it must not push ops that have nothing to do with that target —

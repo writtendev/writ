@@ -424,12 +424,14 @@ func appendGroupEnvelopeMatches(envelopes []appendGroupEnvelope, op codec.Op) bo
 // fields cannot contain two entries sharing one exact (op_type, op_version)
 // envelope with two different Field values: ddl.go detects that shape while
 // building fields (the loop building appendGroupMember.Fields) and withholds
-// the whole append group — no table, no plan, its targets recorded in
-// WithheldTargets and their fields routed to unknown_fields — before a
-// typeDescriptor carrying it is ever produced (WRIT-189 round 5 MAJOR-1,
-// rescoped from a whole-type withhold by WRIT-201, which made that shape
-// normative: state.Fold appends both fields' entries, which one row per op
-// cannot hold). An earlier version of this comment claimed
+// that one target alone — no column, recorded in WithheldTargets with its
+// fields routed to unknown_fields — before a typeDescriptor carrying it is
+// ever produced (WRIT-189 round 5 MAJOR-1, rescoped from a whole-type
+// withhold by WRIT-201, then rescoped again from a whole-group withhold to
+// this single-target scope by WRIT-201 review round 2 MEDIUM-1: state.Fold
+// appends both fields' entries, which one row per op cannot hold, but a
+// group-mate reached by one field per envelope is unaffected and keeps its
+// column). An earlier version of this comment claimed
 // first-match "reproduces" state.Fold's own per-op rule dispatch
 // (engine/internal/fold) — that was false independent of ordering: fold's
 // matchedRulesByField admits a rule only if some op in the object's history
