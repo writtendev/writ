@@ -487,3 +487,53 @@ func CheckTargetAgreement(target string, rules []FieldRule) error {
 			d.B.OpType, d.B.OpVersion, d.B.Field, d.Target, d.A.OpType, d.A.OpVersion, d.A.Field, d.Attribute, d.Attribute)
 	}
 }
+
+// CheckKeyColumnCollision enforces that every keyed-lww rule for one
+// (op_type, op_version) which names a given key column agrees on that
+// column's key_types entry, regardless of whether the two rules share a
+// full key tuple or even a target: engine/codec/schema.go's
+// validateFieldsAgainstRules (spec/op-envelope.md §Producer validation
+// rule 3) resolves a key column's declared type by column name alone,
+// scanning every keyed-lww rule declared for the (op_type, op_version) a
+// body targets, not by which rule's key the column happens to belong to.
+// Two rules that disagree give a producer no correct way to check the
+// column's value — whichever rule's entry validateFieldsAgainstRules
+// happens to see last would silently govern the other's column too — so
+// this is the same "no winner is ever picked" standard
+// CheckTargetCollision already holds shared targets to
+// (spec/schema-ops.md §8), applied to shared key columns instead: the
+// second rule to declare a disagreeing entry for an already-bound column
+// is rejected outright, not silently reconciled by whichever happens to
+// be resolved first or last.
+//
+// bound maps key column name to the keyed-lww rule that already bound it,
+// scoped by the caller to one (op_type, op_version) — CheckTargetCollision
+// is scoped by target instead, because a target collision spans every
+// op_type sharing it, but a key column is only ever resolved within one
+// (op_type, op_version)'s rule set (validateFieldsAgainstRules never sees
+// more than that). candidate not being keyed-lww, or naming no column
+// already in bound, is not a collision: it returns nil. It does not
+// mutate bound; the caller owns recording candidate's columns once it
+// decides to keep it.
+func CheckKeyColumnCollision(bound map[string]FieldRule, candidate FieldRule) error {
+	if candidate.Strategy != "keyed-lww" {
+		return nil
+	}
+	cols := make([]string, 0, len(candidate.KeyTypes))
+	for col := range candidate.KeyTypes {
+		cols = append(cols, col)
+	}
+	sort.Strings(cols)
+	for _, col := range cols {
+		prior, ok := bound[col]
+		if !ok {
+			continue
+		}
+		if prior.KeyTypes[col] != candidate.KeyTypes[col] {
+			return fmt.Errorf(
+				"field rule (%s, %d, %s) declares key column %q as %q, disagreeing with field %q's rule for the same (op_type, op_version), which declares it %q; every keyed-lww rule sharing a key column within one (op_type, op_version) must agree on that column's key_types entry, because a producer resolves a key column's declared type by column name alone (spec/op-envelope.md §Producer validation rule 3)",
+				candidate.OpType, candidate.OpVersion, candidate.Field, col, candidate.KeyTypes[col], prior.Field, prior.KeyTypes[col])
+		}
+	}
+	return nil
+}

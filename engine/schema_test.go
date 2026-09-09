@@ -568,6 +568,80 @@ func TestRulesFromSchemas_ThreeRuleTargetSharingIsOrderIndependent(t *testing.T)
 	}
 }
 
+// TestRulesFromSchemas_SharedKeyColumnDisagreementRejected pins WRIT-214
+// round 2's fix: two keyed-lww fields under the same (op_type, op_version),
+// "verdict" keyed on key(subject) typed person-ref and "score" keyed on
+// key(subject, phase) typed string for the same "subject" column, each pass
+// CheckTargetCollision individually (different targets) and would let
+// engine/codec/schema.go's validateFieldsAgainstRules resolve "subject"'s
+// type by whichever rule the union loop visits last — the round-1 finding,
+// verified there by swapping rule order. The resolver must instead refuse to
+// install the second rule outright, regardless of which field is declared
+// first: both orders below are run, and both must drop exactly one field and
+// report exactly one conflict, never install both with a silently-chosen
+// winner.
+func TestRulesFromSchemas_SharedKeyColumnDisagreementRejected(t *testing.T) {
+	verdict := state.SchemaField{
+		Name: "verdict", OpType: "approve", OpVersion: 1, Strategy: "keyed-lww", ValueType: "string",
+		Key: []string{"subject"}, KeyTypes: map[string]string{"subject": "person-ref"},
+	}
+	score := state.SchemaField{
+		Name: "score", OpType: "approve", OpVersion: 1, Strategy: "keyed-lww", ValueType: "string",
+		Key: []string{"subject", "phase"}, KeyTypes: map[string]string{"subject": "string", "phase": "string"},
+	}
+
+	for _, tc := range []struct {
+		name   string
+		fields []state.SchemaField
+	}{
+		{name: "verdict declared first", fields: []state.SchemaField{verdict, score}},
+		{name: "score declared first", fields: []state.SchemaField{score, verdict}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := state.Schema{
+				ObjectID: "sch-a",
+				Types:    []state.SchemaType{{Name: "widget", Fields: tc.fields}},
+			}
+			rules, conflicts := writ.RulesFromSchemas([]state.Schema{a})
+			got := rules["widget"]
+			if len(got) != 1 {
+				t.Fatalf("expected exactly one of the two colliding fields installed, got %+v", got)
+			}
+			if len(conflicts) != 1 {
+				t.Fatalf("expected 1 conflict reporting the rejected field, got %+v", conflicts)
+			}
+		})
+	}
+}
+
+// TestRulesFromSchemas_SharedKeyColumnAgreementOK is the positive control:
+// two keyed-lww fields under the same (op_type, op_version) that share a key
+// column name but agree on its key_types entry are both installed, with no
+// conflict — CheckKeyColumnCollision only refuses disagreement, not sharing
+// itself (writ's own bootstrap schema-ops table relies on exactly this: every
+// keyed-lww rule scoped to one schemaFieldKey shares "type" typed string).
+func TestRulesFromSchemas_SharedKeyColumnAgreementOK(t *testing.T) {
+	verdict := state.SchemaField{
+		Name: "verdict", OpType: "approve", OpVersion: 1, Strategy: "keyed-lww", ValueType: "string",
+		Key: []string{"subject"}, KeyTypes: map[string]string{"subject": "person-ref"},
+	}
+	score := state.SchemaField{
+		Name: "score", OpType: "approve", OpVersion: 1, Strategy: "keyed-lww", ValueType: "string",
+		Key: []string{"subject", "phase"}, KeyTypes: map[string]string{"subject": "person-ref", "phase": "string"},
+	}
+	a := state.Schema{
+		ObjectID: "sch-a",
+		Types:    []state.SchemaType{{Name: "widget", Fields: []state.SchemaField{verdict, score}}},
+	}
+	rules, conflicts := writ.RulesFromSchemas([]state.Schema{a})
+	if len(conflicts) != 0 {
+		t.Fatalf("expected no conflicts when the shared key column agrees, got %+v", conflicts)
+	}
+	if got := rules["widget"]; len(got) != 2 {
+		t.Fatalf("expected both fields installed, got %+v", got)
+	}
+}
+
 // TestStoreSchemaFoldsEveryLoggedSchemaObject exercises Store.Schema
 // end-to-end: ops are appended directly (there is no write path for schema
 // ops in this ticket, spec/schema-ops.md §1.2), and Store.Schema is proven

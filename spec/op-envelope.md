@@ -190,13 +190,28 @@ invalid. Before the op commit is built, the producer MUST verify that:
 
 A `keyed-lww` key column's value is checked against its `key_types` entry
 the same way a field's value is checked against its `value_type`, and MUST
-additionally be a JSON string regardless of what that entry says: fold's
-`keyed-lww` strategy treats a non-string key component as uninterpretable
+additionally be a JSON string regardless of what that entry says — JSON
+`null` included, which is not tolerated here the way it is for an ordinary
+field's absent-shaped "no write" — because fold's `keyed-lww` strategy
+treats a non-string key component, `null` included, as uninterpretable
 ([`spec/fold.md`](fold.md) §5's "Key components are strings", enforced via
 §7.1). This is not a new constraint —
 [`spec/schema-ops.md`](schema-ops.md) §3.1 already lives with it for
 `op_version` wherever it appears in a key — only its extension from
-writ's own bootstrap vocabulary to every `keyed-lww` key column.
+writ's own bootstrap vocabulary to every `keyed-lww` key column. A
+`key_types` entry of `enum` is the one catalogue member this second check
+cannot fully apply: `key_types` names a column's type only, with no slot
+for the member list an `enum` field's own `enum` attribute would supply,
+so an enum-typed key column is held to the JSON-string requirement above
+and checked no further. Two `keyed-lww` rules within the same `(op_type,
+op_version)` that share a key column name MUST agree on that column's
+`key_types` entry, even when their `key` tuples otherwise differ: a
+producer resolves a key column's declared type by column name alone, not
+by which rule's `key` it belongs to, so a schema whose rules disagree is
+refused installation rather than let one rule's entry silently govern the
+other's column (`spec.CheckKeyColumnCollision`, the same "no winner is
+ever picked" standard [`spec/schema-ops.md`](schema-ops.md) §8 already
+holds a shared `target` to, applied to a shared key column instead).
 
 "The schema object governing `object_type`" resolves through a fixed,
 exclusive precedence — exactly one tier ever applies to a given op, so no

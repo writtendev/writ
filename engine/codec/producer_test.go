@@ -210,6 +210,17 @@ func TestBuildCommitRejectsKeyedLWWKeyColumns(t *testing.T) {
 			name: "key column value is a string but fails its key_types entry",
 			body: `{"verdict":"approve","subject":"not-a-person-ref"}`,
 		},
+		{
+			// Round-1 review finding: JSON null took the same "no write"
+			// `continue` a declared field's absent-shaped null gets, even
+			// though a key column addresses a register rather than
+			// carrying a value of its own and fold's keyed-lww strategy
+			// (engine/internal/fold/reject.go's isString(nil) == false)
+			// does not tolerate null there either — this pinned the
+			// producer accept a reader quarantines forever.
+			name: "key column value is JSON null",
+			body: `{"verdict":"approve","subject":null}`,
+		},
 	}
 
 	for _, tc := range cases {
@@ -263,6 +274,35 @@ func TestBuildCommitFieldRuleWinsOverKeyColumn(t *testing.T) {
 	}, testAuthor(), nil, vocabularies); err != nil {
 		t.Fatalf("BuildCommit rejected a value valid under the declared field rule, "+
 			"suggesting the key-column rule ran instead: %v", err)
+	}
+}
+
+// TestBuildCommitAcceptsEnumKeyColumn is round 2's fix for an enum-typed key
+// column: key_types names a column's type only, with no slot for the member
+// list an enum field's own enum attribute would supply, so
+// validateKeyColumnValue cannot check membership for one — and holding it to
+// the JSON-string requirement alone, rather than rejecting every write with
+// value.Validate's empty-Params "not a member of the declared enum []", is
+// the fix. A value no declared enum anywhere would admit is accepted here on
+// purpose: key_types carries no member list to check it against.
+func TestBuildCommitAcceptsEnumKeyColumn(t *testing.T) {
+	vocabularies := declareVocabulary("widget",
+		spec.FieldRule{
+			OpType: "approve", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww",
+			Key: []string{"phase"}, KeyTypes: map[string]string{"phase": "enum"},
+			ValueType: "string",
+		},
+	)
+
+	if _, err := codec.BuildCommit(codec.Envelope{
+		ObjectID:   "w-1",
+		ObjectType: "widget",
+		OpType:     "approve",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"verdict":"approve","phase":"whatever-string"}`),
+	}, testAuthor(), nil, vocabularies); err != nil {
+		t.Fatalf("BuildCommit rejected an enum-typed key column value, "+
+			"suggesting value.Validate ran against an empty member list: %v", err)
 	}
 }
 

@@ -781,13 +781,24 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 			descriptions[t.Name] = t.Description
 			deprecatedTypes[t.Name] = t.Deprecated
 
-			// Pass 1: grammar and spec.ValidateFieldRule, per field — each
-			// failure dropped with its own SchemaConflict, exactly as
-			// before. survivingRules mirrors survivingFields index for
-			// index so pass 2 below can go from a target's rules back to
-			// the state.SchemaField values it withholds or installs.
+			// Pass 1: grammar, spec.ValidateFieldRule, and
+			// spec.CheckKeyColumnCollision, per field — each failure
+			// dropped with its own SchemaConflict. survivingRules mirrors
+			// survivingFields index for index so pass 2 below can go from
+			// a target's rules back to the state.SchemaField values it
+			// withholds or installs.
+			//
+			// CheckKeyColumnCollision runs here, per field as it survives
+			// grammar/ValidateFieldRule, rather than grouped like pass 2's
+			// CheckTargetAgreement: it is scoped by (op_type, op_version)
+			// and column name, an orthogonal axis from TargetKey() that
+			// WRIT-211's target-agreement transitivity fix does not touch,
+			// so the incremental candidate-vs-bound shape it already had
+			// (spec.CheckKeyColumnCollision's own doc comment) carries over
+			// unchanged.
 			var survivingFields []state.SchemaField
 			var survivingRules []spec.FieldRule
+			keyColumnBindings := make(map[codec.OpVersionKey]map[string]spec.FieldRule)
 			for _, f := range t.Fields {
 				sr := toFieldRule(t.Name, f)
 
@@ -807,6 +818,33 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 						Reason:     fmt.Sprintf("field rule (%s, %d, %s) is invalid and was not installed: %v", sr.OpType, sr.OpVersion, sr.Field, err),
 					})
 					continue
+				}
+
+				// A keyed-lww rule's key columns are resolved by column
+				// name alone, across every keyed-lww rule sharing this
+				// (op_type, op_version) — not only rules sharing a target —
+				// so two rules disagreeing on a shared column's key_types
+				// entry get no chance to reach validateFieldsAgainstRules
+				// and silently pick whichever's declaration order wins
+				// (spec.CheckKeyColumnCollision).
+				opVersionKey := codec.OpVersionKey{OpType: sr.OpType, OpVersion: sr.OpVersion}
+				boundCols := keyColumnBindings[opVersionKey]
+				if err := spec.CheckKeyColumnCollision(boundCols, sr); err != nil {
+					conflicts = append(conflicts, SchemaConflict{
+						ObjectType: t.Name,
+						ObjectIDs:  []string{sch.ObjectID},
+						Reason:     err.Error(),
+					})
+					continue
+				}
+				if sr.Strategy == "keyed-lww" {
+					if boundCols == nil {
+						boundCols = make(map[string]spec.FieldRule)
+						keyColumnBindings[opVersionKey] = boundCols
+					}
+					for _, col := range sr.Key {
+						boundCols[col] = sr
+					}
 				}
 
 				survivingFields = append(survivingFields, f)

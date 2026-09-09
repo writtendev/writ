@@ -378,6 +378,96 @@ func TestCheckTargetAgreement(t *testing.T) {
 	}
 }
 
+// TestCheckKeyColumnCollision mirrors TestCheckTargetCollision above for the
+// narrower hazard WRIT-214 round 2 closed: two keyed-lww rules sharing an
+// (op_type, op_version) and a key column name, but not necessarily a target
+// or a full key tuple, must agree on that column's key_types entry, because
+// engine/codec/schema.go's validateFieldsAgainstRules resolves a key
+// column's declared type by column name alone.
+func TestCheckKeyColumnCollision(t *testing.T) {
+	tests := []struct {
+		name      string
+		prior     spec.FieldRule
+		candidate spec.FieldRule
+		wantErr   bool
+	}{
+		{
+			// The reviewer's own repro: "verdict" keyed on key(subject) and
+			// "score" keyed on key(subject, phase) individually pass
+			// ValidateFieldRule and CheckTargetCollision (different
+			// targets), but disagree on what "subject" is.
+			name: "different key tuples sharing a column name that disagree: rejected",
+			prior: spec.FieldRule{
+				OpType: "approve", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww",
+				Key: []string{"subject"}, KeyTypes: map[string]string{"subject": "person-ref"},
+			},
+			candidate: spec.FieldRule{
+				OpType: "approve", OpVersion: 1, Field: "score", Strategy: "keyed-lww",
+				Key: []string{"subject", "phase"}, KeyTypes: map[string]string{"subject": "string", "phase": "string"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "different key tuples sharing a column name that agree: permitted",
+			prior: spec.FieldRule{
+				OpType: "approve", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww",
+				Key: []string{"subject"}, KeyTypes: map[string]string{"subject": "person-ref"},
+			},
+			candidate: spec.FieldRule{
+				OpType: "approve", OpVersion: 1, Field: "score", Strategy: "keyed-lww",
+				Key: []string{"subject", "phase"}, KeyTypes: map[string]string{"subject": "person-ref", "phase": "string"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "same column name, different (op_type, op_version): not a collision",
+			prior: spec.FieldRule{
+				OpType: "approve", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww",
+				Key: []string{"subject"}, KeyTypes: map[string]string{"subject": "person-ref"},
+			},
+			candidate: spec.FieldRule{
+				OpType: "reject", OpVersion: 1, Field: "score", Strategy: "keyed-lww",
+				Key: []string{"subject"}, KeyTypes: map[string]string{"subject": "string"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "candidate is not keyed-lww: never a collision",
+			prior: spec.FieldRule{
+				OpType: "approve", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww",
+				Key: []string{"subject"}, KeyTypes: map[string]string{"subject": "person-ref"},
+			},
+			candidate: spec.FieldRule{OpType: "approve", OpVersion: 1, Field: "subject", Strategy: "lww", ValueType: "string"},
+			wantErr:   false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			bound := make(map[string]spec.FieldRule)
+			// The caller (engine/schema.go's resolveSchemaTypes) only ever
+			// passes rules already scoped to one (op_type, op_version), so
+			// the "different (op_type, op_version)" case above exercises a
+			// bound map that was never populated with the other pair's
+			// columns in the first place — set up here rather than via
+			// CheckKeyColumnCollision itself, which does not scope by
+			// (op_type, op_version) on its own.
+			if tc.prior.OpType == tc.candidate.OpType && tc.prior.OpVersion == tc.candidate.OpVersion {
+				for _, col := range tc.prior.Key {
+					bound[col] = tc.prior
+				}
+			}
+			err := spec.CheckKeyColumnCollision(bound, tc.candidate)
+			if tc.wantErr && err == nil {
+				t.Fatalf("expected a collision error, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("expected no collision, got: %v", err)
+			}
+		})
+	}
+}
+
 // TestFieldRulesNoUndeclaredTargetCollisions asserts that every shipped
 // vocabulary in spec/testdata/**/field-rules.json passes the standard
 // TestCheckTargetAgreement pins above — the same standard writ imposes on

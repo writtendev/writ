@@ -164,9 +164,16 @@ func TestObjectCLI_EndToEnd_NeverHeardOfType(t *testing.T) {
 // folding two ops with different key-column values to two independent
 // register entries rather than one. Before the fix, the CLI's own
 // -field/-field-json gate refused the key column outright, and the engine
-// refused the key column with it -- and a body carrying the declared field
-// alone, no key column, was worse than refused: it was silently accepted
-// and every write folded onto the same empty key.
+// refused the key column with it.
+//
+// A body carrying the declared field alone, no key column, is a separate,
+// still-open footgun this PR does not address: it is silently accepted and
+// every such write folds onto the same empty key
+// (TestObjectCLI_KeyedLWWKeyColumn_KeyColumnAbsentStillCollapsesToEmptyKey
+// pins today's behavior). Requiring a keyed-lww field's key columns to be
+// present is a wider rule than rule 3's declared-ness/value-conformance
+// check this PR implements, and is being tracked as a follow-up rather than
+// folded in here.
 //
 // fullTestSchema (cmd/writ/schema_test.go) already declares exactly this
 // shape -- standup's approval op, verdict keyed-lww key(subject
@@ -252,6 +259,73 @@ func TestObjectCLI_KeyedLWWKeyColumn_UndeclaredKeyColumnStillRefused(t *testing.
 	}
 	if !strings.Contains(stderr.String(), "subject") {
 		t.Errorf("stderr = %q, want the declares list to include the key column \"subject\"", stderr.String())
+	}
+}
+
+// TestObjectCLI_KeyedLWWKeyColumn_KeyColumnAbsentStillCollapsesToEmptyKey
+// pins the footgun this PR's own ticket named but did not scope a fix for
+// (see TestObjectCLI_KeyedLWWKeyColumn's comment): nothing in
+// validateFieldsAgainstRules requires a keyed-lww field's key columns to
+// also be present, so a body carrying the field alone is accepted, and
+// keyedLWWAccumulator.Apply's "an absent key column contributes the empty
+// component" collapses every such write onto one register. Before WRIT-214,
+// keyed-lww was unreachable for a consumer schema at all, so this was
+// academic; after it, it is live. This test exists so a future change to
+// require key-column presence has something concrete to flip, rather than
+// this remaining an unpinned, easy-to-forget gap.
+func TestObjectCLI_KeyedLWWKeyColumn_KeyColumnAbsentStillCollapsesToEmptyKey(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, fullTestSchema)
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code := run(context.Background(), []string{
+		"object", "create", "-C", env.repoDir, "standup", "approval",
+		"-field", "verdict=approve",
+		"--json",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("object create without the key column unexpectedly refused with %d; stderr: %s", code, stderr.String())
+	}
+	var created wire.ObjectCreated
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectCreate, &created)
+	objectID := created.ObjectID
+
+	// A second write also omitting subject -- e.g. a second approver who
+	// forgot the same -field -- must land on the very same empty-key
+	// register as the first, not a register of its own, for this to be
+	// the collapse the ticket named rather than two independent writes
+	// that both happen to lack a subject.
+	stdout.Reset()
+	stderr.Reset()
+	code = run(context.Background(), []string{
+		"object", "apply", "-C", env.repoDir, objectID, "approval",
+		"-field", "verdict=block",
+		"--json",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("object apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run(context.Background(), []string{"object", "show", "-C", env.repoDir, objectID, "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("object show failed with %d; stderr: %s", code, stderr.String())
+	}
+	var obj wire.Object
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectShow, &obj)
+	// Both writes collapse onto the same empty-key register: "block" (the
+	// later write) wins LWW over "approve" (the earlier one) at that one
+	// register, so exactly one entry survives instead of two independent
+	// approvals.
+	entries, ok := obj.Fields["verdict"].([]any)
+	if !ok || len(entries) != 1 {
+		t.Fatalf("verdict = %#v, want exactly one keyed-lww register entry (both writes collapsed onto the empty key)", obj.Fields["verdict"])
 	}
 }
 

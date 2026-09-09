@@ -56,5 +56,16 @@
     "reason_code": "schema-violation",
     "reader_disposition": "unknown-op",
     "reason": "rule 3 (WRIT-214): a keyed-lww key column's value MUST be a JSON string regardless of its key_types entry, because fold treats a non-string key component as uninterpretable (spec/fold.md §5 keyed-lww); this is the lockstep pin -- a producer refusal matched by a reader quarantine, not the interpretable-but-wrong tolerance an ordinary value_type mismatch gets"
+  },
+  "keyed-lww-key-column-null.json": {
+    "producer_verdict": "reject",
+    "reason_code": "schema-violation",
+    "reader_disposition": "unknown-op",
+    "reason": "rule 3 (WRIT-214 round 2): JSON null is not a JSON string, so a keyed-lww key column carrying null is rejected the same as any other non-string key column value -- unlike an ordinary declared field, where null is tolerated as a legitimate 'no write', a key column addresses a register rather than carrying a value of its own and fold's keyed-lww strategy does not tolerate null there either"
+  },
+  "keyed-lww-key-column-enum.json": {
+    "producer_verdict": "accept",
+    "reader_disposition": "interpretable",
+    "reason": "rule 3 (WRIT-214 round 2): an enum-typed key column is held to the JSON-string requirement and nothing more, because key_types (a column -> catalogue type name map) has no slot for the member list an enum field's own enum attribute would supply -- accepting a value outside any particular field's declared enum members is correct here, not a hole, since key_types carries no member list to check membership against in the first place"
   }
 }

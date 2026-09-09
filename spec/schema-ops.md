@@ -599,6 +599,21 @@ The resolver enforces this alongside the within-class case above, and so
 does `engine/schemasrc`'s compiler for a `writ.schema` source file before it
 ever reaches the log.
 
+A `keyed-lww` key column carries a narrower version of the same hazard,
+independent of `target`: a producer resolves a key column's declared type
+by column name alone, scanning every `keyed-lww` rule for the `(op_type,
+op_version)` a body targets (§11), not by which rule's `key` the column
+belongs to. Two `keyed-lww` rules sharing that `(op_type, op_version)`
+and a column name — whether or not their `key` tuples, `field`s, or
+`target`s otherwise agree — MUST therefore agree on that column's
+`key_types` entry too, or neither rule gives a producer a correct answer
+for the column's type. `spec.CheckKeyColumnCollision` enforces this at
+the resolver, dropping the second such rule as a `SchemaConflict` exactly
+as the shared-`target` case above does; unlike that case, there is no
+compile-time twin for it in `engine/schemasrc` — a `writ.schema` source
+file with this shape compiles, and the conflict surfaces only once the
+resolver sees the whole type, at `apply` time.
+
 ### 8.1. Clearing a field attribute (decided, WRIT-200)
 
 `define-field`'s body carries `value_type`, `enum`, `max_length`, `key`,
