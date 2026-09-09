@@ -128,7 +128,7 @@ Parses `writ.schema`, folds the schema objects already in the repository, and re
 
 | Field | Type | Description |
 |---|---|---|
-| `object_id` | string | The target schema object's id: `schema:<namespace>`, derived from the file's `namespace` declaration (`spec/identifiers.md`'s schema carve-out). Always present — a creation plan's id is the exact id `apply` would write to, not a preview. |
+| `object_id` | string | The target schema object's id. On a creation plan (`created: true`), this is `schema:<namespace>`, derived from the file's `namespace` declaration (`spec/identifiers.md`'s schema carve-out) — the exact id `apply` would write to, not a preview. On a reuse plan (`created: false`), this is whatever id the existing schema object already holds, derived or not. Always present. |
 | `namespace` | string | The file's `namespace` declaration. |
 | `created` | boolean | `true` iff the repository has no schema object with this namespace yet, so applying would create a fresh object at `object_id`. |
 | `up_to_date` | boolean | `true` iff `ops` is empty: the file already matches the folded log state. |
@@ -205,7 +205,7 @@ Runs the same computation as `writ schema plan`, then signs and appends the resu
 
 | Field | Type | Description |
 |---|---|---|
-| `object_id` | string | The schema object written to: `schema:<namespace>`. |
+| `object_id` | string | The schema object written to. On creation (`created: true`), `schema:<namespace>`. On reuse (`created: false`), whatever id the existing schema object already held. |
 | `namespace` | string | The file's `namespace` declaration. |
 | `created` | boolean | `true` iff this apply created a fresh schema object at `object_id`. |
 | `ops_appended` | integer | Count of ops actually appended. `0` when the file already matched the log. |

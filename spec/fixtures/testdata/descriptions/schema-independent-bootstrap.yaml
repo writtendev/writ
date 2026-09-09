@@ -39,8 +39,8 @@ refs:
               op_type: define-type
               op_version: 1
               body:
-                type: "ticket"
-                description: "A tracked ticket"
+                type: "widget"
+                description: "A daily widget"
             expect: accept
 
           - id: alice-define-field
@@ -53,7 +53,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "ticket"
+                type: "widget"
                 op_type: "create"
                 op_version: "1"
                 field: "title"
@@ -87,8 +87,8 @@ refs:
               op_type: define-type
               op_version: 1
               body:
-                type: "sprint"
-                description: "A time-boxed iteration"
+                type: "gadget"
+                description: "A small gadget"
             expect: accept
 
           - id: bob-define-field
@@ -101,10 +101,10 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "sprint"
+                type: "gadget"
                 op_type: "create"
                 op_version: "1"
-                field: "name"
+                field: "subject"
                 value_type: "string"
                 strategy: "lww"
             expect: accept

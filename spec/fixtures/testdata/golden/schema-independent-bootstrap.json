@@ -2,11 +2,11 @@
   "refs": [
     {
       "name": "refs/writ/0123456789abcdef/schema",
-      "commit": "99455e76f683d6b75d4297d44744ceff2b7a5cb4"
+      "commit": "0ce4445bbc522bac5d6eb3539468b3b4cb2c929e"
     },
     {
       "name": "refs/writ/fedcba9876543210/schema",
-      "commit": "c15eb0fffebb274d58f84a64458a6f8847ec74a7"
+      "commit": "cdb5b9e0c604b52901671c209afe9c2d381e643d"
     }
   ],
   "generations": [
@@ -24,8 +24,8 @@
           "signed": true
         },
         {
-          "sha": "366d27e7266ff68dbf36f1a49dc671965be3a70b",
-          "tree": "070c414fd5cf4048ea0f338d3b07fff2a30fb7d3",
+          "sha": "d7f67966f38c8d44b0e4c180848a7a578af97eed",
+          "tree": "949faf2ce5e9ad889f6e128b15a903854c214ea4",
           "parents": [
             "d1c17b76d8c41147abc1c7a9611e72f4609a8bd1"
           ],
@@ -35,10 +35,10 @@
           "signed": true
         },
         {
-          "sha": "99455e76f683d6b75d4297d44744ceff2b7a5cb4",
-          "tree": "4cc6aaccbe814a9ce8c4b8959b7a49f88f8f5a17",
+          "sha": "0ce4445bbc522bac5d6eb3539468b3b4cb2c929e",
+          "tree": "595f136c7d872731408209689970488d4d04dab4",
           "parents": [
-            "366d27e7266ff68dbf36f1a49dc671965be3a70b"
+            "d7f67966f38c8d44b0e4c180848a7a578af97eed"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:02:00Z",
@@ -61,8 +61,8 @@
           "signed": true
         },
         {
-          "sha": "912821929660bfb540af7e0f60ebd0336daef61a",
-          "tree": "7c57f4b72bafb240de7905baed7ffbc32d2d76bb",
+          "sha": "80b379452023ac6e4bb76a1b14be4eb8e7e7a95d",
+          "tree": "5764c62215dcb47e3b79287e0ddad2913713d7d0",
           "parents": [
             "21beade09f805e7b04329e5b3c7ddd46849df020"
           ],
@@ -72,10 +72,10 @@
           "signed": true
         },
         {
-          "sha": "c15eb0fffebb274d58f84a64458a6f8847ec74a7",
-          "tree": "b7b82f16208ffef2054ef5048093d4984bba82ee",
+          "sha": "cdb5b9e0c604b52901671c209afe9c2d381e643d",
+          "tree": "9cdfa8cc75c624f264da0bbc5764c2903b039996",
           "parents": [
-            "912821929660bfb540af7e0f60ebd0336daef61a"
+            "80b379452023ac6e4bb76a1b14be4eb8e7e7a95d"
           ],
           "author": "Bob Example \u003cbob@example.test\u003e",
           "timestamp": "2026-01-01T00:02:30Z",

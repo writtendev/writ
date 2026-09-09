@@ -34,7 +34,9 @@ This section deliberately does not define:
 ## Object identifiers
 
 A collaborative object in Writ possesses an identifier that is globally unique
-across all repositories, writers, and devices.
+across all repositories, writers, and devices — with one deliberate
+exception, the derived `schema` id described below, which is unique only
+within its namespace, not globally.
 
 ```jsonc
 "0123456789abcdef0123456789abcdef"
@@ -60,6 +62,14 @@ Across one trillion ($10^{12}$) minted objects, the
 probability of a collision is less than $1.47 \times 10^{-15}$. This ensures
 collision safety across independent writers without requiring centralized
 locking.
+
+This argument covers the randomly minted form only. The derived `schema`
+id below is not drawn from a 128-bit random space at all — it is a pure
+function of the namespace — so "collision" does not apply to it the way it
+does here: two schema objects sharing an id is not a low-probability event
+to be bounded, it is the certain, intended outcome for any two producers
+that declare the same namespace. See the next section for what that means
+when those producers are not in the same repository.
 
 ### Rationale and closed alternatives
 
@@ -115,6 +125,30 @@ for every namespace a producer could legally declare, with no separate
 encoding step. It is also unambiguous against the canonical minted form:
 `^[0-9a-f]{32}$` admits no colon, so `schema:<namespace>` can never
 collide with, or be mistaken for, a randomly minted id.
+
+**Consequence: namespace identity is now global, not per-repository.**
+Because the id is a function of the namespace alone, `schema:acme` names
+the same object everywhere `acme` is declared — not just within one
+repository. Two repositories that each independently bootstrapped
+`namespace acme` (say, a fork and its upstream, each offline from the
+other) hold two objects with the same id. If those repositories are later
+connected — a remote added, a fetch of both into one place — grouping ops
+by `object_id` folds them into one schema object holding the union of
+both vocabularies, the same mechanism that makes the two-writer,
+one-repository case in the scenario above converge. Under the old random
+mint, that same situation produced two distinct objects and a loud
+`resolveSchemaTarget` `default:` refusal on the second `create`, with
+`RulesFromSchemas` withholding rules for any type both bound.
+
+That is a behavior change in the opposite direction from the rest of this
+carve-out — silent convergence instead of a loud refusal — and it is
+accepted deliberately, not overlooked: converging writers of the *same*
+namespace is the entire point of this change, and a namespace is meant to
+name one vocabulary regardless of which repository declares it. A schema
+object's identity being its namespace, globally, is the carve-out's
+premise, not a gap in it. Two repositories that mean *different*
+vocabularies choosing the same namespace string is a naming collision on
+the writers' part, not something this derivation can detect or arbitrate.
 
 ### Producer and reader conformance
 

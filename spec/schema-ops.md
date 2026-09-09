@@ -97,11 +97,15 @@ conforms to `spec/schemas/op-envelope.schema.json` and
 - `object_id` MUST be a non-empty printable-ASCII string identifier
   (1–256 characters, `^[\x21-\x7e]+$`), per `spec/op-envelope.md`. A
   repository MAY have any number of schema objects, but each is one
-  namespace's object: a conforming producer's `object_id` for the schema
-  object declaring namespace `<namespace>` MUST be `schema:<namespace>`
-  (`spec/identifiers.md`'s schema carve-out). Readers still accept any
-  envelope-legal `object_id` as opaque, unchanged — this binds producers,
-  not what a reader may fold (forward compatibility, §10).
+  namespace's object: a conforming producer *creating* a schema object
+  for namespace `<namespace>` MUST derive its `object_id` as
+  `schema:<namespace>` (`spec/identifiers.md`'s schema carve-out). This
+  binds creation only — a producer appending to an *existing* schema
+  object MUST target whatever `object_id` that object already holds,
+  derived or not, the same way any other object type is targeted. Readers
+  still accept any envelope-legal `object_id` as opaque, unchanged — this
+  binds producers, not what a reader may fold (forward compatibility,
+  §10).
 - `op_type` MUST be one of the operation types defined below (§4), or an
   unknown string tolerated under forward-compatibility rules.
 - `body` MUST be a JSON object conforming to the schema for the declared

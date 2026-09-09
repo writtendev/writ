@@ -8,11 +8,11 @@
         "description": "Acme's vocabulary",
         "types": [
           {
-            "type": "sprint",
-            "description": "A time-boxed iteration",
+            "type": "gadget",
+            "description": "A small gadget",
             "fields": [
               {
-                "field": "name",
+                "field": "subject",
                 "op_type": "create",
                 "op_version": 1,
                 "value_type": "string",
@@ -21,8 +21,8 @@
             ]
           },
           {
-            "type": "ticket",
-            "description": "A tracked ticket",
+            "type": "widget",
+            "description": "A daily widget",
             "fields": [
               {
                 "field": "title",
