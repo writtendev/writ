@@ -2,6 +2,7 @@ package spec_test
 
 import (
 	"bytes"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -378,93 +379,193 @@ func TestCheckTargetAgreement(t *testing.T) {
 	}
 }
 
-// TestCheckKeyColumnCollision mirrors TestCheckTargetCollision above for the
-// narrower hazard WRIT-214 round 2 closed: two keyed-lww rules sharing an
-// (op_type, op_version) and a key column name, but not necessarily a target
-// or a full key tuple, must agree on that column's key_types entry, because
-// engine/codec/schema.go's validateFieldsAgainstRules resolves a key
-// column's declared type by column name alone.
-func TestCheckKeyColumnCollision(t *testing.T) {
+// TestCheckKeyColumnAgreement mirrors TestCheckTargetAgreement above for
+// the second axis WRIT-214 closed: every rule participating in one key
+// column, within one (op_type, op_version), must agree both on that
+// column's key_types entry (engine/codec/schema.go's
+// validateFieldsAgainstRules resolves a key column's declared type by
+// column name alone) and on the JSON shape its value can take (a key
+// column's value must be a JSON string, which a dual-role tombstone field
+// can never be). The check is set-level, so every case below is stated as
+// the whole participating set rather than a candidate against a bound
+// prior, and every case is run in both orders: the verdict must be a
+// function of the set alone (WRIT-211's standard, applied to this axis by
+// WRIT-214 round 5).
+func TestCheckKeyColumnAgreement(t *testing.T) {
 	tests := []struct {
-		name      string
-		prior     spec.FieldRule
-		candidate spec.FieldRule
-		wantErr   bool
+		name    string
+		column  string
+		rules   []spec.FieldRule
+		wantErr bool
 	}{
 		{
-			// The reviewer's own repro: "verdict" keyed on key(subject) and
-			// "score" keyed on key(subject, phase) individually pass
-			// ValidateFieldRule and CheckTargetCollision (different
-			// targets), but disagree on what "subject" is.
-			name: "different key tuples sharing a column name that disagree: rejected",
-			prior: spec.FieldRule{
-				OpType: "approve", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww",
-				Key: []string{"subject"}, KeyTypes: map[string]string{"subject": "person-ref"},
-			},
-			candidate: spec.FieldRule{
-				OpType: "approve", OpVersion: 1, Field: "score", Strategy: "keyed-lww",
-				Key: []string{"subject", "phase"}, KeyTypes: map[string]string{"subject": "string", "phase": "string"},
+			// The round-1 reviewer's own repro: "verdict" keyed on
+			// key(subject) and "score" keyed on key(subject, phase)
+			// individually pass ValidateFieldRule and
+			// CheckTargetAgreement (different targets), but disagree on
+			// what "subject" is.
+			name:   "different key tuples sharing a column name that disagree: rejected",
+			column: "subject",
+			rules: []spec.FieldRule{
+				{
+					OpType: "approve", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww",
+					Key: []string{"subject"}, KeyTypes: map[string]string{"subject": "person-ref"},
+				},
+				{
+					OpType: "approve", OpVersion: 1, Field: "score", Strategy: "keyed-lww",
+					Key: []string{"subject", "phase"}, KeyTypes: map[string]string{"subject": "string", "phase": "string"},
+				},
 			},
 			wantErr: true,
 		},
 		{
-			name: "different key tuples sharing a column name that agree: permitted",
-			prior: spec.FieldRule{
-				OpType: "approve", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww",
-				Key: []string{"subject"}, KeyTypes: map[string]string{"subject": "person-ref"},
-			},
-			candidate: spec.FieldRule{
-				OpType: "approve", OpVersion: 1, Field: "score", Strategy: "keyed-lww",
-				Key: []string{"subject", "phase"}, KeyTypes: map[string]string{"subject": "person-ref", "phase": "string"},
-			},
-			wantErr: false,
-		},
-		{
-			name: "same column name, different (op_type, op_version): not a collision",
-			prior: spec.FieldRule{
-				OpType: "approve", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww",
-				Key: []string{"subject"}, KeyTypes: map[string]string{"subject": "person-ref"},
-			},
-			candidate: spec.FieldRule{
-				OpType: "reject", OpVersion: 1, Field: "score", Strategy: "keyed-lww",
-				Key: []string{"subject"}, KeyTypes: map[string]string{"subject": "string"},
+			name:   "different key tuples sharing a column name that agree: permitted",
+			column: "subject",
+			rules: []spec.FieldRule{
+				{
+					OpType: "approve", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww",
+					Key: []string{"subject"}, KeyTypes: map[string]string{"subject": "person-ref"},
+				},
+				{
+					OpType: "approve", OpVersion: 1, Field: "score", Strategy: "keyed-lww",
+					Key: []string{"subject", "phase"}, KeyTypes: map[string]string{"subject": "person-ref", "phase": "string"},
+				},
 			},
 			wantErr: false,
 		},
 		{
-			name: "candidate is not keyed-lww: never a collision",
-			prior: spec.FieldRule{
-				OpType: "approve", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww",
-				Key: []string{"subject"}, KeyTypes: map[string]string{"subject": "person-ref"},
+			// Three rules, two of which agree: a candidate-vs-bound check
+			// installs a different survivor (and a different number of
+			// them) depending on which arrives first. The set-level
+			// answer is the same either way — the whole column is
+			// withheld — which is what running both orders below pins.
+			name:   "three rules, one dissenting: the whole column is refused",
+			column: "subject",
+			rules: []spec.FieldRule{
+				{
+					OpType: "approve", OpVersion: 1, Field: "aa", Strategy: "keyed-lww",
+					Key: []string{"subject"}, KeyTypes: map[string]string{"subject": "person-ref"},
+				},
+				{
+					OpType: "approve", OpVersion: 1, Field: "mm", Strategy: "keyed-lww",
+					Key: []string{"subject", "phase"}, KeyTypes: map[string]string{"subject": "string", "phase": "string"},
+				},
+				{
+					OpType: "approve", OpVersion: 1, Field: "zz", Strategy: "keyed-lww",
+					Key: []string{"subject"}, KeyTypes: map[string]string{"subject": "person-ref"},
+				},
 			},
-			candidate: spec.FieldRule{OpType: "approve", OpVersion: 1, Field: "subject", Strategy: "lww", ValueType: "string"},
-			wantErr:   false,
+			wantErr: true,
+		},
+		{
+			// A non-keyed-lww rule sharing the column's name is the
+			// dual-role case: it is part of the participating set, but
+			// binds nothing, so agreement on the column's type is
+			// unaffected.
+			name:   "a dual-role lww field: not a disagreement",
+			column: "subject",
+			rules: []spec.FieldRule{
+				{
+					OpType: "approve", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww",
+					Key: []string{"subject"}, KeyTypes: map[string]string{"subject": "person-ref"},
+				},
+				{OpType: "approve", OpVersion: 1, Field: "subject", Strategy: "lww", ValueType: "string"},
+			},
+			wantErr: false,
+		},
+		{
+			// The dual-role tombstone WRIT-214 round 5 found: no value
+			// ever satisfies both roles, so the combination is refused
+			// where the schema resolves rather than on every write.
+			name:   "a dual-role tombstone field: rejected",
+			column: "flag",
+			rules: []spec.FieldRule{
+				{
+					OpType: "approve", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww", ValueType: "string",
+					Key: []string{"flag"}, KeyTypes: map[string]string{"flag": "bool"},
+				},
+				{OpType: "approve", OpVersion: 1, Field: "flag", Strategy: "tombstone", ValueType: "bool"},
+			},
+			wantErr: true,
+		},
+		{
+			// tombstone's value_type is legally "" as well as "bool"
+			// (ValidateFieldRule), and a blank one is refused just the
+			// same: the contradiction is between the strategy's reducer
+			// and the key-column floor, not between two value types.
+			name:   "a dual-role tombstone field with no value_type: rejected",
+			column: "flag",
+			rules: []spec.FieldRule{
+				{
+					OpType: "approve", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww", ValueType: "string",
+					Key: []string{"flag"}, KeyTypes: map[string]string{"flag": "string"},
+				},
+				{OpType: "approve", OpVersion: 1, Field: "flag", Strategy: "tombstone"},
+			},
+			wantErr: true,
+		},
+		{
+			// Only one rule participates: a column no other rule names
+			// and no field shares a name with is always fine.
+			name:   "a single binding rule: never a disagreement",
+			column: "phase",
+			rules: []spec.FieldRule{
+				{
+					OpType: "approve", OpVersion: 1, Field: "score", Strategy: "keyed-lww",
+					Key: []string{"subject", "phase"}, KeyTypes: map[string]string{"subject": "string", "phase": "string"},
+				},
+			},
+			wantErr: false,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			bound := make(map[string]spec.FieldRule)
-			// The caller (engine/schema.go's resolveSchemaTypes) only ever
-			// passes rules already scoped to one (op_type, op_version), so
-			// the "different (op_type, op_version)" case above exercises a
-			// bound map that was never populated with the other pair's
-			// columns in the first place — set up here rather than via
-			// CheckKeyColumnCollision itself, which does not scope by
-			// (op_type, op_version) on its own.
-			if tc.prior.OpType == tc.candidate.OpType && tc.prior.OpVersion == tc.candidate.OpVersion {
-				for _, col := range tc.prior.Key {
-					bound[col] = tc.prior
+			// Both orders, because the verdict must be a function of the
+			// set and not of the order a caller happened to collect it in.
+			forward := append([]spec.FieldRule(nil), tc.rules...)
+			reversed := make([]spec.FieldRule, len(tc.rules))
+			for i, r := range tc.rules {
+				reversed[len(tc.rules)-1-i] = r
+			}
+			for _, order := range []struct {
+				name  string
+				rules []spec.FieldRule
+			}{{"declared order", forward}, {"reversed", reversed}} {
+				err := spec.CheckKeyColumnAgreement(tc.column, order.rules)
+				if tc.wantErr && err == nil {
+					t.Fatalf("%s: expected a disagreement error, got nil", order.name)
+				}
+				if !tc.wantErr && err != nil {
+					t.Fatalf("%s: expected agreement, got: %v", order.name, err)
 				}
 			}
-			err := spec.CheckKeyColumnCollision(bound, tc.candidate)
-			if tc.wantErr && err == nil {
-				t.Fatalf("expected a collision error, got nil")
-			}
-			if !tc.wantErr && err != nil {
-				t.Fatalf("expected no collision, got: %v", err)
-			}
 		})
+	}
+}
+
+// TestKeyColumnsBoundIsSortedAndDeduplicated pins the grouping key both
+// callers of CheckKeyColumnAgreement share: the columns a rule set binds,
+// each once, in an order that is a function of the set rather than of map
+// iteration (WRIT-186).
+func TestKeyColumnsBoundIsSortedAndDeduplicated(t *testing.T) {
+	rules := []spec.FieldRule{
+		{
+			OpType: "approve", OpVersion: 1, Field: "score", Strategy: "keyed-lww",
+			Key: []string{"subject", "phase"}, KeyTypes: map[string]string{"subject": "string", "phase": "string"},
+		},
+		{
+			OpType: "approve", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww",
+			Key: []string{"subject"}, KeyTypes: map[string]string{"subject": "string"},
+		},
+		{OpType: "approve", OpVersion: 1, Field: "note", Strategy: "lww", ValueType: "string"},
+	}
+	for i := 0; i < 20; i++ {
+		got := spec.KeyColumnsBound(rules)
+		want := []string{"phase", "subject"}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("KeyColumnsBound = %v, want %v", got, want)
+		}
 	}
 }
 

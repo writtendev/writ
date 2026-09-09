@@ -288,11 +288,23 @@ within the same `(op_type,
 op_version)` that share a key column name MUST agree on that column's
 `key_types` entry, even when their `key` tuples otherwise differ: a
 producer resolves a key column's declared type by column name alone, not
-by which rule's `key` it belongs to, so a schema whose rules disagree is
-refused installation rather than let one rule's entry silently govern the
-other's column (`spec.CheckKeyColumnCollision`, the same "no winner is
-ever picked" standard [`spec/schema-ops.md`](schema-ops.md) §8 already
-holds a shared `target` to, applied to a shared key column instead).
+by which rule's `key` it belongs to, so a schema whose rules disagree has
+every rule participating in that column withheld, rather than letting one
+rule's entry silently govern the other's column
+(`spec.CheckKeyColumnAgreement`, the same set-level, "no winner is ever
+picked" standard [`spec/schema-ops.md`](schema-ops.md) §8 holds a shared
+`target` to, applied to a shared key column instead).
+
+The same resolver check refuses the one dual-role combination the
+JSON-string floor makes unsatisfiable: a field rule whose `field` is also
+some rule's key column for the same `(op_type, op_version)` MUST NOT use
+strategy `tombstone`, because `tombstone`'s reducer requires the raw body
+value to already be a JSON boolean and a JSON value is never both a
+boolean and a string. Such a schema does not resolve — both rules are
+withheld — so a producer never sees the combination from a resolved
+schema; a `Vocabularies` assembled by hand rather than by a resolver is
+refused the same values at write time, since the producer must never
+accept what every reader quarantines.
 
 "The schema object governing `object_type`" resolves through a fixed,
 exclusive precedence — exactly one tier ever applies to a given op, so no

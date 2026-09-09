@@ -600,22 +600,53 @@ does `engine/schemasrc`'s compiler for a `writ.schema` source file before it
 ever reaches the log.
 
 A `keyed-lww` key column carries a narrower version of the same hazard,
-independent of `target`: a producer resolves a key column's declared type
-by column name alone, scanning every `keyed-lww` rule for the `(op_type,
-op_version)` a body targets (§11), not by which rule's `key` the column
-belongs to. Two `keyed-lww` rules sharing that `(op_type, op_version)`
-and a column name — whether or not their `key` tuples, `field`s, or
-`target`s otherwise agree — MUST therefore agree on that column's
-`key_types` entry too, or neither rule gives a producer a correct answer
-for the column's type. `spec.CheckKeyColumnCollision` enforces this at
-the resolver, dropping the second such rule as a `SchemaConflict` exactly
-as the shared-`target` case above does, and `spec.FieldRules()` runs the
-same check while loading writ's own hand-written bootstrap tables, so a
-future `schema`-vocabulary rule cannot reintroduce this hazard in writ's
-own tables unnoticed; unlike the shared-`target` case, there is no
-compile-time twin for either site in `engine/schemasrc` — a `writ.schema`
-source file with this shape compiles, and the conflict surfaces only once
-the resolver sees the whole type, at `apply` time.
+on an axis independent of `target`: a producer resolves a key column's
+declared type by column name alone, scanning every `keyed-lww` rule for
+the `(op_type, op_version)` a body targets (§11), not by which rule's
+`key` the column belongs to. So the unit of agreement here is one key
+column within one `(op_type, op_version)`, and every rule *participating*
+in it must be honourable at once. Two conditions:
+
+1. **The column's declared type.** Two `keyed-lww` rules sharing that
+   `(op_type, op_version)` and a column name — whether or not their `key`
+   tuples, `field`s, or `target`s otherwise agree — MUST agree on that
+   column's `key_types` entry, or neither rule gives a producer a correct
+   answer for the column's type.
+2. **The column's JSON shape.** A key column's value MUST be a JSON
+   string whatever its `key_types` entry says (`spec/op-envelope.md`
+   §Producer validation rule 3, `spec/fold.md` §5). A field rule whose
+   `field` is also a key column of some rule for the same `(op_type,
+   op_version)` — a *dual-role* name — MUST NOT declare strategy
+   `tombstone`: `tombstone`'s reducer requires the raw body value to
+   already be a JSON boolean, a JSON value is never both, and so no value
+   a producer could write would satisfy both roles. A rule combination no
+   value can ever satisfy is refused where the schema resolves, not
+   discovered one write at a time.
+
+`spec.CheckKeyColumnAgreement` enforces both at the resolver. Like the
+shared-`target` check above it is **set-level**, not incremental, and for
+the same reason (WRIT-211): a candidate-against-the-already-bound check
+has to pick a survivor, and which rule survives then turns on the order
+the rules arrive in — on `op_type` and `field` names, not on anything the
+author declared, so renaming a field and changing nothing else could
+change which rules installed and how the log folded. The verdict is a
+function of the participating rule set alone, and the response is the same
+"no winner is ever picked" idiom §8 applies to a shared `target`: **every**
+rule participating in the column is withheld and one `SchemaConflict` is
+reported, never a survivor chosen by sort order. The two axes are
+orthogonal in what they are scoped by, but they are not independent of
+each other — a rule withheld for its key column is a rule the `target`
+check no longer sees — so the key-column check runs first, over every rule
+that passed per-rule validation, and the `target` check runs over what
+survives it.
+
+`spec.FieldRules()` runs the same check while loading writ's own
+hand-written bootstrap tables, so a future `schema`-vocabulary rule cannot
+reintroduce either hazard in writ's own tables unnoticed. Unlike the
+shared-`target` case, there is no compile-time twin for either site in
+`engine/schemasrc` — a `writ.schema` source file with this shape compiles,
+and the conflict surfaces only once the resolver sees the whole type, at
+`apply` time.
 
 ### 8.1. Clearing a field attribute (decided, WRIT-200)
 

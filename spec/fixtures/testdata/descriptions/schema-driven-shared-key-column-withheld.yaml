@@ -1,0 +1,168 @@
+name: schema-driven-shared-key-column-withheld
+description: >
+  WRIT-214's key-column twin of schema-driven-shared-target-non-transitive:
+  the smallest input that distinguishes a set-level key-column agreement
+  check from the incremental candidate-vs-bound one it replaced. Three
+  keyed-lww fields under one (op_type, op_version) — "aa" keyed on
+  key(subject) typed person-ref, "mm" keyed on key(subject, phase) typed
+  string, and "zz" keyed on key(subject) typed person-ref — each pass rule
+  validation and each bind a distinct target, so the shared-target check
+  has nothing to say about any of them. The only thing wrong is that two
+  of the three disagree about what the "subject" column is, and a producer
+  resolves a key column's declared type by column name alone across every
+  keyed-lww rule for the (op_type, op_version) a body targets
+  (spec/op-envelope.md §Producer validation rule 3), never by which rule's
+  key the column belongs to. The incremental check answered that by
+  keeping whichever rule arrived first and dropping every later dissenter,
+  so the installed rule set, the conflict count, and the folded state all
+  turned on the order the type's fields were seen in — and since fold
+  sorts a type's fields canonically by (op_type, op_version, field),
+  "the order" means the field names: renaming "aa" to something sorting
+  after "mm", and changing nothing else, changed which rules installed.
+  Set-level (spec/schema-ops.md §8), the answer is the same either way:
+  no winner is picked, every rule participating in the column is
+  withheld, and one SchemaConflict is reported. Every op under
+  "approve" v1 therefore matches no installed rule and becomes an
+  UnknownOp. engine/schema_test.go's
+  TestRulesFromSchemas_SharedKeyColumnDisagreementIsOrderIndependent pins
+  the same vector at the resolver level directly, shuffling field order
+  across permutations; this fixture pins it at the log-resolved level a
+  schema-driven fold actually walks. (pins: reader)
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: define-type
+            parents: [create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "gadget"
+            expect: accept
+
+          - id: define-field-aa
+            parents: [define-type]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "approve"
+                op_version: "1"
+                field: "aa"
+                value_type: "string"
+                strategy: "keyed-lww"
+                key: ["subject"]
+                key_types:
+                  subject: "person-ref"
+            expect: accept
+
+          - id: define-field-mm
+            parents: [define-field-aa]
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "approve"
+                op_version: "1"
+                field: "mm"
+                value_type: "string"
+                strategy: "keyed-lww"
+                key: ["subject", "phase"]
+                key_types:
+                  subject: "string"
+                  phase: "string"
+            expect: accept
+
+          - id: define-field-zz
+            parents: [define-field-mm]
+            author: alice
+            timestamp: 2026-01-01T00:04:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "approve"
+                op_version: "1"
+                field: "zz"
+                value_type: "string"
+                strategy: "keyed-lww"
+                key: ["subject"]
+                key_types:
+                  subject: "person-ref"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/gadget
+    history:
+      - commits:
+          - id: approve-aa
+            author: alice
+            timestamp: 2026-01-01T00:05:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: approve
+              op_version: 1
+              body:
+                aa: "yes"
+                subject: "alice@example.com"
+            expect: accept
+
+          - id: approve-mm
+            parents: [approve-aa]
+            author: alice
+            timestamp: 2026-01-01T00:06:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: approve
+              op_version: 1
+              body:
+                mm: "7"
+                subject: "alice@example.com"
+                phase: "beta"
+            expect: accept
+
+          - id: approve-zz
+            parents: [approve-mm]
+            author: alice
+            timestamp: 2026-01-01T00:07:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: approve
+              op_version: 1
+              body:
+                zz: "no"
+                subject: "alice@example.com"
+            expect: accept

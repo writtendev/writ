@@ -207,17 +207,19 @@ var bootstrapObjectTypes = map[string]string{
 	"schema-ops": "schema",
 }
 
-// keyColumnScope identifies one (op_type, op_version) within one
-// field-rules.json directory — the scope CheckKeyColumnCollision checks
-// within, matching the scope a producer actually resolves a key column's
-// declared type in (engine/codec/schema.go's validateFieldsAgainstRules,
-// one (op_type, op_version) for one object type). This is deliberately
-// wider than "sibling rules sharing a full key tuple": two rules with
-// different key tuples that happen to share a column name are unconstrained
-// by a per-tuple grouping, which is exactly the gap WRIT-214 round 3 found
-// in this file's previous, narrower keyGroupKey check.
+// keyColumnScope identifies one (op_type, op_version) — the scope
+// CheckKeyColumnAgreement checks within, matching the scope a producer
+// actually resolves a key column's declared type in (engine/codec/schema.go's
+// validateFieldsAgainstRules, one (op_type, op_version) for one object type).
+// This is deliberately wider than "sibling rules sharing a full key tuple":
+// two rules with different key tuples that happen to share a column name are
+// unconstrained by a per-tuple grouping, which is exactly the gap WRIT-214
+// round 3 found in this file's previous, narrower keyGroupKey check.
+//
+// It carries no directory: like targetBindings in FieldRules below, the map
+// it keys is built fresh per field-rules.json file, since each directory
+// declares the rule table for exactly one object type.
 type keyColumnScope struct {
-	Dir       string
 	OpType    string
 	OpVersion int64
 }
@@ -227,7 +229,6 @@ type keyColumnScope struct {
 func FieldRules() ([]FieldRule, error) {
 	var allRules []FieldRule
 	seen := make(map[ruleKey]bool)
-	keyColumnBindings := make(map[keyColumnScope]map[string]FieldRule)
 	// objectTypeDirs asserts bootstrapObjectTypes is injective: it records
 	// the first directory seen claiming each object type, so a second
 	// directory mapped to that same object type is caught here rather than
@@ -279,6 +280,13 @@ func FieldRules() ([]FieldRule, error) {
 		// sharing an object type before any of its rules could bypass this
 		// check unseen.
 		targetBindings := make(map[string][]FieldRule)
+		// scopeRules is the same story one axis over: every rule declared
+		// for one (op_type, op_version), whatever its strategy, so the
+		// set-level key-column check below can see both halves of a
+		// dual-role name — the keyed-lww rules binding a column and the
+		// field rule that shares its name. Fresh per file for the same
+		// reason targetBindings is.
+		scopeRules := make(map[keyColumnScope][]FieldRule)
 		for _, r := range rules {
 			if err := ValidateFieldRule(r); err != nil {
 				return fmt.Errorf("spec: %s %w", filePath, err)
@@ -292,33 +300,46 @@ func FieldRules() ([]FieldRule, error) {
 			seen[key] = true
 
 			targetBindings[r.TargetKey()] = append(targetBindings[r.TargetKey()], r)
-
-			if r.Strategy == "keyed-lww" {
-				scope := keyColumnScope{Dir: path.Dir(filePath), OpType: r.OpType, OpVersion: r.OpVersion}
-				bound := keyColumnBindings[scope]
-				if err := CheckKeyColumnCollision(bound, r); err != nil {
-					return fmt.Errorf("spec: %s %w", filePath, err)
-				}
-				if bound == nil {
-					bound = make(map[string]FieldRule)
-					keyColumnBindings[scope] = bound
-				}
-				for col := range r.KeyTypes {
-					bound[col] = r
-				}
-			}
+			scope := keyColumnScope{OpType: r.OpType, OpVersion: r.OpVersion}
+			scopeRules[scope] = append(scopeRules[scope], r)
 
 			r.Vocabulary = vocab
 			r.ObjectType = objectType
 			allRules = append(allRules, r)
 		}
 
-		// The agreement check is set-level (CheckTargetAgreement's doc), so
-		// it runs once per target after every rule in the file is bound,
-		// not incrementally as each rule arrives: sorting the target keys
-		// here only orders which of possibly several bad targets is
-		// reported first, never whether one is found, since every target
-		// is still checked.
+		// Both agreement checks are set-level (CheckTargetAgreement's and
+		// CheckKeyColumnAgreement's docs), so each runs once per target and
+		// per key column after every rule in the file is bound, not
+		// incrementally as each rule arrives: sorting the keys here only
+		// orders which of possibly several bad targets or columns is
+		// reported first, never whether one is found, since every one is
+		// still checked.
+		scopes := make([]keyColumnScope, 0, len(scopeRules))
+		for scope := range scopeRules {
+			scopes = append(scopes, scope)
+		}
+		sort.Slice(scopes, func(i, j int) bool {
+			if scopes[i].OpType != scopes[j].OpType {
+				return scopes[i].OpType < scopes[j].OpType
+			}
+			return scopes[i].OpVersion < scopes[j].OpVersion
+		})
+		for _, scope := range scopes {
+			inScope := scopeRules[scope]
+			for _, col := range KeyColumnsBound(inScope) {
+				var participants []FieldRule
+				for _, r := range inScope {
+					if ParticipatesInKeyColumn(r, col) {
+						participants = append(participants, r)
+					}
+				}
+				if err := CheckKeyColumnAgreement(col, participants); err != nil {
+					return fmt.Errorf("spec: %s %w", filePath, err)
+				}
+			}
+		}
+
 		targetKeys := make([]string, 0, len(targetBindings))
 		for tk := range targetBindings {
 			targetKeys = append(targetKeys, tk)
@@ -495,62 +516,132 @@ func CheckTargetAgreement(target string, rules []FieldRule) error {
 	}
 }
 
-// CheckKeyColumnCollision enforces that every keyed-lww rule for one
-// (op_type, op_version) which names a given key column agrees on that
-// column's key_types entry, regardless of whether the two rules share a
-// full key tuple or even a target: engine/codec/schema.go's
+// KeyColumnsBound returns, in sorted order, every key column name the
+// keyed-lww rules in rules bind — the columns CheckKeyColumnAgreement must
+// be run for once rules is scoped to one (op_type, op_version). It is
+// exported so the two callers that resolve field rules
+// (engine/schema.go's resolveSchemaTypes and FieldRules above) group by
+// exactly the same definition of "a key column" rather than each writing
+// their own.
+func KeyColumnsBound(rules []FieldRule) []string {
+	seen := make(map[string]bool)
+	var cols []string
+	for _, r := range rules {
+		if r.Strategy != "keyed-lww" {
+			continue
+		}
+		for col := range r.KeyTypes {
+			if !seen[col] {
+				seen[col] = true
+				cols = append(cols, col)
+			}
+		}
+	}
+	sort.Strings(cols)
+	return cols
+}
+
+// ParticipatesInKeyColumn reports whether r is one of the rules
+// CheckKeyColumnAgreement must be handed for column: a keyed-lww rule that
+// binds the column, or the field rule that shares the column's name (a
+// dual-role name, both a declared field and some rule's key column). One
+// rule can be both. A caller withholding a disagreeing column's rules
+// withholds exactly the rules this reports true for.
+func ParticipatesInKeyColumn(r FieldRule, column string) bool {
+	if r.Field == column {
+		return true
+	}
+	if r.Strategy != "keyed-lww" {
+		return false
+	}
+	_, binds := r.KeyTypes[column]
+	return binds
+}
+
+// CheckKeyColumnAgreement enforces that every field rule participating in
+// one key column, within one (op_type, op_version), can be honoured at the
+// same time as all the others. rules is that whole participating set
+// (ParticipatesInKeyColumn above): every keyed-lww rule naming column in
+// its key_types, plus the field rule that shares the column's name when
+// the name is dual-role. Two things must agree.
+//
+// The column's declared type. engine/codec/schema.go's
 // validateFieldsAgainstRules (spec/op-envelope.md §Producer validation
 // rule 3) resolves a key column's declared type by column name alone,
 // scanning every keyed-lww rule declared for the (op_type, op_version) a
-// body targets, not by which rule's key the column happens to belong to.
-// Two rules that disagree give a producer no correct way to check the
-// column's value — whichever rule's entry validateFieldsAgainstRules
-// happens to see last would silently govern the other's column too — so
-// this is the same "no winner is ever picked" standard
-// CheckTargetCollision already holds shared targets to
-// (spec/schema-ops.md §8), applied to shared key columns instead: the
-// second rule to declare a disagreeing entry for an already-bound column
-// is rejected outright, not silently reconciled by whichever happens to
-// be resolved first or last.
+// body targets, not by which rule's key the column happens to belong to —
+// so two rules disagreeing on the column's key_types entry give a producer
+// no correct way to check the column's value, regardless of whether they
+// share a full key tuple or even a target.
 //
-// Wired at two of the three sites that resolve field rules (round 4):
-// engine/schema.go's resolveSchemaTypes (a log-sourced schema) and
-// FieldRules below (writ's own hand-written bootstrap tables) — matching
-// the standard CheckTargetCollision's own doc comment holds writ's tables
-// to. There is deliberately no third, compile-time twin in
-// engine/schemasrc/compile.go: unlike a target collision, a colliding
-// key-column schema still compiles and is refused only once resolved as a
-// whole (spec/schema-ops.md §8), and writ schema apply already refuses it
-// there before anything reaches the log.
+// The column's JSON shape. A key column's value MUST be a JSON string
+// whatever its key_types entry says, because fold's keyed-lww strategy
+// treats a non-string key component as uninterpretable (spec/fold.md §5,
+// engine/internal/fold/reject.go). A dual-role name whose field rule uses
+// strategy tombstone contradicts that outright: fold's tombstone reducer
+// requires the raw body value to already be a JSON boolean, and a JSON
+// value is never both — so no value a producer could write satisfies both
+// roles, whatever the field's value_type says (tombstone's is legally ""
+// or "bool", neither of them a string). Every other strategy either stores
+// the body value verbatim without caring about its JSON shape (lww,
+// create-once, keyed-lww, append) or already requires a JSON string itself
+// (set-union, set-observed-remove, lattice, multi-value), so the floor
+// satisfies all of them. Caught here rather than one write at a time,
+// because a rule combination no value can ever satisfy is a schema that
+// does not resolve, not a schema that resolves into a permanently
+// unwritable field (WRIT-214 round 5).
 //
-// bound maps key column name to the keyed-lww rule that already bound it,
-// scoped by the caller to one (op_type, op_version) — CheckTargetCollision
-// is scoped by target instead, because a target collision spans every
-// op_type sharing it, but a key column is only ever resolved within one
-// (op_type, op_version)'s rule set (validateFieldsAgainstRules never sees
-// more than that). candidate not being keyed-lww, or naming no column
-// already in bound, is not a collision: it returns nil. It does not
-// mutate bound; the caller owns recording candidate's columns once it
-// decides to keep it.
-func CheckKeyColumnCollision(bound map[string]FieldRule, candidate FieldRule) error {
-	if candidate.Strategy != "keyed-lww" {
-		return nil
-	}
-	cols := make([]string, 0, len(candidate.KeyTypes))
-	for col := range candidate.KeyTypes {
-		cols = append(cols, col)
-	}
-	sort.Strings(cols)
-	for _, col := range cols {
-		prior, ok := bound[col]
-		if !ok {
+// This is set-level for the same reason CheckTargetAgreement is (WRIT-211):
+// a candidate-vs-bound form must pick a survivor, and which rule survives
+// then turns on the order rules arrive in — on op_type and field names,
+// not on anything the schema author declared. Rules are sorted into
+// canonical order (fieldRuleOrderLess) before the scan, so the pair a
+// disagreement is reported against is a function of the set alone, and
+// checking consecutive pairs suffices because value equality is itself an
+// equivalence relation. The response callers owe it is the same "no winner
+// is ever picked" idiom (spec/schema-ops.md §8): withhold every rule
+// participating in the column, never a survivor chosen by sort order.
+//
+// Run at two of the three sites that resolve field rules: engine/schema.go's
+// resolveSchemaTypes (a log-sourced schema) and FieldRules above (writ's own
+// hand-written bootstrap tables) — so writ's tables are held to the standard
+// writ imposes on writ.schema authors. There is deliberately no third,
+// compile-time twin in engine/schemasrc/compile.go: unlike a target
+// collision, a colliding key-column schema still compiles and is refused
+// only once resolved as a whole (spec/schema-ops.md §8), and writ schema
+// apply already refuses it there before anything reaches the log.
+//
+// It returns nil when the participating rules agree on both counts.
+func CheckKeyColumnAgreement(column string, rules []FieldRule) error {
+	sorted := append([]FieldRule(nil), rules...)
+	sort.Slice(sorted, func(i, j int) bool { return fieldRuleOrderLess(sorted[i], sorted[j]) })
+
+	var binders []FieldRule
+	for _, r := range sorted {
+		if r.Strategy != "keyed-lww" {
 			continue
 		}
-		if prior.KeyTypes[col] != candidate.KeyTypes[col] {
-			return fmt.Errorf(
-				"field rule (%s, %d, %s) declares key column %q as %q, disagreeing with field %q's rule for the same (op_type, op_version), which declares it %q; every keyed-lww rule sharing a key column within one (op_type, op_version) must agree on that column's key_types entry, because a producer resolves a key column's declared type by column name alone (spec/op-envelope.md §Producer validation rule 3)",
-				candidate.OpType, candidate.OpVersion, candidate.Field, col, candidate.KeyTypes[col], prior.Field, prior.KeyTypes[col])
+		if _, binds := r.KeyTypes[column]; binds {
+			binders = append(binders, r)
 		}
 	}
+	for i := 1; i < len(binders); i++ {
+		a, b := binders[i-1], binders[i]
+		if a.KeyTypes[column] == b.KeyTypes[column] {
+			continue
+		}
+		return fmt.Errorf(
+			"field rule (%s, %d, %s) declares key column %q as %q, disagreeing with field %q's rule for the same (op_type, op_version), which declares it %q; every keyed-lww rule sharing a key column within one (op_type, op_version) must agree on that column's key_types entry, because a producer resolves a key column's declared type by column name alone (spec/op-envelope.md §Producer validation rule 3) -- no winner is picked, so every rule bound to this column is withheld",
+			b.OpType, b.OpVersion, b.Field, column, b.KeyTypes[column], a.Field, a.KeyTypes[column])
+	}
+
+	for _, r := range sorted {
+		if r.Field == column && r.Strategy == "tombstone" {
+			return fmt.Errorf(
+				"field rule (%s, %d, %s) uses strategy tombstone on a name that is also a keyed-lww key column of a rule for the same (op_type, op_version); tombstone's reducer requires the raw body value to already be a JSON boolean (engine/internal/fold/reject.go), which is never the JSON string a key column's value must be (spec/fold.md §5), so no value ever satisfies both roles and the field could never be written -- no winner is picked, so every rule participating in column %q is withheld",
+				r.OpType, r.OpVersion, r.Field, column)
+		}
+	}
+
 	return nil
 }

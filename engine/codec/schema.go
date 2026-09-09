@@ -459,7 +459,7 @@ func validateValueTypes(env Envelope, raw []byte) error {
 //
 // `tombstone` is the one strategy no decode ever reconciles with the floor,
 // which is why it gets its own check ahead of everything else here rather
-// than joining the r.ValueType-keyed decode logic (round 5): every other
+// than joining the r.ValueType-keyed decode logic: every other
 // strategy either stores the body value verbatim without caring about its
 // JSON shape (lww, create-once, keyed-lww, append) or already requires a
 // JSON string itself (set-union, set-observed-remove, lattice, multi-value)
@@ -476,6 +476,16 @@ func validateValueTypes(env Envelope, raw []byte) error {
 // refuse every value up front for this combination, the same conclusion
 // fold reaches on the read side, instead of letting the decode step
 // discover a false positive.
+//
+// A schema resolved from the log never reaches this branch: round 5 left the
+// combination declarable and refused it once per write, which is the same
+// declarable-but-unwritable shape WRIT-214 exists to remove, only relocated,
+// so spec.CheckKeyColumnAgreement now refuses it where the schema resolves
+// (engine/schema.go's resolveSchemaTypes) and withholds both rules, and
+// spec.FieldRules refuses it in writ's own bootstrap tables the same way. The
+// check stays here because codec.Vocabularies is a public shape a caller can
+// build directly, without going through either resolver: the producer must
+// never accept what every reader quarantines, whoever assembled the rules.
 func validateFieldsAgainstRules(rules []spec.FieldRule, body map[string]any, strict bool) error {
 	byField := make(map[string]spec.FieldRule, len(rules))
 	keyColumnTypes := make(map[string]string)
@@ -527,7 +537,9 @@ func validateFieldsAgainstRules(rules []spec.FieldRule, body map[string]any, str
 			}
 			// tombstone is the one strategy the floor above and the
 			// strategy's own reducer can never jointly satisfy (see this
-			// function's doc comment): fold requires a raw JSON boolean,
+			// function's doc comment; a resolver refuses the combination
+			// outright, so only a directly-built Vocabularies gets here):
+			// fold requires a raw JSON boolean,
 			// the floor just confirmed val is a JSON string, and those are
 			// two different JSON values, not two encodings of the same
 			// one. Refusing here, ahead of the val==nil/ValueType=="" skip

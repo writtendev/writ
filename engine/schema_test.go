@@ -568,34 +568,216 @@ func TestRulesFromSchemas_ThreeRuleTargetSharingIsOrderIndependent(t *testing.T)
 	}
 }
 
-// TestRulesFromSchemas_SharedKeyColumnDisagreementRejected pins WRIT-214
-// round 2's fix: two keyed-lww fields under the same (op_type, op_version),
-// "verdict" keyed on key(subject) typed person-ref and "score" keyed on
-// key(subject, phase) typed string for the same "subject" column, each pass
-// CheckTargetCollision individually (different targets) and would let
-// engine/codec/schema.go's validateFieldsAgainstRules resolve "subject"'s
-// type by whichever rule the union loop visits last — the round-1 finding,
-// verified there by swapping rule order. The resolver must instead refuse to
-// install the second rule outright, regardless of which field is declared
-// first: both orders below are run, and both must drop exactly one field and
-// report exactly one conflict, never install both with a silently-chosen
-// winner.
-func TestRulesFromSchemas_SharedKeyColumnDisagreementRejected(t *testing.T) {
-	verdict := state.SchemaField{
-		Name: "verdict", OpType: "approve", OpVersion: 1, Strategy: "keyed-lww", ValueType: "string",
+// TestRulesFromSchemas_SharedKeyColumnDisagreementIsOrderIndependent is the
+// key-column twin of TestRulesFromSchemas_ThreeRuleTargetSharingIsOrderIndependent
+// above, and pins WRIT-214 round 5's fix. Three keyed-lww rules under one
+// (op_type, op_version) all name the key column "subject":
+//
+//   - (approve, v1, aa) keyed on key(subject) typed person-ref,
+//   - (approve, v1, mm) keyed on key(subject, phase) typed string,
+//   - (approve, v1, zz) keyed on key(subject) typed person-ref.
+//
+// Each passes ValidateFieldRule, and each binds a distinct target, so
+// spec.CheckTargetAgreement has nothing to say about any of them: the only
+// thing wrong is that two of the three disagree about what "subject" is.
+// The superseded candidate-vs-bound check answered that by keeping
+// whichever rule arrived first and dropping every later dissenter, so the
+// installed rule set, the conflict count, and the folded state all turned
+// on the order the type's fields were handed over — aa-first installs two
+// rules and reports one conflict, mm-first installs one and reports two.
+// Set-level, the answer is the same either way: no winner is picked, every
+// rule participating in the column is withheld, and one conflict is
+// reported. This shuffles both the field order within the type and the
+// (single-element) schema slice, and asserts the resolved rules, the
+// conflicts, and the resulting folded ObjectState are identical across
+// every permutation.
+func TestRulesFromSchemas_SharedKeyColumnDisagreementIsOrderIndependent(t *testing.T) {
+	aa := state.SchemaField{
+		Name: "aa", OpType: "approve", OpVersion: 1, Strategy: "keyed-lww", ValueType: "string",
 		Key: []string{"subject"}, KeyTypes: map[string]string{"subject": "person-ref"},
 	}
-	score := state.SchemaField{
-		Name: "score", OpType: "approve", OpVersion: 1, Strategy: "keyed-lww", ValueType: "string",
+	mm := state.SchemaField{
+		Name: "mm", OpType: "approve", OpVersion: 1, Strategy: "keyed-lww", ValueType: "string",
 		Key: []string{"subject", "phase"}, KeyTypes: map[string]string{"subject": "string", "phase": "string"},
+	}
+	zz := state.SchemaField{
+		Name: "zz", OpType: "approve", OpVersion: 1, Strategy: "keyed-lww", ValueType: "string",
+		Key: []string{"subject"}, KeyTypes: map[string]string{"subject": "person-ref"},
+	}
+	allFields := []state.SchemaField{aa, mm, zz}
+
+	dataOps := []codec.Op{
+		{
+			Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "widget", OpType: "approve", OpVersion: 1, Body: json.RawMessage(`{"aa":"yes","subject":"p-1"}`)},
+			ID:       "approve-aa",
+		},
+		{
+			Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "widget", OpType: "approve", OpVersion: 1, Body: json.RawMessage(`{"mm":"7","subject":"p-1","phase":"beta"}`)},
+			ID:       "approve-mm",
+		},
+		{
+			Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "widget", OpType: "approve", OpVersion: 1, Body: json.RawMessage(`{"zz":"no","subject":"p-1"}`)},
+			ID:       "approve-zz",
+		},
+	}
+
+	r := rand.New(rand.NewSource(214))
+	var wantRules map[string][]writ.Rule
+	var wantConflicts []writ.SchemaConflict
+	var wantState writ.ObjectState
+
+	for i := 0; i < 30; i++ {
+		fields := append([]state.SchemaField(nil), allFields...)
+		r.Shuffle(len(fields), func(a, b int) { fields[a], fields[b] = fields[b], fields[a] })
+
+		schemas := []state.Schema{{
+			ObjectID: "sch-a",
+			Types:    []state.SchemaType{{Name: "widget", Fields: fields}},
+		}}
+		r.Shuffle(len(schemas), func(a, b int) { schemas[a], schemas[b] = schemas[b], schemas[a] })
+
+		rules, conflicts := writ.RulesFromSchemas(schemas)
+		if got := rules["widget"]; len(got) != 0 {
+			t.Fatalf("permutation #%d: expected every rule bound to the disagreeing key column withheld, got %+v", i, got)
+		}
+		if len(conflicts) != 1 {
+			t.Fatalf("permutation #%d: expected exactly 1 conflict, got %+v", i, conflicts)
+		}
+
+		objState, err := writ.Fold(dataOps, rules["widget"])
+		if err != nil {
+			t.Fatalf("permutation #%d: Fold: %v", i, err)
+		}
+		if len(objState.UnknownOps) != 3 {
+			t.Fatalf("permutation #%d: expected all 3 ops to fall through as unknown, got %+v", i, objState.UnknownOps)
+		}
+
+		if i == 0 {
+			wantRules, wantConflicts, wantState = rules, conflicts, objState
+			continue
+		}
+		if !reflect.DeepEqual(rules, wantRules) {
+			t.Fatalf("permutation #%d: RulesFromSchemas order-dependence:\n got:  %+v\nwant: %+v", i, rules, wantRules)
+		}
+		if !reflect.DeepEqual(conflicts, wantConflicts) {
+			t.Fatalf("permutation #%d: conflict order-dependence:\n got:  %+v\nwant: %+v", i, conflicts, wantConflicts)
+		}
+		if !reflect.DeepEqual(objState, wantState) {
+			t.Fatalf("permutation #%d: folded state order-dependence:\n got:  %+v\nwant: %+v", i, objState, wantState)
+		}
+	}
+}
+
+// schemaFromDefineFields folds one schema object declaring type "widget"
+// with op (approve, v1) and the given define-field bodies, through the
+// same path the log takes (state.FoldSchema, via writ.SchemaFromEnvelopes)
+// rather than by constructing state.Schema directly. That matters for
+// TestRulesFromSchemas_KeyColumnVerdictDoesNotTurnOnFieldNames below: fold
+// sorts a type's fields canonically by (op_type, op_version, field), so
+// the *name* of a field is what decides the order the resolver sees it in,
+// and a resolver whose verdict depends on arrival order is one whose
+// verdict depends on what the author happened to call a field.
+func schemaFromDefineFields(t *testing.T, defs []map[string]any) writ.Schema {
+	t.Helper()
+	var envs []codec.Envelope
+	add := func(opType string, body map[string]any) {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			t.Fatalf("marshal %s body: %v", opType, err)
+		}
+		envs = append(envs, codec.Envelope{ObjectID: "sch-a", ObjectType: "schema", OpType: opType, OpVersion: 1, Body: raw})
+	}
+	add("create", map[string]any{"namespace": "acme"})
+	add("define-type", map[string]any{"type": "widget"})
+	add("define-op", map[string]any{"type": "widget", "op_type": "approve", "op_version": "1"})
+	for _, d := range defs {
+		add("define-field", d)
+	}
+	sch, err := writ.SchemaFromEnvelopes(envs)
+	if err != nil {
+		t.Fatalf("SchemaFromEnvelopes: %v", err)
+	}
+	return sch
+}
+
+// TestRulesFromSchemas_KeyColumnVerdictDoesNotTurnOnFieldNames is the other
+// half of the property above, stated the way it is actually observable from
+// the log: two schemas identical but for one field's *name* must resolve to
+// the same verdict. fold sorts a type's fields by (op_type, op_version,
+// field) before the resolver ever sees them (state.FoldSchema), so under
+// the superseded candidate-vs-bound check renaming a field from "aa" to
+// "zz" — changing nothing else — moved it from first to last in that sort
+// and handed the key column to a different rule: "aa" installed, "zz"
+// installed the rule that had dropped it, and the op that folded cleanly in
+// one schema was quarantined in the other. Set-level, both name choices
+// give the identical answer: the column disagrees, so every rule bound to
+// it is withheld and the op is unknown either way.
+func TestRulesFromSchemas_KeyColumnVerdictDoesNotTurnOnFieldNames(t *testing.T) {
+	// mm sorts between "aa" and "zz", so the two variants below differ in
+	// which rule fold's canonical sort presents first and in nothing else.
+	mm := map[string]any{
+		"type": "widget", "op_type": "approve", "op_version": "1", "field": "mm",
+		"value_type": "string", "strategy": "keyed-lww",
+		"key": []string{"subject", "phase"}, "key_types": map[string]string{"subject": "string", "phase": "string"},
+	}
+	dissenter := func(name string) map[string]any {
+		return map[string]any{
+			"type": "widget", "op_type": "approve", "op_version": "1", "field": name,
+			"value_type": "string", "strategy": "keyed-lww",
+			"key": []string{"subject"}, "key_types": map[string]string{"subject": "person-ref"},
+		}
+	}
+
+	for _, name := range []string{"aa", "zz"} {
+		t.Run("dissenting field named "+name, func(t *testing.T) {
+			schemas := []writ.Schema{schemaFromDefineFields(t, []map[string]any{dissenter(name), mm})}
+			rules, conflicts := writ.RulesFromSchemas(schemas)
+			if got := rules["widget"]; len(got) != 0 {
+				t.Fatalf("expected both rules bound to the disagreeing key column withheld, got %+v", got)
+			}
+			if len(conflicts) != 1 {
+				t.Fatalf("expected exactly 1 conflict, got %+v", conflicts)
+			}
+			op := codec.Op{
+				Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "widget", OpType: "approve", OpVersion: 1, Body: json.RawMessage(`{"` + name + `":"yes","subject":"p-1"}`)},
+				ID:       "approve-1",
+			}
+			objState, err := writ.Fold([]codec.Op{op}, rules["widget"])
+			if err != nil {
+				t.Fatalf("Fold: %v", err)
+			}
+			if len(objState.UnknownOps) != 1 {
+				t.Fatalf("expected the op to fall through as unknown, got %+v", objState.UnknownOps)
+			}
+		})
+	}
+}
+
+// TestRulesFromSchemas_DualRoleTombstoneFieldRefused pins WRIT-214 round 5's
+// second finding: a field with strategy tombstone whose name is also another
+// rule's keyed-lww key column resolves to a rule combination no value can
+// ever satisfy — fold's tombstone reducer requires the raw body value to be
+// a JSON boolean, and the key-column floor requires the same body value to
+// be a JSON string. It used to install cleanly and then refuse every write,
+// which is the declarable-but-unwritable shape this ticket exists to remove,
+// merely relocated. The resolver now reports it as a conflict where the
+// schema resolves, and withholds both rules — the same "no winner is picked"
+// response a disagreeing column gets, since neither rule is at fault alone.
+func TestRulesFromSchemas_DualRoleTombstoneFieldRefused(t *testing.T) {
+	flag := state.SchemaField{
+		Name: "flag", OpType: "approve", OpVersion: 1, Strategy: "tombstone", ValueType: "bool",
+	}
+	verdict := state.SchemaField{
+		Name: "verdict", OpType: "approve", OpVersion: 1, Strategy: "keyed-lww", ValueType: "string",
+		Key: []string{"flag"}, KeyTypes: map[string]string{"flag": "bool"},
 	}
 
 	for _, tc := range []struct {
 		name   string
 		fields []state.SchemaField
 	}{
-		{name: "verdict declared first", fields: []state.SchemaField{verdict, score}},
-		{name: "score declared first", fields: []state.SchemaField{score, verdict}},
+		{name: "tombstone declared first", fields: []state.SchemaField{flag, verdict}},
+		{name: "key column declared first", fields: []state.SchemaField{verdict, flag}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a := state.Schema{
@@ -603,12 +785,14 @@ func TestRulesFromSchemas_SharedKeyColumnDisagreementRejected(t *testing.T) {
 				Types:    []state.SchemaType{{Name: "widget", Fields: tc.fields}},
 			}
 			rules, conflicts := writ.RulesFromSchemas([]state.Schema{a})
-			got := rules["widget"]
-			if len(got) != 1 {
-				t.Fatalf("expected exactly one of the two colliding fields installed, got %+v", got)
+			if got := rules["widget"]; len(got) != 0 {
+				t.Fatalf("expected both rules withheld, got %+v", got)
 			}
 			if len(conflicts) != 1 {
-				t.Fatalf("expected 1 conflict reporting the rejected field, got %+v", conflicts)
+				t.Fatalf("expected exactly 1 conflict naming the unsatisfiable combination, got %+v", conflicts)
+			}
+			if !strings.Contains(conflicts[0].Reason, "tombstone") {
+				t.Fatalf("conflict should name the tombstone strategy, got %q", conflicts[0].Reason)
 			}
 		})
 	}
@@ -617,7 +801,7 @@ func TestRulesFromSchemas_SharedKeyColumnDisagreementRejected(t *testing.T) {
 // TestRulesFromSchemas_SharedKeyColumnAgreementOK is the positive control:
 // two keyed-lww fields under the same (op_type, op_version) that share a key
 // column name but agree on its key_types entry are both installed, with no
-// conflict — CheckKeyColumnCollision only refuses disagreement, not sharing
+// conflict — CheckKeyColumnAgreement only refuses disagreement, not sharing
 // itself (writ's own bootstrap schema-ops table relies on exactly this: every
 // keyed-lww rule scoped to one schemaFieldKey shares "type" typed string).
 func TestRulesFromSchemas_SharedKeyColumnAgreementOK(t *testing.T) {
