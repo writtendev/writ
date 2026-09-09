@@ -13,7 +13,7 @@ func TestQueryFullSuite(t *testing.T) {
 	s, ctx, _ := openStoreWithCoreSchema(t)
 
 	// 1. Create multiple widgets
-	w1, err := s.Objects.Create(ctx, "widget", writ.NewOp{
+	w1, err := s.Objects.Create(ctx, "acme.widget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "First Feature Widget", "description": "Alpha feature"},
 	})
@@ -21,7 +21,7 @@ func TestQueryFullSuite(t *testing.T) {
 		t.Fatalf("Create w1: %v", err)
 	}
 
-	w2, err := s.Objects.Create(ctx, "widget", writ.NewOp{
+	w2, err := s.Objects.Create(ctx, "acme.widget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Second Bugfix Widget", "description": "Beta bugfix"},
 	})
@@ -37,7 +37,7 @@ func TestQueryFullSuite(t *testing.T) {
 	}
 
 	// 2. Create multiple gadgets
-	g1, err := s.Objects.Create(ctx, "gadget", writ.NewOp{
+	g1, err := s.Objects.Create(ctx, "acme.gadget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Gadget One", "description": "Important gadget"},
 	})
@@ -57,7 +57,7 @@ func TestQueryFullSuite(t *testing.T) {
 		t.Fatalf("Tag g1: %v", err)
 	}
 
-	g2, err := s.Objects.Create(ctx, "gadget", writ.NewOp{
+	g2, err := s.Objects.Create(ctx, "acme.gadget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Gadget Two", "description": "Backend gadget"},
 	})
@@ -78,21 +78,21 @@ func TestQueryFullSuite(t *testing.T) {
 	}
 
 	// 3. Notes on w1
-	n1, err := s.Objects.Create(ctx, "note", writ.NewOp{
+	n1, err := s.Objects.Create(ctx, "acme.note", writ.NewOp{
 		Type: "create",
 		Fields: map[string]any{
 			"text":    "Note 1 on w1",
-			"subject": map[string]string{"object_type": "widget", "object_id": w1},
+			"subject": map[string]string{"object_type": "acme.widget", "object_id": w1},
 		},
 	})
 	if err != nil {
 		t.Fatalf("Note w1: %v", err)
 	}
-	n2, err := s.Objects.Create(ctx, "note", writ.NewOp{
+	n2, err := s.Objects.Create(ctx, "acme.note", writ.NewOp{
 		Type: "create",
 		Fields: map[string]any{
 			"text":        "Reply to note 1",
-			"subject":     map[string]string{"object_type": "widget", "object_id": w1},
+			"subject":     map[string]string{"object_type": "acme.widget", "object_id": w1},
 			"in_reply_to": n1,
 		},
 	})
@@ -109,7 +109,7 @@ func TestQueryFullSuite(t *testing.T) {
 	}
 
 	// Test Query.Objects, filtered by type
-	allWidgets, err := s.Query.Objects(writ.ObjectFilter{Type: []string{"widget"}, OrderBy: writ.OrderByCreatedAtAsc})
+	allWidgets, err := s.Query.Objects(writ.ObjectFilter{Type: []string{"acme.widget"}, OrderBy: writ.OrderByCreatedAtAsc})
 	if err != nil {
 		t.Fatalf("Query.Objects(widget): %v", err)
 	}
@@ -222,7 +222,7 @@ func TestWithoutAutoRefresh(t *testing.T) {
 	}
 
 	// Write without auto-refresh
-	id, err := s.Objects.Create(ctx, "widget", writ.NewOp{
+	id, err := s.Objects.Create(ctx, "acme.widget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Manual Refresh Widget"},
 	})
@@ -305,18 +305,18 @@ func TestQueryObjects_WarmReopenWithoutAutoRefresh(t *testing.T) {
 
 	applyCoreSchema(t, ctx, s)
 
-	w1, err := s.Objects.Create(ctx, "widget", writ.NewOp{
+	w1, err := s.Objects.Create(ctx, "acme.widget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Zebra Crossing Widget"},
 	})
 	if err != nil {
 		t.Fatalf("Create widget failed: %v", err)
 	}
-	n1, err := s.Objects.Create(ctx, "note", writ.NewOp{
+	n1, err := s.Objects.Create(ctx, "acme.note", writ.NewOp{
 		Type: "create",
 		Fields: map[string]any{
 			"text":    "first note",
-			"subject": map[string]string{"object_type": "widget", "object_id": w1},
+			"subject": map[string]string{"object_type": "acme.widget", "object_id": w1},
 		},
 	})
 	if err != nil {

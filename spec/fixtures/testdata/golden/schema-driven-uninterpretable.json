@@ -2,11 +2,11 @@
   "refs": [
     {
       "name": "refs/writ/0123456789abcdef/schema",
-      "commit": "596751df607557fc32ec65b848a75c3eb3c52c74"
+      "commit": "79e75e72ed25fd1a5aa11534c388fc2518b1d87f"
     },
     {
       "name": "refs/writ/0123456789abcdef/gadget",
-      "commit": "10a31572a59acca55821e230f187a99d2e04825b"
+      "commit": "b44f75967d3766cc3e41779080329b04962f1704"
     }
   ],
   "generations": [
@@ -24,8 +24,8 @@
           "signed": true
         },
         {
-          "sha": "9b1e4256145f55a3719656d4054a10929dae03ef",
-          "tree": "89cd7911ba9638a945ed61dd9519e0a2ef45f2eb",
+          "sha": "d5b1713d45e67571c9d97c4b6a71cac63d65843e",
+          "tree": "83d171b392b9a6e05f5f2aedc2994bb8b462d471",
           "parents": [
             "a5d9b44532a36476cbc5bf9fd70842f8eff5c594"
           ],
@@ -35,10 +35,10 @@
           "signed": true
         },
         {
-          "sha": "4768a60bff5328df9178e56d86233a9c08b9b9c9",
-          "tree": "4dec4efbee9c0c2818a7fe016f0dbd842176f182",
+          "sha": "374352484cd0c1f659ee0ace27120016d192ff78",
+          "tree": "0a420c723078d93ee0a079a008899260dfbb13b2",
           "parents": [
-            "9b1e4256145f55a3719656d4054a10929dae03ef"
+            "d5b1713d45e67571c9d97c4b6a71cac63d65843e"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:02:00Z",
@@ -46,10 +46,10 @@
           "signed": true
         },
         {
-          "sha": "596751df607557fc32ec65b848a75c3eb3c52c74",
-          "tree": "119c3bcf828560dab0fae290b911c0ad53e4fbd3",
+          "sha": "79e75e72ed25fd1a5aa11534c388fc2518b1d87f",
+          "tree": "d7127f23533dcdb3f9a2881a51ed6db5a7aa916c",
           "parents": [
-            "4768a60bff5328df9178e56d86233a9c08b9b9c9"
+            "374352484cd0c1f659ee0ace27120016d192ff78"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:03:00Z",
@@ -63,12 +63,12 @@
       "index": 0,
       "commits": [
         {
-          "sha": "10a31572a59acca55821e230f187a99d2e04825b",
-          "tree": "d87942138b98ba31be74e8b614ad2203fae90e4e",
+          "sha": "b44f75967d3766cc3e41779080329b04962f1704",
+          "tree": "e1026c7bd5e325904469a93bad8a67e8422da471",
           "parents": [],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:04:00Z",
-          "message": "writ: create gadget/gadget-1\n",
+          "message": "writ: create acme.gadget/gadget-1\n",
           "signed": true
         }
       ]

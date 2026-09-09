@@ -14,15 +14,15 @@
     },
     "object_type": {
       "type": "string",
-      "maxLength": 64,
-      "pattern": "^[a-z][a-z0-9-]*$",
-      "description": "The collaborative object's type. `schema` is the one type this specification defines; every other value is declared by a schema object in the log. Deliberately not an enum: readers must tolerate object types they do not know (preserve and ignore, never drop)."
+      "maxLength": 129,
+      "pattern": "^[a-z][a-z0-9-]{0,63}(\\.[a-z][a-z0-9-]{0,63})?$",
+      "description": "The collaborative object's type. `schema` is the one type this specification defines; every other value is declared by a schema object in the log, and is namespace-qualified as <namespace>.<type> (spec/schema-ops.md §2), each segment matching the bare form and its own 64-character bound, for 129 (64 + '.' + 64) total. Deliberately not an enum: readers must tolerate object types they do not know (preserve and ignore, never drop). This layer admits both the bare and qualified shapes and enforces nothing about which a given value must be; whether a non-schema object_type is required to be qualified is a schema-layer rule (spec/schema-ops.md §2) this envelope layer does not know or enforce."
     },
     "op_type": {
       "type": "string",
       "maxLength": 64,
       "pattern": "^[a-z][a-z0-9-]*$",
-      "description": "The operation's type within its object type's vocabulary, e.g. create. Deliberately not an enum: the op types an object type admits are declared by a schema object in the log (spec/schema-ops.md), and readers must tolerate op types they do not know."
+      "description": "The operation's type within its object type's vocabulary, e.g. create. Deliberately not an enum: the op types an object type admits are declared by a schema object in the log (spec/schema-ops.md), and readers must tolerate op types they do not know. Unlike object_type, op_type is never namespace-qualified: op types live inside a type's own vocabulary and were never globally contended, so they stay bare and 64 characters regardless of the qualified form object_type now admits."
     },
     "op_version": {
       "type": "integer",

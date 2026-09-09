@@ -7,7 +7,7 @@
         "namespace": "acme",
         "types": [
           {
-            "type": "widget",
+            "type": "acme.widget",
             "fields": [
               {
                 "field": "level",
@@ -37,7 +37,7 @@
   ],
   "conflicts": [
     {
-      "object_type": "widget",
+      "object_type": "acme.widget",
       "object_ids": [
         "sch-acme"
       ],
@@ -47,22 +47,22 @@
   "objects": [
     {
       "object_id": "widget-1",
-      "object_type": "widget",
+      "object_type": "acme.widget",
       "total_order": [
         {
-          "commit": "6ce3d04bdb558fbf7d94108751f1c5c83e44046c",
+          "commit": "81468ab5bc59ed0a36e6ae6d0a880280a4b233a7",
           "t_star": 1767225840
         },
         {
-          "commit": "007f7c1a9674a25acce4235c329149b3af41550c",
+          "commit": "108700f79e5a869593cfc15670d3589ef9e00f41",
           "t_star": 1767225900
         }
       ],
       "state": {},
       "unknown_ops": [
         {
-          "commit": "6ce3d04bdb558fbf7d94108751f1c5c83e44046c",
-          "object_type": "widget",
+          "commit": "81468ab5bc59ed0a36e6ae6d0a880280a4b233a7",
+          "object_type": "acme.widget",
           "op_type": "promote",
           "op_version": 1
         },

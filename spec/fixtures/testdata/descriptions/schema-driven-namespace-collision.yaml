@@ -33,7 +33,7 @@ refs:
               op_type: define-type
               op_version: 1
               body:
-                type: "widget-a"
+                type: "shared-namespace.widget-a"
             expect: accept
 
           - id: alice-define-field
@@ -46,7 +46,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "widget-a"
+                type: "shared-namespace.widget-a"
                 op_type: "create"
                 op_version: "1"
                 field: "title"
@@ -79,7 +79,7 @@ refs:
               op_type: define-type
               op_version: 1
               body:
-                type: "widget-b"
+                type: "shared-namespace.widget-b"
             expect: accept
 
           - id: bob-define-field
@@ -92,7 +92,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "widget-b"
+                type: "shared-namespace.widget-b"
                 op_type: "create"
                 op_version: "1"
                 field: "title"
@@ -108,7 +108,7 @@ refs:
             timestamp: 2026-01-01T00:03:00Z
             op:
               object_id: widget-a-1
-              object_type: widget-a
+              object_type: shared-namespace.widget-a
               op_type: create
               op_version: 1
               body:
@@ -123,7 +123,7 @@ refs:
             timestamp: 2026-01-01T00:03:30Z
             op:
               object_id: widget-b-1
-              object_type: widget-b
+              object_type: shared-namespace.widget-b
               op_type: create
               op_version: 1
               body:

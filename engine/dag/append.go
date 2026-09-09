@@ -28,7 +28,7 @@ const maxCASRetries = 16
 // via a compare-and-swap ref update. parents[0] is automatically set to the writer's
 // previous chain tip when non-empty, followed by any caller-supplied causal parent SHAs.
 func (s *Store) Append(ctx context.Context, env codec.Envelope, causalParents []string) (*codec.Op, error) {
-	if !objectTypeRegexp.MatchString(env.ObjectType) || len(env.ObjectType) > 64 {
+	if !objectTypeRegexp.MatchString(env.ObjectType) || len(env.ObjectType) > objectTypeMaxLength || objectTypeEndsInLock(env.ObjectType) {
 		return nil, fmt.Errorf("dag: invalid object type %q", env.ObjectType)
 	}
 

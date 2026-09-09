@@ -33,6 +33,26 @@ func validIdent(s string) bool {
 	return s != "" && len(s) <= identMaxLength && identPattern.MatchString(s)
 }
 
+// quoteIdent double-quotes name for embedding as a SQL identifier
+// (doubling any embedded '"', the standard SQL escape, though none of
+// this package's generated names ever contain one). Every generated
+// table name is built from "o_" + strings.ReplaceAll(objectType, "-",
+// "_") (buildTypeDescriptor) with further "__"-joined suffixes, all drawn
+// from identifiers validIdent already restricts to [a-z][a-z0-9_]* — so
+// the object type's own "-" is the only character that ever maps to "_",
+// and "." is the only punctuation that can appear in a generated name at
+// all, surviving verbatim from a WRIT-217 qualified object_type such as
+// "acme.standup". Left unquoted, "o_acme.standup" parses in SQLite as
+// table "standup" in schema "o_acme" rather than one table literally
+// named "o_acme.standup" (hazard B, WRIT-217) — quoting at every point a
+// generated name is spliced into SQL text is what keeps it meaning what
+// it says regardless of what an object type is made of. This is why
+// validIdent itself is never extended to admit '.': the fix is quoting
+// the identifier, not widening what an unquoted one may contain.
+func quoteIdent(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
+
 // ddlColumn is one generated column.
 type ddlColumn struct {
 	Name    string
@@ -56,14 +76,14 @@ func (t ddlTable) createStatement() string {
 		lines = append(lines, "    "+c.Name+" "+c.SQLType)
 	}
 	lines = append(lines, "    PRIMARY KEY ("+strings.Join(t.PrimaryKey, ", ")+")")
-	return "CREATE TABLE " + t.Name + " (\n" + strings.Join(lines, ",\n") + "\n);"
+	return "CREATE TABLE " + quoteIdent(t.Name) + " (\n" + strings.Join(lines, ",\n") + "\n);"
 }
 
 func (t ddlTable) indexStatements() []string {
 	var out []string
 	for _, cols := range t.Indexes {
 		name := "idx_" + t.Name + "_" + strings.Join(cols, "_")
-		out = append(out, "CREATE INDEX "+name+" ON "+t.Name+"("+strings.Join(cols, ", ")+");")
+		out = append(out, "CREATE INDEX "+quoteIdent(name)+" ON "+quoteIdent(t.Name)+"("+strings.Join(cols, ", ")+");")
 	}
 	return out
 }
@@ -73,7 +93,7 @@ func (t ddlTable) orderByQuery() string {
 	for _, c := range t.PrimaryKey {
 		parts = append(parts, c+" ASC")
 	}
-	return "SELECT * FROM " + t.Name + " ORDER BY " + strings.Join(parts, ", ")
+	return "SELECT * FROM " + quoteIdent(t.Name) + " ORDER BY " + strings.Join(parts, ", ")
 }
 
 // targetPlan describes how one installed target key (state.Rule.TargetKey())

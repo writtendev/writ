@@ -40,7 +40,7 @@ refs:
               op_type: define-type
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
             expect: accept
           - id: schema-define-gadget
             parents: [schema-define-widget]
@@ -52,7 +52,7 @@ refs:
               op_type: define-type
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
             expect: accept
           - id: schema-define-title
             parents: [schema-define-gadget]
@@ -64,7 +64,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
                 op_type: "create"
                 op_version: "1"
                 field: "title"
@@ -81,7 +81,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
                 op_type: "log"
                 op_version: "1"
                 field: "base"
@@ -98,7 +98,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
                 op_type: "log"
                 op_version: "1"
                 field: "head"
@@ -115,7 +115,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
                 op_type: "vote"
                 op_version: "1"
                 field: "revision"
@@ -136,7 +136,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
                 op_type: "vote"
                 op_version: "1"
                 field: "choice"
@@ -158,7 +158,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
                 op_type: "vote"
                 op_version: "1"
                 field: "subject"
@@ -179,7 +179,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
                 op_type: "create"
                 op_version: "1"
                 field: "subject"
@@ -195,7 +195,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
                 op_type: "create"
                 op_version: "1"
                 field: "text"
@@ -212,7 +212,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
                 op_type: "create"
                 op_version: "1"
                 field: "anchor"
@@ -228,7 +228,7 @@ refs:
             timestamp: 2026-01-01T00:00:00Z
             op:
               object_id: widget-01
-              object_type: widget
+              object_type: acme.widget
               op_type: vote
               op_version: 1
               body:
@@ -240,7 +240,7 @@ refs:
             timestamp: 2026-01-01T00:01:00Z
             op:
               object_id: widget-01
-              object_type: widget
+              object_type: acme.widget
               op_type: vote
               op_version: 1
               body:
@@ -253,7 +253,7 @@ refs:
             timestamp: 2026-01-01T00:02:00Z
             op:
               object_id: widget-01
-              object_type: widget
+              object_type: acme.widget
               op_type: vote
               op_version: 1
               body:
@@ -266,7 +266,7 @@ refs:
             timestamp: 2026-01-01T00:03:00Z
             op:
               object_id: widget-01
-              object_type: widget
+              object_type: acme.widget
               op_type: log
               op_version: 1
               body:
@@ -278,7 +278,7 @@ refs:
             timestamp: 2026-01-01T00:04:00Z
             op:
               object_id: widget-02
-              object_type: widget
+              object_type: acme.widget
               op_type: create
               op_version: 1
               body:
@@ -293,12 +293,12 @@ refs:
             timestamp: 2026-01-01T00:05:00Z
             op:
               object_id: gadget-01
-              object_type: gadget
+              object_type: acme.gadget
               op_type: create
               op_version: 1
               body:
                 subject:
-                  object_type: widget
+                  object_type: acme.widget
                   object_id: widget-01
                 text: "a note on the first line of a file"
                 anchor:

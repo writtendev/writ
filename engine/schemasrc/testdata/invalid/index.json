@@ -166,5 +166,12 @@
     "col": 34,
     "message": "\"deprecated\" is a reserved word and cannot be used as a key column name; a key column name draws from the same namespace as a field name, so it stays reserved everywhere a field name is",
     "reason": "WRIT-203 round 2: parseKeyModifier passes fieldReserved to validateName exactly as parseTargetModifier already does, so key(deprecated string) -- wire-legal under the tightened key_column_name grammar -- is rejected at Parse with a positional error naming the key column, matching target(deprecated)'s existing precedent (spec/schema-source.md §2, §3.3)"
+  },
+  {
+    "file": "reserved-type-name-lock.schema",
+    "line": 3,
+    "col": 6,
+    "message": "\"lock\" is a reserved type name; a type named \"lock\" would qualify to an object_type ending in \".lock\", which git rejects outright as a ref path component (refs/writ/\u003cwriter-id\u003e/\u003cnamespace\u003e.lock)",
+    "reason": "WRIT-217: a type named \"lock\" would qualify to an object_type ending in \".lock\" under any namespace, which git rejects outright as a ref path component (refs/writ/\u003cwriter-id\u003e/\u003cnamespace\u003e.lock, verified against real git); rejected at parse time, with a line and column, rather than only failing unwritably at ref-write time. Separate from reserved-type-name.schema, which pins the eight structural keywords; this pins the one ref-safety exclusion (reservedTypeNames), deliberately kept out of the keywords table TestKeywordsAreClosed guards."
   }
 ]

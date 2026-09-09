@@ -160,6 +160,22 @@ slot refuses depends on where that slot sits, not on the word alone.
   everywhere a field name is — pinned by `key-column-reserved-word.schema`
   in the invalid corpus.
 
+A type's own name carries one further, narrower exclusion that is
+deliberately *not* part of the keyword table above: `lock` is refused as
+a type name, pinned by `reserved-type-name-lock.schema` in the invalid
+corpus. This is a ref-safety exclusion, not a grammar keyword — every
+declared type is namespace-qualified on the wire (§5), and git rejects
+outright any slash-separated ref path component ending in `.lock`
+(`spec/ref-layout.md` §4), so a type named `lock` under any namespace
+would compile to an `object_type` (`<namespace>.lock`) that can never
+actually be written to a chain. Rejecting it here, at parse time with a
+line and column, is strictly better than letting it fail unwritably
+later at `dagStore.Append`. `TestKeywordsAreClosed` does not cover this
+table on purpose: folding a ref-safety concern into the closed
+structural-keyword set would widen what that test is meant to guard. A
+namespace of `lock` is unaffected (`lock.thing` is a legal, ref-writable
+object type) — the exclusion is on a type's own final segment only.
+
 A relation is an `object-ref` value type (`value-types.md`), not a
 separate grammar bolted onto this one: writ has no join engine and no
 reference resolution, so `object-ref` parses exactly like any other value
@@ -297,6 +313,21 @@ deprecated, every `define-op` in `(op_type, op_version)` order, every
 `define-field` in `(op_type, op_version, field)` order, and finally a
 `deprecate-field` for every field marked deprecated, in the same order.
 
+A type's own bare source name is not what reaches the wire: `Compile`
+qualifies it with the file's own `namespace` at the single choke point in
+`compileType` — `type standup` under `namespace acme` emits the wire
+`object_type` (and every `define-op`/`define-field`/`deprecate-field`
+`"type"` value) `acme.standup` (`schema-ops.md` §2). This is unconditional
+and has no source-level opt-out, because the source grammar's own
+`namespace` line is already mandatory (`file = "namespace" ident ...`,
+§3) — there is no way to write a `writ.schema` file this package would
+compile to an unqualified consumer type. `Render` (§6) is the reverse: it
+strips `namespace + "."` back off before printing a type's own name, and
+errors rather than falling back to the qualified form if a folded type
+does not actually carry its own schema's namespace prefix — the same
+shape the resolver (`engine/schema.go`'s `RulesFromSchemas`) would have
+dropped rather than installed.
+
 `op_version` is written through one helper, in this package, that always
 produces the canonical decimal string `schema-ops.md` §3.1 requires
 (`^[1-9][0-9]*$`) — the single place in the package that formats it, so a
@@ -339,10 +370,17 @@ instead of one imprecise one:
 
 1. A **semantic** round-trip through the op vocabulary:
    `Compile(Parse(Render(FoldSchema(Compile(Parse(src))))))` reproduces
-   `Compile(Parse(src))` byte for byte. Two additional idempotence
-   properties hold on their own terms: `Render` applied to already-folded
-   state is idempotent (rendering, re-parsing, re-compiling, and
-   re-folding reproduces the same rendering), and `Format` is idempotent
+   `Compile(Parse(src))` byte for byte. This promise now crosses a
+   qualify/strip boundary it did not before (§5): the inner `Compile`
+   qualifies every type with `namespace`, `Render` strips that same
+   prefix back off to reprint a bare source name, and the outer
+   `Compile` re-qualifies it — the round-trip holds only because
+   qualifying and stripping are exact inverses of each other over
+   whatever `namespace` the folded state actually carries. Two
+   additional idempotence properties hold on their own terms: `Render`
+   applied to already-folded state is idempotent (rendering,
+   re-parsing, re-compiling, and re-folding reproduces the same
+   rendering), and `Format` is idempotent
    (`Format(Format(src)) == Format(src)`).
 2. A comment-preserving **`Format`** (`engine/schemasrc.Format`) that
    reprints a source file canonically in place: every comment survives,

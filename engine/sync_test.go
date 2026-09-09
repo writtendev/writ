@@ -88,7 +88,7 @@ func TestStoreSyncLifecycle(t *testing.T) {
 	}
 
 	// Alice creates a widget
-	widgetID, err := sA.Objects.Create(ctx, "widget", writ.NewOp{
+	widgetID, err := sA.Objects.Create(ctx, "acme.widget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Sync Feature Widget"},
 	})
@@ -249,7 +249,7 @@ func TestStoreSync_PreReceiveHookFailureAndRetry(t *testing.T) {
 	}
 
 	// Alice creates a widget
-	widgetID, err := sA.Objects.Create(ctx, "widget", writ.NewOp{
+	widgetID, err := sA.Objects.Create(ctx, "acme.widget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Hook Failure Widget"},
 	})

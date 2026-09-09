@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -630,7 +632,24 @@ type standup {
 // object, so the generic "object_type already bound" guard has nothing to
 // catch here. The only thing that changed is the namespace, which is what
 // this test means to prove is refused, and refused for that reason.
-func TestSchemaCLI_NamespaceChangeIsRefused(t *testing.T) {
+// TestSchemaCLI_NamespaceChangeMintsIndependentObject replaces
+// TestSchemaCLI_NamespaceChangeIsRefused (WRIT-217). The old test pinned a
+// refusal: resolveSchemaTarget used to detect "this file's type set is
+// already bound, verbatim, by one other schema object under a different
+// namespace" as a proxy for "the author renamed their namespace in
+// place," which a schema object's create-once namespace can never
+// actually express as an update. That proxy signal was a *bare*
+// object_type collision — exactly the mechanism WRIT-217 removes: with
+// object_type namespace-qualified, "acme.standup" and "acme2.standup" are
+// different wire types that never collide, so there is no longer a
+// contested-type signal to detect a rename attempt with. The now-correct
+// behavior is also the honest one: editing `namespace` in a working-tree
+// file that already has an applied schema object does not "rename" that
+// object (namespace is create-once and never will), it mints an
+// independent one — indistinguishable, and rightly so, from an
+// unrelated second namespace declaring an unrelated "standup" from
+// scratch (TestSchemaCLI_DifferentNamespacesSameBareTypeBothInstall).
+func TestSchemaCLI_NamespaceChangeMintsIndependentObject(t *testing.T) {
 	env := initTestRepo(t)
 	base := `namespace acme
 description "Acme's vocabulary"
@@ -646,47 +665,43 @@ type standup {
 	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply", "--json"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("initial apply failed with %d; stderr: %s", code, stderr.String())
 	}
-	objectID := applyObjectID(t, stdout.Bytes())
+	firstObjectID := applyObjectID(t, stdout.Bytes())
 
 	changed := strings.Replace(base, "namespace acme", "namespace acme2", 1)
 	writeSchemaFile(t, env.repoDir, changed)
 
-	tipBefore := writSchemaRef(t, env.repoDir)
+	stdout.Reset()
+	stderr.Reset()
+	code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply", "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("expected the namespace-changed file to apply as an independent object, got exit %d; stderr: %s", code, stderr.String())
+	}
+	secondObjectID := applyObjectID(t, stdout.Bytes())
+	if secondObjectID == firstObjectID {
+		t.Fatalf("expected a fresh schema object id for the new namespace, got the same id %s twice", firstObjectID)
+	}
 
 	stdout.Reset()
 	stderr.Reset()
-	code := run(context.Background(), []string{"-C", env.repoDir, "schema", "plan"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("expected exit 1 for a namespace change, got %d; stdout: %s", code, stdout.String())
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "show"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema show failed with %d; stderr: %s", code, stderr.String())
 	}
-	msg := stderr.String()
-	if !strings.Contains(msg, objectID) {
-		t.Errorf("expected the refusal to name the existing object id %s, got: %s", objectID, msg)
-	}
-	if !strings.Contains(msg, `"acme"`) || !strings.Contains(msg, `"acme2"`) {
-		t.Errorf("expected the refusal to name both the old and new namespace, got: %s", msg)
-	}
-	if !strings.Contains(msg, "namespace is set once") || !strings.Contains(msg, "never changes") {
-		t.Errorf("expected the refusal to read as a namespace change, not a generic object_type collision, got: %s", msg)
-	}
-
-	// A refused plan appends nothing, and apply runs the same computation,
-	// so it must refuse identically and leave the chain tip untouched.
-	stdout.Reset()
-	stderr.Reset()
-	code = run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("expected apply to also refuse with exit 1, got %d", code)
-	}
-	if tip := writSchemaRef(t, env.repoDir); tip != tipBefore {
-		t.Fatalf("a refused apply appended ops: chain tip moved %s -> %s", tipBefore, tip)
+	names := strings.Fields(stdout.String())
+	sort.Strings(names)
+	if !slices.Equal(names, []string{"acme.standup", "acme2.standup"}) {
+		t.Fatalf("schema show = %v, want both the original and the new namespace's types, both installed", names)
 	}
 }
 
-// TestSchemaCLI_ObjectIdentity exercises the three cases resolveSchemaTarget
-// implements: a fresh mint reporting `created`, reuse of an existing
-// namespace match without minting, and a refusal naming both object ids
-// when a second schema object would bind an already-bound object_type.
+// TestSchemaCLI_ObjectIdentity exercises two of the three cases
+// resolveSchemaTarget implements: a fresh mint reporting `created`, and
+// reuse of an existing namespace match without minting. The third case
+// this test used to cover — "a second, independent namespace declaring
+// the same bare type name collides" — is exactly the scenario WRIT-217
+// makes non-colliding by construction (acme.standup and other.standup are
+// different wire types), so TestSchemaCLI_DifferentNamespacesSameBareTypeBothInstall
+// below is its replacement: the CLI-level proof of the ticket's own
+// acceptance criterion 1, not a refusal.
 func TestSchemaCLI_ObjectIdentity(t *testing.T) {
 	env := initTestRepo(t)
 
@@ -733,42 +748,22 @@ type standup {
 	if reuseID := planObjectID(t, stdout.Bytes()); reuseID != firstObjectID {
 		t.Fatalf("expected the same object id to be reused, got %s want %s", reuseID, firstObjectID)
 	}
-
-	// A second, independent namespace declaring the same type collides.
-	second := `namespace other
-description "A different vocabulary"
-
-type standup {
-  op create 1 {
-    title  string(200)  lww
-  }
-}
-`
-	writeSchemaFile(t, env.repoDir, second)
-
-	stdout.Reset()
-	stderr.Reset()
-	code = run(context.Background(), []string{"-C", env.repoDir, "schema", "plan"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("expected exit 1 for a colliding object_type, got %d; stdout: %s", code, stdout.String())
-	}
-	if !strings.Contains(stderr.String(), firstObjectID) || !strings.Contains(stderr.String(), "standup") {
-		t.Errorf("expected the refusal to name the existing object id %s and the contested type, got: %s", firstObjectID, stderr.String())
-	}
 }
 
-// TestSchemaCLI_ReuseRefusesContestedType is finding 1's regression net:
-// the contested-object_type guard must run on the reuse branch
-// (resolveSchemaTarget's "exactly one namespace match" case), not only on
-// the "no match" creation branch. A file whose namespace matches an
-// existing schema object, but which adds a type a *different* schema
-// object already binds, must be refused exactly like the creation
-// branch's own collision — otherwise apply would double-bind the type and
-// RulesFromSchemas would withhold every rule for it, permanently.
-func TestSchemaCLI_ReuseRefusesContestedType(t *testing.T) {
+// TestSchemaCLI_DifferentNamespacesSameBareTypeBothInstall is WRIT-217's
+// acceptance criterion 1, proven end to end against the real CLI binary:
+// two independently authored schema files, "acme" and "other", each
+// declaring a type whose bare source name is "standup", qualify to two
+// distinct wire types ("acme.standup", "other.standup") and never
+// contend — both apply cleanly, under distinct schema object ids, and
+// `schema show` reports both with no conflict. Before this ticket both
+// would have bound the identical bare object_type "standup" and
+// RulesFromSchemas would have withheld every rule for it
+// (TestSchemaCLI_ObjectIdentity used to pin exactly that refusal for this
+// same shape).
+func TestSchemaCLI_DifferentNamespacesSameBareTypeBothInstall(t *testing.T) {
 	env := initTestRepo(t)
 
-	// Object A: namespace acme, type standup.
 	writeSchemaFile(t, env.repoDir, `namespace acme
 description "Acme's vocabulary"
 
@@ -780,192 +775,123 @@ type standup {
 `)
 	var stdout, stderr bytes.Buffer
 	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply", "--json"}, &stdout, &stderr); code != 0 {
-		t.Fatalf("first apply failed with %d; stderr: %s", code, stderr.String())
+		t.Fatalf("acme apply failed with %d; stderr: %s", code, stderr.String())
 	}
-	objectA := applyObjectID(t, stdout.Bytes())
+	acmeObjectID := applyObjectID(t, stdout.Bytes())
 
-	// Object B: a distinct namespace, a distinct type — a legitimate
-	// second schema object, no collision.
 	writeSchemaFile(t, env.repoDir, `namespace other
 description "A different vocabulary"
 
-type sprint {
-  op create 1 {
-    title  string(200)  lww
-  }
-}
-`)
-	stdout.Reset()
-	stderr.Reset()
-	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply", "--json"}, &stdout, &stderr); code != 0 {
-		t.Fatalf("second apply failed with %d; stderr: %s", code, stderr.String())
-	}
-	objectB := applyObjectID(t, stdout.Bytes())
-	if objectB == objectA {
-		t.Fatalf("expected a distinct object id for the second namespace, got the same id %s twice", objectA)
-	}
-
-	// Back to namespace acme (an exact match: object A, the reuse branch)
-	// — but now also declaring "sprint", which object B already binds.
-	tipBefore := writSchemaRef(t, env.repoDir)
-	writeSchemaFile(t, env.repoDir, `namespace acme
-description "Acme's vocabulary"
-
 type standup {
   op create 1 {
     title  string(200)  lww
   }
 }
-
-type sprint {
-  op create 1 {
-    title  string(200)  lww
-  }
-}
 `)
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply", "--json"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("other apply failed with %d; stderr: %s", code, stderr.String())
+	}
+	otherObjectID := applyObjectID(t, stdout.Bytes())
+	if otherObjectID == acmeObjectID {
+		t.Fatalf("expected a distinct schema object id for the second namespace, got %s twice", acmeObjectID)
+	}
 
 	stdout.Reset()
 	stderr.Reset()
-	code := run(context.Background(), []string{"-C", env.repoDir, "schema", "plan"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("expected exit 1 for a reuse that contests object B's type, got %d; stdout: %s", code, stdout.String())
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "show"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema show failed with %d; stderr: %s", code, stderr.String())
 	}
-	msg := stderr.String()
-	if !strings.Contains(msg, objectA) || !strings.Contains(msg, objectB) {
-		t.Errorf("expected the refusal to name both object ids (%s reusing, %s already bound), got: %s", objectA, objectB, msg)
-	}
-	if !strings.Contains(msg, "sprint") {
-		t.Errorf("expected the refusal to name the contested type, got: %s", msg)
+	names := strings.Fields(stdout.String())
+	sort.Strings(names)
+	if !slices.Equal(names, []string{"acme.standup", "other.standup"}) {
+		t.Fatalf("schema show = %v, want both qualified types installed with no conflict", names)
 	}
 
-	// A refused plan appends nothing, and apply runs the same computation.
+	// The full acceptance demo: objects created and folded under each
+	// qualified type, against the real engine (not just the CLI's own
+	// vocabulary listing) — the exact scenario that, pre-WRIT-217, would
+	// have withheld every rule for both.
 	stdout.Reset()
 	stderr.Reset()
-	code = run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("expected apply to also refuse with exit 1, got %d", code)
+	if code := run(context.Background(), []string{
+		"object", "create", "-C", env.repoDir, "acme.standup", "create",
+		"-field", "title=Acme standup", "--json",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("object create acme.standup failed with %d; stderr: %s", code, stderr.String())
 	}
-	if tip := writSchemaRef(t, env.repoDir); tip != tipBefore {
-		t.Fatalf("a refused apply appended ops: chain tip moved %s -> %s", tipBefore, tip)
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{
+		"object", "create", "-C", env.repoDir, "other.standup", "create",
+		"-field", "title=Other standup", "--json",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("object create other.standup failed with %d; stderr: %s", code, stderr.String())
 	}
 }
 
-// TestSchemaCLI_ReuseRefusesFutureBootstrapCollision is round 2's finding:
-// `plan` (and `apply`, which runs the whole of `plan`) validated only the
-// *current* log, never the state applying would produce. A writ.schema
-// declaring `type schema` — the engine's one hard-coded bootstrap type —
-// sails through resolveSchemaTarget: no schema *object* binds "schema"
-// today (the engine does, without ever appearing in the schemas list), so
-// the cross-object collision guard has nothing to compare it against.
-// RulesFromSchemas, though, refuses to let any object claim it and
-// withholds every rule for it, forever — nothing removes a type once
-// written and `deprecate-type` does not unbind it. Reusing an existing
-// schema object exercises resolveSchemaTarget's "exactly one match"
-// branch; TestSchemaCLI_CreateRefusesFutureBootstrapCollision below
-// exercises the same conflict through the "no match, mint fresh" branch,
-// so together they prove the general "conflicts the apply would
-// introduce" mechanism rather than one hard-coded `type schema` check.
-func TestSchemaCLI_ReuseRefusesFutureBootstrapCollision(t *testing.T) {
+
+// TestSchemaCLI_ReuseRefusesContestedType and
+// TestSchemaCLI_ReuseRefusesFutureBootstrapCollision /
+// TestSchemaCLI_CreateRefusesFutureBootstrapCollision are removed
+// (WRIT-217): all three pinned resolveSchemaTarget refusals whose
+// triggering shape a namespace-qualified object_type makes unreachable
+// through this package's own `writ.schema` DSL.
+//
+//   - ReuseRefusesContestedType relied on two schema objects being able to
+//     bind the identical bare object_type ("sprint") from two different
+//     namespaces. Post-WRIT-217 that qualifies to two different wire
+//     types ("acme.sprint", "other.sprint") that can never collide — the
+//     resolver-level equivalent of the guard this pinned is still covered
+//     by engine/schema.go's own tests
+//     (TestRulesFromSchemas_ObjectTypeCollisionInstallsNoRules,
+//     TestRulesFromSchemas_UnqualifiedConsumerTypeDroppedNotInstalled),
+//     which construct the adversarial folded-state shape directly rather
+//     than through a DSL that can no longer produce it.
+//   - Both *FutureBootstrapCollision tests relied on `type schema` in a
+//     .schema file reaching the wire as the bare object_type "schema",
+//     the engine's one hard-coded bootstrap type. schemasrc.Compile
+//     qualifies every declared type unconditionally, `schema` included
+//     (WRIT-217 plan, "schema's exemption needs no carve-out": the DSL
+//     has no way to emit a bare type name at all any more), so `type
+//     schema` under `namespace acme` now compiles to the ordinary
+//     consumer type "acme.schema" — see
+//     TestSchemaCLI_TypeNamedSchemaIsOrdinaryConsumerType below, this
+//     pair's replacement.
+func TestSchemaCLI_TypeNamedSchemaIsOrdinaryConsumerType(t *testing.T) {
 	env := initTestRepo(t)
 	writeSchemaFile(t, env.repoDir, `namespace acme
 description "Acme's vocabulary"
 
-type widget {
+type schema {
   op create 1 {
     title  string(200)  lww
   }
 }
 `)
+
 	var stdout, stderr bytes.Buffer
 	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply", "--json"}, &stdout, &stderr); code != 0 {
-		t.Fatalf("initial apply failed with %d; stderr: %s", code, stderr.String())
-	}
-
-	tipBefore := writSchemaRef(t, env.repoDir)
-
-	writeSchemaFile(t, env.repoDir, `namespace acme
-description "Acme's vocabulary"
-
-type widget {
-  op create 1 {
-    title  string(200)  lww
-  }
-}
-
-type schema {
-  op create 1 {
-    title  string(200)  lww
-  }
-}
-`)
-
-	stdout.Reset()
-	stderr.Reset()
-	code := run(context.Background(), []string{"-C", env.repoDir, "schema", "plan"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("expected exit 1 for a writ.schema declaring `type schema`, got %d; stdout: %s", code, stdout.String())
-	}
-	msg := stderr.String()
-	if !strings.Contains(msg, `"schema"`) || !strings.Contains(msg, "bootstrap") {
-		t.Errorf("expected the refusal to name the schema bootstrap conflict, got: %s", msg)
-	}
-
-	// A refused plan appends nothing, and apply runs the same computation,
-	// so it must refuse identically and leave the chain tip untouched.
-	stdout.Reset()
-	stderr.Reset()
-	code = run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("expected apply to also refuse with exit 1, got %d", code)
-	}
-	if tip := writSchemaRef(t, env.repoDir); tip != tipBefore {
-		t.Fatalf("a refused apply appended ops: chain tip moved %s -> %s", tipBefore, tip)
-	}
-}
-
-// TestSchemaCLI_CreateRefusesFutureBootstrapCollision is
-// TestSchemaCLI_ReuseRefusesFutureBootstrapCollision's counterpart through
-// resolveSchemaTarget's other route to an append: a brand-new object
-// (case 0, no namespace match, mint fresh) whose file declares `type
-// schema` from the very first apply. No schema object exists yet at all,
-// so there is nothing for the cross-object guard to compare against
-// either way; only re-running RulesFromSchemas over the state this apply
-// would produce catches it.
-func TestSchemaCLI_CreateRefusesFutureBootstrapCollision(t *testing.T) {
-	env := initTestRepo(t)
-	writeSchemaFile(t, env.repoDir, `namespace acme
-description "Acme's vocabulary"
-
-type schema {
-  op create 1 {
-    title  string(200)  lww
-  }
-}
-`)
-
-	tipBefore := writSchemaRef(t, env.repoDir)
-	if tipBefore != "" {
-		t.Fatalf("expected no schema chain before the first apply, got tip %s", tipBefore)
-	}
-
-	var stdout, stderr bytes.Buffer
-	code := run(context.Background(), []string{"-C", env.repoDir, "schema", "plan"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("expected exit 1 for a fresh writ.schema declaring `type schema`, got %d; stdout: %s", code, stdout.String())
-	}
-	msg := stderr.String()
-	if !strings.Contains(msg, `"schema"`) || !strings.Contains(msg, "bootstrap") {
-		t.Errorf("expected the refusal to name the schema bootstrap conflict, got: %s", msg)
+		t.Fatalf("apply of a `type schema` declaration failed with %d; stderr: %s", code, stderr.String())
 	}
 
 	stdout.Reset()
 	stderr.Reset()
-	code = run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("expected apply to also refuse with exit 1, got %d", code)
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "show"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema show failed with %d; stderr: %s", code, stderr.String())
 	}
-	if tip := writSchemaRef(t, env.repoDir); tip != tipBefore {
-		t.Fatalf("a refused apply appended ops: chain tip moved %s -> %s", tipBefore, tip)
+	if names := strings.Fields(stdout.String()); !slices.Equal(names, []string{"acme.schema"}) {
+		t.Fatalf("schema show = %v, want exactly the one qualified type declared", names)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{
+		"object", "create", "-C", env.repoDir, "acme.schema", "create",
+		"-field", "title=Not the bootstrap type", "--json",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("object create acme.schema failed with %d; stderr: %s", code, stderr.String())
 	}
 }
 
@@ -1078,8 +1004,8 @@ type widget {
 	if len(conflicts) != 0 {
 		t.Fatalf("expected no schema conflicts once both writers converge on one object, got %+v", conflicts)
 	}
-	if len(rules["widget"]) == 0 {
-		t.Fatalf("expected rules for the declared type %q, got none; rules: %+v", "widget", rules)
+	if len(rules["offline-demo.widget"]) == 0 {
+		t.Fatalf("expected rules for the declared type %q, got none; rules: %+v", "offline-demo.widget", rules)
 	}
 }
 
@@ -1149,7 +1075,7 @@ type widget {
 		}
 		_, conflicts = writ.RulesFromSchemas(schemas)
 		for _, ty := range schemas[0].Types {
-			if ty.Name != "widget" {
+			if ty.Name != "conflict-demo.widget" {
 				continue
 			}
 			for _, f := range ty.Fields {

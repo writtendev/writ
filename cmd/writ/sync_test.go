@@ -113,7 +113,7 @@ func TestSync_RoundTripAndRefold(t *testing.T) {
 	ctx := context.Background()
 
 	// Alice declares the ticket type, so Bob's fold below has a vocabulary
-	// to fold "ticket" objects through.
+	// to fold "acme.ticket" objects through.
 	sA, err := writ.Open(aliceDir, writ.WithSigner(dummySigner()))
 	if err != nil {
 		t.Fatalf("Open Alice failed: %v", err)
@@ -144,7 +144,7 @@ func TestSync_RoundTripAndRefold(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reopen Alice failed: %v", err)
 	}
-	objectID, err := sA.Objects.Create(ctx, "ticket", writ.NewOp{
+	objectID, err := sA.Objects.Create(ctx, "acme.ticket", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Round Trip Sync Ticket"},
 	})
@@ -240,7 +240,7 @@ func TestSync_StatusOffline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reopen Alice failed: %v", err)
 	}
-	_, err = sA.Objects.Create(ctx, "ticket", writ.NewOp{
+	_, err = sA.Objects.Create(ctx, "acme.ticket", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Offline Status Ticket"},
 	})
@@ -492,7 +492,7 @@ func TestSync_JSONOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reopen Alice failed: %v", err)
 	}
-	_, err = sA.Objects.Create(ctx, "ticket", writ.NewOp{
+	_, err = sA.Objects.Create(ctx, "acme.ticket", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "JSON Output Ticket"},
 	})

@@ -36,7 +36,7 @@ refs:
               op_type: define-type
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
                 description: "A widget"
                 icon: "wrench"
             expect: accept
@@ -64,7 +64,7 @@ refs:
               op_type: define-field
               op_version: 2
               body:
-                type: "widget"
+                type: "acme.widget"
                 op_type: "create"
                 op_version: "1"
                 field: "future_field"

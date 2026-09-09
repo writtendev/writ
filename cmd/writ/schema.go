@@ -443,9 +443,16 @@ func resolveSchemaTarget(schemas []state.Schema, f *schemasrc.File) (string, err
 		}
 	}
 
+	// declared holds the qualified wire object_type schemasrc.Compile would
+	// emit for each of f's own types (WRIT-217: <namespace>.<type>), not
+	// f.Types[i].Name's bare source form — schemas (folded state.Schema
+	// values) carries only the qualified form, so comparing against the
+	// bare name here would never match anything contestedTypeOwners looks
+	// for below, silently disabling every guard this function exists to
+	// enforce.
 	declared := make(map[string]bool, len(f.Types))
 	for _, t := range f.Types {
-		declared[t.Name] = true
+		declared[f.Namespace+"."+t.Name] = true
 	}
 
 	switch len(matches) {

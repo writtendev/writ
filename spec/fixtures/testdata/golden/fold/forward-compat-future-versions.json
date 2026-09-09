@@ -2,20 +2,20 @@
   "objects": [
     {
       "object_id": "widget-01",
-      "object_type": "gadget",
+      "object_type": "acme.gadget",
       "total_order": [
         {
-          "commit": "ba1020d5d6bad36b912e14964bd449043599b173",
+          "commit": "761d92645a3279231c952199a7ff1bc0acf669d8",
           "label": "alice-baseline-v1",
           "t_star": 1767225600
         },
         {
-          "commit": "8fb1667c50da1438f4bdca42dc6f497a0972eaf1",
+          "commit": "a3905fb8c14b581bd54d84e4b7eda04c09b62f0b",
           "label": "bob-multiversion-known-v2",
           "t_star": 1767225630
         },
         {
-          "commit": "3015114735cbe29b87297cf977ae5c1da3b43366",
+          "commit": "072e5054f6669c3752f2d399240cf702b55a8e35",
           "label": "bob-future-version-v3",
           "t_star": 1767225720
         }
@@ -25,16 +25,16 @@
       },
       "unknown_ops": [
         {
-          "commit": "8fb1667c50da1438f4bdca42dc6f497a0972eaf1",
+          "commit": "a3905fb8c14b581bd54d84e4b7eda04c09b62f0b",
           "label": "bob-multiversion-known-v2",
-          "object_type": "gadget",
+          "object_type": "acme.gadget",
           "op_type": "post",
           "op_version": 2
         },
         {
-          "commit": "3015114735cbe29b87297cf977ae5c1da3b43366",
+          "commit": "072e5054f6669c3752f2d399240cf702b55a8e35",
           "label": "bob-future-version-v3",
-          "object_type": "gadget",
+          "object_type": "acme.gadget",
           "op_type": "post",
           "op_version": 3
         }
@@ -42,10 +42,10 @@
     },
     {
       "object_id": "widget-02",
-      "object_type": "widget",
+      "object_type": "acme.widget",
       "total_order": [
         {
-          "commit": "e8c08f675d08941abf82972e13d5477bb928a675",
+          "commit": "b337cdb8cd3bb7872fb5ad5edbbee56b0f1cf122",
           "label": "alice-future-version-v2",
           "t_star": 1767225660
         }
@@ -53,9 +53,9 @@
       "state": {},
       "unknown_ops": [
         {
-          "commit": "e8c08f675d08941abf82972e13d5477bb928a675",
+          "commit": "b337cdb8cd3bb7872fb5ad5edbbee56b0f1cf122",
           "label": "alice-future-version-v2",
-          "object_type": "widget",
+          "object_type": "acme.widget",
           "op_type": "create",
           "op_version": 2
         }

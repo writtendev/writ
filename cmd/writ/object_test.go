@@ -71,7 +71,7 @@ func TestObjectCLI_EndToEnd_NeverHeardOfType(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 
 	code := run(context.Background(), []string{
-		"object", "create", "-C", env.repoDir, "ticket", "create",
+		"object", "create", "-C", env.repoDir, "acme.ticket", "create",
 		"-field", "title=Fix the thing",
 		"--json",
 	}, &stdout, &stderr)
@@ -80,8 +80,8 @@ func TestObjectCLI_EndToEnd_NeverHeardOfType(t *testing.T) {
 	}
 	var created wire.ObjectCreated
 	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectCreate, &created)
-	if created.ObjectType != "ticket" {
-		t.Errorf("object_type = %q, want ticket", created.ObjectType)
+	if created.ObjectType != "acme.ticket" {
+		t.Errorf("object_type = %q, want acme.ticket", created.ObjectType)
 	}
 	if len(created.ObjectID) != 32 {
 		t.Fatalf("unexpected object id %q", created.ObjectID)
@@ -118,7 +118,7 @@ func TestObjectCLI_EndToEnd_NeverHeardOfType(t *testing.T) {
 	}
 	var obj wire.Object
 	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectShow, &obj)
-	if obj.ObjectID != objectID || obj.ObjectType != "ticket" {
+	if obj.ObjectID != objectID || obj.ObjectType != "acme.ticket" {
 		t.Fatalf("unexpected Object: %+v", obj)
 	}
 	if title, _ := obj.Fields["title"].(string); title != "Renamed" {
@@ -147,7 +147,7 @@ func TestObjectCLI_EndToEnd_NeverHeardOfType(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	code = run(context.Background(), []string{"object", "list", "-C", env.repoDir, "ticket", "-text", "Renamed", "--json"}, &stdout, &stderr)
+	code = run(context.Background(), []string{"object", "list", "-C", env.repoDir, "acme.ticket", "-text", "Renamed", "--json"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("object list failed with %d; stderr: %s", code, stderr.String())
 	}
@@ -488,7 +488,7 @@ func TestObjectCLI_FieldJSON_ObjectShapedSubject(t *testing.T) {
 	stdout.Reset()
 	stderr.Reset()
 	code := run(context.Background(), []string{
-		"object", "create", "-C", env.repoDir, "ticket", "create",
+		"object", "create", "-C", env.repoDir, "acme.ticket", "create",
 		"-field", "title=Add rate limiting",
 		"--json",
 	}, &stdout, &stderr)
@@ -501,9 +501,9 @@ func TestObjectCLI_FieldJSON_ObjectShapedSubject(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	subjectJSON := fmt.Sprintf(`{"object_type":"ticket","object_id":%q}`, ticketID)
+	subjectJSON := fmt.Sprintf(`{"object_type":"acme.ticket","object_id":%q}`, ticketID)
 	code = run(context.Background(), []string{
-		"object", "create", "-C", env.repoDir, "gadget", "create",
+		"object", "create", "-C", env.repoDir, "acme.gadget", "create",
 		"-field-json", "subject=" + subjectJSON,
 		"-field", "text=this allocates in the hot path",
 		"--json",
@@ -513,8 +513,8 @@ func TestObjectCLI_FieldJSON_ObjectShapedSubject(t *testing.T) {
 	}
 	var gadget wire.ObjectCreated
 	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectCreate, &gadget)
-	if gadget.ObjectType != "gadget" {
-		t.Errorf("object_type = %q, want gadget", gadget.ObjectType)
+	if gadget.ObjectType != "acme.gadget" {
+		t.Errorf("object_type = %q, want acme.gadget", gadget.ObjectType)
 	}
 
 	stdout.Reset()
@@ -529,8 +529,8 @@ func TestObjectCLI_FieldJSON_ObjectShapedSubject(t *testing.T) {
 	if !ok {
 		t.Fatalf("subject = %#v, want a JSON object", obj.Fields["subject"])
 	}
-	if subject["object_type"] != "ticket" || subject["object_id"] != ticketID {
-		t.Errorf("subject = %#v, want {object_type: ticket, object_id: %s}", subject, ticketID)
+	if subject["object_type"] != "acme.ticket" || subject["object_id"] != ticketID {
+		t.Errorf("subject = %#v, want {object_type: acme.ticket, object_id: %s}", subject, ticketID)
 	}
 	if text, _ := obj.Fields["text"].(string); text != "this allocates in the hot path" {
 		t.Errorf("text = %v, want the text the create carried", obj.Fields["text"])
@@ -552,7 +552,7 @@ func TestObjectCLI_FieldJSON_UntypedConsumerField(t *testing.T) {
 	stdout.Reset()
 	stderr.Reset()
 	code := run(context.Background(), []string{
-		"object", "create", "-C", env.repoDir, "widget", "create",
+		"object", "create", "-C", env.repoDir, "acme.widget", "create",
 		"-field-json", `payload={"a":1,"b":["x","y"]}`,
 		"--json",
 	}, &stdout, &stderr)
@@ -592,7 +592,7 @@ func TestObjectCLI_FieldJSON_InvalidJSON(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{
-		"object", "create", "-C", env.repoDir, "ticket", "create",
+		"object", "create", "-C", env.repoDir, "acme.ticket", "create",
 		"-field", "title=Something",
 		"-field-json", "meta={not valid json",
 	}, &stdout, &stderr)
@@ -605,7 +605,7 @@ func TestObjectCLI_FieldJSON_InvalidJSON(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := run(context.Background(), []string{"object", "list", "-C", env.repoDir, "ticket", "--json"}, &stdout, &stderr); code != 0 {
+	if code := run(context.Background(), []string{"object", "list", "-C", env.repoDir, "acme.ticket", "--json"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("object list failed: %s", stderr.String())
 	}
 	var results []wire.ObjectSummary
@@ -625,7 +625,7 @@ func TestObjectCLI_FieldJSON_UndeclaredField(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{
-		"object", "create", "-C", env.repoDir, "ticket", "create",
+		"object", "create", "-C", env.repoDir, "acme.ticket", "create",
 		"-field-json", `nosuchfield={"a":1}`,
 	}, &stdout, &stderr)
 	if code == 0 {
@@ -645,7 +645,7 @@ func TestObjectCLI_FieldJSON_MixedWithField(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{
-		"object", "create", "-C", env.repoDir, "ticket", "create",
+		"object", "create", "-C", env.repoDir, "acme.ticket", "create",
 		"-field", "title=Something",
 		"-field-json", `title="Something else"`,
 	}, &stdout, &stderr)
@@ -671,7 +671,7 @@ func TestObjectCLI_FieldValueTypeErrors(t *testing.T) {
 		t.Run(bad, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			code := run(context.Background(), []string{
-				"object", "create", "-C", env.repoDir, "ticket", "create",
+				"object", "create", "-C", env.repoDir, "acme.ticket", "create",
 				"-field", "title=Something",
 				"-field", "estimate=" + bad,
 			}, &stdout, &stderr)
@@ -688,7 +688,7 @@ func TestObjectCLI_FieldValueTypeErrors(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	if code := run(context.Background(), []string{"object", "list", "-C", env.repoDir, "ticket", "--json"}, &stdout, &stderr); code != 0 {
+	if code := run(context.Background(), []string{"object", "list", "-C", env.repoDir, "acme.ticket", "--json"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("object list failed: %s", stderr.String())
 	}
 	var results []wire.ObjectSummary
@@ -706,7 +706,7 @@ func TestObjectCLI_UndeclaredField(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{
-		"object", "create", "-C", env.repoDir, "ticket", "create",
+		"object", "create", "-C", env.repoDir, "acme.ticket", "create",
 		"-field", "nosuchfield=x",
 	}, &stdout, &stderr)
 	if code == 0 {
@@ -725,11 +725,11 @@ func TestObjectCLI_UnknownTypeAndOp(t *testing.T) {
 	applyTicketObjectSchema(t, env.repoDir)
 
 	var stdout, stderr bytes.Buffer
-	code := run(context.Background(), []string{"object", "create", "-C", env.repoDir, "ticket", "nosuchop"}, &stdout, &stderr)
+	code := run(context.Background(), []string{"object", "create", "-C", env.repoDir, "acme.ticket", "nosuchop"}, &stdout, &stderr)
 	if code == 0 {
 		t.Fatalf("expected a non-zero exit for an unknown op type, got 0")
 	}
-	if !strings.Contains(stderr.String(), "nosuchop") || !strings.Contains(stderr.String(), "ticket") {
+	if !strings.Contains(stderr.String(), "nosuchop") || !strings.Contains(stderr.String(), "acme.ticket") {
 		t.Errorf("stderr does not name the unknown op / type: %q", stderr.String())
 	}
 	if !strings.Contains(stderr.String(), "create") || !strings.Contains(stderr.String(), "update") {
@@ -745,7 +745,7 @@ func TestObjectCLI_UnknownTypeAndOp(t *testing.T) {
 	if !strings.Contains(stderr.String(), "nosuchtype") {
 		t.Errorf("stderr does not name the unknown type: %q", stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "ticket") {
+	if !strings.Contains(stderr.String(), "acme.ticket") {
 		t.Errorf("stderr does not name what the vocabulary does declare (ticket): %q", stderr.String())
 	}
 }
@@ -766,7 +766,7 @@ func TestObjectCLI_List_UnknownType(t *testing.T) {
 	if !strings.Contains(stderr.String(), "nosuchtype") {
 		t.Errorf("stderr does not name the unknown type: %q", stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "ticket") {
+	if !strings.Contains(stderr.String(), "acme.ticket") {
 		t.Errorf("stderr does not name what the vocabulary does declare (ticket): %q", stderr.String())
 	}
 }
@@ -896,7 +896,7 @@ func TestObjectCLI_ExplicitOpVersion_Undeclared(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{
-		"object", "create", "-C", env.repoDir, "ticket", "create",
+		"object", "create", "-C", env.repoDir, "acme.ticket", "create",
 		"-op-version", "7", "-field", "title=x",
 	}, &stdout, &stderr)
 	if code == 0 {
@@ -919,7 +919,7 @@ func TestObjectCLI_ResolveObjectID_Prefix(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{
-		"object", "create", "-C", env.repoDir, "ticket", "create",
+		"object", "create", "-C", env.repoDir, "acme.ticket", "create",
 		"-field", "title=Only one",
 		"--json",
 	}, &stdout, &stderr)
@@ -952,7 +952,7 @@ func TestObjectCLI_Show_ByteIdenticalAfterRebuild(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{
-		"object", "create", "-C", env.repoDir, "ticket", "create",
+		"object", "create", "-C", env.repoDir, "acme.ticket", "create",
 		"-field", "title=Stable",
 		"--json",
 	}, &stdout, &stderr)
@@ -1014,20 +1014,20 @@ func TestSchemaShowCLI(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("schema show failed with %d; stderr: %s", code, stderr.String())
 	}
-	if names := strings.Fields(stdout.String()); !slices.Equal(names, []string{"ticket"}) {
+	if names := strings.Fields(stdout.String()); !slices.Equal(names, []string{"acme.ticket"}) {
 		t.Errorf("schema show = %v, want exactly the one type the schema declared (ticket)", names)
 	}
 
 	stdout.Reset()
 	stderr.Reset()
-	code = run(context.Background(), []string{"schema", "show", "-C", env.repoDir, "ticket", "--json"}, &stdout, &stderr)
+	code = run(context.Background(), []string{"schema", "show", "-C", env.repoDir, "acme.ticket", "--json"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("schema show ticket --json failed with %d; stderr: %s", code, stderr.String())
 	}
 	var typeInfo wire.SchemaTypeInfo
 	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindSchemaShow, &typeInfo)
-	if typeInfo.Name != "ticket" {
-		t.Errorf("type = %q, want ticket", typeInfo.Name)
+	if typeInfo.Name != "acme.ticket" {
+		t.Errorf("type = %q, want acme.ticket", typeInfo.Name)
 	}
 	if len(typeInfo.Fields) == 0 {
 		t.Errorf("expected fields for ticket, got none")
@@ -1066,7 +1066,7 @@ func TestSchemaShowCLI_FieldTable_Target(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	code := run(context.Background(), []string{"schema", "show", "-C", env.repoDir, "widget"}, &stdout, &stderr)
+	code := run(context.Background(), []string{"schema", "show", "-C", env.repoDir, "acme.widget"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("schema show widget failed with %d; stderr: %s", code, stderr.String())
 	}

@@ -38,7 +38,7 @@ refs:
               op_type: define-type
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
             expect: accept
 
           - id: define-field-verdict
@@ -51,7 +51,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
                 op_type: "approve"
                 op_version: "1"
                 field: "verdict"
@@ -70,7 +70,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
                 op_type: "set-owner"
                 op_version: "1"
                 field: "owner"
@@ -86,7 +86,7 @@ refs:
             timestamp: 2026-01-01T00:04:00Z
             op:
               object_id: gadget-1
-              object_type: gadget
+              object_type: acme.gadget
               op_type: approve
               op_version: 1
               body:
@@ -99,7 +99,7 @@ refs:
             timestamp: 2026-01-01T00:05:00Z
             op:
               object_id: gadget-1
-              object_type: gadget
+              object_type: acme.gadget
               op_type: set-owner
               op_version: 1
               body:

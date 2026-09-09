@@ -12,75 +12,75 @@
             "t_star": 1767268800
           },
           {
-            "commit": "4b905e86a1675528335ec3f9e57f1ca8aa7d9398",
+            "commit": "0bcb501e608f67fc6af0b610e1c5f313aaa0690d",
             "t_star": 1767268800
           },
           {
-            "commit": "197e911ffe2733e1f34d338a68158e8e84a69ea0",
+            "commit": "e36817fd6ec9bc99332fb06ccba3283a6cb1c0d3",
             "t_star": 1767268800
           },
           {
-            "commit": "5e4245746a0fc0d393baac9a7b4dd15e88821542",
+            "commit": "8d6961161a37e255d501074858d3c664ebe18eb7",
             "t_star": 1767268800
           },
           {
-            "commit": "037ead14734b0c3d91c0abd811f7504c6da2c8e8",
+            "commit": "6893de5f47e8434320ce4d19784433810232cd2f",
             "t_star": 1767268800
           },
           {
-            "commit": "97b036b57ea1b951ea356be7e6e763000e987c2f",
+            "commit": "e6bef1a270301688aeef43b76fafda3b4af7df1f",
             "t_star": 1767268800
           },
           {
-            "commit": "fb74a5fa818ee0450abec8303c56374bf4a072c6",
+            "commit": "b789af7090c3c5ef5ff533d325d950691ca88ec1",
             "t_star": 1767268800
           },
           {
-            "commit": "39f2305152091d0f35665b3fd92bc223ac5ee37e",
+            "commit": "ee2edaaa51992270be64c54180dc6f1c63860a1a",
             "t_star": 1767268800
           },
           {
-            "commit": "a525340e81861a4219f1f9f396f96295e2a93543",
+            "commit": "ac3404ee60bdc83a9bbede0f94dc0ca56a2e5720",
             "t_star": 1767268800
           },
           {
-            "commit": "269a01071fa79f42a60f936b8d212a9cbaf2c702",
+            "commit": "6e6e3b0a6153068009c29c769fc29c6380ad4485",
             "t_star": 1767268800
           },
           {
-            "commit": "a070c2d0716e83073e3d370dcf65979e51fae9fa",
+            "commit": "090f329cd2ac921cd8ae939d52ff21d011c96aab",
             "t_star": 1767268800
           },
           {
-            "commit": "123b9fd51ce42344f5d1078deb971c7ed02f8110",
+            "commit": "01fff6df0fe8061d3c432c5c92e1c09e9eb46807",
             "t_star": 1767268800
           },
           {
-            "commit": "2d91603e99196a1d01a71fdcad5cdf13f9b00715",
+            "commit": "91f696d0d9493c0a796b5405db9ed78358b3b31d",
             "t_star": 1767268800
           },
           {
-            "commit": "81a837d57665ec75549a97533aed48e39dd44e97",
+            "commit": "4880f6bb06723fdfc796a4322ed9a3fb77b33c47",
             "t_star": 1767268800
           },
           {
-            "commit": "8edabd4e15405b4e48f75b570e76fdf7d5d6fcf8",
+            "commit": "8790634dfecd8a665f4b4c784b68300eba600a47",
             "t_star": 1767268800
           },
           {
-            "commit": "e913e20474e50ffdef1fd0e511c82daf8db58880",
+            "commit": "e66738f8429f09b83ced3f47abf2e913409947cc",
             "t_star": 1767268800
           },
           {
-            "commit": "98e5bb06d59741c0e660dc33e290e47ee52907a1",
+            "commit": "428c58a619e5cd6885cb115f8db30cd0021a3049",
             "t_star": 1767268800
           },
           {
-            "commit": "060b28fce15311a5925f5847bc4e862539512682",
+            "commit": "e88981a801aed2e6d1672a3edd0ce0439c3774f7",
             "t_star": 1767268800
           },
           {
-            "commit": "fa7eb7814508e68fee72b30b48fa17e67392475c",
+            "commit": "d135089ec41c0735adaeaaf301cd33330f16220e",
             "t_star": 1767268800
           }
         ],
@@ -93,109 +93,109 @@
             "op_version": 1
           },
           {
-            "commit": "4b905e86a1675528335ec3f9e57f1ca8aa7d9398",
+            "commit": "0bcb501e608f67fc6af0b610e1c5f313aaa0690d",
             "object_type": "schema",
             "op_type": "define-type",
             "op_version": 1
           },
           {
-            "commit": "197e911ffe2733e1f34d338a68158e8e84a69ea0",
+            "commit": "e36817fd6ec9bc99332fb06ccba3283a6cb1c0d3",
             "object_type": "schema",
             "op_type": "define-op",
             "op_version": 1
           },
           {
-            "commit": "5e4245746a0fc0d393baac9a7b4dd15e88821542",
+            "commit": "8d6961161a37e255d501074858d3c664ebe18eb7",
             "object_type": "schema",
             "op_type": "define-field",
             "op_version": 1
           },
           {
-            "commit": "037ead14734b0c3d91c0abd811f7504c6da2c8e8",
+            "commit": "6893de5f47e8434320ce4d19784433810232cd2f",
             "object_type": "schema",
             "op_type": "define-field",
             "op_version": 1
           },
           {
-            "commit": "97b036b57ea1b951ea356be7e6e763000e987c2f",
+            "commit": "e6bef1a270301688aeef43b76fafda3b4af7df1f",
             "object_type": "schema",
             "op_type": "define-field",
             "op_version": 1
           },
           {
-            "commit": "fb74a5fa818ee0450abec8303c56374bf4a072c6",
+            "commit": "b789af7090c3c5ef5ff533d325d950691ca88ec1",
             "object_type": "schema",
             "op_type": "define-field",
             "op_version": 1
           },
           {
-            "commit": "39f2305152091d0f35665b3fd92bc223ac5ee37e",
+            "commit": "ee2edaaa51992270be64c54180dc6f1c63860a1a",
             "object_type": "schema",
             "op_type": "define-type",
             "op_version": 1
           },
           {
-            "commit": "a525340e81861a4219f1f9f396f96295e2a93543",
+            "commit": "ac3404ee60bdc83a9bbede0f94dc0ca56a2e5720",
             "object_type": "schema",
             "op_type": "define-op",
             "op_version": 1
           },
           {
-            "commit": "269a01071fa79f42a60f936b8d212a9cbaf2c702",
+            "commit": "6e6e3b0a6153068009c29c769fc29c6380ad4485",
             "object_type": "schema",
             "op_type": "define-op",
             "op_version": 1
           },
           {
-            "commit": "a070c2d0716e83073e3d370dcf65979e51fae9fa",
+            "commit": "090f329cd2ac921cd8ae939d52ff21d011c96aab",
             "object_type": "schema",
             "op_type": "define-op",
             "op_version": 1
           },
           {
-            "commit": "123b9fd51ce42344f5d1078deb971c7ed02f8110",
+            "commit": "01fff6df0fe8061d3c432c5c92e1c09e9eb46807",
             "object_type": "schema",
             "op_type": "define-field",
             "op_version": 1
           },
           {
-            "commit": "2d91603e99196a1d01a71fdcad5cdf13f9b00715",
+            "commit": "91f696d0d9493c0a796b5405db9ed78358b3b31d",
             "object_type": "schema",
             "op_type": "define-field",
             "op_version": 1
           },
           {
-            "commit": "81a837d57665ec75549a97533aed48e39dd44e97",
+            "commit": "4880f6bb06723fdfc796a4322ed9a3fb77b33c47",
             "object_type": "schema",
             "op_type": "define-field",
             "op_version": 1
           },
           {
-            "commit": "8edabd4e15405b4e48f75b570e76fdf7d5d6fcf8",
+            "commit": "8790634dfecd8a665f4b4c784b68300eba600a47",
             "object_type": "schema",
             "op_type": "define-field",
             "op_version": 1
           },
           {
-            "commit": "e913e20474e50ffdef1fd0e511c82daf8db58880",
+            "commit": "e66738f8429f09b83ced3f47abf2e913409947cc",
             "object_type": "schema",
             "op_type": "define-field",
             "op_version": 1
           },
           {
-            "commit": "98e5bb06d59741c0e660dc33e290e47ee52907a1",
+            "commit": "428c58a619e5cd6885cb115f8db30cd0021a3049",
             "object_type": "schema",
             "op_type": "define-field",
             "op_version": 1
           },
           {
-            "commit": "060b28fce15311a5925f5847bc4e862539512682",
+            "commit": "e88981a801aed2e6d1672a3edd0ce0439c3774f7",
             "object_type": "schema",
             "op_type": "define-field",
             "op_version": 1
           },
           {
-            "commit": "fa7eb7814508e68fee72b30b48fa17e67392475c",
+            "commit": "d135089ec41c0735adaeaaf301cd33330f16220e",
             "object_type": "schema",
             "op_type": "define-field",
             "op_version": 1
@@ -205,21 +205,21 @@
     },
     {
       "object_id": "w-canonical",
-      "object_type": "widget",
+      "object_type": "acme.widget",
       "object_state": {
         "object_id": "w-canonical",
-        "object_type": "widget",
+        "object_type": "acme.widget",
         "total_order": [
           {
-            "commit": "041fa44744bb45370907f754e840cf0324d1b308",
+            "commit": "1c3f4ec85e2c347e97a3772e419726ed07807275",
             "t_star": 1767268860
           },
           {
-            "commit": "bbee92436f412bb3c226650d449102b87508c519",
+            "commit": "fdd6de5f81c5a0871fa088217ad7ee00053d8cf6",
             "t_star": 1767269040
           },
           {
-            "commit": "b813ffd2cc6c8b08b15d639ad459306ceb41b834",
+            "commit": "5efdba7ef7e6a5b64950ee8e243a1a123138b8d1",
             "t_star": 1767269100
           }
         ],
@@ -235,13 +235,13 @@
     },
     {
       "object_id": "wp-anchor",
-      "object_type": "waypoint",
+      "object_type": "acme.waypoint",
       "object_state": {
         "object_id": "wp-anchor",
-        "object_type": "waypoint",
+        "object_type": "acme.waypoint",
         "total_order": [
           {
-            "commit": "7c30f77cb5efa5a4f3ad2d516ec40d13c2b980dc",
+            "commit": "0b064a0ab2540d963dde1da549a1c7e9ec06bd4b",
             "t_star": 1767268920
           }
         ],
@@ -277,13 +277,13 @@
     },
     {
       "object_id": "wp-reply",
-      "object_type": "waypoint",
+      "object_type": "acme.waypoint",
       "object_state": {
         "object_id": "wp-reply",
-        "object_type": "waypoint",
+        "object_type": "acme.waypoint",
         "total_order": [
           {
-            "commit": "c0aab647d59d7762137511f3e64eca946c368451",
+            "commit": "57a749072bada8ccc5c47dc77b8f3b1427fb9f40",
             "t_star": 1767268980
           }
         ],

@@ -37,7 +37,7 @@ refs:
               op_type: define-type
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
             expect: accept
 
           - id: define-field-title
@@ -50,7 +50,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
                 op_type: "create"
                 op_version: "1"
                 field: "title"
@@ -68,7 +68,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
                 op_type: "set-status"
                 op_version: "1"
                 field: "status"
@@ -85,7 +85,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
                 op_type: "set-kind"
                 op_version: "1"
                 field: "kind"
@@ -103,7 +103,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
                 op_type: "set-note"
                 op_version: "1"
                 field: "note"
@@ -122,7 +122,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
                 op_type: "set-pair"
                 op_version: "1"
                 field: "pair"
@@ -140,7 +140,7 @@ refs:
             timestamp: 2026-01-01T00:07:00Z
             op:
               object_id: gadget-1
-              object_type: gadget
+              object_type: acme.gadget
               op_type: create
               op_version: 1
               body:
@@ -153,7 +153,7 @@ refs:
             timestamp: 2026-01-01T00:08:00Z
             op:
               object_id: gadget-1
-              object_type: gadget
+              object_type: acme.gadget
               op_type: set-status
               op_version: 1
               body:
@@ -166,7 +166,7 @@ refs:
             timestamp: 2026-01-01T00:09:00Z
             op:
               object_id: gadget-1
-              object_type: gadget
+              object_type: acme.gadget
               op_type: set-kind
               op_version: 1
               body:
@@ -179,7 +179,7 @@ refs:
             timestamp: 2026-01-01T00:10:00Z
             op:
               object_id: gadget-1
-              object_type: gadget
+              object_type: acme.gadget
               op_type: set-note
               op_version: 1
               body:
@@ -192,7 +192,7 @@ refs:
             timestamp: 2026-01-01T00:11:00Z
             op:
               object_id: gadget-1
-              object_type: gadget
+              object_type: acme.gadget
               op_type: set-pair
               op_version: 1
               body:

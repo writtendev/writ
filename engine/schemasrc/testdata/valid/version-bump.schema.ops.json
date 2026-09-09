@@ -14,7 +14,7 @@
     "op_type": "define-type",
     "op_version": 1,
     "body": {
-      "type": "ticket"
+      "type": "acme.ticket"
     }
   },
   {
@@ -25,7 +25,7 @@
     "body": {
       "op_type": "create",
       "op_version": "1",
-      "type": "ticket"
+      "type": "acme.ticket"
     }
   },
   {
@@ -36,7 +36,7 @@
     "body": {
       "op_type": "create",
       "op_version": "2",
-      "type": "ticket"
+      "type": "acme.ticket"
     }
   },
   {
@@ -49,7 +49,7 @@
       "op_type": "create",
       "op_version": "1",
       "strategy": "lww",
-      "type": "ticket",
+      "type": "acme.ticket",
       "value_type": "string"
     }
   },
@@ -74,7 +74,7 @@
       "op_version": "2",
       "strategy": "lattice",
       "target": "priority_v2",
-      "type": "ticket",
+      "type": "acme.ticket",
       "value_type": "enum"
     }
   }

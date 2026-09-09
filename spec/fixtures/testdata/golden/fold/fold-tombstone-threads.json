@@ -2,25 +2,25 @@
   "objects": [
     {
       "object_id": "g-del-target",
-      "object_type": "gadget",
+      "object_type": "acme.gadget",
       "total_order": [
         {
-          "commit": "62fd9330471f38405b85ff75ae3502912250c15e",
+          "commit": "dc7fd4ad10d86079bae31642f72cff4d7d50ba1b",
           "label": "alice-gdel-create",
           "t_star": 1767225670
         },
         {
-          "commit": "d2d62a3e727d5e3ffabc0aeff45cee823a981f85",
+          "commit": "33b111eb8e44f92699ded5c3219fe97fa4fa33b7",
           "label": "bob-gdel-delete",
           "t_star": 1767225700
         },
         {
-          "commit": "f5714a0114377e098997bf30b73a798c47d37eda",
+          "commit": "6cf9472749157c2282a3060c487e5ab9ca01b128",
           "label": "alice-gdel-edit",
           "t_star": 1767225700
         },
         {
-          "commit": "c45c1bb97a0203c74dcc60e8200cd98a999c9376",
+          "commit": "d4402a1565bab431e029f018d8ab40776cdd6752",
           "label": "alice-gdel-undelete",
           "t_star": 1767225730
         }
@@ -33,20 +33,20 @@
     },
     {
       "object_id": "g-reply",
-      "object_type": "gadget",
+      "object_type": "acme.gadget",
       "total_order": [
         {
-          "commit": "40a3f93e87963c6901eee45f76f2f7de2beab964",
+          "commit": "26f679a2c8be4e4a1ad5d7b60780f3d5e8b15afb",
           "label": "bob-greply-create",
           "t_star": 1767225720
         },
         {
-          "commit": "43eba02ab4e25c6a3285951275ab442163fdc121",
+          "commit": "fcd6dc97f3459f935ede36163c0bac2bccdee2ba",
           "label": "bob-greply-delete",
           "t_star": 1767225750
         },
         {
-          "commit": "09eacd8fb1ede349fbc4b43b30514bf4c7c3eab8",
+          "commit": "fb42bd80c16553f9d87a0b328e42df02ab64420d",
           "label": "bob-greply-causal-edit",
           "t_star": 1767225780
         }
@@ -60,20 +60,20 @@
     },
     {
       "object_id": "g-root",
-      "object_type": "gadget",
+      "object_type": "acme.gadget",
       "total_order": [
         {
-          "commit": "c9f9c64b6e125bedefa9ac7dc224e0624f300d5c",
+          "commit": "916ee90d00194661682b547333eaf5e0e3e146aa",
           "label": "alice-groot-create",
           "t_star": 1767225600
         },
         {
-          "commit": "67867fbcad1bbb8046be651ff361d31e63c26fcd",
+          "commit": "44397b81507a954fd8d18c28367863894cc92230",
           "label": "alice-groot-edit",
           "t_star": 1767225660
         },
         {
-          "commit": "53b0092276f4d3a5a69f68bca2e159c320656ab5",
+          "commit": "5e4b1bc2ace1f8702177d60d2764fd29d6a810e6",
           "label": "bob-groot-edit",
           "t_star": 1767225690
         }

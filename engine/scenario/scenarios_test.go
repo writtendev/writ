@@ -109,7 +109,7 @@ func TestCanonical(t *testing.T) {
 			At:     baseTime.Add(1 * time.Minute),
 			Envelope: codec.Envelope{
 				ObjectID:   "w-canonical",
-				ObjectType: "widget",
+				ObjectType: "acme.widget",
 				OpType:     "create",
 				OpVersion:  1,
 				Body: json.RawMessage(`{
@@ -123,7 +123,7 @@ func TestCanonical(t *testing.T) {
 			At:     baseTime.Add(2 * time.Minute),
 			Envelope: codec.Envelope{
 				ObjectID:   "wp-anchor",
-				ObjectType: "waypoint",
+				ObjectType: "acme.waypoint",
 				OpType:     "create",
 				OpVersion:  1,
 				Body:       anchoredWaypointBody(t),
@@ -144,7 +144,7 @@ func TestCanonical(t *testing.T) {
 			At:     baseTime.Add(3 * time.Minute),
 			Envelope: codec.Envelope{
 				ObjectID:   "wp-reply",
-				ObjectType: "waypoint",
+				ObjectType: "acme.waypoint",
 				OpType:     "create",
 				OpVersion:  1,
 				Body: json.RawMessage(`{
@@ -159,7 +159,7 @@ func TestCanonical(t *testing.T) {
 			At:     baseTime.Add(4 * time.Minute),
 			Envelope: codec.Envelope{
 				ObjectID:   "w-canonical",
-				ObjectType: "widget",
+				ObjectType: "acme.widget",
 				OpType:     "endorse",
 				OpVersion:  1,
 				Body: json.RawMessage(`{
@@ -181,7 +181,7 @@ func TestCanonical(t *testing.T) {
 			At:     baseTime.Add(5 * time.Minute),
 			Envelope: codec.Envelope{
 				ObjectID:   "w-canonical",
-				ObjectType: "widget",
+				ObjectType: "acme.widget",
 				OpType:     "update",
 				OpVersion:  1,
 				Body: json.RawMessage(`{
@@ -243,7 +243,7 @@ func TestChainRollback(t *testing.T) {
 			At:     baseTime,
 			Envelope: codec.Envelope{
 				ObjectID:   "w-rollback",
-				ObjectType: "widget",
+				ObjectType: "acme.widget",
 				OpType:     "create",
 				OpVersion:  1,
 				Body: json.RawMessage(`{
@@ -258,7 +258,7 @@ func TestChainRollback(t *testing.T) {
 			At:     baseTime.Add(1 * time.Minute),
 			Envelope: codec.Envelope{
 				ObjectID:   "w-rollback",
-				ObjectType: "widget",
+				ObjectType: "acme.widget",
 				OpType:     "update",
 				OpVersion:  1,
 				Body: json.RawMessage(`{
@@ -277,7 +277,7 @@ func TestChainRollback(t *testing.T) {
 		// 5. Alice rewinds local chain to op1 and force-pushes to origin
 		scenario.ForcePushChain{
 			Device:        aliceLaptop,
-			ObjectType:    "widget",
+			ObjectType:    "acme.widget",
 			TargetOpIndex: 0,
 		},
 		// 6. Bob fetches: must reject non-fast-forward update (spec/ref-layout.md §168)
@@ -288,7 +288,7 @@ func TestChainRollback(t *testing.T) {
 		// 7. Alice recovers by restoring local ref to op2 and appending op3
 		scenario.ResetLocalChain{
 			Device:        aliceLaptop,
-			ObjectType:    "widget",
+			ObjectType:    "acme.widget",
 			TargetOpIndex: 1,
 		},
 		scenario.AppendOp{
@@ -296,7 +296,7 @@ func TestChainRollback(t *testing.T) {
 			At:     baseTime.Add(2 * time.Minute),
 			Envelope: codec.Envelope{
 				ObjectID:   "w-rollback",
-				ObjectType: "widget",
+				ObjectType: "acme.widget",
 				OpType:     "update",
 				OpVersion:  1,
 				Body: json.RawMessage(`{
@@ -355,7 +355,7 @@ func TestSyncOrderPermutation(t *testing.T) {
 			At:     baseTime.Add(1 * time.Minute),
 			Envelope: codec.Envelope{
 				ObjectID:   "w-canonical",
-				ObjectType: "widget",
+				ObjectType: "acme.widget",
 				OpType:     "create",
 				OpVersion:  1,
 				Body: json.RawMessage(`{
@@ -369,7 +369,7 @@ func TestSyncOrderPermutation(t *testing.T) {
 			At:     baseTime.Add(2 * time.Minute),
 			Envelope: codec.Envelope{
 				ObjectID:   "wp-anchor",
-				ObjectType: "waypoint",
+				ObjectType: "acme.waypoint",
 				OpType:     "create",
 				OpVersion:  1,
 				Body:       anchoredWaypointBody(t),
@@ -383,7 +383,7 @@ func TestSyncOrderPermutation(t *testing.T) {
 			At:     baseTime.Add(5 * time.Minute),
 			Envelope: codec.Envelope{
 				ObjectID:   "w-canonical",
-				ObjectType: "widget",
+				ObjectType: "acme.widget",
 				OpType:     "update",
 				OpVersion:  1,
 				Body: json.RawMessage(`{
@@ -406,7 +406,7 @@ func TestSyncOrderPermutation(t *testing.T) {
 			At:     baseTime.Add(3 * time.Minute),
 			Envelope: codec.Envelope{
 				ObjectID:   "wp-reply",
-				ObjectType: "waypoint",
+				ObjectType: "acme.waypoint",
 				OpType:     "create",
 				OpVersion:  1,
 				Body: json.RawMessage(`{
@@ -421,7 +421,7 @@ func TestSyncOrderPermutation(t *testing.T) {
 			At:     baseTime.Add(4 * time.Minute),
 			Envelope: codec.Envelope{
 				ObjectID:   "w-canonical",
-				ObjectType: "widget",
+				ObjectType: "acme.widget",
 				OpType:     "endorse",
 				OpVersion:  1,
 				Body: json.RawMessage(`{
@@ -524,7 +524,7 @@ func canonicalStepsMinus(t *testing.T, skip func(scenario.Step) bool) []scenario
 			At:     baseTime.Add(1 * time.Minute),
 			Envelope: codec.Envelope{
 				ObjectID:   "w-canonical",
-				ObjectType: "widget",
+				ObjectType: "acme.widget",
 				OpType:     "create",
 				OpVersion:  1,
 				Body: json.RawMessage(`{
@@ -538,7 +538,7 @@ func canonicalStepsMinus(t *testing.T, skip func(scenario.Step) bool) []scenario
 			At:     baseTime.Add(2 * time.Minute),
 			Envelope: codec.Envelope{
 				ObjectID:   "wp-anchor",
-				ObjectType: "waypoint",
+				ObjectType: "acme.waypoint",
 				OpType:     "create",
 				OpVersion:  1,
 				Body:       anchoredWaypointBody(t),
@@ -551,7 +551,7 @@ func canonicalStepsMinus(t *testing.T, skip func(scenario.Step) bool) []scenario
 			At:     baseTime.Add(3 * time.Minute),
 			Envelope: codec.Envelope{
 				ObjectID:   "wp-reply",
-				ObjectType: "waypoint",
+				ObjectType: "acme.waypoint",
 				OpType:     "create",
 				OpVersion:  1,
 				Body: json.RawMessage(`{
@@ -566,7 +566,7 @@ func canonicalStepsMinus(t *testing.T, skip func(scenario.Step) bool) []scenario
 			At:     baseTime.Add(4 * time.Minute),
 			Envelope: codec.Envelope{
 				ObjectID:   "w-canonical",
-				ObjectType: "widget",
+				ObjectType: "acme.widget",
 				OpType:     "endorse",
 				OpVersion:  1,
 				Body: json.RawMessage(`{
@@ -583,7 +583,7 @@ func canonicalStepsMinus(t *testing.T, skip func(scenario.Step) bool) []scenario
 			At:     baseTime.Add(5 * time.Minute),
 			Envelope: codec.Envelope{
 				ObjectID:   "w-canonical",
-				ObjectType: "widget",
+				ObjectType: "acme.widget",
 				OpType:     "update",
 				OpVersion:  1,
 				Body: json.RawMessage(`{

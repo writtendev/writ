@@ -2,7 +2,7 @@
   "profile": "synthetic-conforming-reader-v1",
   "known_ops": [
     {
-      "object_type": "widget",
+      "object_type": "acme.widget",
       "op_type": "create",
       "versions": [1],
       "rules": [
@@ -23,13 +23,13 @@
       ]
     },
     {
-      "object_type": "widget",
+      "object_type": "acme.widget",
       "op_type": "close",
       "versions": [1],
       "rules": []
     },
     {
-      "object_type": "gadget",
+      "object_type": "acme.gadget",
       "op_type": "post",
       "versions": [1, 2],
       "rules": []

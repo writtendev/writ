@@ -16,7 +16,7 @@
     "op_version": 1,
     "body": {
       "description": "A daily standup update",
-      "type": "standup"
+      "type": "acme.standup"
     }
   },
   {
@@ -28,7 +28,7 @@
       "description": "Approve or block a standup",
       "op_type": "approval",
       "op_version": "1",
-      "type": "standup"
+      "type": "acme.standup"
     }
   },
   {
@@ -39,7 +39,7 @@
     "body": {
       "op_type": "create",
       "op_version": "1",
-      "type": "standup"
+      "type": "acme.standup"
     }
   },
   {
@@ -50,7 +50,7 @@
     "body": {
       "op_type": "update",
       "op_version": "1",
-      "type": "standup"
+      "type": "acme.standup"
     }
   },
   {
@@ -61,7 +61,7 @@
     "body": {
       "op_type": "update",
       "op_version": "2",
-      "type": "standup"
+      "type": "acme.standup"
     }
   },
   {
@@ -80,7 +80,7 @@
       "op_type": "approval",
       "op_version": "1",
       "strategy": "keyed-lww",
-      "type": "standup",
+      "type": "acme.standup",
       "value_type": "string"
     }
   },
@@ -104,7 +104,7 @@
       "op_type": "approval",
       "op_version": "1",
       "strategy": "keyed-lww",
-      "type": "standup",
+      "type": "acme.standup",
       "value_type": "enum"
     }
   },
@@ -118,7 +118,7 @@
       "op_type": "create",
       "op_version": "1",
       "strategy": "set-observed-remove",
-      "type": "standup",
+      "type": "acme.standup",
       "value_type": "person-ref"
     }
   },
@@ -132,7 +132,7 @@
       "op_type": "create",
       "op_version": "1",
       "strategy": "create-once",
-      "type": "standup",
+      "type": "acme.standup",
       "value_type": "person-ref"
     }
   },
@@ -146,7 +146,7 @@
       "op_type": "create",
       "op_version": "1",
       "strategy": "multi-value",
-      "type": "standup",
+      "type": "acme.standup",
       "value_type": "text"
     }
   },
@@ -160,7 +160,7 @@
       "op_type": "create",
       "op_version": "1",
       "strategy": "lww",
-      "type": "standup",
+      "type": "acme.standup",
       "value_type": "position"
     }
   },
@@ -182,7 +182,7 @@
       "op_type": "create",
       "op_version": "1",
       "strategy": "lattice",
-      "type": "standup",
+      "type": "acme.standup",
       "value_type": "enum"
     }
   },
@@ -197,7 +197,7 @@
       "op_type": "create",
       "op_version": "1",
       "strategy": "lww",
-      "type": "standup",
+      "type": "acme.standup",
       "value_type": "string"
     }
   },
@@ -211,7 +211,7 @@
       "op_type": "update",
       "op_version": "1",
       "strategy": "set-observed-remove",
-      "type": "standup",
+      "type": "acme.standup",
       "value_type": "person-ref"
     }
   },
@@ -225,7 +225,7 @@
       "op_type": "update",
       "op_version": "1",
       "strategy": "create-once",
-      "type": "standup",
+      "type": "acme.standup",
       "value_type": "person-ref"
     }
   },
@@ -239,7 +239,7 @@
       "op_type": "update",
       "op_version": "1",
       "strategy": "multi-value",
-      "type": "standup",
+      "type": "acme.standup",
       "value_type": "text"
     }
   },
@@ -253,7 +253,7 @@
       "op_type": "update",
       "op_version": "1",
       "strategy": "lww",
-      "type": "standup",
+      "type": "acme.standup",
       "value_type": "position"
     }
   },
@@ -275,7 +275,7 @@
       "op_type": "update",
       "op_version": "1",
       "strategy": "lattice",
-      "type": "standup",
+      "type": "acme.standup",
       "value_type": "enum"
     }
   },
@@ -290,7 +290,7 @@
       "op_type": "update",
       "op_version": "1",
       "strategy": "lww",
-      "type": "standup",
+      "type": "acme.standup",
       "value_type": "string"
     }
   },
@@ -306,7 +306,7 @@
       "op_version": "2",
       "strategy": "lww",
       "target": "title_v2",
-      "type": "standup",
+      "type": "acme.standup",
       "value_type": "string"
     }
   }

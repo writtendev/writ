@@ -50,7 +50,7 @@ func Render(s state.Schema) ([]byte, error) {
 
 	for _, t := range s.Types {
 		b.WriteByte('\n')
-		if err := renderType(&b, t); err != nil {
+		if err := renderType(&b, s.Namespace, t); err != nil {
 			return nil, err
 		}
 	}
@@ -58,14 +58,41 @@ func Render(s state.Schema) ([]byte, error) {
 	return []byte(b.String()), nil
 }
 
-func renderType(b *strings.Builder, t state.SchemaType) error {
-	if err := validateNameForRender(t.Name, typeNamePattern, "type name", keywords, ""); err != nil {
+// stripNamespace removes the "namespace." prefix Compile's qualifiedName
+// (compile.go) put on t.Name (WRIT-217) and returns the bare source name
+// Render must reprint — the DSL's own type production never spells a
+// namespace on a type (spec/schema-source.md §3), so writing the qualified
+// wire form back out would emit "type acme.standup {", which Parse rejects
+// outright (a type name has no '.' production). An error here — rather
+// than falling back to t.Name unstripped — is what
+// engine/schemasrc/corpus_test.go:140's semantic round-trip catches: a
+// folded type not carrying its own schema's namespace prefix is exactly
+// the shape the resolver (engine/schema.go's RulesFromSchemas) would have
+// dropped rather than installed, so Render has no bare name to reconstruct
+// for it.
+func stripNamespace(namespace, name string) (string, error) {
+	prefix := namespace + "."
+	if !strings.HasPrefix(name, prefix) || len(name) == len(prefix) {
+		return "", fmt.Errorf("type %q is not qualified with namespace %q and has no bare name to render", name, namespace)
+	}
+	return name[len(prefix):], nil
+}
+
+func renderType(b *strings.Builder, namespace string, t state.SchemaType) error {
+	bareName, err := stripNamespace(namespace, t.Name)
+	if err != nil {
 		return err
 	}
+	if err := validateNameForRender(bareName, typeNamePattern, "type name", keywords, ""); err != nil {
+		return err
+	}
+	if reservedTypeNames[bareName] {
+		return fmt.Errorf("type name %q is a reserved word and would not parse back%s", bareName, reservedTypeNameReason)
+	}
 	if t.Deprecated {
-		fmt.Fprintf(b, "type %s deprecated {\n", t.Name)
+		fmt.Fprintf(b, "type %s deprecated {\n", bareName)
 	} else {
-		fmt.Fprintf(b, "type %s {\n", t.Name)
+		fmt.Fprintf(b, "type %s {\n", bareName)
 	}
 	if t.Description != "" {
 		fmt.Fprintf(b, "  description %s\n", quoteString(t.Description))

@@ -32,7 +32,7 @@ refs:
               op_type: define-type
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
                 description: "A daily widget"
             expect: accept
 
@@ -46,7 +46,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
                 op_type: "create"
                 op_version: "1"
                 field: "title"
@@ -64,7 +64,7 @@ refs:
               op_type: define-op
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
                 op_type: "create"
                 op_version: "1"
                 description: "Create a widget"

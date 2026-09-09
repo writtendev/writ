@@ -14,7 +14,7 @@
     "op_type": "define-type",
     "op_version": 1,
     "body": {
-      "type": "gadget"
+      "type": "acme.gadget"
     }
   },
   {
@@ -25,7 +25,7 @@
     "body": {
       "op_type": "create",
       "op_version": "1",
-      "type": "gadget"
+      "type": "acme.gadget"
     }
   },
   {
@@ -38,7 +38,7 @@
       "op_type": "create",
       "op_version": "1",
       "strategy": "lww",
-      "type": "gadget",
+      "type": "acme.gadget",
       "value_type": "string"
     }
   },
@@ -52,7 +52,7 @@
       "op_type": "create",
       "op_version": "1",
       "strategy": "lww",
-      "type": "gadget",
+      "type": "acme.gadget",
       "value_type": "string"
     }
   },
@@ -66,7 +66,7 @@
       "field": "old_name",
       "op_type": "create",
       "op_version": "1",
-      "type": "gadget"
+      "type": "acme.gadget"
     }
   },
   {
@@ -75,7 +75,7 @@
     "op_type": "define-type",
     "op_version": 1,
     "body": {
-      "type": "legacy-gadget"
+      "type": "acme.legacy-gadget"
     }
   },
   {
@@ -85,7 +85,7 @@
     "op_version": 1,
     "body": {
       "deprecated": true,
-      "type": "legacy-gadget"
+      "type": "acme.legacy-gadget"
     }
   },
   {
@@ -96,7 +96,7 @@
     "body": {
       "op_type": "create",
       "op_version": "1",
-      "type": "legacy-gadget"
+      "type": "acme.legacy-gadget"
     }
   },
   {
@@ -109,7 +109,7 @@
       "op_type": "create",
       "op_version": "1",
       "strategy": "lww",
-      "type": "legacy-gadget",
+      "type": "acme.legacy-gadget",
       "value_type": "string"
     }
   }

@@ -4,20 +4,20 @@
       "object_id": "sch-a",
       "ops": [
         { "op_type": "create", "body": { "namespace": "alpha" } },
-        { "op_type": "define-type", "body": { "type": "standup" } }
+        { "op_type": "define-type", "body": { "type": "alpha.standup" } }
       ]
     },
     {
       "object_id": "sch-b",
       "ops": [
-        { "op_type": "create", "body": { "namespace": "beta" } },
-        { "op_type": "define-type", "body": { "type": "standup" } }
+        { "op_type": "create", "body": { "namespace": "alpha" } },
+        { "op_type": "define-type", "body": { "type": "alpha.standup" } }
       ]
     }
   ],
   "envelope": {
     "object_id": "standup-1",
-    "object_type": "standup",
+    "object_type": "alpha.standup",
     "op_type": "anything-at-all",
     "op_version": 1,
     "body": { "unvalidated": true }

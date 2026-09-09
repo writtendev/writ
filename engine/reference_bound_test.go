@@ -72,7 +72,7 @@ func TestLinkTargetLengthBoundIsEnforcedOnTheProducerPath(t *testing.T) {
 		t.Fatalf("ApplySchema failed: %v", err)
 	}
 
-	ticketID, err := s.Objects.Create(ctx, "ticket", writ.NewOp{
+	ticketID, err := s.Objects.Create(ctx, "acme.ticket", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Reference bound"},
 	})

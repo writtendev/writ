@@ -47,9 +47,9 @@ type gadget {
 }
 EOF
 $ writ schema apply                # signs and appends the ops declaring them
-$ writ object create ticket create -field title="Add rate limiting"
+$ writ object create acme.ticket create -field title="Add rate limiting"
 $ writ object apply <id> revision -field base=<base-sha> -field head=<head-sha>
-$ writ object create gadget create -field-json subject='{"object_type":"ticket","object_id":"<id>"}' -field text="this allocates in the hot path"
+$ writ object create acme.gadget create -field-json subject='{"object_type":"acme.ticket","object_id":"<id>"}' -field text="this allocates in the hot path"
 $ writ sync                        # git push, to your own ref namespace
 ```
 

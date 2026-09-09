@@ -50,7 +50,7 @@ refs:
               op_type: define-type
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
             expect: accept
 
           - id: define-field-promote
@@ -63,7 +63,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
                 op_type: "promote"
                 op_version: "1"
                 field: "level"
@@ -81,7 +81,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
                 op_type: "demote"
                 op_version: "1"
                 field: "level"
@@ -97,7 +97,7 @@ refs:
             timestamp: 2026-01-01T00:04:00Z
             op:
               object_id: widget-1
-              object_type: widget
+              object_type: acme.widget
               op_type: promote
               op_version: 1
               body:
@@ -110,7 +110,7 @@ refs:
             timestamp: 2026-01-01T00:05:00Z
             op:
               object_id: widget-1
-              object_type: widget
+              object_type: acme.widget
               op_type: demote
               op_version: 1
               body:

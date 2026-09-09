@@ -34,7 +34,7 @@
   "contested-object-type.json": {
     "producer_verdict": "accept",
     "reader_disposition": "unknown-op",
-    "reason": "tier 3 (the ruling's carve-out): two schema objects binding the same bare object_type install no rules (spec/schema-ops.md 6), so the write is permitted unvalidated while the reader still reports UnknownOp -- the write/read asymmetry is the point"
+    "reason": "tier 3 (the ruling's carve-out): two schema objects binding the same qualified object_type install no rules (spec/schema-ops.md 6), so the write is permitted unvalidated while the reader still reports UnknownOp -- the write/read asymmetry is the point"
   },
   "declared-type-with-no-fields.json": {
     "producer_verdict": "accept",

@@ -69,7 +69,7 @@ func TestOpenWithRepositoryExtensions(t *testing.T) {
 			applyCoreSchema(t, ctx, s)
 
 			// 2. Create a gadget
-			gadgetID, err := s.Objects.Create(ctx, "gadget", writ.NewOp{
+			gadgetID, err := s.Objects.Create(ctx, "acme.gadget", writ.NewOp{
 				Type: "create",
 				Fields: map[string]any{
 					"title":       "Test gadget with extensions",
@@ -84,7 +84,7 @@ func TestOpenWithRepositoryExtensions(t *testing.T) {
 			}
 
 			// 3. Create a widget
-			widgetID, err := s.Objects.Create(ctx, "widget", writ.NewOp{
+			widgetID, err := s.Objects.Create(ctx, "acme.widget", writ.NewOp{
 				Type:   "create",
 				Fields: map[string]any{"title": "Test widget with extensions"},
 			})
@@ -96,12 +96,12 @@ func TestOpenWithRepositoryExtensions(t *testing.T) {
 			}
 
 			// 4. Create a note against the widget
-			noteID, err := s.Objects.Create(ctx, "note", writ.NewOp{
+			noteID, err := s.Objects.Create(ctx, "acme.note", writ.NewOp{
 				Type: "create",
 				Fields: map[string]any{
 					"text": "Looks good to me!",
 					"subject": map[string]string{
-						"object_type": "widget",
+						"object_type": "acme.widget",
 						"object_id":   widgetID,
 					},
 				},
@@ -114,7 +114,7 @@ func TestOpenWithRepositoryExtensions(t *testing.T) {
 			}
 
 			// 5. Query
-			gadgets, err := s.Query.Objects(writ.ObjectFilter{Type: []string{"gadget"}})
+			gadgets, err := s.Query.Objects(writ.ObjectFilter{Type: []string{"acme.gadget"}})
 			if err != nil {
 				t.Fatalf("Query.Objects(gadget) failed: %v", err)
 			}
@@ -122,7 +122,7 @@ func TestOpenWithRepositoryExtensions(t *testing.T) {
 				t.Fatalf("unexpected gadgets query result: %+v", gadgets)
 			}
 
-			widgets, err := s.Query.Objects(writ.ObjectFilter{Type: []string{"widget"}})
+			widgets, err := s.Query.Objects(writ.ObjectFilter{Type: []string{"acme.widget"}})
 			if err != nil {
 				t.Fatalf("Query.Objects(widget) failed: %v", err)
 			}
@@ -130,7 +130,7 @@ func TestOpenWithRepositoryExtensions(t *testing.T) {
 				t.Fatalf("unexpected widgets query result: %+v", widgets)
 			}
 
-			notes, err := s.Query.Objects(writ.ObjectFilter{Type: []string{"note"}})
+			notes, err := s.Query.Objects(writ.ObjectFilter{Type: []string{"acme.note"}})
 			if err != nil {
 				t.Fatalf("Query.Objects(note) failed: %v", err)
 			}
@@ -191,7 +191,7 @@ func TestOpenSparseCheckoutRepository(t *testing.T) {
 
 	applyCoreSchema(t, ctx, s)
 
-	gadgetID, err := s.Objects.Create(ctx, "gadget", writ.NewOp{
+	gadgetID, err := s.Objects.Create(ctx, "acme.gadget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Sparse checkout test gadget"},
 	})
@@ -202,7 +202,7 @@ func TestOpenSparseCheckoutRepository(t *testing.T) {
 		t.Fatal("expected non-empty gadget ID")
 	}
 
-	gadgets, err := s.Query.Objects(writ.ObjectFilter{Type: []string{"gadget"}})
+	gadgets, err := s.Query.Objects(writ.ObjectFilter{Type: []string{"acme.gadget"}})
 	if err != nil {
 		t.Fatalf("Query.Objects(gadget) failed: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestOpenLinkedWorktreeWithExtensions(t *testing.T) {
 
 	applyCoreSchema(t, ctx, s)
 
-	gadgetID, err := s.Objects.Create(ctx, "gadget", writ.NewOp{
+	gadgetID, err := s.Objects.Create(ctx, "acme.gadget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Linked worktree with extensions gadget"},
 	})
@@ -245,7 +245,7 @@ func TestOpenLinkedWorktreeWithExtensions(t *testing.T) {
 		t.Fatal("expected non-empty gadget ID")
 	}
 
-	gadgets, err := s.Query.Objects(writ.ObjectFilter{Type: []string{"gadget"}})
+	gadgets, err := s.Query.Objects(writ.ObjectFilter{Type: []string{"acme.gadget"}})
 	if err != nil {
 		t.Fatalf("Query.Objects(gadget) failed: %v", err)
 	}

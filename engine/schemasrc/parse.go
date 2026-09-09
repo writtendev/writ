@@ -22,6 +22,25 @@ var (
 
 const maxNameLength = 64
 
+// reservedTypeNames excludes type names that would produce an unwritable
+// ref chain once qualified with a namespace (WRIT-217): git rejects any
+// slash-separated ref component ending in ".lock" outright (verified
+// against real git — `git check-ref-format
+// refs/writ/<writer-id>/acme.lock` fails), so a type named "lock" under
+// any namespace would compile to an object_type ("acme.lock") that can
+// never be written to refs/writ/<writer-id>/acme.lock. This is deliberately
+// separate from keywords: "lock" is a ref-safety exclusion, not a grammar
+// keyword — TestKeywordsAreClosed pins keywords as the closed structural-word
+// table, and folding a ref-safety concern into it would widen what that
+// test is meant to guard. A namespace of "lock" is fine ("lock.thing"); the
+// constraint is on a type's own final segment only, checked here in the
+// type-name slot alone (not namespace, not op type name, not field name).
+var reservedTypeNames = map[string]bool{"lock": true}
+
+// reservedTypeNameReason is appended to the diagnostic when validateName
+// (or Render's validateNameForRender) rejects "lock" as a type's own name.
+const reservedTypeNameReason = "; a type named \"lock\" would qualify to an object_type ending in \".lock\", which git rejects outright as a ref path component (refs/writ/<writer-id>/<namespace>.lock)"
+
 // fieldReserved is the reserved-word set for a field name and a
 // target(...) argument (spec/schema-source.md §2). Every structural word
 // except deprecated is only a contextual keyword in these two slots —
@@ -344,6 +363,9 @@ func (p *parser) parseType() *Type {
 		return nil
 	}
 	validateName(p, nameTok, typeNamePattern, "type name", keywords, "")
+	if reservedTypeNames[nameTok.Text] {
+		p.errorf(nameTok.Pos, "%q is a reserved type name%s", nameTok.Text, reservedTypeNameReason)
+	}
 	t.Name = nameTok.Text
 
 	if p.peek().Kind == tokIdent && p.peek().Text == "deprecated" {

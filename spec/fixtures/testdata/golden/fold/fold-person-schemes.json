@@ -2,45 +2,45 @@
   "objects": [
     {
       "object_id": "w-person-schemes",
-      "object_type": "widget",
+      "object_type": "acme.widget",
       "total_order": [
         {
-          "commit": "bef8b0fe09528d900164428d5c392add3e023ff7",
+          "commit": "0672dd79682ccad5471f59d00e8f52992beccc55",
           "label": "alice-create",
           "t_star": 1772323200
         },
         {
-          "commit": "3380b427c85c033e6700a1badd1f4a7f76fabba0",
+          "commit": "54e65859a0e959c0dd983c342d4bc51c11dddf3f",
           "label": "alice-log",
           "t_star": 1772323260
         },
         {
-          "commit": "a276434c6c8888cc8e2e3eb3383c2e69fd3e7dac",
+          "commit": "a7930ba645cdaa9c5837c09b614f7d2e43a28beb",
           "label": "alice-assign-cross-scheme",
           "t_star": 1772323320
         },
         {
-          "commit": "e5c41a5dc7dabe13704a1421210cc58313bdfb49",
+          "commit": "11de95df3f0aefc9706b8f5e2ddda437dc16a14c",
           "label": "alice-assign-padded-value",
           "t_star": 1772323350
         },
         {
-          "commit": "8b02b7cb9b316bd33784f01e18a09e8fe91f6fa3",
+          "commit": "d8e03557e56aca75749e06d4f92cbf6a899b390c",
           "label": "alice-remove-user-scheme",
           "t_star": 1772323380
         },
         {
-          "commit": "d043ee386fbb830b235a3638d6fedb0c6e6ae24f",
+          "commit": "5e176181836a7d084a19d1904a2ade02958d90d6",
           "label": "alice-vote-quoted-local-part",
           "t_star": 1772323440
         },
         {
-          "commit": "9ff192de9ca00c1a0fffc46c4e05b5ca511f1531",
+          "commit": "7961ad9a5ebe116403469401e61cd38a8b8ca692",
           "label": "bob-vote-user-scheme",
           "t_star": 1772323500
         },
         {
-          "commit": "fe98d72a7f2937f4ee09081afccd2384f737e3df",
+          "commit": "40079cb9e63573bbd9e374331204af4a3f473581",
           "label": "bob-vote-email-scheme",
           "t_star": 1772323560
         }

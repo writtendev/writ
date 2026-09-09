@@ -16,7 +16,7 @@
     "op_version": 1,
     "body": {
       "description": "A neutral fixture type; names no vocabulary",
-      "type": "thing"
+      "type": "acme.thing"
     }
   },
   {
@@ -28,7 +28,7 @@
       "description": "The op block's own description, alongside fields sharing every other keyword's spelling",
       "op_type": "create",
       "op_version": "1",
-      "type": "thing"
+      "type": "acme.thing"
     }
   },
   {
@@ -39,7 +39,7 @@
     "body": {
       "op_type": "widget",
       "op_version": "1",
-      "type": "thing"
+      "type": "acme.thing"
     }
   },
   {
@@ -59,7 +59,7 @@
       "op_version": "1",
       "strategy": "keyed-lww",
       "target": "a_v2",
-      "type": "thing",
+      "type": "acme.thing",
       "value_type": "object-ref"
     }
   },
@@ -79,7 +79,7 @@
       "op_type": "create",
       "op_version": "1",
       "strategy": "keyed-lww",
-      "type": "thing",
+      "type": "acme.thing",
       "value_type": "object-ref"
     }
   },
@@ -93,7 +93,7 @@
       "op_type": "create",
       "op_version": "1",
       "strategy": "lww",
-      "type": "thing",
+      "type": "acme.thing",
       "value_type": "string"
     }
   },
@@ -107,7 +107,7 @@
       "op_type": "create",
       "op_version": "1",
       "strategy": "lww",
-      "type": "thing",
+      "type": "acme.thing",
       "value_type": "string"
     }
   },
@@ -121,7 +121,7 @@
       "op_type": "create",
       "op_version": "1",
       "strategy": "lww",
-      "type": "thing",
+      "type": "acme.thing",
       "value_type": "string"
     }
   },
@@ -135,7 +135,7 @@
       "op_type": "create",
       "op_version": "1",
       "strategy": "lww",
-      "type": "thing",
+      "type": "acme.thing",
       "value_type": "string"
     }
   },
@@ -149,7 +149,7 @@
       "op_type": "create",
       "op_version": "1",
       "strategy": "lww",
-      "type": "thing",
+      "type": "acme.thing",
       "value_type": "string"
     }
   },
@@ -169,7 +169,7 @@
       "op_type": "create",
       "op_version": "1",
       "strategy": "keyed-lww",
-      "type": "thing",
+      "type": "acme.thing",
       "value_type": "object-ref"
     }
   },
@@ -183,7 +183,7 @@
       "op_type": "create",
       "op_version": "1",
       "strategy": "append",
-      "type": "thing"
+      "type": "acme.thing"
     }
   },
   {
@@ -203,7 +203,7 @@
       "op_version": "1",
       "strategy": "keyed-lww",
       "target": "b_v2",
-      "type": "thing",
+      "type": "acme.thing",
       "value_type": "string"
     }
   },
@@ -221,7 +221,7 @@
       "op_type": "widget",
       "op_version": "1",
       "strategy": "lww",
-      "type": "thing",
+      "type": "acme.thing",
       "value_type": "enum"
     }
   },
@@ -235,7 +235,7 @@
       "field": "c",
       "op_type": "create",
       "op_version": "1",
-      "type": "thing"
+      "type": "acme.thing"
     }
   }
 ]

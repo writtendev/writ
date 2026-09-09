@@ -97,7 +97,7 @@ func TestGolden_SyncStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reopen Alice failed: %v", err)
 	}
-	_, err = sA.Objects.Create(ctx, "ticket", writ.NewOp{
+	_, err = sA.Objects.Create(ctx, "acme.ticket", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Unsynced Op Ticket"},
 	})
@@ -138,7 +138,7 @@ func TestGolden_SyncResult(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reopen Alice failed: %v", err)
 	}
-	_, err = sA.Objects.Create(ctx, "ticket", writ.NewOp{
+	_, err = sA.Objects.Create(ctx, "acme.ticket", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Sync Result Ticket"},
 	})
@@ -165,7 +165,7 @@ func TestGolden_SchemaShow(t *testing.T) {
 	applyTicketObjectSchema(t, env.repoDir)
 
 	var stdout, stderr bytes.Buffer
-	code := run(context.Background(), []string{"schema", "show", "-C", env.repoDir, "ticket", "--json"}, &stdout, &stderr)
+	code := run(context.Background(), []string{"schema", "show", "-C", env.repoDir, "acme.ticket", "--json"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("schema show --json failed with %d; stderr: %s", code, stderr.String())
 	}
@@ -182,7 +182,7 @@ func TestGolden_ObjectCreate(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{
-		"object", "create", "-C", env.repoDir, "ticket", "create",
+		"object", "create", "-C", env.repoDir, "acme.ticket", "create",
 		"-field", "title=Fix the thing",
 		"--json",
 	}, &stdout, &stderr)
@@ -203,7 +203,7 @@ func TestGolden_ObjectApply(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{
-		"object", "create", "-C", env.repoDir, "ticket", "create",
+		"object", "create", "-C", env.repoDir, "acme.ticket", "create",
 		"-field", "title=Fix the thing",
 		"--json",
 	}, &stdout, &stderr)
@@ -236,7 +236,7 @@ func TestGolden_ObjectShow(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{
-		"object", "create", "-C", env.repoDir, "ticket", "create",
+		"object", "create", "-C", env.repoDir, "acme.ticket", "create",
 		"-field", "title=Fix the thing",
 		"--json",
 	}, &stdout, &stderr)
@@ -277,7 +277,7 @@ func TestGolden_ObjectList(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{
-		"object", "create", "-C", env.repoDir, "ticket", "create",
+		"object", "create", "-C", env.repoDir, "acme.ticket", "create",
 		"-field", "title=Fix the thing",
 		"--json",
 	}, &stdout, &stderr)
@@ -290,7 +290,7 @@ func TestGolden_ObjectList(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	code = run(context.Background(), []string{"object", "list", "-C", env.repoDir, "ticket", "--json"}, &stdout, &stderr)
+	code = run(context.Background(), []string{"object", "list", "-C", env.repoDir, "acme.ticket", "--json"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("object list --json failed with %d; stderr: %s", code, stderr.String())
 	}
@@ -305,7 +305,7 @@ func TestDeterminism_AllReadVerbs(t *testing.T) {
 	var created bytes.Buffer
 	var createErr bytes.Buffer
 	code := run(context.Background(), []string{
-		"object", "create", "-C", env.repoDir, "ticket", "create",
+		"object", "create", "-C", env.repoDir, "acme.ticket", "create",
 		"-field", "title=Fix the thing",
 		"--json",
 	}, &created, &createErr)
@@ -316,9 +316,9 @@ func TestDeterminism_AllReadVerbs(t *testing.T) {
 	unmarshalEnvelopeData(t, created.Bytes(), wire.KindObjectCreate, &createdObj)
 
 	readCommands := [][]string{
-		{"object", "list", "-C", env.repoDir, "ticket", "--json"},
+		{"object", "list", "-C", env.repoDir, "acme.ticket", "--json"},
 		{"object", "show", "-C", env.repoDir, createdObj.ObjectID, "--json"},
-		{"schema", "show", "-C", env.repoDir, "ticket", "--json"},
+		{"schema", "show", "-C", env.repoDir, "acme.ticket", "--json"},
 	}
 
 	for _, cmd := range readCommands {

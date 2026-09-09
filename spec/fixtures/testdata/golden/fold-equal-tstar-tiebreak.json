@@ -2,15 +2,15 @@
   "refs": [
     {
       "name": "refs/writ/0123456789abcdef/schema",
-      "commit": "04811a6c2478264563ce1dffbaf4a70f4efc1c18"
+      "commit": "32e5f3a847ae8c19ba7666847eab204b98ef199e"
     },
     {
       "name": "refs/writ/0123456789abcdef/widget",
-      "commit": "547b487eb07b7a9a126872b7ec1f6b2db62bd5ea"
+      "commit": "74cb1a6a257b83e527f03555d479887c2b66f622"
     },
     {
       "name": "refs/writ/fedcba9876543210/widget",
-      "commit": "2c68a8675677fbf9c9549d272225709f56ab5999"
+      "commit": "3be4b658ac8e9ca6b6537e96e9141c45ddb264a8"
     }
   ],
   "generations": [
@@ -28,8 +28,8 @@
           "signed": true
         },
         {
-          "sha": "4becfd27f09972baaed6aebbac25e5edf0c1815d",
-          "tree": "28a4ca0269db83c9aeae44f12626f410b2f92f0d",
+          "sha": "d2d4bf47dccd80491cdecacab391d6840646c5a2",
+          "tree": "0d000adf9aa15b74b58f8785776daae39b83c5d1",
           "parents": [
             "7e7b98e49daea722263a972a87eb6425554eec85"
           ],
@@ -39,10 +39,10 @@
           "signed": true
         },
         {
-          "sha": "05be825287833aba9cdfcda59c2236dba06fbebd",
-          "tree": "0214859faf2e21c1f122efc6992f7ce7fbc68b50",
+          "sha": "49837d590b1e97b7cc66499561dcd029d0d7497f",
+          "tree": "4b3dd44001ababb8d1af928d34aed78dc9f8a55b",
           "parents": [
-            "4becfd27f09972baaed6aebbac25e5edf0c1815d"
+            "d2d4bf47dccd80491cdecacab391d6840646c5a2"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2025-12-01T00:02:00Z",
@@ -50,10 +50,10 @@
           "signed": true
         },
         {
-          "sha": "85d7804b131abfd5f11524a8a313294f8cc607ed",
-          "tree": "703cbbeebc25cabddf8636b313edb4f714d1972e",
+          "sha": "8486b4bb3b86203397f3cfb356c1840ae2fe19ab",
+          "tree": "ccdf76ae70cfc132f932ecb06da4256540eebcf6",
           "parents": [
-            "05be825287833aba9cdfcda59c2236dba06fbebd"
+            "49837d590b1e97b7cc66499561dcd029d0d7497f"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2025-12-01T00:03:00Z",
@@ -61,10 +61,10 @@
           "signed": true
         },
         {
-          "sha": "04811a6c2478264563ce1dffbaf4a70f4efc1c18",
-          "tree": "bc4884df83dc213363c4f4de97d8274569f287e7",
+          "sha": "32e5f3a847ae8c19ba7666847eab204b98ef199e",
+          "tree": "20a62877d53dced00ab6d5580c2a119fe9454333",
           "parents": [
-            "85d7804b131abfd5f11524a8a313294f8cc607ed"
+            "8486b4bb3b86203397f3cfb356c1840ae2fe19ab"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2025-12-01T00:04:00Z",
@@ -78,23 +78,23 @@
       "index": 0,
       "commits": [
         {
-          "sha": "0ee1bc84aa89e6a95ce8b4c7039bafbec46e4c1b",
-          "tree": "5884dd77adcf21f2cf7726300912faf860e2aefd",
+          "sha": "901db428a30d52c12fa3ac7a013164cc3d847f4b",
+          "tree": "0c054d4efb226776d8c24c8652508034a0dddc27",
           "parents": [],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:00:00Z",
-          "message": "writ: create widget/w-tiebreak\n",
+          "message": "writ: create acme.widget/w-tiebreak\n",
           "signed": true
         },
         {
-          "sha": "547b487eb07b7a9a126872b7ec1f6b2db62bd5ea",
-          "tree": "03184fede5fe9ce869773832f77fb705a841c428",
+          "sha": "74cb1a6a257b83e527f03555d479887c2b66f622",
+          "tree": "99e16173d779aab2c664634960b5abcad2b952f6",
           "parents": [
-            "0ee1bc84aa89e6a95ce8b4c7039bafbec46e4c1b"
+            "901db428a30d52c12fa3ac7a013164cc3d847f4b"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:01:00Z",
-          "message": "writ: update widget/w-tiebreak\n",
+          "message": "writ: update acme.widget/w-tiebreak\n",
           "signed": true
         }
       ]
@@ -104,36 +104,36 @@
       "index": 0,
       "commits": [
         {
-          "sha": "8777d00c966296918a6a71b24a0d24a864ea3384",
-          "tree": "848f3fa36957fbcb0a7a0a874dbd339515446dc9",
+          "sha": "2f2a849e699d0428a21d1f507df65ddba735ca67",
+          "tree": "3acaf3f1ca0af1747fb24b4fc92878fb3d89b3d2",
           "parents": [
-            "0ee1bc84aa89e6a95ce8b4c7039bafbec46e4c1b"
+            "901db428a30d52c12fa3ac7a013164cc3d847f4b"
           ],
           "author": "Bob Example \u003cbob@example.test\u003e",
           "timestamp": "2026-01-01T00:01:00Z",
-          "message": "writ: update widget/w-tiebreak\n",
+          "message": "writ: update acme.widget/w-tiebreak\n",
           "signed": true
         },
         {
-          "sha": "d622f1a995cd48e87062584b543efb9b8dc00ebf",
-          "tree": "ed3612f568058f7f879b89ec160a5643b409f582",
+          "sha": "f1dc7e56c3df67a84eccff131c17600e5da868d6",
+          "tree": "0fc96882f5339e5725c1e7d1de4718d83e3dc9d0",
           "parents": [
-            "8777d00c966296918a6a71b24a0d24a864ea3384"
+            "2f2a849e699d0428a21d1f507df65ddba735ca67"
           ],
           "author": "Bob Example \u003cbob@example.test\u003e",
           "timestamp": "2026-01-01T00:05:00Z",
-          "message": "writ: set-status widget/w-tiebreak\n",
+          "message": "writ: set-status acme.widget/w-tiebreak\n",
           "signed": true
         },
         {
-          "sha": "2c68a8675677fbf9c9549d272225709f56ab5999",
-          "tree": "37e9a64b277dadf513b9a5a4d59fc5d381ce9516",
+          "sha": "3be4b658ac8e9ca6b6537e96e9141c45ddb264a8",
+          "tree": "455fb2f7c7ae760680caa513db72c178e7eb872c",
           "parents": [
-            "d622f1a995cd48e87062584b543efb9b8dc00ebf"
+            "f1dc7e56c3df67a84eccff131c17600e5da868d6"
           ],
           "author": "Bob Example \u003cbob@example.test\u003e",
           "timestamp": "2026-01-01T00:02:00Z",
-          "message": "writ: set-status widget/w-tiebreak\n",
+          "message": "writ: set-status acme.widget/w-tiebreak\n",
           "signed": true
         }
       ]

@@ -39,7 +39,8 @@ building is a bug even one field at a time.
 A schema's namespace disambiguates independent authors: two authors can
 each publish a schema without coordinating names, because each schema
 carries its own namespace. Namespace is a property of the schema object
-(set by `create`, §3.1) and never reaches the wire — see §2 for what does.
+(set by `create`, §3.1); it also reaches the wire indirectly, as the
+prefix of every `object_type` the schema declares — see §2.
 
 A schema object's namespace is also its identity: `object_id` is derived
 from it (§3), so one namespace names exactly one schema object, and a
@@ -64,20 +65,47 @@ same object as any other producer doing the same, with no coordination
 
 ## 2. Namespace and `object_type` Binding
 
-`object_type` on the wire stays the existing bare lowercase form
-(`spec/op-envelope.md`): `^[a-z][a-z0-9-]*$`, at most 64 characters, no
-slash and no namespace prefix. A schema's namespace is part of the schema
-object itself (§1.1) and is never concatenated onto `object_type`; ref
-layout and chain naming are unaffected by any of this.
+`object_type` on the wire is the schema's namespace and the declared
+type's bare name joined by exactly one dot: `<namespace>.<type>`
+(`spec/op-envelope.md`): each segment matches the bare form's own grammar
+(`^[a-z][a-z0-9-]*$`, at most 64 characters), for 129 characters total (64
++ `.` + 64). `schema` itself is exempt — it has no namespace of its own
+and stays the bare, unqualified form this specification defines (§1) — but
+every other declared type is namespace-qualified, unconditionally. A
+schema's namespace is part of the schema object itself (§1.1) and *does*
+now reach the wire, as the prefix of every `object_type` it declares
+(WRIT-217) — it is no longer a decorative label a consumer type happens
+to carry alongside a separately-contended bare name.
 
-**The load-bearing invariant is `object_type` uniqueness across every
-schema object in a repository, not namespace uniqueness.** Because
-namespace never reaches the wire, two independent authors can each declare
-a type named `standup` under different namespaces, and both would bind the
-bare wire `object_type: "standup"` — that is the collision that produces
-two candidate rule sets for one type and has to be defined. Namespace
-uniqueness is a second, weaker check, reported alongside the first but
-never withholding rules on its own (§6).
+**The load-bearing invariant is still `object_type` uniqueness across
+every schema object in a repository — what changed is what `object_type`
+ranges over.** Because namespace is now baked into the wire form, two
+independent authors can each declare a type named `standup` under
+different namespaces (`acme`, `bigco`) and never contend: the wire values
+`acme.standup` and `bigco.standup` are simply different `object_type`s.
+The collision this section used to describe — two authors both binding
+the bare wire `standup` — is closed by construction; the collision that
+remains is two schema objects binding the *identical* qualified
+`object_type`, which requires them to share a namespace. Namespace
+uniqueness (§6) is therefore stronger than it was: it is not merely
+reported alongside an `object_type` collision, it is the precondition for
+one, though a namespace collision on its own — two schema objects sharing
+a namespace while binding different types — still withholds nothing by
+itself.
+
+A declared type whose name does not carry its own schema's namespace
+prefix — bare, qualified under some other namespace, or carrying more
+than one dot — is not a wire-format violation this layer can catch (the
+envelope grammar only admits the two-segment shape and has no notion of
+which namespace a given declaration is entitled to use); it is caught by
+the resolver (§6, `engine/schema.go`'s `RulesFromSchemas`), which installs
+a declared type only when it is qualified with the folded namespace of
+the very schema object that declared it. Anything else is dropped and
+reported as a conflict, never installed — this is what actually closes
+the global namespace the qualification exists to open up: a hand-crafted
+`define-type` cannot squat a name outside its own namespace, so an
+`object_type` collision is reachable only between two schema objects that
+already share one.
 
 On an `object_type` collision, **no winner is picked**: neither schema
 object's rules are installed for the contested type. Its ops fall through
@@ -231,16 +259,20 @@ Declares an object type.
   "op_type": "define-type",
   "op_version": 1,
   "body": {
-    "type": "standup",
+    "type": "acme.standup",
     "description": "A daily standup update"
   }
 }
 ```
 
-- `type` (string, required): The bare wire `object_type`
-  (`^[a-z][a-z0-9-]*$`, at most 64 characters) — the same grammar
-  `spec/op-envelope.md` gives `object_type`, because this value is used
-  verbatim as one.
+- `type` (string, required): The wire `object_type`
+  (`^[a-z][a-z0-9-]{0,63}(\.[a-z][a-z0-9-]{0,63})?$`, at most 129
+  characters) — the same grammar `spec/op-envelope.md` gives
+  `object_type`, because this value is used verbatim as one. For a
+  consumer-declared type this MUST be qualified with the schema object's
+  own namespace, `<namespace>.<type>`; the resolver (§2, §6) drops and
+  reports any declaration that is not, rather than installing it under a
+  name the declaring schema is not entitled to.
 - `description` (string, optional).
 
 A type need not be declared by `define-type` before a `define-field` or
@@ -259,7 +291,7 @@ Declares one field on one op's body for one type.
   "op_type": "define-field",
   "op_version": 1,
   "body": {
-    "type": "standup",
+    "type": "acme.standup",
     "op_type": "approval",
     "op_version": "1",
     "field": "verdict",
@@ -324,7 +356,7 @@ Declares an op type within a type's vocabulary.
   "op_type": "define-op",
   "op_version": 1,
   "body": {
-    "type": "standup",
+    "type": "acme.standup",
     "op_type": "approval",
     "op_version": "1",
     "description": "Approve or block a standup"
@@ -345,7 +377,7 @@ Declares an op type within a type's vocabulary.
   "object_type": "schema",
   "op_type": "deprecate-type",
   "op_version": 1,
-  "body": { "type": "standup", "deprecated": true }
+  "body": { "type": "acme.standup", "deprecated": true }
 }
 ```
 
@@ -362,7 +394,7 @@ Declares an op type within a type's vocabulary.
   "op_type": "deprecate-field",
   "op_version": 1,
   "body": {
-    "type": "standup",
+    "type": "acme.standup",
     "op_type": "create",
     "op_version": "1",
     "field": "summary",
@@ -427,21 +459,38 @@ the others.
 ## 6. Conflicts
 
 Reading any object requires first folding the `schema` objects present in
-a repository and resolving them into per-`object_type` rule sets. Three
-kinds of conflict can arise, and none is ever picked a winner:
+a repository and resolving them into per-`object_type` rule sets. Four
+kinds of conflict can arise, and none is picked a winner:
 
 1. **`object_type` collision** (§2): two schema objects both bind the
-   same bare `object_type`. Withholding rules for the contested type is
-   the whole remedy — no new fold rule, no new mechanism. The ops of that
-   `object_type` fall through the absent-schema path (§7.1) to `UnknownOp`,
-   exactly as if no schema had ever declared it. `schema` itself cannot be
-   redefined this way: a `define-type` naming `schema` from within the log
-   is always a conflict, never installed, because `schema` is the engine's
-   one hard-coded exception (§1).
+   same (namespace-qualified) `object_type` — which, post-WRIT-217,
+   requires them to share a namespace; two different namespaces can never
+   produce the same qualified `object_type`. Withholding rules for the
+   contested type is the whole remedy — no new fold rule, no new
+   mechanism. The ops of that `object_type` fall through the
+   absent-schema path (§7.1) to `UnknownOp`, exactly as if no schema had
+   ever declared it. `schema` itself cannot be redefined this way: a
+   `define-type` naming `schema` from within the log is always a
+   conflict, never installed, because `schema` is the engine's one
+   hard-coded exception (§1) — and, unlike every other declared type,
+   this check ranges over the bare name, since `schema` is the one type
+   the qualification in §2 never applies to.
 2. **Namespace collision**: two schema objects declare the same namespace.
    A weaker, mostly cosmetic case — reported alongside an `object_type`
-   collision when both occur, but on its own it withholds nothing.
-3. **Target-agreement failure** (§8): two or more field rules bound to one
+   collision when both occur (as it now always is, whenever two schema
+   objects collide on a qualified type), but on its own it withholds
+   nothing.
+3. **Unqualified (or foreign-namespace) declaration** (§2): a declared
+   type whose name does not carry its own schema object's namespace as
+   its prefix — bare, qualified under a different namespace, or carrying
+   more than one dot. Dropped and reported, never installed, exactly like
+   an invalid field rule (§9) — the difference is what is being validated
+   (the type name itself, not one of its fields) and where the check
+   lives (this is a property of the declaration checked once, not
+   per-field). This is the check that closes the namespace §2 describes:
+   without it, a hand-crafted `define-type` could squat any name it
+   likes regardless of which namespace declared it.
+4. **Target-agreement failure** (§8): two or more field rules bound to one
    `target` within one `object_type` fail the shared-target agreement
    relation. The remedy is the same shape as an `object_type` collision,
    scoped to the target rather than the whole type: every rule bound to

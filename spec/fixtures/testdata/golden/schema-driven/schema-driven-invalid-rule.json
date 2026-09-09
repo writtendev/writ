@@ -7,7 +7,7 @@
         "namespace": "acme",
         "types": [
           {
-            "type": "gadget",
+            "type": "acme.gadget",
             "fields": [
               {
                 "field": "title",
@@ -58,28 +58,28 @@
   ],
   "conflicts": [
     {
-      "object_type": "gadget",
+      "object_type": "acme.gadget",
       "object_ids": [
         "sch-acme"
       ],
       "reason": "field rule (set-kind, 1, kind) is invalid and was not installed: rule for (set-kind, kind) declares value_type enum but no enum values"
     },
     {
-      "object_type": "gadget",
+      "object_type": "acme.gadget",
       "object_ids": [
         "sch-acme"
       ],
       "reason": "field rule (set-note, 1, note) is invalid and was not installed: rule for (set-note, note) declares max_length on value_type \"bool\"; only string and text take one"
     },
     {
-      "object_type": "gadget",
+      "object_type": "acme.gadget",
       "object_ids": [
         "sch-acme"
       ],
       "reason": "field rule (set-pair, 1, pair) is invalid and was not installed: rule for (set-pair, pair) declares key_types covering 1 column(s), want exactly the 2 in key [a b]"
     },
     {
-      "object_type": "gadget",
+      "object_type": "acme.gadget",
       "object_ids": [
         "sch-acme"
       ],
@@ -89,26 +89,26 @@
   "objects": [
     {
       "object_id": "gadget-1",
-      "object_type": "gadget",
+      "object_type": "acme.gadget",
       "total_order": [
         {
-          "commit": "9dec5741ff1335028b902f08b7ac102ca99faa42",
+          "commit": "d3435527f57b09c560399b6cf5b30c3e8790b5fe",
           "t_star": 1767226020
         },
         {
-          "commit": "c6fe45762d9c1e9ae7601bfd060ab80d46b22cf8",
+          "commit": "dc2932995b8ecbc5343a51d99141c7491bce3030",
           "t_star": 1767226080
         },
         {
-          "commit": "c822e13c19182c6607a53fa27af16ded08248145",
+          "commit": "1acf6961a0dc296be4055dd4fcdf830290c3e88b",
           "t_star": 1767226140
         },
         {
-          "commit": "84eb452fb4b70cf3f34e2e4d393f5a552630ceea",
+          "commit": "bffe5b160c2b8fcacbe225fca95f247f31b78307",
           "t_star": 1767226200
         },
         {
-          "commit": "862b7e88e1d18b905741cfbe402fd340f368c0e6",
+          "commit": "d9328a2db3c89a8d8f3d4ce22a6728c5e1d4821d",
           "t_star": 1767226260
         }
       ],
@@ -117,26 +117,26 @@
       },
       "unknown_ops": [
         {
-          "commit": "c6fe45762d9c1e9ae7601bfd060ab80d46b22cf8",
-          "object_type": "gadget",
+          "commit": "dc2932995b8ecbc5343a51d99141c7491bce3030",
+          "object_type": "acme.gadget",
           "op_type": "set-status",
           "op_version": 1
         },
         {
-          "commit": "c822e13c19182c6607a53fa27af16ded08248145",
-          "object_type": "gadget",
+          "commit": "1acf6961a0dc296be4055dd4fcdf830290c3e88b",
+          "object_type": "acme.gadget",
           "op_type": "set-kind",
           "op_version": 1
         },
         {
-          "commit": "84eb452fb4b70cf3f34e2e4d393f5a552630ceea",
-          "object_type": "gadget",
+          "commit": "bffe5b160c2b8fcacbe225fca95f247f31b78307",
+          "object_type": "acme.gadget",
           "op_type": "set-note",
           "op_version": 1
         },
         {
-          "commit": "862b7e88e1d18b905741cfbe402fd340f368c0e6",
-          "object_type": "gadget",
+          "commit": "d9328a2db3c89a8d8f3d4ce22a6728c5e1d4821d",
+          "object_type": "acme.gadget",
           "op_type": "set-pair",
           "op_version": 1
         }

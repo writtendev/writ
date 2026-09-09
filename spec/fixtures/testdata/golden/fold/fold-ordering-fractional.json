@@ -2,20 +2,20 @@
   "objects": [
     {
       "object_id": "w-fractional-order",
-      "object_type": "widget",
+      "object_type": "acme.widget",
       "total_order": [
         {
-          "commit": "b0a7ba33a525f7a555828dc81c21920bec5f3cf2",
+          "commit": "86dfb724ac96d853ca4884a33d03b2d417effb10",
           "label": "alice-create",
           "t_star": 1767225600
         },
         {
-          "commit": "7ce5346a8dee879825acc881d6b37ec7f2b0ec5f",
+          "commit": "4489ec5188e7fba8b67f5e29f4a57cce8cfbf55b",
           "label": "alice-insert",
           "t_star": 1767225660
         },
         {
-          "commit": "eb04a600c9da92ee025882dab2a1f6959eeaa89b",
+          "commit": "4e56530d024e41954ee76586204971adffaff2c5",
           "label": "bob-insert",
           "t_star": 1767225660
         }

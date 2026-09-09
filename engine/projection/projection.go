@@ -191,9 +191,9 @@ func (d *DB) resetSchema() error {
 			return err
 		}
 		if objType == "view" {
-			drops = append(drops, fmt.Sprintf("DROP VIEW IF EXISTS %s", name))
+			drops = append(drops, fmt.Sprintf("DROP VIEW IF EXISTS %s", quoteIdent(name)))
 		} else {
-			drops = append(drops, fmt.Sprintf("DROP TABLE IF EXISTS %s", name))
+			drops = append(drops, fmt.Sprintf("DROP TABLE IF EXISTS %s", quoteIdent(name)))
 		}
 	}
 	_ = rows.Close()
@@ -400,7 +400,7 @@ func (d *DB) ApplySchema(rules map[string][]state.Rule) error {
 		}
 		sort.Strings(dropNames)
 		for _, name := range dropNames {
-			if _, err := tx.Exec("DROP TABLE IF EXISTS " + name); err != nil {
+			if _, err := tx.Exec("DROP TABLE IF EXISTS " + quoteIdent(name)); err != nil {
 				return fmt.Errorf("projection: drop table %s: %w", name, err)
 			}
 		}

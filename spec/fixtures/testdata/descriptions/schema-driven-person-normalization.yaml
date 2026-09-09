@@ -42,7 +42,7 @@ refs:
               op_type: define-type
               op_version: 1
               body:
-                type: "person-vocab"
+                type: "acme.person-vocab"
             expect: accept
 
           - id: define-field-lww
@@ -55,7 +55,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "person-vocab"
+                type: "acme.person-vocab"
                 op_type: "set"
                 op_version: "1"
                 field: "owner_lww"
@@ -73,7 +73,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "person-vocab"
+                type: "acme.person-vocab"
                 op_type: "claim"
                 op_version: "1"
                 field: "owner_once"
@@ -91,7 +91,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "person-vocab"
+                type: "acme.person-vocab"
                 op_type: "record"
                 op_version: "1"
                 field: "owner_multi"
@@ -109,7 +109,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "person-vocab"
+                type: "acme.person-vocab"
                 op_type: "log"
                 op_version: "1"
                 field: "owner_list"
@@ -127,7 +127,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "person-vocab"
+                type: "acme.person-vocab"
                 op_type: "endorse"
                 op_version: "1"
                 field: "endorsers"
@@ -145,7 +145,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "person-vocab"
+                type: "acme.person-vocab"
                 op_type: "assign"
                 op_version: "1"
                 field: "add"
@@ -163,7 +163,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "person-vocab"
+                type: "acme.person-vocab"
                 op_type: "assign"
                 op_version: "1"
                 field: "remove"
@@ -181,7 +181,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "person-vocab"
+                type: "acme.person-vocab"
                 op_type: "vote"
                 op_version: "1"
                 field: "voter"
@@ -202,7 +202,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "person-vocab"
+                type: "acme.person-vocab"
                 op_type: "endorse-key"
                 op_version: "1"
                 field: "note"
@@ -221,7 +221,7 @@ refs:
             timestamp: 2026-01-01T00:11:00Z
             op:
               object_id: pv-1
-              object_type: person-vocab
+              object_type: acme.person-vocab
               op_type: set
               op_version: 1
               body:
@@ -234,7 +234,7 @@ refs:
             timestamp: 2026-01-01T00:12:00Z
             op:
               object_id: pv-1
-              object_type: person-vocab
+              object_type: acme.person-vocab
               op_type: claim
               op_version: 1
               body:
@@ -247,7 +247,7 @@ refs:
             timestamp: 2026-01-01T00:13:00Z
             op:
               object_id: pv-1
-              object_type: person-vocab
+              object_type: acme.person-vocab
               op_type: record
               op_version: 1
               body:
@@ -260,7 +260,7 @@ refs:
             timestamp: 2026-01-01T00:14:00Z
             op:
               object_id: pv-1
-              object_type: person-vocab
+              object_type: acme.person-vocab
               op_type: log
               op_version: 1
               body:
@@ -273,7 +273,7 @@ refs:
             timestamp: 2026-01-01T00:15:00Z
             op:
               object_id: pv-1
-              object_type: person-vocab
+              object_type: acme.person-vocab
               op_type: endorse
               op_version: 1
               body:
@@ -286,7 +286,7 @@ refs:
             timestamp: 2026-01-01T00:16:00Z
             op:
               object_id: pv-1
-              object_type: person-vocab
+              object_type: acme.person-vocab
               op_type: assign
               op_version: 1
               body:
@@ -299,7 +299,7 @@ refs:
             timestamp: 2026-01-01T00:17:00Z
             op:
               object_id: pv-1
-              object_type: person-vocab
+              object_type: acme.person-vocab
               op_type: vote
               op_version: 1
               body:
@@ -313,7 +313,7 @@ refs:
             timestamp: 2026-01-01T00:18:00Z
             op:
               object_id: pv-1
-              object_type: person-vocab
+              object_type: acme.person-vocab
               op_type: endorse-key
               op_version: 1
               body:

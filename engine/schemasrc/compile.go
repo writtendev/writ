@@ -64,6 +64,16 @@ type compiledField struct {
 // which RulesFromSchemas treats as a collision and responds to by
 // withholding all rules for those types.
 //
+// Every declared type's bare source name is qualified with f.Namespace
+// before it becomes the wire object_type: "type standup" under "namespace
+// acme" emits "acme.standup" (WRIT-217). This is what lets two
+// independently authored schemas each declare a type of the same bare
+// name without contending for one global object_type — the qualification
+// happens once, in compileType, and every define-type/define-op/
+// define-field/deprecate-type/deprecate-field body that carries "type"
+// takes this qualified form. Render is the reverse: it strips
+// "f.Namespace." back off before rendering a type's own name.
+//
 // Compile's own emission order is deterministic and canonically sorted
 // (create; then, per type in name order, define-type, deprecate-type,
 // every define-op sorted by (op_type, op_version), every define-field
@@ -129,7 +139,7 @@ func Compile(f *File, objectID string) ([]codec.Envelope, error) {
 		}
 		seenTypeNames[t.Name] = true
 
-		typeEnvs, err := compileType(f.Name, objectID, t)
+		typeEnvs, err := compileType(f.Name, objectID, f.Namespace, t)
 		if err != nil {
 			return nil, err
 		}
@@ -139,10 +149,19 @@ func Compile(f *File, objectID string) ([]codec.Envelope, error) {
 	return envs, nil
 }
 
-func compileType(fileName, objectID string, t *Type) ([]codec.Envelope, error) {
+func compileType(fileName, objectID, namespace string, t *Type) ([]codec.Envelope, error) {
 	var envs []codec.Envelope
 
-	defineTypeBody := map[string]any{"type": t.Name}
+	// qualifiedName is the single choke point where a source file's bare
+	// type name becomes the wire object_type: <namespace>.<type>
+	// (WRIT-217). Every body below that carries "type" takes this
+	// qualified form, because it is used verbatim as object_type
+	// (schema-ops.md §4.2) — Render (render.go) is the reverse, stripping
+	// this same "namespace." prefix back off before validating against
+	// typeNamePattern.
+	qualifiedName := namespace + "." + t.Name
+
+	defineTypeBody := map[string]any{"type": qualifiedName}
 	if t.Description != "" {
 		defineTypeBody["description"] = t.Description
 	}
@@ -153,7 +172,7 @@ func compileType(fileName, objectID string, t *Type) ([]codec.Envelope, error) {
 	envs = append(envs, env)
 
 	if t.Deprecated {
-		env, err := envelope(objectID, "deprecate-type", map[string]any{"type": t.Name, "deprecated": true})
+		env, err := envelope(objectID, "deprecate-type", map[string]any{"type": qualifiedName, "deprecated": true})
 		if err != nil {
 			return nil, err
 		}
@@ -192,7 +211,7 @@ func compileType(fileName, objectID string, t *Type) ([]codec.Envelope, error) {
 	sort.Slice(opOrder, func(i, j int) bool { return opKeyLess(opOrder[i], opOrder[j]) })
 	for _, k := range opOrder {
 		co := ops[k]
-		body := map[string]any{"type": t.Name, "op_type": k.opType, "op_version": opVersionString(k.opVersion)}
+		body := map[string]any{"type": qualifiedName, "op_type": k.opType, "op_version": opVersionString(k.opVersion)}
 		if co.description != "" {
 			body["description"] = co.description
 		}
@@ -223,7 +242,7 @@ func compileType(fileName, objectID string, t *Type) ([]codec.Envelope, error) {
 	targetBindings := make(map[string][]spec.FieldRule) // TargetKey() -> every rule bound to it
 	for _, k := range fieldOrder {
 		cf := fields[k]
-		body, err := fieldBody(t.Name, k, cf.field)
+		body, err := fieldBody(qualifiedName, k, cf.field)
 		if err != nil {
 			return nil, err
 		}
@@ -253,7 +272,7 @@ func compileType(fileName, objectID string, t *Type) ([]codec.Envelope, error) {
 			continue
 		}
 		env, err := envelope(objectID, "deprecate-field", map[string]any{
-			"type": t.Name, "op_type": k.opType, "op_version": opVersionString(k.opVersion),
+			"type": qualifiedName, "op_type": k.opType, "op_version": opVersionString(k.opVersion),
 			"field": k.field, "deprecated": true,
 		})
 		if err != nil {

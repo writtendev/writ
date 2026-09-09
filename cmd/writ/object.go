@@ -6,7 +6,7 @@
 // needs.
 //
 // Writ hard-codes no object type but `schema` itself, so it cannot offer a
-// good per-type verb for one: `writ object create ticket create -field
+// good per-type verb for one: `writ object create acme.ticket create -field
 // title=...` is worse to type than a hand-written `writ ticket create
 // -title ...` would be. That is expected -- nice per-type porcelain is a
 // job for whatever layer owns the schema, built on --json. This file adds

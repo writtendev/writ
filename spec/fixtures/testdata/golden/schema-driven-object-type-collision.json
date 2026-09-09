@@ -2,15 +2,15 @@
   "refs": [
     {
       "name": "refs/writ/0123456789abcdef/schema",
-      "commit": "dfbf24d337a59814079b518a2f0074877a8dea71"
+      "commit": "5188c1346a04e338c613efb79428f84c1bb3c814"
     },
     {
       "name": "refs/writ/fedcba9876543210/schema",
-      "commit": "d73564527fdfe4aaeb49e4a8d9a723832dbd580a"
+      "commit": "588faaffe5bacf0d56429a45ad1704a9ae0c64da"
     },
     {
       "name": "refs/writ/0123456789abcdef/gadget",
-      "commit": "95a637ce4411091b17c256515a19861285b8210f"
+      "commit": "4805bf74ac8beffd6b15deb147be067d5e047d90"
     }
   ],
   "generations": [
@@ -19,8 +19,8 @@
       "index": 0,
       "commits": [
         {
-          "sha": "f27a9907fbaecfa542b3a9d84b0242f887f91fb0",
-          "tree": "ba1ed2431a5a1d8b626583722a39d649413f40c8",
+          "sha": "300fed9ecea57344b1457642e223b18eb92ca876",
+          "tree": "5f78fe044d7bd0b5bf0fc27a3248378f18fa700b",
           "parents": [],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:00:00Z",
@@ -28,10 +28,10 @@
           "signed": true
         },
         {
-          "sha": "4d0e50eaf4b1e6ea6a0410afe6022d04871a2a69",
-          "tree": "a0cd5fdda5bc2625f2210f2ef56cd29fb43c64a3",
+          "sha": "aa0eb104c6889a1c89aad9731f75dd3075d5337d",
+          "tree": "602c4d6c1303d26792ce223186afff08b3ae856b",
           "parents": [
-            "f27a9907fbaecfa542b3a9d84b0242f887f91fb0"
+            "300fed9ecea57344b1457642e223b18eb92ca876"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:01:00Z",
@@ -39,10 +39,10 @@
           "signed": true
         },
         {
-          "sha": "dfbf24d337a59814079b518a2f0074877a8dea71",
-          "tree": "8f15c71bb1513b43942ca74cb7b448b72912ddf2",
+          "sha": "5188c1346a04e338c613efb79428f84c1bb3c814",
+          "tree": "9b4b13124b35276001db99f5a3ae85c12c812ca5",
           "parents": [
-            "4d0e50eaf4b1e6ea6a0410afe6022d04871a2a69"
+            "aa0eb104c6889a1c89aad9731f75dd3075d5337d"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:02:00Z",
@@ -56,8 +56,8 @@
       "index": 0,
       "commits": [
         {
-          "sha": "4e0a6b805562fbe78512f357b3e3c73b014ef2ae",
-          "tree": "3b4b112a2edbc8c417c797aba4167d4d19badb3a",
+          "sha": "92e91cd596fcc7b03beb2a7bbf05be803738dfd6",
+          "tree": "c01fcf53c37c547f48601744411d99722645d76a",
           "parents": [],
           "author": "Bob Example \u003cbob@example.test\u003e",
           "timestamp": "2026-01-01T00:00:30Z",
@@ -65,10 +65,10 @@
           "signed": true
         },
         {
-          "sha": "7a50970940b1569c1a7b80ef618f075bbcd24461",
-          "tree": "f31651cfe9379fdc5880027c20a6edcfc20dde44",
+          "sha": "d84a5fba22523991c6225cdb601b03198db114d8",
+          "tree": "87ed00ab681cbc21c0d1a8acf75da2226db4ea2e",
           "parents": [
-            "4e0a6b805562fbe78512f357b3e3c73b014ef2ae"
+            "92e91cd596fcc7b03beb2a7bbf05be803738dfd6"
           ],
           "author": "Bob Example \u003cbob@example.test\u003e",
           "timestamp": "2026-01-01T00:01:30Z",
@@ -76,10 +76,10 @@
           "signed": true
         },
         {
-          "sha": "d73564527fdfe4aaeb49e4a8d9a723832dbd580a",
-          "tree": "e9eefedfd282fc74a81340f7e7932a05a5c577f9",
+          "sha": "588faaffe5bacf0d56429a45ad1704a9ae0c64da",
+          "tree": "7f7d3b0599085390c199089cbb51b2642e249aa2",
           "parents": [
-            "7a50970940b1569c1a7b80ef618f075bbcd24461"
+            "d84a5fba22523991c6225cdb601b03198db114d8"
           ],
           "author": "Bob Example \u003cbob@example.test\u003e",
           "timestamp": "2026-01-01T00:02:30Z",
@@ -93,12 +93,12 @@
       "index": 0,
       "commits": [
         {
-          "sha": "95a637ce4411091b17c256515a19861285b8210f",
-          "tree": "709284f42de7af6191626d2100ae1d0fce161f5d",
+          "sha": "4805bf74ac8beffd6b15deb147be067d5e047d90",
+          "tree": "109e0f01e1038636496ae67a6c33d3be6647d241",
           "parents": [],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:03:00Z",
-          "message": "writ: create gadget/gadget-1\n",
+          "message": "writ: create shared-vocab.gadget/gadget-1\n",
           "signed": true
         }
       ]

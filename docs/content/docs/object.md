@@ -18,7 +18,7 @@ writ object list   [<type>] [-author <a>]... [-text <q>] [-include-deleted] [-li
 
 Writ knows merge types and value types, not SDLC types: the vocabulary of `review`, `issue`, `comment`, and the rest is a schema declared as data (`writ.schema`, `writ schema plan`/`apply`), the same way git knows nothing about GitHub. `writ object` is the CLI surface for any type that vocabulary declares, including a type writ has never heard of.
 
-This is **plumbing**, not porcelain. `writ object create ticket create -field title=...` is worse to type than a hand-written `writ ticket create -title ...` would be — that is expected and correct, not a rough edge to smooth over. Writ no longer knows what a `ticket` is, so it cannot offer a good per-type verb for one. Nice per-type porcelain is a job for whatever layer owns the schema, built on `--json`. Nothing here generates subcommands, flags, or help text from the schema dynamically: that would make all of it schema-dependent, for a CLI whose main consumer is agents reading `--json` anyway.
+This is **plumbing**, not porcelain. `writ object create acme.ticket create -field title=...` is worse to type than a hand-written `writ ticket create -title ...` would be — that is expected and correct, not a rough edge to smooth over. Writ no longer knows what a `ticket` is, so it cannot offer a good per-type verb for one. Nice per-type porcelain is a job for whatever layer owns the schema, built on `--json`. Nothing here generates subcommands, flags, or help text from the schema dynamically: that would make all of it schema-dependent, for a CLI whose main consumer is agents reading `--json` anyway.
 
 ## `create`
 
@@ -36,7 +36,7 @@ This is type-directed **parsing** only, never re-validation: enum membership, `m
 `-op-version` defaults to `0`, resolved from the installed vocabulary: unambiguous only when `<type>` declares exactly one version of `<op-type>`. A type declaring several versions of the same op type requires `-op-version` explicitly.
 
 ```console
-$ writ object create ticket create -field title="Fix the thing"
+$ writ object create acme.ticket create -field title="Fix the thing"
 0123456789abcdef0123456789abcdef
 ```
 
@@ -56,7 +56,7 @@ Folds `<object-id>`'s state directly from the log — never the projection cache
 ```console
 $ writ object show 0123456789abcdef0123456789abcdef
 object_id    0123456789abcdef0123456789abcdef
-object_type  ticket
+object_type  acme.ticket
 title        Fix the thing
 ```
 
@@ -65,8 +65,8 @@ title        Fix the thing
 Lists objects across every schema-declared type, or within one when `<type>` is given, served from the projection cache. `-author`, `-text`, `-include-deleted`, `-limit`, `-offset`, and `-sort` filter and page the results. A `<type>` the installed vocabulary does not declare is refused by name, the same way `create` and `schema show` refuse one — never a silent empty result indistinguishable from "no objects of that type." `schema` is queryable too, even though it is not schema-declared and so never appears among the names an unknown `<type>` error lists: it is writ's one hard-coded object type (`spec/schema-ops.md`), and `writ schema apply` leaves real `schema` rows for `object list schema` to find.
 
 ```console
-$ writ object list ticket -text urgent
-01234567 ticket  Alice <alice@example.com>  2026-01-01 00:00:00
+$ writ object list acme.ticket -text urgent
+01234567 acme.ticket  Alice <alice@example.com>  2026-01-01 00:00:00
 ```
 
 ## JSON output

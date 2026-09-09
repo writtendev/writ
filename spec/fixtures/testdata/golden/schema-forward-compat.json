@@ -2,7 +2,7 @@
   "refs": [
     {
       "name": "refs/writ/0123456789abcdef/schema",
-      "commit": "b34ac641d63f9414986a03d8c03225bf219cffe9"
+      "commit": "189e528a499987bb55384557063cac476d4599fb"
     }
   ],
   "generations": [
@@ -20,8 +20,8 @@
           "signed": true
         },
         {
-          "sha": "dd723bb136c8db8f35d2a01983cc5bce18a5dff2",
-          "tree": "8081e0b3299b30b0b030074a4633374a55fd9aee",
+          "sha": "b411e8ea912391d37078f6d92a28909ce33495ee",
+          "tree": "ea3ea26d75b060f073b99515a23dd45769be2ddf",
           "parents": [
             "be96ce1aef3856276d7778a5766e5bf5df3c16a3"
           ],
@@ -31,10 +31,10 @@
           "signed": true
         },
         {
-          "sha": "746fa8a0d13663133286aa38dd6970a1fce24316",
+          "sha": "e06157b6d45d80822aeecc4214756d1f7e5dde4d",
           "tree": "eddd842001daaf39a9b6401add1c92e2d9cea488",
           "parents": [
-            "dd723bb136c8db8f35d2a01983cc5bce18a5dff2"
+            "b411e8ea912391d37078f6d92a28909ce33495ee"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:02:00Z",
@@ -42,10 +42,10 @@
           "signed": true
         },
         {
-          "sha": "b34ac641d63f9414986a03d8c03225bf219cffe9",
-          "tree": "c4e8196104789bdac42055438f47c3f5024dc42c",
+          "sha": "189e528a499987bb55384557063cac476d4599fb",
+          "tree": "35efc95e5009c0dc70b16e60743b13e96fe2e95b",
           "parents": [
-            "746fa8a0d13663133286aa38dd6970a1fce24316"
+            "e06157b6d45d80822aeecc4214756d1f7e5dde4d"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:03:00Z",

@@ -648,6 +648,23 @@ func validOpTypeGrammar(opType string) bool {
 	return opType != "" && len(opType) <= opTypeMaxLength && opTypeGrammar.MatchString(opType)
 }
 
+// typeIsQualifiedForNamespace reports whether a declared type name is
+// exactly "<namespace>.<segment>" for a non-empty segment (WRIT-217): the
+// resolver-level gate that closes the global object_type namespace the
+// envelope grammar alone cannot, since spec/op-envelope.md's object_type
+// pattern only admits an optional dot and has no notion of which schema
+// object's namespace, if any, a given declaration is entitled to use. An
+// empty namespace (a schema whose own "create" op never set one) qualifies
+// nothing — there is no prefix to require agreement with, so every type
+// name it declares is refused here, not silently admitted as bare.
+func typeIsQualifiedForNamespace(typeName, namespace string) bool {
+	if namespace == "" {
+		return false
+	}
+	prefix := namespace + "."
+	return strings.HasPrefix(typeName, prefix) && len(typeName) > len(prefix)
+}
+
 // resolvedSchemaTypes is the shared collision/validation pass over folded
 // schema objects (spec/schema-ops.md §6, §7, §9), computed once and
 // consumed by both RulesFromSchemas (the fold engine's []Rule shape) and
@@ -765,8 +782,8 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 		}
 
 		for _, t := range sch.Types {
-			declared[t.Name] = true
 			if t.Name == "schema" {
+				declared[t.Name] = true
 				contested["schema"] = true
 				conflicts = append(conflicts, SchemaConflict{
 					ObjectType: "schema",
@@ -776,6 +793,29 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 				})
 				continue
 			}
+
+			// A declared type must be qualified with this schema object's
+			// own namespace (WRIT-217): the envelope grammar
+			// (spec/op-envelope.md) only admits object_type's optional
+			// "<segment>.<segment>" shape and has no idea what a namespace
+			// is, so it cannot enforce this — this resolver is the one
+			// place that can. Anything else — bare, one dot but a foreign
+			// namespace, more than one dot — is dropped and reported here,
+			// never installed, and never touches boundBy/contested for
+			// t.Name: a hand-crafted define-type squatting a name outside
+			// its own namespace must not contest another schema's
+			// legitimate binding of that same wire type.
+			if !typeIsQualifiedForNamespace(t.Name, sch.Namespace) {
+				conflicts = append(conflicts, SchemaConflict{
+					ObjectType: t.Name,
+					Namespace:  sch.Namespace,
+					ObjectIDs:  []string{sch.ObjectID},
+					Reason:     fmt.Sprintf("define-type %q is not qualified with this schema object's own namespace %q (must be %q) and was not installed", t.Name, sch.Namespace, sch.Namespace+".<type>"),
+				})
+				continue
+			}
+			declared[t.Name] = true
+
 			owner, bound := boundBy[t.Name]
 			if !bound {
 				boundBy[t.Name] = sch.ObjectID
@@ -798,7 +838,14 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 	deprecatedTypes := make(map[string]bool)
 	for _, sch := range sorted {
 		for _, t := range sch.Types {
-			if t.Name == "schema" || contested[t.Name] {
+			// Mirrors the first pass's namespace-qualification gate
+			// (WRIT-217): a type that failed it above never touched
+			// boundBy/declared and was never a candidate for contested
+			// either, so it must be excluded here by the same test, not
+			// inferred from contested[t.Name] alone — otherwise an
+			// unqualified declaration's own fields would still populate
+			// fields[t.Name] and end up installed regardless.
+			if t.Name == "schema" || contested[t.Name] || !typeIsQualifiedForNamespace(t.Name, sch.Namespace) {
 				continue
 			}
 

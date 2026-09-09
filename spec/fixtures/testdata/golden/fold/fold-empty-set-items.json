@@ -2,30 +2,30 @@
   "objects": [
     {
       "object_id": "w-empty-items",
-      "object_type": "widget",
+      "object_type": "acme.widget",
       "total_order": [
         {
-          "commit": "129d8bfb0d68d61ae967da44d1210e1eb00d8e63",
+          "commit": "05b3cfb5fc17a8f10d34ca2225d550e42ba09f25",
           "label": "alice-create",
           "t_star": 1769904000
         },
         {
-          "commit": "ebf48b13b3771ca47bebb0cf318eb7f9fa5d4bdb",
+          "commit": "e0e60ed18f292d4dd5b69231d1a634d1b4031d1b",
           "label": "alice-tag-with-empty",
           "t_star": 1769904060
         },
         {
-          "commit": "bcbc0e3fd3bc8a8df5bf8f6c8d559378ad68fb21",
+          "commit": "11f17a8d5ea4d3564095b7cd9e76d1f0442db54d",
           "label": "alice-assign-with-empty",
           "t_star": 1769904120
         },
         {
-          "commit": "ab7dd8b148cea179459fe8785a862900dfaee074",
+          "commit": "0b79c40e385f7c6ed63a61b117bb3e467902b25c",
           "label": "bob-concurrent-tag",
           "t_star": 1769904150
         },
         {
-          "commit": "65780e4159c6b0f86c2f153be754f9370b506958",
+          "commit": "94ce69b229ee581de68ae83a37faf8623da85cc2",
           "label": "alice-untag-with-empty",
           "t_star": 1769904180
         }
@@ -45,15 +45,15 @@
     },
     {
       "object_id": "w-empty-only",
-      "object_type": "widget",
+      "object_type": "acme.widget",
       "total_order": [
         {
-          "commit": "f073b76f971d69f85847252c52bdeb254562c269",
+          "commit": "d3627015fc4f416e13ee7ed9093e5071cce13e4c",
           "label": "alice-create-empty-only",
           "t_star": 1769904240
         },
         {
-          "commit": "60d6f37869c20999c7222ce7fb6b3c2e5cb5d43a",
+          "commit": "4741c921b668dcf7e589eaa696df3371247007df",
           "label": "alice-tag-empty-only",
           "t_star": 1769904300
         }

@@ -1,1 +1,1 @@
-{"body":{"base":"beef","head":"cafe"},"client_info":{"build":42,"name":"writ-web"},"object_id":"w-404","object_type":"widget","op_type":"create","op_version":1}
+{"body":{"base":"beef","head":"cafe"},"client_info":{"build":42,"name":"writ-web"},"object_id":"w-404","object_type":"acme.widget","op_type":"create","op_version":1}

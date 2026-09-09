@@ -7,7 +7,7 @@
         "namespace": "shared-namespace",
         "types": [
           {
-            "type": "widget-a",
+            "type": "shared-namespace.widget-a",
             "fields": [
               {
                 "field": "title",
@@ -28,7 +28,7 @@
         "namespace": "shared-namespace",
         "types": [
           {
-            "type": "widget-b",
+            "type": "shared-namespace.widget-b",
             "fields": [
               {
                 "field": "title",
@@ -56,10 +56,10 @@
   "objects": [
     {
       "object_id": "widget-a-1",
-      "object_type": "widget-a",
+      "object_type": "shared-namespace.widget-a",
       "total_order": [
         {
-          "commit": "36b1050693d5fc17ee17e05f3629f3ca5c655d46",
+          "commit": "d7dc7fdde9d3fe9e3ddc85a6246a9af5ee9c725e",
           "t_star": 1767225780
         }
       ],
@@ -69,10 +69,10 @@
     },
     {
       "object_id": "widget-b-1",
-      "object_type": "widget-b",
+      "object_type": "shared-namespace.widget-b",
       "total_order": [
         {
-          "commit": "590ec2915de51643b44d643f99d6b5155fce1031",
+          "commit": "4763128b5a32f8b9bc9ef67e2d123f1058e21f09",
           "t_star": 1767225810
         }
       ],

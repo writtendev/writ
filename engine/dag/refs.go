@@ -12,9 +12,37 @@ import (
 	"github.com/writtendev/writ/engine/identity"
 )
 
-// objectTypeRegexp mirrors the object-type rule in spec/ref-layout.md.
-// Writer-id validation lives in identity.ParseWriterID.
-var objectTypeRegexp = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+// objectTypeRegexp mirrors the object-type rule in spec/ref-layout.md: a
+// bare segment, or two such segments joined by exactly one dot — the
+// <namespace>.<type> qualified form WRIT-217 introduces so two
+// independently authored schema packages can each declare a type of the
+// same bare name without contending for one wire object_type. Each
+// segment is capped at 64 characters in the pattern itself, so the
+// qualified whole is capped at 129 (64 + '.' + 64) by construction; see
+// objectTypeMaxLength. Writer-id validation lives in
+// identity.ParseWriterID.
+var objectTypeRegexp = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}(\.[a-z][a-z0-9-]{0,63})?$`)
+
+// objectTypeMaxLength is object_type's own bound (spec/op-envelope.md):
+// two 64-character segments plus the separating dot. Belt-and-braces
+// alongside objectTypeRegexp's own per-segment {0,63} bound, not the
+// grammar's only enforcement of it.
+const objectTypeMaxLength = 129
+
+// objectTypeEndsInLock reports whether objType's final "."-delimited
+// segment (or the whole string, if it carries no dot) is exactly "lock" —
+// the one object-type shape that is grammar-legal but ref-unwritable:
+// git rejects any slash-separated ref path component ending in ".lock"
+// outright (verified against real git: `git check-ref-format
+// refs/writ/<writer-id>/acme.lock` fails, while `.../acme.standup`
+// succeeds). A namespace of "lock" is fine ("lock.thing" is a legal, ref-
+// writable object type); the exclusion is on the trailing segment alone.
+func objectTypeEndsInLock(objType string) bool {
+	if i := strings.LastIndexByte(objType, '.'); i >= 0 {
+		return objType[i+1:] == "lock"
+	}
+	return objType == "lock"
+}
 
 // ChainRef represents a parsed Writ append chain reference.
 type ChainRef struct {
@@ -48,7 +76,7 @@ func ParseChainRef(ref string) (ChainRef, error) {
 			return ChainRef{}, fmt.Errorf("dag: invalid writer-id in ref %q: %w", ref, err)
 		}
 		objType := parts[1]
-		if len(objType) == 0 || len(objType) > 64 || !objectTypeRegexp.MatchString(objType) {
+		if len(objType) == 0 || len(objType) > objectTypeMaxLength || !objectTypeRegexp.MatchString(objType) || objectTypeEndsInLock(objType) {
 			return ChainRef{}, fmt.Errorf("dag: invalid object-type %q in ref %q", objType, ref)
 		}
 		return ChainRef{
@@ -77,7 +105,7 @@ func ParseChainRef(ref string) (ChainRef, error) {
 			return ChainRef{}, fmt.Errorf("dag: invalid writer-id in ref %q: %w", ref, err)
 		}
 		objType := parts[1]
-		if len(objType) == 0 || len(objType) > 64 || !objectTypeRegexp.MatchString(objType) {
+		if len(objType) == 0 || len(objType) > objectTypeMaxLength || !objectTypeRegexp.MatchString(objType) || objectTypeEndsInLock(objType) {
 			return ChainRef{}, fmt.Errorf("dag: invalid object-type %q in ref %q", objType, ref)
 		}
 		return ChainRef{
