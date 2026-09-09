@@ -159,5 +159,12 @@
     "col": 34,
     "message": "invalid key column name \"Subject\"; must match ^[a-z][a-z0-9_]*$",
     "reason": "WRIT-203: parseKeyModifier now validates a key(...) column name through fieldNamePattern, like parseTargetModifier already does for target(...) — 'Subject' starts with an uppercase letter, which the grammar does not admit, so it is caught here at Parse time with a positional error naming the key column rather than surfacing downstream from spec.ValidateFieldRule at Compile time with no source position"
+  },
+  {
+    "file": "key-column-reserved-word.schema",
+    "line": 5,
+    "col": 34,
+    "message": "\"deprecated\" is a reserved word and cannot be used as a key column name; a key column name draws from the same namespace as a field name, so it stays reserved everywhere a field name is",
+    "reason": "WRIT-203 round 2: parseKeyModifier passes fieldReserved to validateName exactly as parseTargetModifier already does, so key(deprecated string) -- wire-legal under the tightened key_column_name grammar -- is rejected at Parse with a positional error naming the key column, matching target(deprecated)'s existing precedent (spec/schema-source.md §2, §3.3)"
   }
 ]

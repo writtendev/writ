@@ -302,6 +302,32 @@ func TestRulesFromSchemas_InvalidOpTypeGrammarDroppedNotInstalled(t *testing.T) 
 // agreement check or pass 3's target-agreement check. A malformed target
 // or key column is a defect of one rule: dropping it must not withhold a
 // sibling rule that legitimately binds its own, well-formed target.
+//
+// summary/code/owner/tags alone would not discriminate *where* the check
+// runs: each malformed rule there is alone in its byTarget/byKeyColumn
+// group, so the assertions below would pass identically whether the
+// grammar check lived in pass 1, or was folded into pass 2's
+// CheckKeyColumnAgreement or pass 3's CheckTargetAgreement instead (round
+// 2 finding 1 on WRIT-203's PR). alpha/beta and gamma/delta close that
+// gap: each pairs a malformed rule with a legitimate sibling it would
+// poison if the grammar check ever moved into the grouping pass that
+// sees them together.
+//
+//   - alpha (good) and beta (bad) both bind target "shared" — the same
+//     shape pass 3 groups by. beta's key column "Bad Col2" fails the
+//     grammar, so pass 1 drops beta before byTarget is even built, and
+//     alpha installs alone. Move the check into CheckTargetAgreement and
+//     beta survives to pass 3, where it and alpha disagree on strategy
+//     (lww vs keyed-lww) — CheckTargetAgreement then withholds both,
+//     wrongly taking alpha down with it.
+//   - gamma (good) and delta (bad) share op_type/op_version "set-subject"/1
+//     and both bind key column "subject" — the shape pass 2 groups by.
+//     delta's target "bad-target2" fails the grammar, so pass 1 drops
+//     delta before byKeyColumn is built, and gamma installs alone. Move
+//     the check into CheckKeyColumnAgreement and delta survives to pass
+//     2, where it and gamma disagree on key_types for "subject"
+//     (person-ref vs string) — CheckKeyColumnAgreement then withholds
+//     both, wrongly taking gamma down with it.
 func TestRulesFromSchemas_InvalidTargetOrKeyGrammarDroppedNotInstalled(t *testing.T) {
 	sch := state.Schema{
 		ObjectID: "sch-a",
@@ -313,6 +339,17 @@ func TestRulesFromSchemas_InvalidTargetOrKeyGrammarDroppedNotInstalled(t *testin
 					{Name: "code", OpType: "create", OpVersion: 1, Strategy: "lww", ValueType: "string", Target: "identifier"},                                                             // valid target, sibling
 					{Name: "owner", OpType: "create", OpVersion: 1, Strategy: "lww", ValueType: "string", Target: "bad-target"},                                                            // hyphen not in field_name's grammar - invalid
 					{Name: "tags", OpType: "create", OpVersion: 1, Strategy: "keyed-lww", ValueType: "string", Key: []string{"Bad Col"}, KeyTypes: map[string]string{"Bad Col": "string"}}, // space and uppercase - invalid
+
+					// Discriminates pass 1 from pass 3 (shared target).
+					{Name: "alpha", OpType: "set-alpha", OpVersion: 1, Strategy: "lww", ValueType: "string", Target: "shared"}, // valid, would collide with beta if beta ever reached pass 3
+					{Name: "beta", OpType: "set-beta", OpVersion: 1, Strategy: "keyed-lww", ValueType: "string",
+						Key: []string{"Bad Col2"}, KeyTypes: map[string]string{"Bad Col2": "string"}, Target: "shared"}, // invalid key column; also targets "shared"
+
+					// Discriminates pass 1 from pass 2 (shared key column).
+					{Name: "gamma", OpType: "set-subject", OpVersion: 1, Strategy: "keyed-lww", ValueType: "string",
+						Key: []string{"subject"}, KeyTypes: map[string]string{"subject": "person-ref"}}, // valid, would collide with delta if delta ever reached pass 2
+					{Name: "delta", OpType: "set-subject", OpVersion: 1, Strategy: "keyed-lww", ValueType: "string",
+						Key: []string{"subject"}, KeyTypes: map[string]string{"subject": "string"}, Target: "bad-target2"}, // invalid target; also binds key column "subject"
 				},
 			},
 		},
@@ -320,18 +357,20 @@ func TestRulesFromSchemas_InvalidTargetOrKeyGrammarDroppedNotInstalled(t *testin
 
 	rules, conflicts := writ.RulesFromSchemas([]state.Schema{sch})
 	got := rules["standup"]
-	if len(got) != 2 {
-		t.Fatalf("expected only the two grammatically valid fields installed, got %+v", got)
+	if len(got) != 4 {
+		t.Fatalf("expected only the four grammatically valid fields installed, got %+v", got)
 	}
 	gotFields := map[string]bool{}
 	for _, r := range got {
 		gotFields[r.Field] = true
 	}
-	if !gotFields["summary"] || !gotFields["code"] {
-		t.Fatalf("expected summary and code installed, got %+v", got)
+	for _, want := range []string{"summary", "code", "alpha", "gamma"} {
+		if !gotFields[want] {
+			t.Fatalf("expected %s installed, got %+v", want, got)
+		}
 	}
-	if len(conflicts) != 2 {
-		t.Fatalf("expected 2 conflicts for the bad target and the bad key column, got %+v", conflicts)
+	if len(conflicts) != 4 {
+		t.Fatalf("expected 4 conflicts, one per bad rule (owner, tags, beta, delta), got %+v", conflicts)
 	}
 	for _, c := range conflicts {
 		if !strings.Contains(c.Reason, "is invalid and was not installed") {
@@ -359,6 +398,42 @@ func TestRulesFromSchemas_InvalidTargetOrKeyGrammarDroppedNotInstalled(t *testin
 	}
 	if got := objState.State["identifier"]; got != "abc" {
 		t.Fatalf("expected code's target identifier to fold normally, got %+v", got)
+	}
+
+	// alpha and gamma survive pass 1 alongside their poisoned siblings and
+	// fold normally under their own, unrelated ops.
+	alphaOp := codec.Op{
+		Envelope: codec.Envelope{
+			ObjectID: "obj-1", ObjectType: "standup", OpType: "set-alpha", OpVersion: 1,
+			Body: json.RawMessage(`{"alpha":"left"}`),
+		},
+		ID: "op-2",
+	}
+	gammaOp := codec.Op{
+		Envelope: codec.Envelope{
+			ObjectID: "obj-1", ObjectType: "standup", OpType: "set-subject", OpVersion: 1,
+			Body: json.RawMessage(`{"gamma":"urgent","subject":"person-1","delta":"ignored"}`),
+		},
+		ID: "op-3",
+	}
+	objState2, err := writ.Fold([]codec.Op{alphaOp, gammaOp}, rules["standup"])
+	if err != nil {
+		t.Fatalf("Fold on alpha/gamma's own ops: %v", err)
+	}
+	if len(objState2.UnknownOps) != 0 {
+		t.Fatalf("expected alpha's and gamma's ops to fold normally, got unknown ops %+v", objState2.UnknownOps)
+	}
+	if got := objState2.State["shared"]; got != "left" {
+		t.Fatalf("expected alpha's target shared to fold normally, got %+v", got)
+	}
+	gammaEntries, _ := objState2.State["gamma"].([]any)
+	if len(gammaEntries) != 1 {
+		t.Fatalf("expected gamma's keyed-lww state to fold normally, got %+v", objState2.State["gamma"])
+	}
+	entry, _ := gammaEntries[0].(map[string]any)
+	key, _ := entry["key"].([]string)
+	if len(key) != 1 || key[0] != "person-1" || entry["value"] != "urgent" {
+		t.Fatalf("expected gamma's keyed-lww state to fold normally, got %+v", entry)
 	}
 }
 
