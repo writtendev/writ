@@ -867,15 +867,15 @@ func TestRulesFromSchemas_SharedKeyColumnDisagreementIsOrderIndependent(t *testi
 
 	dataOps := []codec.Op{
 		{
-			Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "widget", OpType: "approve", OpVersion: 1, Body: json.RawMessage(`{"aa":"yes","subject":"p-1"}`)},
+			Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "acme.widget", OpType: "approve", OpVersion: 1, Body: json.RawMessage(`{"aa":"yes","subject":"p-1"}`)},
 			ID:       "approve-aa",
 		},
 		{
-			Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "widget", OpType: "approve", OpVersion: 1, Body: json.RawMessage(`{"mm":"7","subject":"p-1","phase":"beta"}`)},
+			Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "acme.widget", OpType: "approve", OpVersion: 1, Body: json.RawMessage(`{"mm":"7","subject":"p-1","phase":"beta"}`)},
 			ID:       "approve-mm",
 		},
 		{
-			Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "widget", OpType: "approve", OpVersion: 1, Body: json.RawMessage(`{"zz":"no","subject":"p-1"}`)},
+			Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "acme.widget", OpType: "approve", OpVersion: 1, Body: json.RawMessage(`{"zz":"no","subject":"p-1"}`)},
 			ID:       "approve-zz",
 		},
 	}
@@ -890,20 +890,21 @@ func TestRulesFromSchemas_SharedKeyColumnDisagreementIsOrderIndependent(t *testi
 		r.Shuffle(len(fields), func(a, b int) { fields[a], fields[b] = fields[b], fields[a] })
 
 		schemas := []state.Schema{{
-			ObjectID: "sch-a",
-			Types:    []state.SchemaType{{Name: "widget", Fields: fields}},
+			ObjectID:  "sch-a",
+			Namespace: "acme",
+			Types:     []state.SchemaType{{Name: "acme.widget", Fields: fields}},
 		}}
 		r.Shuffle(len(schemas), func(a, b int) { schemas[a], schemas[b] = schemas[b], schemas[a] })
 
 		rules, conflicts := writ.RulesFromSchemas(schemas)
-		if got := rules["widget"]; len(got) != 0 {
+		if got := rules["acme.widget"]; len(got) != 0 {
 			t.Fatalf("permutation #%d: expected every rule bound to the disagreeing key column withheld, got %+v", i, got)
 		}
 		if len(conflicts) != 1 {
 			t.Fatalf("permutation #%d: expected exactly 1 conflict, got %+v", i, conflicts)
 		}
 
-		objState, err := writ.Fold(dataOps, rules["widget"])
+		objState, err := writ.Fold(dataOps, rules["acme.widget"])
 		if err != nil {
 			t.Fatalf("permutation #%d: Fold: %v", i, err)
 		}
@@ -947,8 +948,8 @@ func schemaFromDefineFields(t *testing.T, defs []map[string]any) writ.Schema {
 		envs = append(envs, codec.Envelope{ObjectID: "sch-a", ObjectType: "schema", OpType: opType, OpVersion: 1, Body: raw})
 	}
 	add("create", map[string]any{"namespace": "acme"})
-	add("define-type", map[string]any{"type": "widget"})
-	add("define-op", map[string]any{"type": "widget", "op_type": "approve", "op_version": "1"})
+	add("define-type", map[string]any{"type": "acme.widget"})
+	add("define-op", map[string]any{"type": "acme.widget", "op_type": "approve", "op_version": "1"})
 	for _, d := range defs {
 		add("define-field", d)
 	}
@@ -975,13 +976,13 @@ func TestRulesFromSchemas_KeyColumnVerdictDoesNotTurnOnFieldNames(t *testing.T) 
 	// mm sorts between "aa" and "zz", so the two variants below differ in
 	// which rule fold's canonical sort presents first and in nothing else.
 	mm := map[string]any{
-		"type": "widget", "op_type": "approve", "op_version": "1", "field": "mm",
+		"type": "acme.widget", "op_type": "approve", "op_version": "1", "field": "mm",
 		"value_type": "string", "strategy": "keyed-lww",
 		"key": []string{"subject", "phase"}, "key_types": map[string]string{"subject": "string", "phase": "string"},
 	}
 	dissenter := func(name string) map[string]any {
 		return map[string]any{
-			"type": "widget", "op_type": "approve", "op_version": "1", "field": name,
+			"type": "acme.widget", "op_type": "approve", "op_version": "1", "field": name,
 			"value_type": "string", "strategy": "keyed-lww",
 			"key": []string{"subject"}, "key_types": map[string]string{"subject": "person-ref"},
 		}
@@ -991,17 +992,17 @@ func TestRulesFromSchemas_KeyColumnVerdictDoesNotTurnOnFieldNames(t *testing.T) 
 		t.Run("dissenting field named "+name, func(t *testing.T) {
 			schemas := []writ.Schema{schemaFromDefineFields(t, []map[string]any{dissenter(name), mm})}
 			rules, conflicts := writ.RulesFromSchemas(schemas)
-			if got := rules["widget"]; len(got) != 0 {
+			if got := rules["acme.widget"]; len(got) != 0 {
 				t.Fatalf("expected both rules bound to the disagreeing key column withheld, got %+v", got)
 			}
 			if len(conflicts) != 1 {
 				t.Fatalf("expected exactly 1 conflict, got %+v", conflicts)
 			}
 			op := codec.Op{
-				Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "widget", OpType: "approve", OpVersion: 1, Body: json.RawMessage(`{"` + name + `":"yes","subject":"p-1"}`)},
+				Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "acme.widget", OpType: "approve", OpVersion: 1, Body: json.RawMessage(`{"` + name + `":"yes","subject":"p-1"}`)},
 				ID:       "approve-1",
 			}
-			objState, err := writ.Fold([]codec.Op{op}, rules["widget"])
+			objState, err := writ.Fold([]codec.Op{op}, rules["acme.widget"])
 			if err != nil {
 				t.Fatalf("Fold: %v", err)
 			}
