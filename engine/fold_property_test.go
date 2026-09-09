@@ -10,7 +10,6 @@ import (
 	"math/rand"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	writ "github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/engine/codec"
@@ -69,22 +68,29 @@ func isValidOpSet(ops []codec.Op) bool {
 			// WRIT-197: codec.Op here is built straight from fuzzer-mutated
 			// JSON (json.Unmarshal(data, &fc)), never through
 			// codec.DecodePayload -- the real ingestion boundary every op
-			// crosses before Fold ever sees it, which refuses a payload
-			// whose bytes are not valid UTF-8 (canonicaljson.Marshal, the
-			// byte-equality rule; see engine/codec/decode.go). Unlike a
+			// crosses before Fold ever sees it. DecodePayload's byte-equality
+			// rule (canonicaljson.Marshal, engine/codec/decode.go) refuses a
+			// payload whose canonicalization fails outright, which per
+			// canonicaljson.Marshal's own doc comment happens for exactly
+			// three classes of input that encoding/json accepts and silently
+			// normalizes instead of erroring on: bytes that are not valid
+			// UTF-8, an object with a duplicate member key, and a string
+			// carrying a lone (unpaired) UTF-16 surrogate escape. Unlike a
 			// plain string field, o.Body is a json.RawMessage: unmarshaling
-			// into it round-trips raw bytes verbatim with no UTF-8
-			// sanitization, so a fuzz-mutated Body can carry invalid UTF-8
-			// straight past the check above into Fold. A create-once
-			// field's byte-exact raw preservation
-			// (engine/internal/fold/strategy.go, WRIT-124) then carries
-			// those bytes into State unchanged, and the harness's own
-			// canonical-JSON comparison (toCanonicalJSON) legitimately
+			// into it round-trips raw bytes verbatim with no sanitization, so
+			// fuzz-mutated JSON can carry any of the three straight past the
+			// json.Unmarshal check above into Fold. A create-once field's
+			// byte-exact raw preservation (engine/internal/fold/strategy.go,
+			// WRIT-124) then carries the offending bytes into State
+			// unchanged -- whether they sit in the top-level Body or nested
+			// inside one raw-preserved field's value -- and the harness's
+			// own canonical-JSON comparison (toCanonicalJSON) legitimately
 			// refuses to encode them -- a refusal DecodePayload would have
-			// produced too, just earlier. Reject here instead, the same
-			// way DecodePayload would, rather than let Fold see an op no
-			// real ingestion path would ever produce.
-			if !utf8.Valid(o.Body) {
+			// produced too, just earlier. Reject here instead, the same way
+			// DecodePayload would (by running the same canonicaljson.Marshal
+			// it runs), rather than let Fold see an op no real ingestion path
+			// would ever produce.
+			if _, err := canonicaljson.Marshal(o.Body); err != nil {
 				return false
 			}
 		}
@@ -1173,15 +1179,22 @@ func regressionVectorWRIT196() FuzzCase {
 }
 
 // WRIT-197: an op body whose raw bytes are not valid UTF-8 must be rejected
-// by isValidOpSet before the fold ever sees it. codec.Op here is built
-// directly from fuzzer-mutated JSON (json.Unmarshal(data, &fc)), never
-// through codec.DecodePayload -- the real ingestion boundary every op
-// crosses, which refuses exactly this payload via the byte-equality rule
-// (canonicaljson.Marshal, engine/codec/decode.go). Unlike a plain string
-// field, Body is a json.RawMessage: unmarshaling into it round-trips raw
-// bytes verbatim with no UTF-8 sanitization, so fuzz-mutated JSON can smuggle
-// an invalid byte through Go's (UTF-8-tolerant) JSON syntax scanner straight
-// into Fold. There a create-once field's byte-exact raw preservation
+// by isValidOpSet before the fold ever sees it. This is the first of three
+// sibling vectors (this one, regressionVectorWRIT197LoneSurrogate, and
+// regressionVectorWRIT197DuplicateKey) pinning the three input classes
+// canonicaljson.Marshal deliberately rejects rather than silently
+// normalizing (see its doc comment) -- isValidOpSet's guard now runs that
+// same function, and each vector isolates exactly one class so a guard
+// regression narrow enough to miss just one of the three still fails its
+// own dedicated vector. codec.Op here is built directly from fuzzer-mutated
+// JSON (json.Unmarshal(data, &fc)), never through codec.DecodePayload --
+// the real ingestion boundary every op crosses, which refuses exactly this
+// payload via the byte-equality rule (canonicaljson.Marshal,
+// engine/codec/decode.go). Unlike a plain string field, Body is a
+// json.RawMessage: unmarshaling into it round-trips raw bytes verbatim with
+// no UTF-8 sanitization, so fuzz-mutated JSON can smuggle an invalid byte
+// through Go's (UTF-8-tolerant) JSON syntax scanner straight into Fold.
+// There a create-once field's byte-exact raw preservation
 // (engine/internal/fold/strategy.go) carries the invalid bytes into State
 // unchanged, and canonicalizing that State for the writ.Fold/spec.Fold
 // byte-equality comparison (toCanonicalJSON) fails with "canonicaljson:
@@ -1207,6 +1220,91 @@ func regressionVectorWRIT197() FuzzCase {
 				OpType:     "create",
 				OpVersion:  1,
 				Body:       json.RawMessage(body),
+			},
+			Author: codec.Identity{When: now},
+		},
+	}
+	return FuzzCase{
+		Rules: rules,
+		Ops:   ops,
+	}
+}
+
+// WRIT-197 (round 2): second of the three sibling vectors -- see
+// regressionVectorWRIT197's comment for the shared rationale. A body
+// carrying a lone (unpaired) UTF-16 surrogate escape, e.g. \ud800 with no
+// following low surrogate, passes both json.Unmarshal (encoding/json
+// decodes an unpaired surrogate escape to U+FFFD rather than erroring) and
+// utf8.Valid (the raw escape text "\ud800" is itself plain ASCII, so the
+// lone surrogate is invisible at the byte level -- it only exists once the
+// escape is interpreted). isValidOpSet must therefore run
+// canonicaljson.Marshal itself, the same as DecodePayload does, rather than
+// re-deriving a narrower check: canonicaljson.Marshal detects the lone
+// surrogate by scanning the raw \u escape text directly (checkSurrogateEscapes
+// in engine/codec/canonicaljson/canonicaljson.go), which is exactly
+// what the byte-equality rule (Rule 2, engine/codec/decode.go) relies on to
+// refuse this payload during real ingestion. A create-once field's
+// byte-exact raw preservation then carries the escape into State unchanged,
+// and toCanonicalJSON fails with "canonicaljson: lone surrogate \ud800 in
+// string" -- the same refusal DecodePayload would have produced earlier, on
+// the op itself.
+func regressionVectorWRIT197LoneSurrogate() FuzzCase {
+	now := time.Unix(100, 0).UTC()
+	rules := []writ.Rule{
+		{OpType: "create", OpVersion: 1, Field: "title", Strategy: "create-once"},
+	}
+	ops := []codec.Op{
+		{
+			ID: "op-create",
+			Envelope: codec.Envelope{
+				ObjectID:   "obj-197-surrogate",
+				ObjectType: "synthetic-197-surrogate",
+				OpType:     "create",
+				OpVersion:  1,
+				Body:       json.RawMessage(`{"title":"a\ud800b"}`),
+			},
+			Author: codec.Identity{When: now},
+		},
+	}
+	return FuzzCase{
+		Rules: rules,
+		Ops:   ops,
+	}
+}
+
+// WRIT-197 (round 2): third of the three sibling vectors -- see
+// regressionVectorWRIT197's comment for the shared rationale. A body whose
+// raw text has a duplicate object key survives json.Unmarshal (encoding/json
+// keeps the last occurrence, silently) whenever the duplicate sits inside a
+// non-scalar create-once field's value: unmarshaling that value into
+// map[string]any collapses the duplicate away, but unmarshaling into the
+// rawBody map[string]json.RawMessage (engine/internal/fold/fold.go) captures
+// the field's raw text verbatim, duplicate key and all, because Go decodes
+// a json.RawMessage by byte range, not by re-serializing the parsed value.
+// isValidOpSet must therefore run canonicaljson.Marshal itself: it rejects a
+// duplicate object key by construction (decodeValue walks tokens rather than
+// decoding into a map, so it catches a repeated key the moment it appears),
+// exactly matching what the byte-equality rule (Rule 2,
+// engine/codec/decode.go) relies on to refuse this payload during real
+// ingestion. The create-once field's byte-exact raw preservation then
+// carries the duplicate-bearing object into State unchanged, and
+// toCanonicalJSON fails with `canonicaljson: duplicate object key "a"` --
+// the same refusal DecodePayload would have produced earlier, on the op
+// itself.
+func regressionVectorWRIT197DuplicateKey() FuzzCase {
+	now := time.Unix(100, 0).UTC()
+	rules := []writ.Rule{
+		{OpType: "create", OpVersion: 1, Field: "subject", Strategy: "create-once"},
+	}
+	ops := []codec.Op{
+		{
+			ID: "op-create",
+			Envelope: codec.Envelope{
+				ObjectID:   "obj-197-dupkey",
+				ObjectType: "synthetic-197-dupkey",
+				OpType:     "create",
+				OpVersion:  1,
+				Body:       json.RawMessage(`{"subject":{"a":1,"a":2}}`),
 			},
 			Author: codec.Identity{When: now},
 		},
@@ -1285,6 +1383,34 @@ func TestProperty_FoldThreeWay(t *testing.T) {
 		}
 		// Guard regressed: prove this reproduces the original failure
 		// (canonicaljson: input is not valid UTF-8 out of toCanonicalJSON),
+		// not just a symptom of the missing guard.
+		assertThreeWayFoldAbstract(t, c.Ops, c.Rules)
+	})
+
+	t.Run("Regression_WRIT_197_LoneSurrogateBodyRejectedByHarness", func(t *testing.T) {
+		c := regressionVectorWRIT197LoneSurrogate()
+		if !isValidOpSet(c.Ops) {
+			// Correctly filtered before Fold ever sees it. A real op could
+			// never reach this point with this Body: codec.DecodePayload
+			// refuses the same lone surrogate outright.
+			return
+		}
+		// Guard regressed: prove this reproduces the original failure
+		// (canonicaljson: lone surrogate \ud800 in string, out of
+		// toCanonicalJSON), not just a symptom of the missing guard.
+		assertThreeWayFoldAbstract(t, c.Ops, c.Rules)
+	})
+
+	t.Run("Regression_WRIT_197_DuplicateKeyBodyRejectedByHarness", func(t *testing.T) {
+		c := regressionVectorWRIT197DuplicateKey()
+		if !isValidOpSet(c.Ops) {
+			// Correctly filtered before Fold ever sees it. A real op could
+			// never reach this point with this Body: codec.DecodePayload
+			// refuses the same duplicate key outright.
+			return
+		}
+		// Guard regressed: prove this reproduces the original failure
+		// (canonicaljson: duplicate object key "a", out of toCanonicalJSON),
 		// not just a symptom of the missing guard.
 		assertThreeWayFoldAbstract(t, c.Ops, c.Rules)
 	})
@@ -1395,7 +1521,7 @@ func TestProperty_FoldThreeWay(t *testing.T) {
 // --------------------------------------------------------------------------
 
 func FuzzFoldThreeWay(f *testing.F) {
-	// Seed with the 8 regression vectors
+	// Seed with the 10 regression vectors
 	seedVectors := []FuzzCase{
 		regressionVectorWRIT112(),
 		regressionVectorWRIT116(),
@@ -1405,6 +1531,8 @@ func FuzzFoldThreeWay(f *testing.F) {
 		regressionVectorWRIT126(),
 		regressionVectorWRIT196(),
 		regressionVectorWRIT197(),
+		regressionVectorWRIT197LoneSurrogate(),
+		regressionVectorWRIT197DuplicateKey(),
 	}
 	for _, vec := range seedVectors {
 		if data, err := json.Marshal(vec); err == nil {
