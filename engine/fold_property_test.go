@@ -10,6 +10,7 @@ import (
 	"math/rand"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	writ "github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/engine/codec"
@@ -63,6 +64,27 @@ func isValidOpSet(ops []codec.Op) bool {
 		if len(o.Body) > 0 {
 			var bm map[string]any
 			if err := json.Unmarshal(o.Body, &bm); err != nil {
+				return false
+			}
+			// WRIT-197: codec.Op here is built straight from fuzzer-mutated
+			// JSON (json.Unmarshal(data, &fc)), never through
+			// codec.DecodePayload -- the real ingestion boundary every op
+			// crosses before Fold ever sees it, which refuses a payload
+			// whose bytes are not valid UTF-8 (canonicaljson.Marshal, the
+			// byte-equality rule; see engine/codec/decode.go). Unlike a
+			// plain string field, o.Body is a json.RawMessage: unmarshaling
+			// into it round-trips raw bytes verbatim with no UTF-8
+			// sanitization, so a fuzz-mutated Body can carry invalid UTF-8
+			// straight past the check above into Fold. A create-once
+			// field's byte-exact raw preservation
+			// (engine/internal/fold/strategy.go, WRIT-124) then carries
+			// those bytes into State unchanged, and the harness's own
+			// canonical-JSON comparison (toCanonicalJSON) legitimately
+			// refuses to encode them -- a refusal DecodePayload would have
+			// produced too, just earlier. Reject here instead, the same
+			// way DecodePayload would, rather than let Fold see an op no
+			// real ingestion path would ever produce.
+			if !utf8.Valid(o.Body) {
 				return false
 			}
 		}
@@ -1150,6 +1172,51 @@ func regressionVectorWRIT196() FuzzCase {
 	}
 }
 
+// WRIT-197: an op body whose raw bytes are not valid UTF-8 must be rejected
+// by isValidOpSet before the fold ever sees it. codec.Op here is built
+// directly from fuzzer-mutated JSON (json.Unmarshal(data, &fc)), never
+// through codec.DecodePayload -- the real ingestion boundary every op
+// crosses, which refuses exactly this payload via the byte-equality rule
+// (canonicaljson.Marshal, engine/codec/decode.go). Unlike a plain string
+// field, Body is a json.RawMessage: unmarshaling into it round-trips raw
+// bytes verbatim with no UTF-8 sanitization, so fuzz-mutated JSON can smuggle
+// an invalid byte through Go's (UTF-8-tolerant) JSON syntax scanner straight
+// into Fold. There a create-once field's byte-exact raw preservation
+// (engine/internal/fold/strategy.go) carries the invalid bytes into State
+// unchanged, and canonicalizing that State for the writ.Fold/spec.Fold
+// byte-equality comparison (toCanonicalJSON) fails with "canonicaljson:
+// input is not valid UTF-8" -- a refusal DecodePayload would have produced
+// too, just earlier, on the op itself rather than on the folded state.
+func regressionVectorWRIT197() FuzzCase {
+	now := time.Unix(100, 0).UTC()
+	rules := []writ.Rule{
+		{OpType: "create", OpVersion: 1, Field: "title", Strategy: "create-once"},
+	}
+	// 0xff is not a valid UTF-8 byte on its own. It survives Go's JSON
+	// syntax scanner (which does not enforce strict UTF-8) sitting raw
+	// inside a string literal, and survives unmarshaling into the
+	// json.RawMessage Body field verbatim -- unlike a plain string field,
+	// which json.Unmarshal would already have sanitized to U+FFFD.
+	body := append(append([]byte(`{"title":"x`), 0xff), []byte(`y"}`)...)
+	ops := []codec.Op{
+		{
+			ID: "op-create",
+			Envelope: codec.Envelope{
+				ObjectID:   "obj-197",
+				ObjectType: "synthetic-197",
+				OpType:     "create",
+				OpVersion:  1,
+				Body:       json.RawMessage(body),
+			},
+			Author: codec.Identity{When: now},
+		},
+	}
+	return FuzzCase{
+		Rules: rules,
+		Ops:   ops,
+	}
+}
+
 // --------------------------------------------------------------------------
 // 6. Test Suite & Property Tests
 // --------------------------------------------------------------------------
@@ -1206,6 +1273,20 @@ func TestProperty_FoldThreeWay(t *testing.T) {
 			}
 		}
 		assertThreeWayFoldAbstract(t, c.Ops, filtered)
+	})
+
+	t.Run("Regression_WRIT_197_NonUTF8BodyRejectedByHarness", func(t *testing.T) {
+		c := regressionVectorWRIT197()
+		if !isValidOpSet(c.Ops) {
+			// Correctly filtered before Fold ever sees it -- the fix. A real
+			// op could never reach this point with this Body:
+			// codec.DecodePayload refuses the same bytes outright.
+			return
+		}
+		// Guard regressed: prove this reproduces the original failure
+		// (canonicaljson: input is not valid UTF-8 out of toCanonicalJSON),
+		// not just a symptom of the missing guard.
+		assertThreeWayFoldAbstract(t, c.Ops, c.Rules)
 	})
 
 	t.Run("Review_CIStatusOnlyRevision", func(t *testing.T) {
@@ -1314,7 +1395,7 @@ func TestProperty_FoldThreeWay(t *testing.T) {
 // --------------------------------------------------------------------------
 
 func FuzzFoldThreeWay(f *testing.F) {
-	// Seed with the 7 regression vectors
+	// Seed with the 8 regression vectors
 	seedVectors := []FuzzCase{
 		regressionVectorWRIT112(),
 		regressionVectorWRIT116(),
@@ -1323,6 +1404,7 @@ func FuzzFoldThreeWay(f *testing.F) {
 		regressionVectorWRIT125(),
 		regressionVectorWRIT126(),
 		regressionVectorWRIT196(),
+		regressionVectorWRIT197(),
 	}
 	for _, vec := range seedVectors {
 		if data, err := json.Marshal(vec); err == nil {
