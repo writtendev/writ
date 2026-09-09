@@ -1,0 +1,202 @@
+{
+  "schemas": [
+    {
+      "object_id": "sch-acme",
+      "schema": {
+        "object_id": "sch-acme",
+        "namespace": "acme",
+        "types": [
+          {
+            "type": "gadget",
+            "fields": [
+              {
+                "field": "title",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              },
+              {
+                "field": "alpha",
+                "op_type": "set-alpha",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww",
+                "target": "shared"
+              },
+              {
+                "field": "beta",
+                "op_type": "set-beta",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "keyed-lww",
+                "key": [
+                  "Bad Col2"
+                ],
+                "key_types": {
+                  "Bad Col2": "string"
+                },
+                "target": "shared"
+              },
+              {
+                "field": "code",
+                "op_type": "set-code",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww",
+                "target": "identifier"
+              },
+              {
+                "field": "owner",
+                "op_type": "set-owner",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww",
+                "target": "bad-target"
+              },
+              {
+                "field": "delta",
+                "op_type": "set-subject",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "keyed-lww",
+                "key": [
+                  "subject"
+                ],
+                "key_types": {
+                  "subject": "string"
+                },
+                "target": "bad-target2"
+              },
+              {
+                "field": "gamma",
+                "op_type": "set-subject",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "keyed-lww",
+                "key": [
+                  "subject"
+                ],
+                "key_types": {
+                  "subject": "person-ref"
+                }
+              },
+              {
+                "field": "tags",
+                "op_type": "set-tags",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "keyed-lww",
+                "key": [
+                  "Bad Col"
+                ],
+                "key_types": {
+                  "Bad Col": "string"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "conflicts": [
+    {
+      "object_type": "gadget",
+      "object_ids": [
+        "sch-acme"
+      ],
+      "reason": "field rule (set-beta, 1, beta) is invalid and was not installed: rule for (set-beta, beta) declares key column \"Bad Col2\", which is not a valid identifier (must match ^[a-z][a-z0-9_]*$, max 64 chars)"
+    },
+    {
+      "object_type": "gadget",
+      "object_ids": [
+        "sch-acme"
+      ],
+      "reason": "field rule (set-owner, 1, owner) is invalid and was not installed: rule for (set-owner, owner) declares target \"bad-target\", which is not a valid identifier (must match ^[a-z][a-z0-9_]*$, max 64 chars)"
+    },
+    {
+      "object_type": "gadget",
+      "object_ids": [
+        "sch-acme"
+      ],
+      "reason": "field rule (set-subject, 1, delta) is invalid and was not installed: rule for (set-subject, delta) declares target \"bad-target2\", which is not a valid identifier (must match ^[a-z][a-z0-9_]*$, max 64 chars)"
+    },
+    {
+      "object_type": "gadget",
+      "object_ids": [
+        "sch-acme"
+      ],
+      "reason": "field rule (set-tags, 1, tags) is invalid and was not installed: rule for (set-tags, tags) declares key column \"Bad Col\", which is not a valid identifier (must match ^[a-z][a-z0-9_]*$, max 64 chars)"
+    }
+  ],
+  "objects": [
+    {
+      "object_id": "gadget-1",
+      "object_type": "gadget",
+      "total_order": [
+        {
+          "commit": "50371df37daa1c43c560a265d5d607711a58c1d5",
+          "t_star": 1767226200
+        },
+        {
+          "commit": "e3ae9dff3334ea27b950127d5e00aac20020bb18",
+          "t_star": 1767226260
+        },
+        {
+          "commit": "41d12cc76eb2ef0693d6ee9df87e955527c6b7c8",
+          "t_star": 1767226320
+        },
+        {
+          "commit": "7ef1c5a6e01920601f3e02e221be5c9ebaecedd9",
+          "t_star": 1767226380
+        },
+        {
+          "commit": "1da57c6e99bbefa7c403411f598208ece0735780",
+          "t_star": 1767226440
+        },
+        {
+          "commit": "498f3cc7d37352b429afbd8e2fb8c4ac510a232a",
+          "t_star": 1767226500
+        },
+        {
+          "commit": "e9db0f15cd3fc3acffa70373fc589851cc514f10",
+          "t_star": 1767226560
+        }
+      ],
+      "state": {
+        "gamma": [
+          {
+            "key": [
+              "person-1"
+            ],
+            "value": "acked"
+          }
+        ],
+        "identifier": "abc123",
+        "shared": "left",
+        "title": "Widget"
+      },
+      "unknown_ops": [
+        {
+          "commit": "41d12cc76eb2ef0693d6ee9df87e955527c6b7c8",
+          "object_type": "gadget",
+          "op_type": "set-owner",
+          "op_version": 1
+        },
+        {
+          "commit": "7ef1c5a6e01920601f3e02e221be5c9ebaecedd9",
+          "object_type": "gadget",
+          "op_type": "set-tags",
+          "op_version": 1
+        },
+        {
+          "commit": "498f3cc7d37352b429afbd8e2fb8c4ac510a232a",
+          "object_type": "gadget",
+          "op_type": "set-beta",
+          "op_version": 1
+        }
+      ]
+    }
+  ]
+}

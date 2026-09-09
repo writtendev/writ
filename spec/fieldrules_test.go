@@ -216,6 +216,68 @@ func TestValidateFieldRule(t *testing.T) {
 			},
 			wantErr: "declares key_types on non-keyed-lww strategy",
 		},
+		{
+			// field, target, and key columns share one identifier grammar
+			// (WRIT-203, spec/schema-ops.md §4.3): a schema-declared target
+			// or key component becomes a generated SQL identifier once a
+			// consumer's projection reads it, exactly as field already does.
+			name: "field is not a valid identifier",
+			rule: spec.FieldRule{
+				OpType:    "create",
+				OpVersion: 1,
+				Field:     "Title",
+				Strategy:  "lww",
+				ValueType: "string",
+			},
+			wantErr: "not a valid identifier",
+		},
+		{
+			name: "field exceeds the identifier length limit",
+			rule: spec.FieldRule{
+				OpType:    "create",
+				OpVersion: 1,
+				Field:     "a" + strings.Repeat("b", 64),
+				Strategy:  "lww",
+				ValueType: "string",
+			},
+			wantErr: "not a valid identifier",
+		},
+		{
+			name: "target is not a valid identifier",
+			rule: spec.FieldRule{
+				OpType:    "create",
+				OpVersion: 1,
+				Field:     "title",
+				Target:    "bad-target",
+				Strategy:  "lww",
+				ValueType: "string",
+			},
+			wantErr: "declares target",
+		},
+		{
+			name: "empty target is legal (defaults to field via TargetKey)",
+			rule: spec.FieldRule{
+				OpType:    "create",
+				OpVersion: 1,
+				Field:     "title",
+				Target:    "",
+				Strategy:  "lww",
+				ValueType: "string",
+			},
+		},
+		{
+			name: "keyed-lww key column is not a valid identifier",
+			rule: spec.FieldRule{
+				OpType:    "approval",
+				OpVersion: 1,
+				Field:     "subject",
+				Strategy:  "keyed-lww",
+				Key:       []string{"Subject"},
+				ValueType: "person-ref",
+				KeyTypes:  map[string]string{"Subject": "person-ref"},
+			},
+			wantErr: "declares key column",
+		},
 	}
 
 	for _, tc := range tests {

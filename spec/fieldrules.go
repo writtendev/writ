@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -104,6 +105,26 @@ var KnownValueTypes = map[string]bool{
 	"anchor":     true,
 }
 
+// identifierGrammar is the identifier grammar spec/schemas/schema-ops.schema.json
+// pins for field_name, target_name, and key_column_name (`^[a-z][a-z0-9_]*$`,
+// max identifierMaxLength characters): field, target, and every keyed-lww key
+// column are the same kind of identifier, because TargetKey() returns target
+// or field interchangeably as the fold's accumulator key, and a key column
+// becomes both a column name and part of a child table's name once a
+// consumer's projection generates SQL from it (spec/schema-ops.md §4.3). This
+// is checked here, inside ValidateFieldRule, rather than as a fourth local
+// gate alongside op_type's (engine/schema.go's validOpTypeGrammar): op_type's
+// grammar belongs to the envelope, but field, target, and key are field-rule
+// properties, so gating them here reaches all three sites that resolve field
+// rules (this function's own callers) in one place instead of three.
+var identifierGrammar = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+
+const identifierMaxLength = 64
+
+func validIdentifier(s string) bool {
+	return s != "" && len(s) <= identifierMaxLength && identifierGrammar.MatchString(s)
+}
+
 // ValidateFieldRule validates an individual field rule definition.
 func ValidateFieldRule(r FieldRule) error {
 	if r.OpType == "" {
@@ -114,6 +135,17 @@ func ValidateFieldRule(r FieldRule) error {
 	}
 	if r.Field == "" {
 		return fmt.Errorf("rule with empty field")
+	}
+	if !validIdentifier(r.Field) {
+		return fmt.Errorf("rule declares field %q, which is not a valid identifier (must match %s, max %d chars)", r.Field, identifierGrammar.String(), identifierMaxLength)
+	}
+	if r.Target != "" && !validIdentifier(r.Target) {
+		return fmt.Errorf("rule for (%s, %s) declares target %q, which is not a valid identifier (must match %s, max %d chars)", r.OpType, r.Field, r.Target, identifierGrammar.String(), identifierMaxLength)
+	}
+	for _, k := range r.Key {
+		if !validIdentifier(k) {
+			return fmt.Errorf("rule for (%s, %s) declares key column %q, which is not a valid identifier (must match %s, max %d chars)", r.OpType, r.Field, k, identifierGrammar.String(), identifierMaxLength)
+		}
 	}
 	if !KnownCatalogueStrategies[r.Strategy] {
 		return fmt.Errorf("rule for (%s, %s) has unknown strategy %q", r.OpType, r.Field, r.Strategy)

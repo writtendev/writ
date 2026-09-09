@@ -162,6 +162,18 @@
       "maxLength": 64,
       "description": "The op body field this rule governs."
     },
+    "target_name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "maxLength": 64,
+      "description": "The state key a field's register lands under, shared or not with the field's own name. Shares field_name's exact grammar: FieldRule.TargetKey() returns target when set, otherwise field, so the two are interchangeable as the fold's accumulator key, and a consumer's projection turns either into a generated SQL column name."
+    },
+    "key_column_name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "maxLength": 64,
+      "description": "One column of a keyed-lww composite key. Shares field_name's exact grammar: a producer resolves a key column's declared value type by this name alone (spec/op-envelope.md §Producer validation rule 3), and a consumer's projection turns it into both a column name and part of a child table's name."
+    },
     "value_type": {
       "type": "string",
       "enum": [
@@ -295,8 +307,7 @@
         "key": {
           "type": "array",
           "items": {
-            "type": "string",
-            "minLength": 1
+            "$ref": "#/$defs/key_column_name"
           },
           "minItems": 1
         },
@@ -314,8 +325,7 @@
           "minItems": 1
         },
         "target": {
-          "type": "string",
-          "minLength": 1
+          "$ref": "#/$defs/target_name"
         }
       },
       "required": [

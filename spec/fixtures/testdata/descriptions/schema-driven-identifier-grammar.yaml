@@ -1,0 +1,318 @@
+name: schema-driven-identifier-grammar
+description: >
+  WRIT-203: target and every keyed-lww key column now share field's own
+  identifier grammar (^[a-z][a-z0-9_]*$, max 64 chars), gated inside
+  spec.ValidateFieldRule — resolveSchemaTypes's pass 1, the same per-rule
+  pass an unknown strategy or a keyed-lww key/key_types mismatch already
+  falls through. "title" (no target, the control), "code" (a legal
+  target("identifier")), "owner" (target("bad-target") — a hyphen, legal
+  in namespace/type_name/op_type_name's grammar but not field_name's), and
+  "tags" (keyed-lww key(["Bad Col"]) — a space and an uppercase letter,
+  also illegal) alone would not tell pass 1 apart from pass 2 or 3: each
+  malformed rule there is alone in its byTarget/byKeyColumn group, so
+  every assertion below would hold identically wherever the grammar check
+  ran (round 2 finding 1 on WRIT-203's PR). Two more pairs close that gap,
+  each putting a malformed rule in a group it would poison were the check
+  ever folded into a grouping pass instead of staying in pass 1:
+  "alpha"/"beta" both bind target("shared") — beta's key column
+  ("Bad Col2") is the malformed part, and beta also disagrees with alpha
+  on strategy (lww vs keyed-lww), so a beta that survived to pass 3 would
+  take alpha down with it as a target disagreement. "gamma"/"delta" share
+  op_type "set-subject" and both bind key column "subject" — delta's
+  target ("bad-target2") is the malformed part, and delta also disagrees
+  with gamma on that column's key_types (person-ref vs string), so a
+  delta that survived to pass 2 would take gamma down with it as a
+  key-column disagreement. Dropping owner's, tags's, beta's and delta's
+  rules in pass 1 must not withhold any of their well-formed siblings:
+  every op under "set-owner", "set-tags", "set-beta" and part of
+  "set-subject"'s body therefore matches no installed rule and becomes an
+  UnknownOp (or, for "set-subject", folds only gamma's half), while
+  "create", "set-code", "set-alpha" and the rest of "set-subject" fold
+  normally. (pins: reader)
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: define-type
+            parents: [create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "gadget"
+            expect: accept
+
+          - id: define-field-title
+            parents: [define-type]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: define-field-code
+            parents: [define-field-title]
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "set-code"
+                op_version: "1"
+                field: "code"
+                value_type: "string"
+                strategy: "lww"
+                target: "identifier"
+            expect: accept
+
+          - id: define-field-owner
+            parents: [define-field-code]
+            author: alice
+            timestamp: 2026-01-01T00:04:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "set-owner"
+                op_version: "1"
+                field: "owner"
+                value_type: "string"
+                strategy: "lww"
+                target: "bad-target"
+            expect: accept
+
+          - id: define-field-tags
+            parents: [define-field-owner]
+            author: alice
+            timestamp: 2026-01-01T00:05:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "set-tags"
+                op_version: "1"
+                field: "tags"
+                value_type: "string"
+                strategy: "keyed-lww"
+                key: ["Bad Col"]
+                key_types:
+                  "Bad Col": "string"
+            expect: accept
+
+          - id: define-field-alpha
+            parents: [define-field-tags]
+            author: alice
+            timestamp: 2026-01-01T00:06:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "set-alpha"
+                op_version: "1"
+                field: "alpha"
+                value_type: "string"
+                strategy: "lww"
+                target: "shared"
+            expect: accept
+
+          - id: define-field-beta
+            parents: [define-field-alpha]
+            author: alice
+            timestamp: 2026-01-01T00:07:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "set-beta"
+                op_version: "1"
+                field: "beta"
+                value_type: "string"
+                strategy: "keyed-lww"
+                key: ["Bad Col2"]
+                key_types:
+                  "Bad Col2": "string"
+                target: "shared"
+            expect: accept
+
+          - id: define-field-gamma
+            parents: [define-field-beta]
+            author: alice
+            timestamp: 2026-01-01T00:08:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "set-subject"
+                op_version: "1"
+                field: "gamma"
+                value_type: "string"
+                strategy: "keyed-lww"
+                key: ["subject"]
+                key_types:
+                  "subject": "person-ref"
+            expect: accept
+
+          - id: define-field-delta
+            parents: [define-field-gamma]
+            author: alice
+            timestamp: 2026-01-01T00:09:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "set-subject"
+                op_version: "1"
+                field: "delta"
+                value_type: "string"
+                strategy: "keyed-lww"
+                key: ["subject"]
+                key_types:
+                  "subject": "string"
+                target: "bad-target2"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/gadget
+    history:
+      - commits:
+          - id: gadget-create
+            author: alice
+            timestamp: 2026-01-01T00:10:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: create
+              op_version: 1
+              body:
+                title: "Widget"
+            expect: accept
+
+          - id: gadget-set-code
+            parents: [gadget-create]
+            author: alice
+            timestamp: 2026-01-01T00:11:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: set-code
+              op_version: 1
+              body:
+                code: "abc123"
+            expect: accept
+
+          - id: gadget-set-owner
+            parents: [gadget-set-code]
+            author: alice
+            timestamp: 2026-01-01T00:12:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: set-owner
+              op_version: 1
+              body:
+                owner: "bob"
+            expect: accept
+
+          - id: gadget-set-tags
+            parents: [gadget-set-owner]
+            author: alice
+            timestamp: 2026-01-01T00:13:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: set-tags
+              op_version: 1
+              body:
+                tags: "urgent"
+                "Bad Col": "sprint1"
+            expect: accept
+
+          - id: gadget-set-alpha
+            parents: [gadget-set-tags]
+            author: alice
+            timestamp: 2026-01-01T00:14:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: set-alpha
+              op_version: 1
+              body:
+                alpha: "left"
+            expect: accept
+
+          - id: gadget-set-beta
+            parents: [gadget-set-alpha]
+            author: alice
+            timestamp: 2026-01-01T00:15:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: set-beta
+              op_version: 1
+              body:
+                beta: "right"
+                "Bad Col2": "sprint2"
+            expect: accept
+
+          - id: gadget-set-subject
+            parents: [gadget-set-beta]
+            author: alice
+            timestamp: 2026-01-01T00:16:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: set-subject
+              op_version: 1
+              body:
+                gamma: "acked"
+                delta: "ignored"
+                subject: "person-1"
+            expect: accept

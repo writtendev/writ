@@ -23,13 +23,15 @@
         },
         "field": {
           "type": "string",
-          "minLength": 1,
-          "description": "Name of the field in the operation body."
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "maxLength": 64,
+          "description": "Name of the field in the operation body. Shares schema-ops.schema.json's field_name grammar (spec/schema-ops.md §4.3)."
         },
         "target": {
           "type": "string",
-          "minLength": 1,
-          "description": "State key in the generic fold map (ObjectState.State). Defaults to field if omitted."
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "maxLength": 64,
+          "description": "State key in the generic fold map (ObjectState.State). Defaults to field if omitted. Shares schema-ops.schema.json's target_name grammar (spec/schema-ops.md §4.3): TargetKey() returns this or field interchangeably, and a projection turns either into a generated SQL identifier."
         },
         "strategy": {
           "type": "string",
@@ -50,10 +52,11 @@
           "type": "array",
           "items": {
             "type": "string",
-            "minLength": 1
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "maxLength": 64
           },
           "minItems": 1,
-          "description": "Ordered list of key components for keyed-lww strategy."
+          "description": "Ordered list of key components for keyed-lww strategy. Each column shares schema-ops.schema.json's key_column_name grammar (spec/schema-ops.md §4.3)."
         },
         "lattice": {
           "type": "array",

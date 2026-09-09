@@ -1,6 +1,7 @@
 package projection
 
 import (
+	"encoding/json"
 	"math/rand"
 	"reflect"
 	"sort"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/writtendev/writ/engine/state"
+	"github.com/writtendev/writ/spec"
 )
 
 // loadTestRules is a schema-shaped rule index covering every table shape
@@ -438,5 +440,47 @@ func TestCollidingIdentifierWithholdsTables(t *testing.T) {
 			t.Fatalf("duplicate table %q in descriptor", tbl.Name)
 		}
 		seen[tbl.Name] = true
+	}
+}
+
+// TestIdentPatternMatchesWireGrammar ties identPattern to the grammar
+// spec/schemas/schema-ops.schema.json now pins for target and keyed-lww key
+// components (WRIT-203) so the two copies cannot drift silently. identPattern
+// is deliberately its own copy rather than an exported helper from spec (no
+// new public surface for one small regexp) — this is the "cheap test"
+// substitute the ticket asks for instead.
+func TestIdentPatternMatchesWireGrammar(t *testing.T) {
+	raw, err := spec.FS.ReadFile("schemas/schema-ops.schema.json")
+	if err != nil {
+		t.Fatalf("reading schema-ops.schema.json: %v", err)
+	}
+	var doc struct {
+		Defs map[string]struct {
+			Pattern   string `json:"pattern"`
+			MaxLength int    `json:"maxLength"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("decoding schema-ops.schema.json: %v", err)
+	}
+	targetName, ok := doc.Defs["target_name"]
+	if !ok {
+		t.Fatal("schema-ops.schema.json has no $defs/target_name")
+	}
+	if targetName.Pattern != identPattern.String() {
+		t.Errorf("identPattern %q no longer matches schema-ops.schema.json's target_name pattern %q", identPattern.String(), targetName.Pattern)
+	}
+	if targetName.MaxLength != identMaxLength {
+		t.Errorf("identMaxLength %d no longer matches schema-ops.schema.json's target_name maxLength %d", identMaxLength, targetName.MaxLength)
+	}
+	keyColumnName, ok := doc.Defs["key_column_name"]
+	if !ok {
+		t.Fatal("schema-ops.schema.json has no $defs/key_column_name")
+	}
+	if keyColumnName.Pattern != identPattern.String() {
+		t.Errorf("identPattern %q no longer matches schema-ops.schema.json's key_column_name pattern %q", identPattern.String(), keyColumnName.Pattern)
+	}
+	if keyColumnName.MaxLength != identMaxLength {
+		t.Errorf("identMaxLength %d no longer matches schema-ops.schema.json's key_column_name maxLength %d", identMaxLength, keyColumnName.MaxLength)
 	}
 }

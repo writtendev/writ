@@ -1,0 +1,27 @@
+{
+  "schemas": [
+    {
+      "object_id": "sch-widget",
+      "ops": [
+        { "op_type": "create", "body": { "namespace": "acme" } },
+        { "op_type": "define-type", "body": { "type": "widget" } },
+        { "op_type": "define-op", "body": { "type": "widget", "op_type": "create", "op_version": "1" } },
+        {
+          "op_type": "define-field",
+          "body": { "type": "widget", "op_type": "create", "op_version": "1", "field": "title", "value_type": "string", "strategy": "lww" }
+        },
+        {
+          "op_type": "define-field",
+          "body": { "type": "widget", "op_type": "create", "op_version": "1", "field": "owner", "value_type": "string", "strategy": "lww", "target": "bad-target" }
+        }
+      ]
+    }
+  ],
+  "envelope": {
+    "object_id": "widget-1",
+    "object_type": "widget",
+    "op_type": "create",
+    "op_version": 1,
+    "body": { "title": "Initial", "owner": "the field's target fails the identifier grammar, so no rule was installed for it" }
+  }
+}

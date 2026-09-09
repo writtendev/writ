@@ -14,12 +14,17 @@ import (
 
 // identPattern is the grammar every target and keyed-lww key component must
 // match before it becomes part of a generated SQL identifier.
-// schema-ops.schema.json does not constrain target (minLength 1 only) or key
-// components (bare "type": "string"), so an arbitrary log-declared string
-// would otherwise become an arbitrary SQL identifier. A type with a target or
+// spec/schemas/schema-ops.schema.json and the resolver
+// (spec.ValidateFieldRule, WRIT-203) both gate target and key components
+// against this exact pattern before a rule ever reaches RulesFromSchemas, so
+// this check is now a backstop, not the only guard: the generator should not
+// trust its input regardless of what has already validated it upstream, and
+// this is also what a built-in rule table's target or key component — never
+// itself run through ValidateFieldRule — is held to. A type with a target or
 // key component failing this grammar gets no tables at all: its objects fall
 // to unknown_ops, the same no-winner idiom RulesFromSchemas already uses for
-// a contested object_type.
+// a contested object_type. TestIdentPatternMatchesWireGrammar ties this copy
+// to the wire pattern so the two cannot drift silently.
 var identPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
 const identMaxLength = 64

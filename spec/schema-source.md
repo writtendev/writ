@@ -116,10 +116,11 @@ slot refuses depends on where that slot sits, not on the word alone.
   `op`'s own type name can never be spelled `description`, `type`, `op`,
   and so on — pinned by `reserved-type-name.schema` in the invalid
   corpus (`type type { ... }` is still rejected).
-* **A field name, and the argument of `target(...)`.** Only `deprecated`
-  remains reserved; the other seven are *contextual* keywords here, each
-  told apart from a field name by one token of lookahead, total rather
-  than heuristic (§3 marks exactly where):
+* **A field name, the argument of `target(...)`, and a `key(...)` column
+  name.** Only `deprecated` remains reserved; the other seven are
+  *contextual* keywords here, each told apart from a field name by one
+  token of lookahead, total rather than heuristic (§3 marks exactly
+  where):
   * Inside an op block, `description` heads a description line iff the
     very next token is a string literal — no `value-type-expr` can begin
     with one, so a field literally named `description` (followed by its
@@ -147,6 +148,17 @@ slot refuses depends on where that slot sits, not on the word alone.
   `description "..."` lines, a `target(...)` field immediately followed
   by a field named `target`, and a `key(...)` field immediately followed
   by a field named `key`.
+
+  A `key(...)` column name has no such ambiguity of its own — each
+  column is immediately followed by its value-type token (§3's
+  `modifier` production), so ``key(deprecated string)`` parses without
+  any lookahead trouble. `deprecated` is reserved there anyway (WRIT-203),
+  for the same reason it is reserved as `target(...)`'s argument even
+  though that slot has no ambiguity either: a key column name draws from
+  the field-name wire namespace once a consumer's projection turns it
+  into part of a generated SQL identifier, so it stays off limits
+  everywhere a field name is — pinned by `key-column-reserved-word.schema`
+  in the invalid corpus.
 
 A relation is an `object-ref` value type (`value-types.md`), not a
 separate grammar bolted onto this one: writ has no join engine and no
@@ -241,7 +253,11 @@ Comments are never data — `description "..."` is (§6).
   forbidden otherwise. Each pair is one key column and its declared value
   type; the production emits `key` and `key_types` together (§5), which
   is what makes `ValidateFieldRule`'s "`key_types` must cover exactly
-  `key`" rule impossible to violate through this grammar.
+  `key`" rule impossible to violate through this grammar. `col` follows
+  the field-name grammar (`^[a-z][a-z0-9_]*$`, at most 64 characters) and
+  reservation rule (§2) exactly as `target(name)` below does (WRIT-203): a
+  key column becomes part of a generated SQL identifier once a consumer's
+  projection reads it, the same reason `target` does.
 * `target(name)` — the state key this field's register lands under
   (`fold.md` §5). Optional on every field; required in practice exactly
   when a version bump would otherwise reuse the default target while

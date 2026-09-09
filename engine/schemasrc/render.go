@@ -253,35 +253,35 @@ func renderField(b *strings.Builder, f state.SchemaField) error {
 
 // identLexPattern matches whatever lex.go's isIdentStart/isIdentCont
 // accept as a bare identifier token, independent of any further naming
-// convention a specific grammar production layers on top. enum(...),
-// lattice(...), and a key(...) column name are all parsed via
-// expectIdentAny alone, with no accompanying validateName call (parse.go),
-// so this is the exact bar Render must clear for those slots to guarantee
-// Parse accepts the result back — nothing stricter is required, but
-// nothing looser is safe either (spaces and grammar punctuation break the
-// lexer, per spec/schemas/schema-ops.schema.json's define_field_body: it
-// puts no pattern on enum items or target, so both are otherwise
-// wire-legal with a space).
+// convention a specific grammar production layers on top. enum(...) and
+// lattice(...) elements are parsed via expectIdentAny alone, with no
+// accompanying validateName call (parse.go) — the wire's define_field_body
+// puts no pattern on either (spec/schemas/schema-ops.schema.json) — so this
+// is the exact bar Render must clear for those two slots to guarantee
+// Parse accepts the result back. A key(...) column name is no longer one
+// of them: like target(...), it now carries field_name's exact wire
+// grammar (WRIT-203), so Render validates it through validateNameForRender
+// below, not this looser pattern.
 var identLexPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
 
 // validateNameForRender applies the same constraints Parse's validateName
 // enforces on a name in this slot (parse.go): pattern is the slot's own
 // naming pattern (spec/schema-source.md §3.3) — fieldNamePattern for a
-// field name or target(...), namespacePattern for the namespace,
-// typeNamePattern for a type name, opTypeNamePattern for an op type —
-// plus the length limit, shared across every slot, and reserved, the
-// slot's own reserved-word set: keywords for a namespace, type name, or
+// field name, target(...), or a key(...) column name, namespacePattern for
+// the namespace, typeNamePattern for a type name, opTypeNamePattern for an
+// op type — plus the length limit, shared across every slot, and reserved,
+// the slot's own reserved-word set: keywords for a namespace, type name, or
 // op type name (all eight remain reserved there, with reason ""), or
-// fieldReserved for a field name or target (only deprecated remains
-// reserved there, with reason fieldNameReservedReason or
-// targetReservedReason respectively). Render must take the
-// same set validateName would for this slot, not the global keywords
-// table, or a folded field named "description" would render
-// successfully into source Parse then rejects as unparseable. Render
-// must clear this stricter bar (not just identLexPattern) for every one
-// of these five slots, because
-// parseField/parseTargetModifier/parseFile/parseType/parseOpBlock all
-// route through validateName rather than a bare expectIdentAny.
+// fieldReserved for a field name, target, or key column (only deprecated
+// remains reserved there, with reason fieldNameReservedReason,
+// targetReservedReason, or keyColumnReservedReason respectively). Render
+// must take the same set validateName would for this slot, not the global
+// keywords table, or a folded field named "description" would render
+// successfully into source Parse then rejects as unparseable. Render must
+// clear this stricter bar (not just identLexPattern) for every one of these
+// six slots, because
+// parseField/parseKeyModifier/parseTargetModifier/parseFile/parseType/parseOpBlock
+// all route through validateName rather than a bare expectIdentAny.
 func validateNameForRender(name string, pattern *regexp.Regexp, what string, reserved map[string]bool, reason string) error {
 	if reserved[name] {
 		return fmt.Errorf("%s %q is a reserved word and would not parse back%s", what, name, reason)
@@ -306,9 +306,10 @@ func validateIdentForRender(s, what string) error {
 
 // validateFieldForRender rejects, before any text is written, every
 // declaration this grammar has no spelling for or that Parse would then
-// reject — the wire's define_field_body has no pattern on enum, lattice,
-// key, or target (spec/schemas/schema-ops.schema.json), and FoldSchema
-// does no catalogue validation of strategy or value_type, so all of this
+// reject. The wire's define_field_body pins field_name's exact grammar on
+// field, target, and each key column (spec/schemas/schema-ops.schema.json,
+// WRIT-203) but puts no pattern on enum or lattice items, and FoldSchema
+// does no catalogue validation of strategy or value_type — so all of this
 // is reachable only from a non-conforming writer's log, never from
 // Compile's own output. Naming the offending declaration (which field,
 // which part) is the point: WRIT-191's `plan` diffs a log's rendering
@@ -341,7 +342,7 @@ func validateFieldForRender(f state.SchemaField) error {
 		}
 	}
 	for _, col := range f.Key {
-		if err := validateIdentForRender(col, "key column"); err != nil {
+		if err := validateNameForRender(col, fieldNamePattern, "key column", fieldReserved, keyColumnReservedReason); err != nil {
 			return err
 		}
 		if kt := f.KeyTypes[col]; !spec.KnownValueTypes[kt] {
