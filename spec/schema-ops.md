@@ -538,6 +538,60 @@ The resolver enforces this alongside the strategy-only case above, and so
 does `engine/schemasrc`'s compiler for a `writ.schema` source file before it
 ever reaches the log.
 
+### 8.1. Clearing a field attribute (decided, WRIT-200)
+
+`define-field`'s body carries `value_type`, `enum`, `max_length`, `key`,
+`key_types`, `lattice`, and `target` only when set (§4), and each is its
+own independent `keyed-lww` register at `(type, op_type, op_version,
+field)` (§5's table, one row per attribute), overwritten only when a
+later op's body actually carries that key. There is no vocabulary that
+clears one: an op whose body omits `enum` does not remove a previously
+declared `enum`, it leaves the existing register standing, forever
+(`testdata/fold/merge/schema-narrow-field-attribute-not-cleared.json`
+pins exactly this — a redeclaration that drops `enum` overwrites
+`value_type` but never touches `field_enum`, which keeps the original
+value across the whole fixture).
+
+This is asymmetric. **Widening** — declaring an attribute a field didn't
+have, `max_length` on a previously-unbounded `string` say — is an
+ordinary redeclaration under the same `op_version`: the new op's body
+carries the key, so it's an ordinary `keyed-lww` overwrite and applies
+cleanly, no version bump needed. **Narrowing** — dropping an attribute a
+field already has — has no representation: append-only means there is no
+op that clears a register once written, and the vocabulary defines none
+for this. It was found as the underlying gap behind WRIT-191's refusal:
+`writ schema apply` detects exactly this case (comparing the log's folded
+state against the file's full compiled sequence) and refuses to append
+rather than silently leave the log holding both the file's new
+declaration and the stale one it was meant to replace.
+
+Three ways to close the gap were weighed: emit every attribute
+unconditionally (explicit nulls for absent ones), add a dedicated
+clearing op, or accept the limitation. The first two change the wire
+vocabulary — new shapes for every `define-field` body or new op
+vocabulary, either way touching this document, the JSON schema,
+`testdata/schema-ops/field-rules.json`, `state.SchemaRules`, and fixtures
+together, and a clearing op additionally needs a story for what clearing
+means under concurrent writers (a clear racing a redeclaration is a new
+conflict shape this document does not otherwise have). Nothing has
+shipped yet (AGENTS.md), so that cost would buy a capability against no
+installed base, for a limitation with a working, already-implemented
+answer: **the decision is to accept it.** Narrowing an attribute is not a
+new problem — it is the same "nothing is ever removed" constraint this
+section already states for a `strategy` change (§8 above) — so it takes
+the same recipe: declare the field again under a **new `op_version`, with
+a distinct `target`**. A fresh `target` sidesteps needing to reason,
+attribute by attribute, about which of the seven are actually consulted
+by the fold at a shared target (§8 above answers that only for `strategy`
+and `lattice`); it is always sufficient, and it is what
+`writ schema apply`'s refusal message already tells the caller
+(`cmd/writ/schema.go`). `string(200)` narrowed to `string` is not
+representable as an edit to `op create 1`; it is representable as `op
+create 2` declaring `title` unbounded under its own target. The old,
+wider declaration is not deleted — nothing is — it stays live for
+whatever already writes `op_version` 1, exactly as any other version
+bump leaves the superseded version folding on unaffected.
+
 ---
 
 ## 9. Rule Validation
@@ -636,8 +690,10 @@ than restating the precedence itself (WRIT-188).
   normative, byte-for-byte the published form of `state.SchemaRules()`.
 - `spec/testdata/fold/merge/schema-*.json` — fold vectors: a bootstrap
   fold of a whole schema object, a `deprecate-field`/redeclare
-  interleaving, concurrent `define-field` ops on one keyed-lww key, and the
-  two `target`-remedy vectors from §8. These drive the generic `Fold(ops,
+  interleaving, concurrent `define-field` ops on one keyed-lww key, the
+  two `target`-remedy vectors from §8, and §8.1's narrowing vector (a
+  redeclaration that drops `enum` leaves `field_enum` standing while
+  overwriting `field_value_type`). These drive the generic `Fold(ops,
   rules)` over already-resolved `FieldRule`s, so they cannot pin §3.1's
   fold-time `op_version` canonicalization quarantine (that check depends on
   interpreting a key component's numeric value, one layer above what the

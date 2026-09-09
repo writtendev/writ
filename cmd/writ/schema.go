@@ -704,9 +704,12 @@ func findSchemaField(t state.SchemaType, opType string, opVersion int64, field s
 // body actually carries that key, so a new define-field op whose body
 // omits one does not clear the log's existing value — it leaves the log
 // holding an attribute the file no longer declares, forever. There is no
-// op that clears one of these (spec/schema-ops.md has no vocabulary for
-// it — WRIT-200 tracks adding one), so narrowing any of them is a removal
-// in every sense schemaRemovals already refuses others for.
+// op that clears one of these, and there deliberately never will be
+// (spec/schema-ops.md §8.1, ARCHITECTURE.md §Schema layer, WRIT-200):
+// narrowing an attribute takes a new op_version with a distinct target,
+// the same recipe as a strategy change, not a new op. So narrowing any of
+// them is a removal in every sense schemaRemovals already refuses others
+// for.
 var schemaFieldAttributeKeys = []string{"value_type", "enum", "max_length", "lattice", "key", "key_types", "target"}
 
 // schemaFieldHasAttribute reports whether current's folded state carries a
@@ -863,7 +866,7 @@ func schemaRemovals(current, planned state.Schema, compiled []codec.Envelope) ([
 				}
 				if _, present := body[attr]; !present {
 					problems = append(problems, fmt.Sprintf(
-						"field %q on op %s version %d of type %q: attribute %q was removed; nothing is ever removed from the log — declare a new op_version with a distinct target instead (spec/schema-ops.md §8)",
+						"field %q on op %s version %d of type %q: attribute %q was removed; nothing is ever removed from the log — declare a new op_version with a distinct target instead (spec/schema-ops.md §8.1)",
 						cf.Name, cf.OpType, cf.OpVersion, ct.Name, attr))
 				}
 			}

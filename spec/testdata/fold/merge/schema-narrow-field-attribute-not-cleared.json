@@ -1,0 +1,35 @@
+{
+  "name": "schema-narrow-field-attribute-not-cleared",
+  "description": "The fold-level mechanic behind the WRIT-200 decision (spec/schema-ops.md §8, ARCHITECTURE.md §Schema layer): each define-field body key is its own independent keyed-lww register (field_value_type, field_enum, ...), overwritten only when a later op's body actually carries that key. op-narrow redeclares standup/create/1's 'state' field as a bare string, so it overwrites field_value_type, but its body carries no 'enum' key at all — field_enum is never touched and keeps op-root's value forever. Nothing here is a bug: this is exactly why narrowing an attribute is unrepresentable without a new op_version and a distinct target (§8), while widening (a later op whose body does carry the key) already applies cleanly.",
+  "object_id": "obj-schema-1",
+  "fields": {
+    "field_value_type": { "strategy": "keyed-lww", "op_type": "define-field", "field": "value_type", "key": ["type", "op_type", "op_version", "field"], "target": "field_value_type" },
+    "field_enum": { "strategy": "keyed-lww", "op_type": "define-field", "field": "enum", "key": ["type", "op_type", "op_version", "field"], "target": "field_enum" }
+  },
+  "ops": [
+    {
+      "id": "op-root",
+      "parents": [],
+      "time": 100,
+      "object_id": "obj-schema-1",
+      "object_type": "schema",
+      "op_type": "define-field",
+      "op_version": 1,
+      "body": { "type": "standup", "op_type": "create", "op_version": "1", "field": "state", "value_type": "enum", "enum": ["open", "done"] }
+    },
+    {
+      "id": "op-narrow",
+      "parents": ["op-root"],
+      "time": 200,
+      "object_id": "obj-schema-1",
+      "object_type": "schema",
+      "op_type": "define-field",
+      "op_version": 1,
+      "body": { "type": "standup", "op_type": "create", "op_version": "1", "field": "state", "value_type": "string" }
+    }
+  ],
+  "expected_state": {
+    "field_value_type": [{ "key": ["standup", "create", "1", "state"], "value": "string" }],
+    "field_enum": [{ "key": ["standup", "create", "1", "state"], "value": ["open", "done"] }]
+  }
+}
