@@ -424,17 +424,34 @@ func buildSchemaPlan(ctx context.Context, store *writ.Store, dir string) (*schem
 // schema object `apply` writes to (WRIT-191 plan, "Which schema object
 // apply writes to"). Computed fresh on every run — there is no plan
 // artifact and no recorded id, and no --object-id flag: every case that
-// flag would serve is a repository already in the state this guard exists
-// to prevent.
+// flag would serve is a repository already in the state this function
+// exists to describe.
 //
-// The contested-object_type guard runs on every outcome that can lead to
-// an append — both the "no namespace match" branch (a fresh object) and
-// the "exactly one match" branch (reuse) — because either one can bind an
-// object_type a different schema object already binds, and
-// RulesFromSchemas responds to that by withholding every rule for the
-// contested type, permanently. A reuse that stays within the target's own
-// existing types is never contested by this check: contestedTypeOwners
-// excludes the target itself.
+// Namespace match count is the only signal available: zero means a fresh
+// object (case 0), exactly one means reuse (case 1), and more than one is
+// itself a pre-existing collision in the log this function refuses to add
+// to (default). An earlier revision also refused case 0 and case 1 when
+// f's own declared types collided with some *other* schema object's
+// already-bound object_type — sensible while object_type was bare, when
+// that really was one wire type bound twice, but WRIT-217 namespace-
+// qualifies object_type precisely so two schema objects *can* bind the
+// identical bare type name under different namespaces with zero collision
+// (spec/schema-ops.md §2,
+// TestSchemaCLI_DifferentNamespacesSameBareTypeBothInstall). Once that
+// guarantee holds, "f's bare type overlaps some other object's bare type"
+// can no longer tell a genuine collision apart from that exact, sanctioned
+// case: editing `namespace acme` to `namespace acme2` in an already-
+// applied writ.schema is observably identical, from this function's
+// inputs, to a brand-new file that coincidentally reuses another
+// namespace's type name — both are zero namespace matches, and the
+// file's own type names are the only other data here. There is no way to
+// refuse one without also refusing the other, so the guard is gone, not
+// weakened: editing a namespace mints an independent schema object
+// (TestSchemaCLI_NamespaceChangeMintsIndependentObject). The old object
+// is untouched — namespace is create-once (§3.1) and this function never
+// writes to an existing object's namespace field — and the new one is no
+// more or less legitimate than an unrelated namespace declaring the same
+// bare type for the first time.
 func resolveSchemaTarget(schemas []state.Schema, f *schemasrc.File) (string, error) {
 	var matches []state.Schema
 	for _, s := range schemas {
@@ -443,57 +460,10 @@ func resolveSchemaTarget(schemas []state.Schema, f *schemasrc.File) (string, err
 		}
 	}
 
-	// declared holds the qualified wire object_type schemasrc.Compile would
-	// emit for each of f's own types (WRIT-217: <namespace>.<type>), not
-	// f.Types[i].Name's bare source form — schemas (folded state.Schema
-	// values) carries only the qualified form, so comparing against the
-	// bare name here would never match anything contestedTypeOwners looks
-	// for below, silently disabling every guard this function exists to
-	// enforce.
-	declared := make(map[string]bool, len(f.Types))
-	for _, t := range f.Types {
-		declared[f.Namespace+"."+t.Name] = true
-	}
-
 	switch len(matches) {
 	case 1:
-		target := matches[0]
-		if contested := contestedTypeOwners(schemas, target.ObjectID, declared); len(contested) > 0 {
-			return "", fmt.Errorf(
-				"writ schema: schema object %s (namespace %q) would also bind object_type(s) %s, already bound by another schema object; applying would bind the same object_type twice and RulesFromSchemas withholds all rules for it, permanently — reconcile the type name before running `writ schema apply`",
-				target.ObjectID, f.Namespace, contestedTypeParts(contested))
-		}
-		return target.ObjectID, nil
+		return matches[0].ObjectID, nil
 	case 0:
-		contested := contestedTypeOwners(schemas, "", declared)
-		if len(contested) > 0 {
-			owners := make(map[string]bool, len(contested))
-			for _, id := range contested {
-				owners[id] = true
-			}
-			// Every id contestedTypeOwners can name here declares some
-			// namespace other than f.Namespace — this branch only runs
-			// when no schema object matches f.Namespace at all. When every
-			// contested type traces back to the very same object, the
-			// file isn't colliding with an unrelated object; it is that
-			// object's own file, still declaring its types, under a
-			// different namespace — a namespace change, which
-			// spec/schema-ops.md forbids (`create`'s namespace folds
-			// create-once).
-			if len(owners) == 1 {
-				var ownerID string
-				for id := range owners {
-					ownerID = id
-				}
-				owner := schemaByObjectID(schemas, ownerID)
-				return "", fmt.Errorf(
-					"writ schema: schema object %s already declares namespace %q and binds object_type(s) %s; this file declares namespace %q for the same type(s) — a schema object's namespace is set once by its first create op and never changes; reconcile the namespace before running `writ schema apply`",
-					owner.ObjectID, owner.Namespace, contestedTypeNames(contested), f.Namespace)
-			}
-			return "", fmt.Errorf(
-				"writ schema: no schema object declares namespace %q, but this file would bind object_type(s) %s to a new schema object; applying would bind the same object_type twice and RulesFromSchemas withholds all rules for it, permanently — reconcile the namespace or type name before running `writ schema apply`",
-				f.Namespace, contestedTypeParts(contested))
-		}
 		return deriveSchemaObjectID(f.Namespace), nil
 	default:
 		ids := make([]string, 0, len(matches))
@@ -505,66 +475,6 @@ func resolveSchemaTarget(schemas []state.Schema, f *schemasrc.File) (string, err
 			"writ schema: namespace %q is declared by more than one schema object (%s); resolve the collision in the log before running `writ schema apply`",
 			f.Namespace, strings.Join(ids, ", "))
 	}
-}
-
-// contestedTypeOwners returns, for each name in declared already
-// legitimately bound by some schema object other than exclude
-// (schemaByObjectID's "" never matches a real object id, so exclude == ""
-// excludes nothing), the id of the object that binds it.
-//
-// "Legitimately" means writ.TypeIsQualifiedForNamespace(t.Name,
-// s.Namespace) — the exact predicate RulesFromSchemas gates installation
-// on (engine/schema.go, WRIT-217 §6.3). A type name some other schema
-// object's Types carries but that is not qualified for that object's own
-// namespace — bare, foreign-namespace-qualified, or multi-dot — is a
-// squat RulesFromSchemas already drops and never installs rules for, so
-// it must not contest a legitimate binding here either: this function
-// disagreeing with the resolver is exactly the bug that let one
-// foreign-namespace define-type permanently refuse a legitimate
-// namespace's `writ schema apply`.
-func contestedTypeOwners(schemas []state.Schema, exclude string, declared map[string]bool) map[string]string {
-	owners := make(map[string]string)
-	for _, s := range schemas {
-		if exclude != "" && s.ObjectID == exclude {
-			continue
-		}
-		for _, t := range s.Types {
-			if declared[t.Name] && writ.TypeIsQualifiedForNamespace(t.Name, s.Namespace) {
-				owners[t.Name] = s.ObjectID
-			}
-		}
-	}
-	return owners
-}
-
-// contestedTypeNames renders a contestedTypeOwners map as sorted, quoted
-// type names, with no owner attribution.
-func contestedTypeNames(contested map[string]string) string {
-	names := make([]string, 0, len(contested))
-	for name := range contested {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	quoted := make([]string, len(names))
-	for i, name := range names {
-		quoted[i] = fmt.Sprintf("%q", name)
-	}
-	return strings.Join(quoted, ", ")
-}
-
-// contestedTypeParts renders a contestedTypeOwners map as sorted, quoted
-// type names, each naming the schema object that already binds it.
-func contestedTypeParts(contested map[string]string) string {
-	names := make([]string, 0, len(contested))
-	for name := range contested {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	parts := make([]string, len(names))
-	for i, name := range names {
-		parts[i] = fmt.Sprintf("%q (already bound by schema object %s)", name, contested[name])
-	}
-	return strings.Join(parts, ", ")
 }
 
 // deriveSchemaObjectID returns the schema object id for namespace:

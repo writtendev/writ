@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -909,20 +908,26 @@ func runSchemaSyncOrFatal(t *testing.T, dir string) {
 }
 
 // TestResolveSchemaTarget_SquattedForeignTypeDoesNotBlockReuse and
-// TestResolveSchemaTarget_SquattedForeignTypeDoesNotBlockFreshMint pin the
-// WRIT-217 round-1 review's medium finding on contestedTypeOwners: a
-// hand-crafted (or otherwise non-schemasrc) schema object squatting a
+// TestResolveSchemaTarget_SquattedForeignTypeDoesNotBlockFreshMint pin
+// what the WRIT-217 round-1 review's medium finding was ultimately about:
+// a hand-crafted (or otherwise non-schemasrc) schema object squatting a
 // wire type outside its own namespace — "acme.standup" declared by a
 // schema object whose own namespace is "evil" — is exactly the shape
 // engine/schema.go's RulesFromSchemas drops and never installs (WRIT-217
-// §6.3, TypeIsQualifiedForNamespace). contestedTypeOwners must agree: it
-// must not treat that squat as already binding the type, or a single
-// foreign-namespace define-type in the log would make `writ schema
-// apply` refuse a legitimate namespace owner forever, for a reason
-// RulesFromSchemas itself contradicts. These call resolveSchemaTarget
-// directly with hand-built []state.Schema — no CLI, no repo — so the
-// squat's shape needs no schemasrc producibility, exactly like the
-// review's own reproduction.
+// §6.3, TypeIsQualifiedForNamespace), so it must never be able to block a
+// legitimate namespace's own `writ schema apply`. Round 1 fixed this with
+// a type-name filter on resolveSchemaTarget's own contested-type guard
+// (contestedTypeOwners); round 2 found that filter made the guard
+// permanently unreachable for real data too (it needed the false
+// premise that a bare type name is still globally unique post-WRIT-217:
+// see resolveSchemaTarget's own doc comment), so the guard — and
+// contestedTypeOwners, contestedTypeNames and contestedTypeParts with it
+// — is gone rather than patched again: resolveSchemaTarget resolves on
+// namespace alone now, and these two tests continue to pin that a squat
+// occupying an unrelated ObjectID never perturbs that resolution, for
+// whatever reason. These call resolveSchemaTarget directly with
+// hand-built []state.Schema — no CLI, no repo — so the squat's shape
+// needs no schemasrc producibility.
 func TestResolveSchemaTarget_SquattedForeignTypeDoesNotBlockReuse(t *testing.T) {
 	target := state.Schema{
 		ObjectID:  "schema:acme",
@@ -971,58 +976,29 @@ func TestResolveSchemaTarget_SquattedForeignTypeDoesNotBlockFreshMint(t *testing
 	}
 }
 
-// TestContestedTypeOwners_FiltersToLegitimateBindings, together with
-// TestContestedTypeNames_FormatsSortedQuotedNames and
-// TestContestedTypeParts_NamesEachOwner below, unit-test contestedTypeOwners,
-// contestedTypeNames and contestedTypeParts directly — the three functions
-// the round-1 review found at 0% coverage after this ticket's test
-// removals, reached in production only from resolveSchemaTarget's three
-// refusal messages. Those messages are themselves unreachable from
-// legitimate (non-squat) data by construction: a wire type two schema
-// objects can legitimately both bind always implies they share a
-// namespace, which resolveSchemaTarget's own namespace-match grouping
-// catches first (either as the reuse target itself, excluded here, or as
-// the "namespace declared by more than one schema object" refusal before
-// contestedTypeOwners is ever called). Testing the three functions
-// directly, with hand-built input, is what actually pins their behavior.
-func TestContestedTypeOwners_FiltersToLegitimateBindings(t *testing.T) {
-	schemas := []state.Schema{
-		{ObjectID: "schema:acme", Namespace: "acme", Types: []state.SchemaType{{Name: "acme.standup"}}},
-		{ObjectID: "schema:evil", Namespace: "evil", Types: []state.SchemaType{{Name: "acme.retro"}}},
+// TestResolveSchemaTarget_MultipleObjectsSameNamespaceRefuses pins
+// resolveSchemaTarget's default case, left uncovered before this round:
+// two schema objects with distinct, independently-chosen ObjectIDs (not
+// every writer goes through this CLI's deriveSchemaObjectID) can share a
+// namespace in the log, most plausibly two offline writers racing to
+// bootstrap the same namespace with hand-crafted object_ids, or any
+// producer that doesn't derive its object_id from the namespace at all.
+// resolveSchemaTarget cannot pick a target between them, so it refuses
+// rather than guessing.
+func TestResolveSchemaTarget_MultipleObjectsSameNamespaceRefuses(t *testing.T) {
+	a := state.Schema{ObjectID: "schema:acme-a", Namespace: "acme"}
+	b := state.Schema{ObjectID: "schema:acme-b", Namespace: "acme"}
+	f := &schemasrc.File{Namespace: "acme", Types: []*schemasrc.Type{{Name: "standup"}}}
+
+	_, err := resolveSchemaTarget([]state.Schema{a, b}, f)
+	if err == nil {
+		t.Fatal("expected an error when two schema objects share a namespace, got nil")
 	}
-	declared := map[string]bool{"acme.standup": true, "acme.retro": true}
-
-	owners := contestedTypeOwners(schemas, "", declared)
-
-	if want := (map[string]string{"acme.standup": "schema:acme"}); !reflect.DeepEqual(owners, want) {
-		t.Fatalf("contestedTypeOwners = %+v, want %+v (the squatted \"acme.retro\" excluded)", owners, want)
+	if !strings.Contains(err.Error(), "declared by more than one schema object") {
+		t.Fatalf("error does not name the namespace collision: %v", err)
 	}
-}
-
-func TestContestedTypeOwners_ExcludesGivenObjectID(t *testing.T) {
-	schemas := []state.Schema{
-		{ObjectID: "schema:acme", Namespace: "acme", Types: []state.SchemaType{{Name: "acme.standup"}}},
-	}
-	declared := map[string]bool{"acme.standup": true}
-
-	if owners := contestedTypeOwners(schemas, "schema:acme", declared); len(owners) != 0 {
-		t.Fatalf("expected the excluded object's own binding to not contest itself, got %+v", owners)
-	}
-}
-
-func TestContestedTypeNames_FormatsSortedQuotedNames(t *testing.T) {
-	contested := map[string]string{"bigco.retro": "schema:bigco", "acme.standup": "schema:acme"}
-	if got, want := contestedTypeNames(contested), `"acme.standup", "bigco.retro"`; got != want {
-		t.Fatalf("contestedTypeNames = %q, want %q", got, want)
-	}
-}
-
-func TestContestedTypeParts_NamesEachOwner(t *testing.T) {
-	contested := map[string]string{"acme.standup": "schema:acme"}
-	got := contestedTypeParts(contested)
-	want := `"acme.standup" (already bound by schema object schema:acme)`
-	if got != want {
-		t.Fatalf("contestedTypeParts = %q, want %q", got, want)
+	if !strings.Contains(err.Error(), "schema:acme-a") || !strings.Contains(err.Error(), "schema:acme-b") {
+		t.Fatalf("error does not name both contending schema objects: %v", err)
 	}
 }
 

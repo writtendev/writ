@@ -1076,14 +1076,21 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 //     candidate rule is validated through spec.ValidateFieldRule before it
 //     can be installed; one that fails is dropped and reported here, never
 //     handed to the fold driver.
-//   - Conflicts (spec/schema-ops.md §Conflicts). object_type is what reaches
-//     the wire — namespace never does (Correction 2) — so the load-bearing
-//     collision is two schema objects binding the same bare object_type.
-//     Neither schema's rules are installed for the contested type: no winner
-//     is picked, and its ops fall through the absent-schema path to
-//     UnknownOp. Two schemas declaring the same namespace is a weaker,
-//     mostly cosmetic case, reported alongside the first but never
-//     withholding rules on its own. Rules that share a target but disagree
+//   - Conflicts (spec/schema-ops.md §6). object_type reaches the wire
+//     namespace-qualified (§2, WRIT-217): the load-bearing collision is two
+//     schema objects binding the identical qualified object_type, which
+//     now requires them to share a namespace — two different namespaces
+//     can never produce the same qualified object_type. Neither schema's
+//     rules are installed for the contested type: no winner is picked, and
+//     its ops fall through the absent-schema path to UnknownOp. Two
+//     schemas declaring the same namespace is a weaker, mostly cosmetic
+//     case, reported alongside an object_type collision when both occur,
+//     but on its own it withholds nothing. A declared type whose name does
+//     not carry its own schema object's namespace as its prefix — bare,
+//     qualified under a different namespace, or carrying more than one dot
+//     — is a distinct conflict (§6.3, TypeIsQualifiedForNamespace): dropped
+//     and reported, never installed, so a hand-crafted define-type cannot
+//     squat a name outside its own namespace. Rules that share a target but disagree
 //     (spec/fold.md §5, spec/schema-ops.md §8) — including a version bump
 //     that changes strategy while reusing a target already bound to a
 //     different strategy — are rejected the same way, and by the same
