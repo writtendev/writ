@@ -424,11 +424,24 @@ func validateValueTypes(env Envelope, raw []byte) error {
 // register rather than carrying a value of its own, and fold's keyed-lww
 // strategy does not tolerate null there either (isString(nil) is false, so
 // fold.ruleAccepts rejects it) — validateKeyColumnValue runs on every key
-// column value unconditionally, null included. Where a name is both a
-// declared field and a key column (writ's own "schema" vocabulary's
-// define-field's "field" does this), the field rule wins: byField is
-// checked first below, and the key-column branch is only ever reached for a
-// name no rule declares as a field.
+// column value unconditionally, null included.
+//
+// Where a name is both a declared field and a key column of some rule
+// (writ's own "schema" vocabulary's define-field's "field" does this, and so
+// does any consumer schema that reuses a field name as another rule's key),
+// the field rule governs the value's declared *type* — byField is checked
+// first below, so the field's own value_type is what typechecks the value,
+// never the key column's key_types entry — but this is a union, not an
+// override: fold.ruleAccepts checks every keyed-lww key column present in
+// the body regardless of whether that name also carries a field rule, so
+// the bare "MUST be a JSON string" floor above still applies on top of the
+// field's own check. Skipping that floor here is exactly the hole WRIT-214
+// round 3 found: a field typed `int` that doubles as another rule's key
+// column would otherwise be accepted by the producer (satisfying its own
+// value_type) and quarantined by every reader (failing the key-column
+// floor) — the same producer/reader lockstep break the null case above was
+// fixed for, on the one path a plain byField-then-key-column dispatch
+// cannot see.
 func validateFieldsAgainstRules(rules []spec.FieldRule, body map[string]any, strict bool) error {
 	byField := make(map[string]spec.FieldRule, len(rules))
 	keyColumnTypes := make(map[string]string)
@@ -466,6 +479,18 @@ func validateFieldsAgainstRules(rules []spec.FieldRule, body map[string]any, str
 			}
 			continue
 		}
+		// field also names a keyed-lww key column of some rule: the field
+		// rule above governs its declared type, but fold.ruleAccepts checks
+		// every key column present in the body regardless of whether the
+		// name also carries a field rule, so the bare JSON-string floor
+		// applies here too, unconditionally — including when val is nil,
+		// the one case the field branch below tolerates as "no write" but a
+		// key column never does.
+		if _, isKeyColumn := keyColumnTypes[field]; isKeyColumn {
+			if _, isStr := val.(string); !isStr {
+				return &RejectError{Reason: RejectSchemaViolation, Err: fmt.Errorf("field %q: key column value must be a JSON string (spec/fold.md §5 keyed-lww)", field)}
+			}
+		}
 		if val == nil || r.ValueType == "" {
 			continue
 		}
@@ -492,6 +517,21 @@ func validateFieldsAgainstRules(rules []spec.FieldRule, body map[string]any, str
 	return nil
 }
 
+// keyColumnStringEncoded is the set of catalogue value types whose ordinary
+// wire encoding (spec/value-types.md's "Encoding" column) already is a JSON
+// string: value.Validate's cases for these all start with `v.(string)`, so a
+// key column's raw body value — already confirmed to be a JSON string below
+// — IS the value to typecheck, unchanged.
+var keyColumnStringEncoded = map[string]bool{
+	"string":     true,
+	"text":       true,
+	"timestamp":  true,
+	"person-ref": true,
+	"object-ref": true,
+	"git-oid":    true,
+	"position":   true,
+}
+
 // validateKeyColumnValue checks one keyed-lww key column's value: it MUST be
 // a JSON string, regardless of what valueType (the rule's key_types entry
 // for this column) says, because fold's keyed-lww strategy treats a
@@ -499,29 +539,58 @@ func validateFieldsAgainstRules(rules []spec.FieldRule, body map[string]any, str
 // components are strings", enforced via §7.1) — spec/schema-ops.md §3.1's
 // op_version-as-decimal-string encoding is this exact rule already applied
 // to the bootstrap's own key columns, not a new constraint invented here —
-// and it MUST additionally conform to valueType itself, checked the same way
-// a field's value is (spec/value-types.md).
+// and its content MUST additionally be a valid encoding of valueType,
+// checked the same way a field's value is (spec/value-types.md).
 //
-// valueType "enum" is the one catalogue member this second check cannot
-// fully apply: value.Validate requires the declared member list
-// (value.Params.Enum) to check membership, and key_types (spec/value-types.md,
-// a column name -> catalogue type name map) has no slot for one — unlike a
-// field's own value_type "enum", which always travels with the rule's own
-// enum attribute. There is deliberately no key-column-scoped member list to
-// add one (spec/schema-ops.md §11's key_types shape is not being widened for
+// "Content", not "raw value", is the operative word, and it is what §3.1
+// already establishes: `op_version`'s catalogue encoding is a JSON integer,
+// yet it travels as the decimal string "1", because the JSON-string
+// requirement above wins over the type's own ordinary encoding wherever a
+// value plays both roles. `int`, `number`, `bool` and `anchor` are exactly
+// the catalogue members whose ordinary encoding (JSON integer, number,
+// boolean, object) is not itself a JSON string — keyColumnStringEncoded is
+// everything else, whose encoding already is a JSON string, so the
+// confirmed-string val needs no further decoding to typecheck. For the rest,
+// the key column's string content is read as JSON text — "7", "3.5",
+// "true", or an anchor object's compact JSON encoding — and the decoded
+// value is what value.Validate checks, exactly as it would a field's own
+// JSON-typed value. This is not a widening of key_types (WRIT-214 round 3
+// declined that): it is §3.1's rule, generalized from `int` to every
+// non-string-shaped catalogue member, so a schema declaring
+// `key(seq int)` is writable instead of permanently refusing every value
+// while never being refused itself.
+//
+// valueType "enum" is the one catalogue member no amount of decoding fixes:
+// value.Validate requires the declared member list (value.Params.Enum) to
+// check membership, and key_types (spec/value-types.md, a column name ->
+// catalogue type name map) has no slot for one — unlike a field's own
+// value_type "enum", which always travels with the rule's own enum
+// attribute. There is deliberately no key-column-scoped member list to add
+// one (spec/schema-ops.md §11's key_types shape is not being widened for
 // this), so an enum-typed key column is held to the JSON-string requirement
 // above and nothing more: that is already every check value.Validate would
 // otherwise run for "enum" beyond membership, so this is not a narrower
-// check than any other string-shaped key_types entry gets, only one that
-// cannot also bound the value to a closed set.
+// check than any other key_types entry gets, only one that cannot also
+// bound the value to a closed set.
 func validateKeyColumnValue(valueType string, val any) error {
-	if _, ok := val.(string); !ok {
+	s, ok := val.(string)
+	if !ok {
 		return fmt.Errorf("key column value must be a JSON string (spec/fold.md §5 keyed-lww)")
 	}
 	if valueType == "enum" {
 		return nil
 	}
-	return value.Validate(valueType, value.Params{}, val)
+	if keyColumnStringEncoded[valueType] {
+		return value.Validate(valueType, value.Params{}, val)
+	}
+	// valueType's ordinary encoding is not a JSON string (int, number, bool,
+	// anchor): the confirmed string above carries that encoding as text, not
+	// the value itself, so it is decoded back to JSON before typechecking.
+	var decoded any
+	if err := json.Unmarshal([]byte(s), &decoded); err != nil {
+		return fmt.Errorf("key column value %q is not a valid JSON encoding of value_type %q: %w", s, valueType, err)
+	}
+	return value.Validate(valueType, value.Params{}, decoded)
 }
 
 // validateOpTypeAndVersion is producer rule 4: an op_type or op_version writ

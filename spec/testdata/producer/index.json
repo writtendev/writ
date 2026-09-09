@@ -67,5 +67,22 @@
     "producer_verdict": "accept",
     "reader_disposition": "interpretable",
     "reason": "rule 3 (WRIT-214 round 2): an enum-typed key column is held to the JSON-string requirement and nothing more, because key_types (a column -> catalogue type name map) has no slot for the member list an enum field's own enum attribute would supply -- accepting a value outside any particular field's declared enum members is correct here, not a hole, since key_types carries no member list to check membership against in the first place"
+  },
+  "keyed-lww-key-column-also-a-field-not-a-string.json": {
+    "producer_verdict": "reject",
+    "reason_code": "schema-violation",
+    "reader_disposition": "unknown-op",
+    "reason": "rule 3 (WRIT-214 round 3): where a name is both a declared field (here, seq int lww) and another rule's keyed-lww key column (verdict's key(seq string)), the field rule governs the value's declared type, but the key column's JSON-string floor still applies on top -- a JSON number satisfying the field's int type is not a JSON string, so the producer refuses it just as fold.ruleAccepts would quarantine it; byField winning outright, as it did before this fix, let a JSON number through and left the reader to quarantine it alone"
+  },
+  "keyed-lww-key-column-int.json": {
+    "producer_verdict": "accept",
+    "reader_disposition": "interpretable",
+    "reason": "rule 3 (WRIT-214 round 3): an int-typed key column's JSON-string content is the decimal encoding of the integer, exactly as spec/schema-ops.md §3.1 already requires for op_version -- \"7\" decodes to the JSON integer 7 and typechecks against value_type int, so the field is writable rather than permanently rejecting every value the way calling value.Validate on the raw string did"
+  },
+  "keyed-lww-key-column-int-invalid-encoding.json": {
+    "producer_verdict": "reject",
+    "reason_code": "schema-violation",
+    "reader_disposition": "interpretable",
+    "reason": "rule 3 (WRIT-214 round 3): a key column string whose content is not valid JSON at all, let alone a JSON integer, fails the producer's int decode -- but fold never decodes key-column content (only isString), so the read path folds the op with the key component intact, same asymmetry as value-type-mismatch.json"
   }
 }

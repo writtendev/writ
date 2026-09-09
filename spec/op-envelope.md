@@ -181,28 +181,49 @@ invalid. Before the op commit is built, the producer MUST verify that:
    value of its own, and writ's own `schema` vocabulary is the worked
    example — `deprecate-type`'s `type` key column is never itself a
    `define-field`. Where a key names both a field and a key column of
-   another rule, the field rule governs it.
+   another rule, the field rule governs the value's declared *type* — but
+   the JSON-string floor below still applies on top, because fold checks
+   every key column present in the body whether or not the same name also
+   carries a field rule.
 4. The `op_type` and `op_version` are ones the schema object governing
    `object_type` declares. A producer never legitimately authors an op
    type or an op version it cannot interpret; where it appears to, the
    cause is a typo, and the op it would write is one no reader will ever
    interpret either.
 
-A `keyed-lww` key column's value is checked against its `key_types` entry
-the same way a field's value is checked against its `value_type`, and MUST
-additionally be a JSON string regardless of what that entry says — JSON
-`null` included, which is not tolerated here the way it is for an ordinary
-field's absent-shaped "no write" — because fold's `keyed-lww` strategy
-treats a non-string key component, `null` included, as uninterpretable
-([`spec/fold.md`](fold.md) §5's "Key components are strings", enforced via
-§7.1). This is not a new constraint —
+A `keyed-lww` key column's value MUST be a JSON string regardless of what
+its `key_types` entry says — JSON `null` included, which is not tolerated
+here the way it is for an ordinary field's absent-shaped "no write" —
+because fold's `keyed-lww` strategy treats a non-string key component,
+`null` included, as uninterpretable ([`spec/fold.md`](fold.md) §5's "Key
+components are strings", enforced via §7.1). This floor binds a key column
+unconditionally, including one that is also a declared field: the field
+rule governs the value's type (rule 3 above), but does not exempt the same
+value from also being a JSON string when fold would key on it. A value
+satisfying an `int` or `bool` field's own `value_type` — a JSON number or
+boolean — is not a JSON string, so a name playing both roles can only be
+written when the field's own encoding is already string-shaped, or when its
+value is encoded as the string form the paragraph below describes.
+
+The value's *content* MUST additionally conform to the `key_types` entry,
+checked the same way a field's value is checked against its `value_type`.
+For a catalogue member whose ordinary encoding is already a JSON string —
+`string`, `text`, `timestamp`, `person-ref`, `object-ref`, `git-oid`,
+`position` — the key column's value *is* that content, unchanged: the
+JSON-string floor above and the `key_types` check are the same string. For
+`int`, `number`, `bool`, and `anchor`, whose ordinary encoding is a JSON
+integer, number, boolean, or object respectively, the key column's string
+content is instead read as that encoding, in text: `"7"` decodes to the
+JSON integer `7`, `"true"` to the JSON boolean `true`, and a compact JSON
+object's text to the `anchor` value itself. This is not a new constraint —
 [`spec/schema-ops.md`](schema-ops.md) §3.1 already lives with it for
-`op_version` wherever it appears in a key — only its extension from
-writ's own bootstrap vocabulary to every `keyed-lww` key column. A
-`key_types` entry of `enum` is the one catalogue member this second check
-cannot fully apply: `key_types` names a column's type only, with no slot
-for the member list an `enum` field's own `enum` attribute would supply,
-so an enum-typed key column is held to the JSON-string requirement above
+`op_version`, which travels as the decimal string `"1"` rather than the
+JSON integer `1` wherever it is a key component — only its extension from
+`int` alone to every non-string-shaped catalogue member. A `key_types`
+entry of `enum` is the one catalogue member this second check cannot fully
+apply, decoding or not: `key_types` names a column's type only, with no
+slot for the member list an `enum` field's own `enum` attribute would
+supply, so an enum-typed key column is held to the JSON-string floor above
 and checked no further. Two `keyed-lww` rules within the same `(op_type,
 op_version)` that share a key column name MUST agree on that column's
 `key_types` entry, even when their `key` tuples otherwise differ: a

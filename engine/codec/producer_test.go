@@ -306,6 +306,154 @@ func TestBuildCommitAcceptsEnumKeyColumn(t *testing.T) {
 	}
 }
 
+// TestBuildCommitAcceptsNonStringShapedKeyColumns is round 3's fix for the
+// other key_types entries whose ordinary catalogue encoding is not a JSON
+// string: int, number, bool and anchor. Before this fix, validateKeyColumnValue
+// ran value.Validate against the raw (already string-typed) value, which is
+// mutually unsatisfiable for all four — every write was rejected and the
+// field was permanently unwritable, with the schema itself never refused.
+// The fix reads the key column's JSON-string content as the type's own
+// textual encoding (spec/schema-ops.md §3.1's op_version-as-decimal-string
+// precedent, generalized), so "7" decodes to the JSON integer 7, "true" to
+// the JSON boolean true, and a compact anchor object's JSON text to the
+// anchor value itself.
+func TestBuildCommitAcceptsNonStringShapedKeyColumns(t *testing.T) {
+	cases := []struct {
+		name    string
+		keyType string
+		content string // the key column's JSON-string content: valueType's own JSON encoding, as text.
+	}{
+		{name: "int", keyType: "int", content: "7"},
+		{name: "number", keyType: "number", content: "3.5"},
+		{name: "bool", keyType: "bool", content: "true"},
+		{name: "anchor", keyType: "anchor", content: `{"version":1,"old":{"commit":"c","path":"p","blob":"b"}}`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			vocabularies := declareVocabulary("widget",
+				spec.FieldRule{
+					OpType: "approve", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww",
+					Key: []string{"tag"}, KeyTypes: map[string]string{"tag": tc.keyType},
+					ValueType: "string",
+				},
+			)
+			body, err := json.Marshal(map[string]any{"verdict": "approve", "tag": tc.content})
+			if err != nil {
+				t.Fatalf("marshal body: %v", err)
+			}
+			if _, err := codec.BuildCommit(codec.Envelope{
+				ObjectID:   "w-1",
+				ObjectType: "widget",
+				OpType:     "approve",
+				OpVersion:  1,
+				Body:       body,
+			}, testAuthor(), nil, vocabularies); err != nil {
+				t.Fatalf("BuildCommit rejected a %s-typed key column whose string content %q is a conforming JSON encoding: %v",
+					tc.keyType, tc.content, err)
+			}
+		})
+	}
+}
+
+// TestBuildCommitRejectsInvalidNonStringShapedKeyColumnEncoding covers the
+// two ways a non-string-shaped key column's content can still fail after
+// round 3's decode fix: the content is not valid JSON at all, or it decodes
+// to a JSON value of the wrong shape for the declared key_types entry. Both
+// remain producer rejections — the decode is stricter than fold, which never
+// looks past "is this a JSON string" for a key column, so a reader still
+// tolerates either shape (spec/testdata/producer/cases/keyed-lww-key-column-int-invalid-encoding.json
+// pins that asymmetry at the corpus level).
+func TestBuildCommitRejectsInvalidNonStringShapedKeyColumnEncoding(t *testing.T) {
+	cases := []struct {
+		name    string
+		keyType string
+		content string
+	}{
+		{name: "int content is not JSON", keyType: "int", content: "not-a-number"},
+		{name: "int content decodes to a JSON string, not a JSON number", keyType: "int", content: `"seven"`},
+		{name: "bool content is not JSON", keyType: "bool", content: "yes"},
+		{name: "anchor content is not JSON", keyType: "anchor", content: "not-json"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			vocabularies := declareVocabulary("widget",
+				spec.FieldRule{
+					OpType: "approve", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww",
+					Key: []string{"tag"}, KeyTypes: map[string]string{"tag": tc.keyType},
+					ValueType: "string",
+				},
+			)
+			body, err := json.Marshal(map[string]any{"verdict": "approve", "tag": tc.content})
+			if err != nil {
+				t.Fatalf("marshal body: %v", err)
+			}
+			_, err = codec.BuildCommit(codec.Envelope{
+				ObjectID:   "w-1",
+				ObjectType: "widget",
+				OpType:     "approve",
+				OpVersion:  1,
+				Body:       body,
+			}, testAuthor(), nil, vocabularies)
+			if err == nil {
+				t.Fatalf("BuildCommit accepted a %s-typed key column with non-conforming content %q", tc.keyType, tc.content)
+			}
+			var rejErr *codec.RejectError
+			if !errors.As(err, &rejErr) {
+				t.Fatalf("error is not a *codec.RejectError: %v", err)
+			}
+			if rejErr.Reason != codec.RejectSchemaViolation {
+				t.Errorf("reason = %q, want %q", rejErr.Reason, codec.RejectSchemaViolation)
+			}
+		})
+	}
+}
+
+// TestBuildCommitRejectsFieldRuleAlsoKeyColumnNonString is round 3's fix for
+// the other lockstep hole this PR left: byField ran instead of the
+// key-column branch for a name declared both ways, so a value satisfying the
+// field's own value_type (here, seq as a plain int) was never checked
+// against the "MUST be a JSON string" floor every keyed-lww key column
+// carries, whatever its own key_types entry says (spec/fold.md §5,
+// enforced via fold.ruleAccepts). "seq" is declared as an int field with
+// strategy lww, and separately is the key column of "verdict"'s keyed-lww
+// rule; a JSON number is exactly what the field's own value_type wants, and
+// exactly what fold's key-column check refuses, so the producer must refuse
+// it too. TestBuildCommitFieldRuleWinsOverKeyColumn is the companion case
+// showing this is a union, not a wholesale reversal of "the field rule
+// governs the type": a value that is already a JSON string still only
+// answers to the field's own (looser) rule.
+func TestBuildCommitRejectsFieldRuleAlsoKeyColumnNonString(t *testing.T) {
+	vocabularies := declareVocabulary("widget",
+		spec.FieldRule{OpType: "approve", OpVersion: 1, Field: "seq", Strategy: "lww", ValueType: "int"},
+		spec.FieldRule{
+			OpType: "approve", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww",
+			Key: []string{"seq"}, KeyTypes: map[string]string{"seq": "string"},
+			ValueType: "string",
+		},
+	)
+
+	_, err := codec.BuildCommit(codec.Envelope{
+		ObjectID:   "w-1",
+		ObjectType: "widget",
+		OpType:     "approve",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"verdict":"approve","seq":7}`),
+	}, testAuthor(), nil, vocabularies)
+	if err == nil {
+		t.Fatal("BuildCommit accepted a JSON number for a name that is both an int field and another rule's key column, " +
+			"which fold.ruleAccepts would quarantine as an uninterpretable key component")
+	}
+	var rejErr *codec.RejectError
+	if !errors.As(err, &rejErr) {
+		t.Fatalf("error is not a *codec.RejectError: %v", err)
+	}
+	if rejErr.Reason != codec.RejectSchemaViolation {
+		t.Errorf("reason = %q, want %q", rejErr.Reason, codec.RejectSchemaViolation)
+	}
+}
+
 // knownCreateBodies is a minimal, schema-valid create body for each vocabulary
 // writ ships, so the forward-compatibility cases below can be driven against
 // every one of them rather than against whichever one happens to be most

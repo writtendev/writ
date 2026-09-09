@@ -1,0 +1,32 @@
+{
+  "schemas": [
+    {
+      "object_id": "sch-widget",
+      "ops": [
+        { "op_type": "create", "body": { "namespace": "acme" } },
+        { "op_type": "define-type", "body": { "type": "widget" } },
+        { "op_type": "define-op", "body": { "type": "widget", "op_type": "approve", "op_version": "1" } },
+        {
+          "op_type": "define-field",
+          "body": {
+            "type": "widget",
+            "op_type": "approve",
+            "op_version": "1",
+            "field": "verdict",
+            "value_type": "string",
+            "strategy": "keyed-lww",
+            "key": ["seq"],
+            "key_types": { "seq": "int" }
+          }
+        }
+      ]
+    }
+  ],
+  "envelope": {
+    "object_id": "widget-1",
+    "object_type": "widget",
+    "op_type": "approve",
+    "op_version": 1,
+    "body": { "verdict": "approve", "seq": "7" }
+  }
+}
