@@ -400,18 +400,40 @@ func validateValueTypes(env Envelope, raw []byte) error {
 }
 
 // validateFieldsAgainstRules checks a decoded op body's fields against a
-// declared field-rule set for one (op_type, op_version). A field whose
-// rule declares a value_type must hold a value conforming to it
-// (spec/value-types.md); a field with no declared rule at all is skipped
-// when strict is false (the bootstrap tier, where the shipped JSON Schema
-// already bounds which fields are known and validateValueTypes'
+// declared field-rule set for one (op_type, op_version). A field whose rule
+// declares a value_type must hold a value conforming to it
+// (spec/value-types.md); a body key naming neither a declared field nor a
+// keyed-lww key column of one of rules (see keyed-lww key columns below) is
+// skipped when strict is false (the bootstrap tier, where the shipped JSON
+// Schema already bounds which fields are known and validateValueTypes'
 // rules are only the value-typed subset) and rejected when strict is true
 // (the log-sourced tier, where nothing else bounds "known fields" —
 // validateAgainstLogVocabulary's rules are every declared field).
+//
+// A keyed-lww field's key columns travel in the body but are not themselves
+// declared fields (spec/op-envelope.md §Producer validation rule 3): a body
+// key is also declared when it is a member of key on some keyed-lww rule in
+// rules for this same (op_type, op_version), and its value is checked
+// against that rule's key_types entry the same way a field's value is
+// checked against its value_type, plus one stricter requirement — the value
+// MUST be a JSON string regardless of key_types, because fold's keyed-lww
+// strategy treats a non-string key component as uninterpretable
+// (spec/fold.md §5's "Key components are strings", enforced via §7.1;
+// engine/internal/fold/reject.go). Where a name is both a declared field and
+// a key column (writ's own "schema" vocabulary's define-field's "field"
+// does this), the field rule wins: byField is checked first below, and the
+// key-column branch is only ever reached for a name no rule declares as a
+// field.
 func validateFieldsAgainstRules(rules []spec.FieldRule, body map[string]any, strict bool) error {
 	byField := make(map[string]spec.FieldRule, len(rules))
+	keyColumnTypes := make(map[string]string)
 	for _, r := range rules {
 		byField[r.Field] = r
+		if r.Strategy == "keyed-lww" {
+			for col, kt := range r.KeyTypes {
+				keyColumnTypes[col] = kt
+			}
+		}
 	}
 
 	// Sorted rather than ranged directly: body is a JSON-decoded map, whose
@@ -428,6 +450,15 @@ func validateFieldsAgainstRules(rules []spec.FieldRule, body map[string]any, str
 		val := body[field]
 		r, ok := byField[field]
 		if !ok {
+			if kt, isKeyColumn := keyColumnTypes[field]; isKeyColumn {
+				if val == nil {
+					continue
+				}
+				if err := validateKeyColumnValue(kt, val); err != nil {
+					return &RejectError{Reason: RejectSchemaViolation, Err: fmt.Errorf("field %q: %w", field, err)}
+				}
+				continue
+			}
 			if strict {
 				return &RejectError{Reason: RejectSchemaViolation, Err: fmt.Errorf("field %q has no declared rule in the schema", field)}
 			}
@@ -457,6 +488,22 @@ func validateFieldsAgainstRules(rules []spec.FieldRule, body map[string]any, str
 		}
 	}
 	return nil
+}
+
+// validateKeyColumnValue checks one keyed-lww key column's value: it MUST be
+// a JSON string, regardless of what valueType (the rule's key_types entry
+// for this column) says, because fold's keyed-lww strategy treats a
+// non-string key component as uninterpretable (spec/fold.md §5's "Key
+// components are strings", enforced via §7.1) — spec/schema-ops.md §3.1's
+// op_version-as-decimal-string encoding is this exact rule already applied
+// to the bootstrap's own key columns, not a new constraint invented here —
+// and it MUST additionally conform to valueType itself, checked the same way
+// a field's value is (spec/value-types.md).
+func validateKeyColumnValue(valueType string, val any) error {
+	if _, ok := val.(string); !ok {
+		return fmt.Errorf("key column value must be a JSON string (spec/fold.md §5 keyed-lww)")
+	}
+	return value.Validate(valueType, value.Params{}, val)
 }
 
 // validateOpTypeAndVersion is producer rule 4: an op_type or op_version writ

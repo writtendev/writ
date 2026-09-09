@@ -158,6 +158,103 @@ func TestObjectCLI_EndToEnd_NeverHeardOfType(t *testing.T) {
 	}
 }
 
+// TestObjectCLI_KeyedLWWKeyColumn is WRIT-214's acceptance criterion, run
+// end to end against a real binary: a consumer writ.schema declaring a
+// keyed-lww field compiles, applies, and accepts ops against that field,
+// folding two ops with different key-column values to two independent
+// register entries rather than one. Before the fix, the CLI's own
+// -field/-field-json gate refused the key column outright, and the engine
+// refused the key column with it -- and a body carrying the declared field
+// alone, no key column, was worse than refused: it was silently accepted
+// and every write folded onto the same empty key.
+//
+// fullTestSchema (cmd/writ/schema_test.go) already declares exactly this
+// shape -- standup's approval op, verdict keyed-lww key(subject
+// person-ref) -- so this reuses it rather than declaring a third schema.
+func TestObjectCLI_KeyedLWWKeyColumn(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, fullTestSchema)
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code := run(context.Background(), []string{
+		"object", "create", "-C", env.repoDir, "standup", "approval",
+		"-field", "verdict=approve",
+		"-field", "subject=email:alice@example.com",
+		"--json",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("object create failed with %d; stderr: %s", code, stderr.String())
+	}
+	var created wire.ObjectCreated
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectCreate, &created)
+	objectID := created.ObjectID
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run(context.Background(), []string{
+		"object", "apply", "-C", env.repoDir, objectID, "approval",
+		"-field", "verdict=approve",
+		"-field", "subject=email:bob@example.com",
+		"--json",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("object apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run(context.Background(), []string{"object", "show", "-C", env.repoDir, objectID, "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("object show failed with %d; stderr: %s", code, stderr.String())
+	}
+	var obj wire.Object
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectShow, &obj)
+	if len(obj.UnknownOps) != 0 {
+		t.Fatalf("unexpected unknown ops: %+v", obj.UnknownOps)
+	}
+	entries, ok := obj.Fields["verdict"].([]any)
+	if !ok || len(entries) != 2 {
+		t.Fatalf("verdict = %#v, want two independent keyed-lww register entries, one per subject", obj.Fields["verdict"])
+	}
+}
+
+// TestObjectCLI_KeyedLWWKeyColumn_UndeclaredKeyColumnStillRefused is the
+// regression the widening in lookupSchemaKeyColumn/declaredFieldNames must
+// not loosen: a body key that is neither a declared field nor a key column
+// of any rule for this (object type, op type, op version) is still refused,
+// naming both the declared fields and key columns in its error.
+func TestObjectCLI_KeyedLWWKeyColumn_UndeclaredKeyColumnStillRefused(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, fullTestSchema)
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code := run(context.Background(), []string{
+		"object", "create", "-C", env.repoDir, "standup", "approval",
+		"-field", "verdict=approve",
+		"-field", "subject=email:alice@example.com",
+		"-field", "reviewer=email:carol@example.com",
+	}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatal("object create accepted a field neither declared nor a key column")
+	}
+	if !strings.Contains(stderr.String(), `field "reviewer" is not declared`) {
+		t.Errorf("stderr = %q, want it to name the undeclared field", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "subject") {
+		t.Errorf("stderr = %q, want the declares list to include the key column \"subject\"", stderr.String())
+	}
+}
+
 // untypedFieldTestSchema declares a type with a field that has no declared
 // value_type at all -- spec/value-types.md's "untyped" exception, written
 // with the schema-source DSL's `untyped` keyword (spec/schema-source.md

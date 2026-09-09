@@ -59,7 +59,7 @@ addition to its merge strategy:
 | `value_type` (string, optional) | The catalogue entry for what the strategy's register or element holds. For `set-union`/`set-observed-remove` this types the **elements**; for `keyed-lww` it types the register value; for scalar strategies, the scalar. |
 | `enum` (array of strings) | Required iff `value_type == "enum"`; forbidden otherwise. The value list. |
 | `max_length` (integer, code points) | Optional; only on `value_type` `string` or `text`. |
-| `key_types` (object: key column → value type) | Only on `keyed-lww`; must cover exactly the columns `key` declares. |
+| `key_types` (object: key column → value type) | Only on `keyed-lww`; must cover exactly the columns `key` declares. A key column's value is checked against its entry here at producer time, and MUST additionally be a JSON string regardless of what the entry says ([`spec/op-envelope.md`](op-envelope.md) §Producer validation rule 3). |
 
 ### `value_type` is optional
 

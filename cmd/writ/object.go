@@ -195,18 +195,58 @@ func lookupSchemaField(types []writ.SchemaType, objectType, opType string, opVer
 	return nil
 }
 
-// declaredFieldNames lists the field names the given (object type, op type,
-// op version) actually declares, sorted, for use in an "undeclared field"
-// error message.
+// lookupSchemaKeyColumn reports whether name is a keyed-lww key column of
+// some field declared for the fully-specified (object type, op type, op
+// version) tuple (spec/op-envelope.md §Producer validation rule 3): a
+// keyed-lww field's key columns travel in the op body but are not
+// themselves declared fields, so a caller that already tried
+// lookupSchemaField and got nil checks here before refusing the name.
+func lookupSchemaKeyColumn(types []writ.SchemaType, objectType, opType string, opVersion int64, name string) bool {
+	for i := range types {
+		if types[i].Name != objectType {
+			continue
+		}
+		for j := range types[i].Fields {
+			f := &types[i].Fields[j]
+			if f.OpType != opType || f.OpVersion != opVersion || f.Strategy != "keyed-lww" {
+				continue
+			}
+			if _, ok := f.KeyTypes[name]; ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// declaredFieldNames lists the field and keyed-lww key column names the
+// given (object type, op type, op version) actually declares, sorted and
+// deduplicated, for use in an "undeclared field" error message -- a key
+// column is exactly as declared as a field for -field/-field-json purposes
+// (spec/op-envelope.md §Producer validation rule 3), so it belongs in the
+// list a rejection points at.
 func declaredFieldNames(types []writ.SchemaType, objectType, opType string, opVersion int64) []string {
+	seen := make(map[string]bool)
 	var names []string
+	add := func(name string) {
+		if !seen[name] {
+			seen[name] = true
+			names = append(names, name)
+		}
+	}
 	for i := range types {
 		if types[i].Name != objectType {
 			continue
 		}
 		for _, f := range types[i].Fields {
-			if f.OpType == opType && f.OpVersion == opVersion {
-				names = append(names, f.Name)
+			if f.OpType != opType || f.OpVersion != opVersion {
+				continue
+			}
+			add(f.Name)
+			if f.Strategy == "keyed-lww" {
+				for col := range f.KeyTypes {
+					add(col)
+				}
 			}
 		}
 	}
@@ -284,6 +324,16 @@ type fieldEntry struct {
 // (spec/value-types.md's "untyped" exception: a two-field record folded
 // whole under create-once, so there is no value_type to key type-directed
 // parsing off of). See WRIT-209.
+//
+// A key given via -field that names a keyed-lww key column rather than a
+// declared field (lookupSchemaField nil, lookupSchemaKeyColumn true) is a
+// string pass-through, never routed through convertFieldValue's key_types
+// entry: a key column's value MUST be a JSON string on the wire regardless
+// of its declared value type (spec/op-envelope.md §Producer validation rule
+// 3), so converting e.g. an "int"-typed key column to a JSON number here
+// would hand the producer an op it can only reject. -field-json is
+// unaffected -- it already decodes whatever JSON the caller wrote, key
+// column or not.
 func parseFieldFlags(fieldRaw, fieldJSONRaw []string, objectType, opType string, opVersion int64, types []writ.SchemaType) (map[string]any, error) {
 	var order []string
 	grouped := make(map[string][]fieldEntry)
@@ -315,12 +365,16 @@ func parseFieldFlags(fieldRaw, fieldJSONRaw []string, objectType, opType string,
 	fields := make(map[string]any, len(order))
 	for _, key := range order {
 		rule := lookupSchemaField(types, objectType, opType, opVersion, key)
+		isKeyColumn := false
 		if rule == nil {
-			declared := declaredFieldNames(types, objectType, opType, opVersion)
-			if len(declared) == 0 {
-				return nil, fmt.Errorf("field %q is not declared for %s %s (it declares no fields)", key, objectType, opType)
+			isKeyColumn = lookupSchemaKeyColumn(types, objectType, opType, opVersion, key)
+			if !isKeyColumn {
+				declared := declaredFieldNames(types, objectType, opType, opVersion)
+				if len(declared) == 0 {
+					return nil, fmt.Errorf("field %q is not declared for %s %s (it declares no fields)", key, objectType, opType)
+				}
+				return nil, fmt.Errorf("field %q is not declared for %s %s (declares: %s)", key, objectType, opType, strings.Join(declared, ", "))
 			}
-			return nil, fmt.Errorf("field %q is not declared for %s %s (declares: %s)", key, objectType, opType, strings.Join(declared, ", "))
 		}
 
 		entries := grouped[key]
@@ -334,11 +388,16 @@ func parseFieldFlags(fieldRaw, fieldJSONRaw []string, objectType, opType string,
 		for i, e := range entries {
 			var cv any
 			var err error
-			if e.viaJSON {
+			switch {
+			case e.viaJSON:
 				if uerr := json.Unmarshal([]byte(e.raw), &cv); uerr != nil {
 					err = fmt.Errorf("invalid JSON value %q: %v", e.raw, uerr)
 				}
-			} else {
+			case isKeyColumn:
+				// String pass-through: see the isKeyColumn note on
+				// parseFieldFlags's doc comment above.
+				cv = e.raw
+			default:
 				cv, err = convertFieldValue(rule.ValueType, e.raw)
 			}
 			if err != nil {

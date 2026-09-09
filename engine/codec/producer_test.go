@@ -158,6 +158,114 @@ func TestBuildCommitRejectsInvalidBody(t *testing.T) {
 	}
 }
 
+// keyedWidgetVocabulary declares one keyed-lww field, "verdict", keyed on a
+// "subject" column typed person-ref -- the shape WRIT-214 fixes tier 2 to
+// accept: "subject" is a member of "verdict"'s key, never itself a
+// declared field, exactly like writ's own bootstrap vocabulary's
+// deprecate-type "type" key column (spec/op-envelope.md §Producer
+// validation rule 3).
+func keyedWidgetVocabulary() codec.Vocabularies {
+	return declareVocabulary("widget",
+		spec.FieldRule{
+			OpType: "approve", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww",
+			Key: []string{"subject"}, KeyTypes: map[string]string{"subject": "person-ref"},
+			ValueType: "string",
+		},
+	)
+}
+
+// TestBuildCommitAcceptsKeyedLWWKeyColumns is WRIT-214's fix, pinned directly
+// against BuildCommit: a keyed-lww field's key column is declared by being a
+// member of the field's own key, so a body carrying both the field and its
+// key column is accepted even though no rule names the key column as a
+// field of its own.
+func TestBuildCommitAcceptsKeyedLWWKeyColumns(t *testing.T) {
+	if _, err := codec.BuildCommit(codec.Envelope{
+		ObjectID:   "w-1",
+		ObjectType: "widget",
+		OpType:     "approve",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"verdict":"approve","subject":"email:alice@example.com"}`),
+	}, testAuthor(), nil, keyedWidgetVocabulary()); err != nil {
+		t.Fatalf("BuildCommit rejected a body carrying a declared keyed-lww key column: %v", err)
+	}
+}
+
+// TestBuildCommitRejectsKeyedLWWKeyColumns covers the two ways a key column's
+// value can still fail: it must be a JSON string regardless of its
+// key_types entry (fold treats a non-string key component as
+// uninterpretable, spec/fold.md §5 keyed-lww), and it must additionally
+// conform to that entry, checked the same way a field's value is checked
+// against its value_type.
+func TestBuildCommitRejectsKeyedLWWKeyColumns(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "key column value is not a JSON string",
+			body: `{"verdict":"approve","subject":123}`,
+		},
+		{
+			name: "key column value is a string but fails its key_types entry",
+			body: `{"verdict":"approve","subject":"not-a-person-ref"}`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := codec.BuildCommit(codec.Envelope{
+				ObjectID:   "w-1",
+				ObjectType: "widget",
+				OpType:     "approve",
+				OpVersion:  1,
+				Body:       json.RawMessage(tc.body),
+			}, testAuthor(), nil, keyedWidgetVocabulary())
+			if err == nil {
+				t.Fatal("BuildCommit accepted a malformed keyed-lww key column value")
+			}
+			var rejErr *codec.RejectError
+			if !errors.As(err, &rejErr) {
+				t.Fatalf("error is not a *codec.RejectError: %v", err)
+			}
+			if rejErr.Reason != codec.RejectSchemaViolation {
+				t.Errorf("reason = %q, want %q", rejErr.Reason, codec.RejectSchemaViolation)
+			}
+		})
+	}
+}
+
+// TestBuildCommitFieldRuleWinsOverKeyColumn pins the one ambiguity
+// validateFieldsAgainstRules resolves rather than leaving undefined: where a
+// name is both a declared field and a keyed-lww key column of another rule
+// in the same (op_type, op_version), the field rule governs its typing.
+// "subject" here is declared as a plain string field and, separately, is
+// the key column of "verdict" typed person-ref -- a value that is a
+// conforming string but not a conforming person-ref must be accepted,
+// because the field rule (plain string, no format constraint) is the one
+// that applies.
+func TestBuildCommitFieldRuleWinsOverKeyColumn(t *testing.T) {
+	vocabularies := declareVocabulary("widget",
+		spec.FieldRule{OpType: "approve", OpVersion: 1, Field: "subject", Strategy: "lww", ValueType: "string"},
+		spec.FieldRule{
+			OpType: "approve", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww",
+			Key: []string{"subject"}, KeyTypes: map[string]string{"subject": "person-ref"},
+			ValueType: "string",
+		},
+	)
+
+	if _, err := codec.BuildCommit(codec.Envelope{
+		ObjectID:   "w-1",
+		ObjectType: "widget",
+		OpType:     "approve",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"verdict":"approve","subject":"not-a-person-ref-but-a-fine-string"}`),
+	}, testAuthor(), nil, vocabularies); err != nil {
+		t.Fatalf("BuildCommit rejected a value valid under the declared field rule, "+
+			"suggesting the key-column rule ran instead: %v", err)
+	}
+}
+
 // knownCreateBodies is a minimal, schema-valid create body for each vocabulary
 // writ ships, so the forward-compatibility cases below can be driven against
 // every one of them rather than against whichever one happens to be most

@@ -170,15 +170,33 @@ invalid. Before the op commit is built, the producer MUST verify that:
    (`spec/schemas/op-envelope.schema.json`).
 2. The payload is byte-canonical per the byte-equality rule above.
 3. The payload satisfies the declared fields for its `(object_type,
-   op_type, op_version)`: every key present in `body` has a rule the
-   schema object governing `object_type` declares, and every field whose
-   rule declares a `value_type` ([`spec/value-types.md`](value-types.md))
-   holds a value conforming to it.
+   op_type, op_version)`: every key present in `body` is **declared** —
+   either a rule the schema object governing `object_type` names by
+   `field`, or a member of `key` on some rule of that same
+   `(op_type, op_version)` whose `strategy` is `keyed-lww` — and every
+   field whose rule declares a `value_type`
+   ([`spec/value-types.md`](value-types.md)) holds a value conforming to
+   it. A `keyed-lww` key column need not also be declared as a field: it
+   travels in `body` to address the write's register, not to carry a
+   value of its own, and writ's own `schema` vocabulary is the worked
+   example — `deprecate-type`'s `type` key column is never itself a
+   `define-field`. Where a key names both a field and a key column of
+   another rule, the field rule governs it.
 4. The `op_type` and `op_version` are ones the schema object governing
    `object_type` declares. A producer never legitimately authors an op
    type or an op version it cannot interpret; where it appears to, the
    cause is a typo, and the op it would write is one no reader will ever
    interpret either.
+
+A `keyed-lww` key column's value is checked against its `key_types` entry
+the same way a field's value is checked against its `value_type`, and MUST
+additionally be a JSON string regardless of what that entry says: fold's
+`keyed-lww` strategy treats a non-string key component as uninterpretable
+([`spec/fold.md`](fold.md) §5's "Key components are strings", enforced via
+§7.1). This is not a new constraint —
+[`spec/schema-ops.md`](schema-ops.md) §3.1 already lives with it for
+`op_version` wherever it appears in a key — only its extension from
+writ's own bootstrap vocabulary to every `keyed-lww` key column.
 
 "The schema object governing `object_type`" resolves through a fixed,
 exclusive precedence — exactly one tier ever applies to a given op, so no

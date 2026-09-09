@@ -45,5 +45,16 @@
     "producer_verdict": "accept",
     "reader_disposition": "interpretable",
     "reason": "deprecated is metadata discouraging new writes, never a filter (spec/schema-ops.md 5, 8): the field rule stays installed and active for both the producer and the fold"
+  },
+  "keyed-lww-key-column.json": {
+    "producer_verdict": "accept",
+    "reader_disposition": "interpretable",
+    "reason": "rule 3 (WRIT-214): a keyed-lww field's key column is declared by being a member of key on the field's own rule, not by a separate field rule of its own, so a body carrying both the field and its key column is accepted at the producer and interpretable by the reader"
+  },
+  "keyed-lww-key-column-not-a-string.json": {
+    "producer_verdict": "reject",
+    "reason_code": "schema-violation",
+    "reader_disposition": "unknown-op",
+    "reason": "rule 3 (WRIT-214): a keyed-lww key column's value MUST be a JSON string regardless of its key_types entry, because fold treats a non-string key component as uninterpretable (spec/fold.md §5 keyed-lww); this is the lockstep pin -- a producer refusal matched by a reader quarantine, not the interpretable-but-wrong tolerance an ordinary value_type mismatch gets"
   }
 }
