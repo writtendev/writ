@@ -1,0 +1,1 @@
+{"body":{"field":"revision","key":["subject","revision"],"key_types":{"revision":"git-oid","subject":"person-ref"},"op_type":"endorse","op_version":"1","strategy":"keyed-lww","target":"endorsement","type":"standup","value_type":"git-oid"},"object_id":"sch-acme","object_type":"schema","op_type":"define-field","op_version":1}

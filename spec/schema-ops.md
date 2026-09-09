@@ -290,14 +290,23 @@ Declares one field on one op's body for one type.
 - `strategy` (string, required): One member of the closed merge-strategy
   catalogue (`spec/fold.md` §5).
 - `key` (array of strings, required iff `strategy == "keyed-lww"`): The
-  ordered composite key.
+  ordered composite key. Each column shares `field`'s exact grammar,
+  `^[a-z][a-z0-9_]*$`, at most 64 characters (WRIT-203) — a producer
+  resolves a key column's declared type by this name alone
+  (`spec/op-envelope.md` §Producer validation rule 3), and a consumer's
+  projection turns it into both a column name and part of a child table's
+  name.
 - `key_types` (object, required iff `strategy == "keyed-lww"`): Maps each
   `key` column to its value type; MUST cover exactly the columns `key`
   declares.
 - `lattice` (array of strings, required iff `strategy == "lattice"`): The
   ordered semilattice elements.
 - `target` (string, optional): The state key this field's register lands
-  under (`spec/fold.md` §5, §7 below).
+  under (`spec/fold.md` §5, §7 below), sharing `field`'s exact grammar,
+  `^[a-z][a-z0-9_]*$`, at most 64 characters (WRIT-203) — `TargetKey()`
+  returns `target` when set, otherwise `field`, so the two are
+  interchangeable as the fold's accumulator key, and a consumer's
+  projection turns either into a generated SQL identifier.
 
 These cross-field consistency rules mirror `spec.ValidateFieldRule`
 exactly (`spec/fieldrules.go`) — the same function that validates the
@@ -770,7 +779,11 @@ uninterpretable-operation contract (`spec/fold.md` §7.1) for the
 validated through `spec.ValidateFieldRule` — the same function the
 bootstrap `field-rules.json` is validated through on load — before it
 can be installed. A rule that fails is dropped and reported as a conflict
-(§6) rather than reaching `Fold`. This is why the resolver lives in package
+(§6) rather than reaching `Fold`. `ValidateFieldRule` includes §4.3's
+`field`, `target`, and `key` column grammar (WRIT-203): a `define-field`
+whose target or a key column is not a valid identifier is dropped and
+reported exactly like one declaring an unknown strategy — never installed,
+never handed to `Fold`. This is why the resolver lives in package
 `writ` (`engine/schema.go`, which already imports `spec`) and not in
 `engine/internal/fold`: that package's import allowlist does not include
 `spec`, and keeping fold pure is a house rule, not a convenience.
@@ -818,17 +831,25 @@ than restating the precedence itself (WRIT-188).
   recoverable the moment the contest itself is. The asymmetry is the
   point, not an oversight: a producer can retract nothing it has already
   signed, so the fence is on the side where a mistake is undoable.
-- **Declarations are grammar-gated like field rules.** §9's rule
+- **`field`, `target`, and `key` are grammar-gated inside
+  `spec.ValidateFieldRule`; `op_type` is gated outside it.** §9's rule
   validation gate — every candidate rule passed through
-  `spec.ValidateFieldRule` before it reaches `Fold` — checks a great deal
-  about a `define-field` rule, but not the `op_type` grammar itself
-  (`ValidateFieldRule` only checks it is non-empty). A schema-declared
-  `op_type` failing `spec/op-envelope.md`'s envelope grammar
-  (`^[a-z][a-z0-9-]*$`, at most 64 characters) could never be written
-  through the ordinary envelope path regardless, so this is not a new
-  security boundary — it buys a clearer rejection and a rule index that
-  is never keyed by an unwritable `op_type`, and it applies to a
-  `define-op` declaration exactly as it does to `define-field`'s.
+  `spec.ValidateFieldRule` before it reaches `Fold` — now checks `field`,
+  `target`, and every `key` column against §4.3's identifier grammar
+  (WRIT-203), because all three are field-rule properties: `target` and
+  `key` become part of the fold's accumulator key and, via a consumer's
+  projection, a generated SQL identifier, exactly as `field` already can.
+  `op_type`'s grammar stays gated outside `ValidateFieldRule`
+  (`engine/schema.go`'s `validOpTypeGrammar`, run once per field and once
+  per `define-op` in `resolveSchemaTypes`), because it is not a field-rule
+  property at all — it belongs to the envelope
+  (`spec/op-envelope.md`'s `^[a-z][a-z0-9-]*$`, at most 64 characters), not
+  to a `define-field` or `define-op` body. A schema-declared `op_type`
+  failing that grammar could never be written through the ordinary
+  envelope path regardless, so gating it here is not a new security
+  boundary — it buys a clearer rejection and a rule index that is never
+  keyed by an unwritable `op_type`, and it applies to a `define-op`
+  declaration exactly as it does to `define-field`'s.
 
 ---
 
@@ -863,3 +884,18 @@ than restating the precedence itself (WRIT-188).
 - `spec/testdata/producer/` (WRIT-188) — §11's producer/reader paired
   verdicts over ops governed by a schema resolved from the log: see
   `spec/op-envelope.md` §Conformance data for the full description.
+  `target-grammar-installs-no-rule.json` is WRIT-203's case: a
+  `define-field` whose `target` fails §4.3's identifier grammar installs
+  no rule at all, so the producer refuses the field exactly as it would
+  an undeclared one, and the reader tolerates it the same way.
+- `spec/testdata/schema-ops/invalid/define-field-target-grammar.json` and
+  `define-field-key-column-grammar.json` (WRIT-203) — a `target` and a
+  `key` column each failing §4.3's identifier grammar, rejected by the
+  payload schema itself.
+  `spec/testdata/schema-ops/valid/define-field-target-and-multicolumn-key.json`
+  pins the accepted form: a legal `target` alongside a multi-column `key`.
+- `spec/fixtures/testdata/descriptions/schema-driven-identifier-grammar.yaml`
+  (WRIT-203) — the reader-side pin: a schema declaring one field with an
+  out-of-grammar `target` and one with an out-of-grammar `key` column
+  alongside two legally-declared fields (one of them target-bearing), so
+  the resolver drops only the two malformed rules and installs the rest.

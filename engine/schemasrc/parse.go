@@ -61,6 +61,14 @@ const fieldNameAfterFieldReservedReason = "; a bare \"deprecated\" modifier imme
 // spell, so it stays reserved everywhere a field name is.
 const targetReservedReason = "; a target name draws from the same namespace as a field name, so it stays reserved everywhere a field name is"
 
+// keyColumnReservedReason is the same diagnostic as targetReservedReason,
+// for a key(...) column name: key(...) is fully delimited by its own
+// parentheses too, so there is no lookahead ambiguity here either, and a
+// key column can be the dual-role name of some field's own name
+// (spec.ParticipatesInKeyColumn), so it stays reserved for the same
+// symmetry reason.
+const keyColumnReservedReason = "; a key column name draws from the same namespace as a field name, so it stays reserved everywhere a field name is"
+
 // Parse parses one writ.schema source file into an AST. name is used only
 // to prefix error messages (conventionally "writ.schema", or a path).
 //
@@ -749,6 +757,7 @@ func (p *parser) parseKeyModifier(f *Field) {
 			if !ok {
 				return
 			}
+			validateName(p, nameTok, fieldNamePattern, "key column name", fieldReserved, keyColumnReservedReason)
 			typeTok, ok := p.expectIdentAny("key column value type")
 			if !ok {
 				return

@@ -241,7 +241,11 @@ Comments are never data — `description "..."` is (§6).
   forbidden otherwise. Each pair is one key column and its declared value
   type; the production emits `key` and `key_types` together (§5), which
   is what makes `ValidateFieldRule`'s "`key_types` must cover exactly
-  `key`" rule impossible to violate through this grammar.
+  `key`" rule impossible to violate through this grammar. `col` follows
+  the field-name grammar (`^[a-z][a-z0-9_]*$`, at most 64 characters) and
+  reservation rule (§2) exactly as `target(name)` below does (WRIT-203): a
+  key column becomes part of a generated SQL identifier once a consumer's
+  projection reads it, the same reason `target` does.
 * `target(name)` — the state key this field's register lands under
   (`fold.md` §5). Optional on every field; required in practice exactly
   when a version bump would otherwise reuse the default target while

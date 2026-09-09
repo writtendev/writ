@@ -41,11 +41,13 @@ func baseField() state.SchemaField {
 // TestRenderRejectsTextParseWouldReject pins WRIT-187 round-1 finding 3:
 // Render must error, naming the offending field, for every declaration
 // this grammar has no spelling for — rather than emitting source Parse
-// then rejects with no indication of which declaration broke it. Each
-// case below is wire-legal per spec/schemas/schema-ops.schema.json's
-// define_field_body (no pattern on enum items, target, or key) but not
-// something this grammar's ident production, or one of its two closed
-// catalogues, can represent.
+// then rejects with no indication of which declaration broke it. The enum
+// and lattice cases below are wire-legal per
+// spec/schemas/schema-ops.schema.json's define_field_body (no pattern on
+// either) but not something this grammar's ident production can
+// represent; the target and key column cases are reachable only from a
+// non-conforming producer's log, since the wire schema now pins their
+// grammar too (WRIT-203).
 func TestRenderRejectsTextParseWouldReject(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -135,7 +137,17 @@ func TestRenderRejectsTextParseWouldReject(t *testing.T) {
 				f.KeyTypes = map[string]string{"a col": "string"}
 				return f
 			},
-			wantErr: `key column "a col" would not lex`,
+			wantErr: `key column "a col" would not parse back`,
+		},
+		{
+			name: "key column is a reserved word",
+			mutate: func(f state.SchemaField) state.SchemaField {
+				f.Strategy = "keyed-lww"
+				f.Key = []string{"deprecated"}
+				f.KeyTypes = map[string]string{"deprecated": "string"}
+				return f
+			},
+			wantErr: `key column "deprecated" is a reserved word`,
 		},
 		{
 			name: "key column's value type is off-catalogue",

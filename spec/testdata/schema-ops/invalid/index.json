@@ -60,6 +60,16 @@
     "reason": "deprecate-field op body is missing required field"
   },
   {
+    "file": "define-field-target-grammar.json",
+    "rejects": "schema",
+    "reason": "target 'bad-target' contains a hyphen, which field_name's grammar (^[a-z][a-z0-9_]*$, WRIT-203) does not admit even though namespace/type_name/op_type_name's does"
+  },
+  {
+    "file": "define-field-key-column-grammar.json",
+    "rejects": "schema",
+    "reason": "key column 'Subject' starts with an uppercase letter, which field_name's grammar (^[a-z][a-z0-9_]*$, WRIT-203) does not admit"
+  },
+  {
     "file": "define-field-enum-without-enum-value-type.json",
     "rejects": "invariant",
     "reason": "enum values declared on value_type 'string', which is not 'enum' (spec.ValidateFieldRule)"

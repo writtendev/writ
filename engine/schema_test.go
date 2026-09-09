@@ -293,6 +293,75 @@ func TestRulesFromSchemas_InvalidOpTypeGrammarDroppedNotInstalled(t *testing.T) 
 	}
 }
 
+// TestRulesFromSchemas_InvalidTargetOrKeyGrammarDroppedNotInstalled pins
+// WRIT-203: a define-field's target and every keyed-lww key column now
+// share field's own identifier grammar (^[a-z][a-z0-9_]*$, max 64 chars),
+// gated inside spec.ValidateFieldRule, so resolveSchemaTypes's per-field
+// pass 1 drops a rule declaring either exactly as it already drops one
+// declaring an unknown strategy — never reaching pass 2's key-column
+// agreement check or pass 3's target-agreement check. A malformed target
+// or key column is a defect of one rule: dropping it must not withhold a
+// sibling rule that legitimately binds its own, well-formed target.
+func TestRulesFromSchemas_InvalidTargetOrKeyGrammarDroppedNotInstalled(t *testing.T) {
+	sch := state.Schema{
+		ObjectID: "sch-a",
+		Types: []state.SchemaType{
+			{
+				Name: "standup",
+				Fields: []state.SchemaField{
+					{Name: "summary", OpType: "create", OpVersion: 1, Strategy: "lww", ValueType: "string"},                                                                                // valid, control
+					{Name: "code", OpType: "create", OpVersion: 1, Strategy: "lww", ValueType: "string", Target: "identifier"},                                                             // valid target, sibling
+					{Name: "owner", OpType: "create", OpVersion: 1, Strategy: "lww", ValueType: "string", Target: "bad-target"},                                                            // hyphen not in field_name's grammar - invalid
+					{Name: "tags", OpType: "create", OpVersion: 1, Strategy: "keyed-lww", ValueType: "string", Key: []string{"Bad Col"}, KeyTypes: map[string]string{"Bad Col": "string"}}, // space and uppercase - invalid
+				},
+			},
+		},
+	}
+
+	rules, conflicts := writ.RulesFromSchemas([]state.Schema{sch})
+	got := rules["standup"]
+	if len(got) != 2 {
+		t.Fatalf("expected only the two grammatically valid fields installed, got %+v", got)
+	}
+	gotFields := map[string]bool{}
+	for _, r := range got {
+		gotFields[r.Field] = true
+	}
+	if !gotFields["summary"] || !gotFields["code"] {
+		t.Fatalf("expected summary and code installed, got %+v", got)
+	}
+	if len(conflicts) != 2 {
+		t.Fatalf("expected 2 conflicts for the bad target and the bad key column, got %+v", conflicts)
+	}
+	for _, c := range conflicts {
+		if !strings.Contains(c.Reason, "is invalid and was not installed") {
+			t.Errorf("conflict reason does not name a dropped rule: %+v", c)
+		}
+	}
+
+	// §9's security boundary, exactly as the op_type-grammar and
+	// invalid-strategy siblings above assert: neither dropped rule ever
+	// reaches Fold, so the ops that would have written them fall through
+	// to UnknownOps rather than hard-erroring.
+	dataOp := codec.Op{
+		Envelope: codec.Envelope{
+			ObjectID: "obj-1", ObjectType: "standup", OpType: "create", OpVersion: 1,
+			Body: json.RawMessage(`{"summary":"hi","code":"abc","owner":"alice","Bad Col":"x","tags":"y"}`),
+		},
+		ID: "op-1",
+	}
+	objState, err := writ.Fold([]codec.Op{dataOp}, rules["standup"])
+	if err != nil {
+		t.Fatalf("Fold must never see a rule for a grammar-invalid target or key column, got error: %v", err)
+	}
+	if got := objState.State["summary"]; got != "hi" {
+		t.Fatalf("expected summary to fold normally, got %+v", got)
+	}
+	if got := objState.State["identifier"]; got != "abc" {
+		t.Fatalf("expected code's target identifier to fold normally, got %+v", got)
+	}
+}
+
 // TestRulesFromSchemas_DeprecatedFieldStaysActiveForFolding proves the
 // round-1 fix for finding 2: deprecated:true is metadata discouraging new
 // writes, not a removal (spec/schema-ops.md §5, §8; AGENTS.md "old clients

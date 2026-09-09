@@ -118,5 +118,11 @@
     "reason_code": "schema-violation",
     "reader_disposition": "interpretable",
     "reason": "rule 3 (WRIT-214 round 5): \"2024-01-01T01:00:00+01:00\" names the same instant as \"2024-01-01T00:00:00Z\" but is a different byte string, and fold keys a keyed-lww register on the byte string (value.Normalize is the identity for timestamp), so admitting every RFC 3339 spelling of an instant would let two producers who mean the same key address registers that never converge. The producer now requires the canonical UTC spelling; the reader still only checks isString, so it folds the op with the non-canonical key component intact, the same asymmetry keyed-lww-key-column-int-non-canonical.json pins for int"
+  },
+  "target-grammar-installs-no-rule.json": {
+    "producer_verdict": "reject",
+    "reason_code": "schema-violation",
+    "reader_disposition": "interpretable",
+    "reason": "WRIT-203: a define-field whose target fails the identifier grammar (^[a-z][a-z0-9_]*$) is dropped by spec.ValidateFieldRule inside the same resolution both the producer and the reader consult (spec/schema-ops.md §11), so it installs no rule at all -- indistinguishable, from here, from a field the schema never declared in the first place (undeclared-field.json). Rule 3 refuses the write; a reader tolerates it, folding title normally and ignoring the unrecognized owner field"
   }
 }

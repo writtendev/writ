@@ -630,12 +630,16 @@ func anyOpHasObjectType(ops []codec.Op, objectType string) bool {
 // opTypeGrammar mirrors the op_type rule spec/schemas/op-envelope.schema.json
 // pins for the wire field (`^[a-z][a-z0-9-]*$`, max opTypeMaxLength
 // characters). Nothing upstream of resolveSchemaTypes enforces this for a
-// log-declared op_type — spec.ValidateFieldRule checks only that OpType is
-// non-empty — so an op authored under a schema-declared op_type failing
-// this grammar could never be written through the ordinary envelope path
-// in the first place; catching it here buys a clearer error and a rule
-// index that cannot be keyed by an unwritable op type, not a new security
-// boundary (spec/schema-ops.md §9).
+// log-declared op_type — spec.ValidateFieldRule checks OpType is non-empty
+// but not its grammar, because op_type's grammar belongs to the envelope
+// (spec/op-envelope.md), not to a field rule — so an op authored under a
+// schema-declared op_type failing this grammar could never be written
+// through the ordinary envelope path in the first place; catching it here
+// buys a clearer error and a rule index that cannot be keyed by an
+// unwritable op type, not a new security boundary (spec/schema-ops.md §9).
+// field, target, and key, by contrast, ARE field-rule properties, so their
+// grammar is gated inside spec.ValidateFieldRule itself rather than by a
+// twin of this function — see that function's identifierGrammar doc.
 var opTypeGrammar = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
 const opTypeMaxLength = 64
@@ -805,13 +809,25 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 			descriptions[t.Name] = t.Description
 			deprecatedTypes[t.Name] = t.Deprecated
 
-			// Pass 1: grammar and spec.ValidateFieldRule, per field —
-			// each failure dropped with its own SchemaConflict. Both are
-			// properties of a single rule in isolation, so a per-field
-			// loop is the whole check; the two set-level passes below
-			// group what survives. survivingRules mirrors survivingFields
-			// index for index so those passes can go from a rule back to
-			// the state.SchemaField value they withhold or install.
+			// Pass 1: op_type grammar and spec.ValidateFieldRule, per
+			// field — each failure dropped with its own SchemaConflict.
+			// Both are properties of a single rule in isolation, so a
+			// per-field loop is the whole check; the two set-level passes
+			// below group what survives. spec.ValidateFieldRule itself now
+			// gates field, target, and every keyed-lww key column against
+			// identifierGrammar (spec/schema-ops.md §4.3, WRIT-203): a
+			// malformed target or key column is a defect of one rule, so
+			// it belongs here, in the per-rule pass, not in pass 2 or 3 —
+			// putting it there would withhold every sibling rule on a
+			// legitimately shared target or key column for one rule's
+			// spelling mistake. One consequence of routing it through
+			// ValidateFieldRule rather than a fourth local gate here: pass
+			// 2's byKeyColumn and pass 3's byTarget below only ever group
+			// by a key column or target that already cleared this check,
+			// so their map keys are identifiers by construction.
+			// survivingRules mirrors survivingFields index for index so
+			// those passes can go from a rule back to the state.SchemaField
+			// value they withhold or install.
 			var survivingFields []state.SchemaField
 			var survivingRules []spec.FieldRule
 			for _, f := range t.Fields {

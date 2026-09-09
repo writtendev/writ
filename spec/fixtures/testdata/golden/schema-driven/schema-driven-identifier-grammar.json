@@ -1,0 +1,112 @@
+{
+  "schemas": [
+    {
+      "object_id": "sch-acme",
+      "schema": {
+        "object_id": "sch-acme",
+        "namespace": "acme",
+        "types": [
+          {
+            "type": "gadget",
+            "fields": [
+              {
+                "field": "title",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              },
+              {
+                "field": "code",
+                "op_type": "set-code",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww",
+                "target": "identifier"
+              },
+              {
+                "field": "owner",
+                "op_type": "set-owner",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww",
+                "target": "bad-target"
+              },
+              {
+                "field": "tags",
+                "op_type": "set-tags",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "keyed-lww",
+                "key": [
+                  "Bad Col"
+                ],
+                "key_types": {
+                  "Bad Col": "string"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "conflicts": [
+    {
+      "object_type": "gadget",
+      "object_ids": [
+        "sch-acme"
+      ],
+      "reason": "field rule (set-owner, 1, owner) is invalid and was not installed: rule for (set-owner, owner) declares target \"bad-target\", which is not a valid identifier (must match ^[a-z][a-z0-9_]*$, max 64 chars)"
+    },
+    {
+      "object_type": "gadget",
+      "object_ids": [
+        "sch-acme"
+      ],
+      "reason": "field rule (set-tags, 1, tags) is invalid and was not installed: rule for (set-tags, tags) declares key column \"Bad Col\", which is not a valid identifier (must match ^[a-z][a-z0-9_]*$, max 64 chars)"
+    }
+  ],
+  "objects": [
+    {
+      "object_id": "gadget-1",
+      "object_type": "gadget",
+      "total_order": [
+        {
+          "commit": "7e1db868148b1132f23f40cb9fea5eec95925b67",
+          "t_star": 1767225960
+        },
+        {
+          "commit": "c3aca5d57041770d4f94b3bae6892d7b8b12dcbb",
+          "t_star": 1767226020
+        },
+        {
+          "commit": "021c823159bbe361b7eb1c86df0b280cc0026985",
+          "t_star": 1767226080
+        },
+        {
+          "commit": "4376ca42164e88413c753e6443e51fb820f76097",
+          "t_star": 1767226140
+        }
+      ],
+      "state": {
+        "identifier": "abc123",
+        "title": "Widget"
+      },
+      "unknown_ops": [
+        {
+          "commit": "021c823159bbe361b7eb1c86df0b280cc0026985",
+          "object_type": "gadget",
+          "op_type": "set-owner",
+          "op_version": 1
+        },
+        {
+          "commit": "4376ca42164e88413c753e6443e51fb820f76097",
+          "object_type": "gadget",
+          "op_type": "set-tags",
+          "op_version": 1
+        }
+      ]
+    }
+  ]
+}

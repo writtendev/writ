@@ -1,0 +1,177 @@
+name: schema-driven-identifier-grammar
+description: >
+  WRIT-203: target and every keyed-lww key column now share field's own
+  identifier grammar (^[a-z][a-z0-9_]*$, max 64 chars), gated inside
+  spec.ValidateFieldRule — resolveSchemaTypes's pass 1, the same per-rule
+  pass an unknown strategy or a keyed-lww key/key_types mismatch already
+  falls through. Four define-field ops: "title" (no target, the control),
+  "code" (a legal target("identifier")), "owner" (target("bad-target") —
+  a hyphen, legal in namespace/type_name/op_type_name's grammar but not
+  field_name's), and "tags" (keyed-lww key(["Bad Col"]) — a space and an
+  uppercase letter, also illegal). Dropping owner's and tags's rules in
+  pass 1 must not withhold code's target, which pass 3 (target agreement)
+  never even sees grouped with anything malformed, since byTarget only
+  ever contains survivors of pass 1. Every op under "set-owner" and
+  "set-tags" therefore matches no installed rule and becomes an
+  UnknownOp, while "create" and "set-code" fold normally. (pins: reader)
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: define-type
+            parents: [create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "gadget"
+            expect: accept
+
+          - id: define-field-title
+            parents: [define-type]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: define-field-code
+            parents: [define-field-title]
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "set-code"
+                op_version: "1"
+                field: "code"
+                value_type: "string"
+                strategy: "lww"
+                target: "identifier"
+            expect: accept
+
+          - id: define-field-owner
+            parents: [define-field-code]
+            author: alice
+            timestamp: 2026-01-01T00:04:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "set-owner"
+                op_version: "1"
+                field: "owner"
+                value_type: "string"
+                strategy: "lww"
+                target: "bad-target"
+            expect: accept
+
+          - id: define-field-tags
+            parents: [define-field-owner]
+            author: alice
+            timestamp: 2026-01-01T00:05:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "set-tags"
+                op_version: "1"
+                field: "tags"
+                value_type: "string"
+                strategy: "keyed-lww"
+                key: ["Bad Col"]
+                key_types:
+                  "Bad Col": "string"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/gadget
+    history:
+      - commits:
+          - id: gadget-create
+            author: alice
+            timestamp: 2026-01-01T00:06:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: create
+              op_version: 1
+              body:
+                title: "Widget"
+            expect: accept
+
+          - id: gadget-set-code
+            parents: [gadget-create]
+            author: alice
+            timestamp: 2026-01-01T00:07:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: set-code
+              op_version: 1
+              body:
+                code: "abc123"
+            expect: accept
+
+          - id: gadget-set-owner
+            parents: [gadget-set-code]
+            author: alice
+            timestamp: 2026-01-01T00:08:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: set-owner
+              op_version: 1
+              body:
+                owner: "bob"
+            expect: accept
+
+          - id: gadget-set-tags
+            parents: [gadget-set-owner]
+            author: alice
+            timestamp: 2026-01-01T00:09:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: set-tags
+              op_version: 1
+              body:
+                tags: "urgent"
+                "Bad Col": "sprint1"
+            expect: accept
