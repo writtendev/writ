@@ -122,7 +122,21 @@ func declaredOpNames(td *writ.SchemaType) []string {
 // exactly one, so an undeclared explicit version is refused here -- naming
 // the versions that are declared -- rather than surfacing later as a
 // misleading "field is not declared" error out of parseFieldFlags.
+//
+// "schema" gets its own refusal before the declared-types lookup below.
+// Store.Types never returns a "schema" entry (see typeIsQueryable), so
+// without this check it would fall into the generic "not declared by the
+// installed vocabulary" branch -- which is wrong, and contradicts
+// typeIsQueryable accepting "schema" for the read verbs (object list,
+// schema show). schema objects are real and declared; they are just
+// written through the dedicated writ schema plan/apply pipeline
+// (FoldSchema), not through the generic object create/apply verbs this
+// function backs, so the message needs to say that instead.
 func resolveOpVersion(types []writ.SchemaType, objectType, opType string, explicitVersion int64) (int64, error) {
+	if objectType == "schema" {
+		return 0, fmt.Errorf("object type %q is writ's built-in vocabulary; write it with 'writ schema plan' and 'writ schema apply', not this command", objectType)
+	}
+
 	var td *writ.SchemaType
 	for i := range types {
 		if types[i].Name == objectType {
@@ -703,7 +717,7 @@ func runObjectList(ctx context.Context, defaultDir string, args []string, stdout
 	if opts.sortOrder != "" {
 		orderBy, err = parseOrderBy(opts.sortOrder)
 		if err != nil {
-			fmt.Fprintf(stderr, "writ object list: invalid sort order %q\n", opts.sortOrder)
+			fmt.Fprintf(stderr, "writ object list: %v\n", err)
 			fs.Usage()
 			return 2
 		}
