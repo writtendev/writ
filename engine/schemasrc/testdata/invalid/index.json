@@ -115,8 +115,8 @@
     "file": "version-bump-reuses-target.schema",
     "line": 9,
     "col": 5,
-    "message": "field rule (create, 2, priority) reuses target \"priority\" already bound to strategy \"lww\" with a different strategy \"lattice\"; a version bump that changes strategy must declare a distinct target",
-    "reason": "a version bump changing strategy while reusing the default (field-name) target is the WRIT-198 class reachable from source; RulesFromSchemas would drop the create-2 rule as a TargetKey() collision, so Compile rejects it instead (spec/schema-source.md §5, §7; WRIT-187 round-1 finding 2)"
+    "message": "field rule (create, 2, priority) reuses target \"priority\" already bound by (create, 1, priority), but they disagree on strategy (\"lww\" vs \"lattice\"); a version bump that changes strategy must declare a distinct target",
+    "reason": "a version bump changing strategy while reusing the default (field-name) target is the WRIT-198 class reachable from source; the resolver would withhold both create rules for the shared target as a TargetKey() disagreement (WRIT-211), so Compile rejects it instead (spec/schema-source.md §5, §7; WRIT-187 round-1 finding 2)"
   },
   {
     "file": "repeated-modifier.schema",

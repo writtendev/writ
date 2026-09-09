@@ -35,7 +35,7 @@
       "object_ids": [
         "sch-acme"
       ],
-      "reason": "field rule (reset, 1, mode) reuses target \"mode\" already bound by (configure, 1, mode), but they disagree on value_type, key, key_types, enum, max_length or lattice; rules sharing a target across different op_types or fields must agree on every merge attribute (spec/fold.md §5)"
+      "reason": "field rule (reset, 1, mode) reuses target \"mode\" already bound by (configure, 1, mode), but they disagree on value_type; the target is shared by more than one (op_type, field) version-bump class, so the version-bump carve-out for value_type, key, key_types, enum and max_length applies only within a class, not between them (spec/schema-ops.md §8) — every rule sharing this target must agree on value_type"
     }
   ],
   "objects": [
@@ -52,10 +52,14 @@
           "t_star": 1767225900
         }
       ],
-      "state": {
-        "mode": "legacy-status"
-      },
+      "state": {},
       "unknown_ops": [
+        {
+          "commit": "bd2d4a3b86ce89c5ef1a9049636fce427414be50",
+          "object_type": "gadget",
+          "op_type": "configure",
+          "op_version": 1
+        },
         {
           "commit": "81723d49dac63a97295bc3856ea6139d83650cc9",
           "object_type": "gadget",

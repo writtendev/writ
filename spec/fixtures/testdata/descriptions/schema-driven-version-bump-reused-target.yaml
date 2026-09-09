@@ -4,10 +4,14 @@ description: >
   "configure" redeclares field "mode" with a different strategy
   (set-union) while REUSING v1's target (both omit target, which defaults
   to the field name "mode" either way) — the form spec/schema-ops.md §8
-  rejects. RulesFromSchemas drops the v2 rule and reports a conflict; only
-  v1's lww rule installs. The v2-versioned op on the ordinary object then
-  matches no rule at all and becomes an UnknownOp, exactly as if that
-  version had never been declared. (pins: reader)
+  rejects. Rules sharing a target must always agree on strategy
+  (spec/fold.md §5), version bump or not, so the resolver withholds every
+  rule bound to target "mode" — WRIT-211's no-survivors response — rather
+  than installing v1's lww rule and dropping only v2's: neither version's
+  rule installs, and it reports one conflict. Both the v1- and
+  v2-versioned "configure" ops on the ordinary object then match no rule
+  at all and become UnknownOps, exactly as if "configure" had never been
+  declared. (pins: reader)
 
 refs:
   - name: refs/writ/0123456789abcdef/schema

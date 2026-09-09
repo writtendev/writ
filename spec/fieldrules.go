@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"path"
 	"slices"
+	"sort"
 	"strings"
 )
 
@@ -286,9 +287,6 @@ func FieldRules() ([]FieldRule, error) {
 			}
 			seen[key] = true
 
-			if err := CheckTargetCollision(targetBindings, r); err != nil {
-				return fmt.Errorf("spec: %s %w", filePath, err)
-			}
 			targetBindings[r.TargetKey()] = append(targetBindings[r.TargetKey()], r)
 
 			if r.Strategy == "keyed-lww" {
@@ -306,6 +304,23 @@ func FieldRules() ([]FieldRule, error) {
 			r.Vocabulary = vocab
 			r.ObjectType = objectType
 			allRules = append(allRules, r)
+		}
+
+		// The agreement check is set-level (CheckTargetAgreement's doc), so
+		// it runs once per target after every rule in the file is bound,
+		// not incrementally as each rule arrives: sorting the target keys
+		// here only orders which of possibly several bad targets is
+		// reported first, never whether one is found, since every target
+		// is still checked.
+		targetKeys := make([]string, 0, len(targetBindings))
+		for tk := range targetBindings {
+			targetKeys = append(targetKeys, tk)
+		}
+		sort.Strings(targetKeys)
+		for _, tk := range targetKeys {
+			if err := CheckTargetAgreement(tk, targetBindings[tk]); err != nil {
+				return fmt.Errorf("spec: %s %w", filePath, err)
+			}
 		}
 
 		return nil
@@ -332,92 +347,143 @@ func equalKeyTypes(a, b map[string]string) bool {
 	return true
 }
 
-// CheckTargetCollision enforces spec/fold.md §5's and spec/schema-ops.md §8's
-// shared-target agreement rule for one candidate rule against bound, every
-// rule already accepted within the same object type for the candidate's
-// target (TargetKey()) — not merely the most recently accepted one: rules
-// sharing a target MUST always agree on Strategy and on Lattice, and —
-// unless they are an op_version bump of the same (op_type, field), which
-// those sections permit to freely change everything else — MUST also agree
-// on ValueType, Key, KeyTypes, Enum and MaxLength. Lattice is held to
-// agreement even across a version bump: unlike the other five, it is
-// consulted by the strategy at fold time, so two same-strategy rules
-// sharing a target that disagree on it are exactly as order-dependent as
-// two that disagree on strategy.
-//
-// The rule is set-level, so this check is too: comparing a candidate only
-// against the last-bound rule let a version-bump carve-out against a
-// *middle* rule rebind the target, after which a *later* candidate was
-// compared only to the rebound rule and never caught disagreeing with the
-// *first* — the same order-dependence hazard WRIT-186 named for accumulator
-// instantiation ("two conforming implementations that list rules
-// differently would disagree"), reintroduced here in the validator meant to
-// prevent it. Checking every bound rule closes that hole regardless of
-// declaration order.
-//
-// It is the one check all three sites that resolve field rules run, so
-// writ's own hand-written Go tables are held to the exact standard writ
-// imposes on writ.schema authors: spec.FieldRules below (this package's own
-// tables), engine/schemasrc/compile.go's checkTargetCollision (a writ.schema
-// file, at compile time) and engine/schema.go's RulesFromSchemas (the same
-// schema, resolved from the log). It returns a descriptive error naming the
-// disagreement, or nil when candidate does not collide — including when
-// nothing is yet bound to its target. It does not mutate bound; the caller
-// owns recording the accepted rule once it decides to keep it.
-func CheckTargetCollision(bound map[string][]FieldRule, candidate FieldRule) error {
-	targetKey := candidate.TargetKey()
-	for _, prior := range bound[targetKey] {
-		if prior.Strategy != candidate.Strategy {
-			return fmt.Errorf(
-				"field rule (%s, %d, %s) reuses target %q already bound to strategy %q with a different strategy %q; a version bump that changes strategy must declare a distinct target",
-				candidate.OpType, candidate.OpVersion, candidate.Field, targetKey, prior.Strategy, candidate.Strategy)
-		}
-		// An op_version bump of the same (op_type, field) MAY freely change
-		// value_type, key, key_types, enum and max_length (spec/schema-ops.md
-		// §8) — that carve-out applies only against this specific prior, and
-		// no wider: every other pair here shares a target across a different
-		// op_type or field and must still agree. It does not exempt lattice:
-		// equalMergeAttrs still runs, told which attributes this pair is a
-		// version bump of one another so it can skip only the genuinely
-		// freely-changeable ones and still hold lattice to agreement.
-		versionBump := prior.OpType == candidate.OpType && prior.Field == candidate.Field
-		if !equalMergeAttrs(prior, candidate, versionBump) {
-			if versionBump {
-				return fmt.Errorf(
-					"field rule (%s, %d, %s) is a version bump of (%s, %d, %s) sharing target %q, but they disagree on lattice; a version bump MAY freely change value_type, key, key_types, enum and max_length but MUST still agree on lattice, which is consulted by the strategy at fold time (spec/schema-ops.md §8)",
-					candidate.OpType, candidate.OpVersion, candidate.Field, prior.OpType, prior.OpVersion, prior.Field, targetKey)
-			}
-			return fmt.Errorf(
-				"field rule (%s, %d, %s) reuses target %q already bound by (%s, %d, %s), but they disagree on value_type, key, key_types, enum, max_length or lattice; rules sharing a target across different op_types or fields must agree on every merge attribute (spec/fold.md §5)",
-				candidate.OpType, candidate.OpVersion, candidate.Field, targetKey, prior.OpType, prior.OpVersion, prior.Field)
-		}
-	}
-	return nil
+// versionBumpClass identifies the equivalence class CheckTargetAgreement
+// partitions a target's rules into: every rule sharing one (OpType, Field)
+// is a version bump of every other, whatever OpVersion each declares.
+// Grouping by a key is an equivalence relation by construction — reflexive,
+// symmetric and transitive — which is the whole fix WRIT-211 needed: the
+// superseded incremental check tested "is candidate a version bump of this
+// specific prior" pairwise, so whether a middle rule's carve-out applied
+// depended on which prior it happened to be compared against first. A
+// class membership test has no such dependency.
+type versionBumpClass struct {
+	OpType string
+	Field  string
 }
 
-// equalMergeAttrs reports whether a and b agree on the merge attributes
-// CheckTargetCollision holds a target share to. Strategy is checked
-// separately by the caller, and op_type/field/op_version identify the rule
-// rather than describe its merge behaviour, so neither belongs here.
+// TargetDisagreement is the first pair of rules bound to one target that
+// fail spec/fold.md §5's / spec/schema-ops.md §8's shared-target agreement
+// relation, in canonical rule order (fieldRuleOrderLess): A sorts before B.
+// Attribute names what they disagree on ("strategy", "lattice",
+// "value_type", "key", "key_types", "enum" or "max_length").
 //
-// versionBump reports whether a and b are an op_version bump of the same
-// (op_type, field) — the one case spec/schema-ops.md §8 lets change
-// value_type, key, key_types, enum and max_length freely, so those five are
-// skipped when it is true. lattice is never skipped, version bump or not:
-// unlike the other five, it is consulted by the strategy at fold time — the
-// lattice accumulator (engine/internal/fold/strategy.go, spec/reffold.go)
-// reads it to order its semilattice — so two rules sharing a target that
-// disagree on it are exactly as order-dependent as two that disagree on
-// strategy, whether or not they are a version bump of one another.
-func equalMergeAttrs(a, b FieldRule, versionBump bool) bool {
-	if !versionBump {
-		if a.ValueType != b.ValueType ||
-			!slices.Equal(a.Key, b.Key) ||
-			!equalKeyTypes(a.KeyTypes, b.KeyTypes) ||
-			!slices.Equal(a.Enum, b.Enum) ||
-			a.MaxLength != b.MaxLength {
-			return false
+// It carries no formatted message of its own — CheckTargetAgreement builds
+// that — precisely so a caller that tracks each rule's source position
+// (engine/schemasrc/compile.go's checkTargetAgreement) can use B, the
+// later-declared rule, to report where the disagreement actually surfaces
+// (spec/schema-ops.md §8), without parsing an error string apart to find it.
+type TargetDisagreement struct {
+	Target    string
+	Attribute string
+	A, B      FieldRule
+}
+
+// FindTargetDisagreement runs the scan CheckTargetAgreement wraps into an
+// error: see that function's doc for the relation itself. ok is false when
+// rules holds fewer than two entries or every rule agrees.
+func FindTargetDisagreement(target string, rules []FieldRule) (d TargetDisagreement, ok bool) {
+	if len(rules) < 2 {
+		return TargetDisagreement{}, false
+	}
+
+	sorted := append([]FieldRule(nil), rules...)
+	sort.Slice(sorted, func(i, j int) bool { return fieldRuleOrderLess(sorted[i], sorted[j]) })
+
+	classes := make(map[versionBumpClass]bool, len(sorted))
+	for _, r := range sorted {
+		classes[versionBumpClass{OpType: r.OpType, Field: r.Field}] = true
+	}
+	singleClass := len(classes) == 1
+
+	for i := 1; i < len(sorted); i++ {
+		a, b := sorted[i-1], sorted[i]
+		if a.Strategy != b.Strategy {
+			return TargetDisagreement{Target: target, Attribute: "strategy", A: a, B: b}, true
+		}
+		if !slices.Equal(a.Lattice, b.Lattice) {
+			return TargetDisagreement{Target: target, Attribute: "lattice", A: a, B: b}, true
+		}
+		if singleClass {
+			continue
+		}
+		if a.ValueType != b.ValueType {
+			return TargetDisagreement{Target: target, Attribute: "value_type", A: a, B: b}, true
+		}
+		if !slices.Equal(a.Key, b.Key) {
+			return TargetDisagreement{Target: target, Attribute: "key", A: a, B: b}, true
+		}
+		if !equalKeyTypes(a.KeyTypes, b.KeyTypes) {
+			return TargetDisagreement{Target: target, Attribute: "key_types", A: a, B: b}, true
+		}
+		if !slices.Equal(a.Enum, b.Enum) {
+			return TargetDisagreement{Target: target, Attribute: "enum", A: a, B: b}, true
+		}
+		if a.MaxLength != b.MaxLength {
+			return TargetDisagreement{Target: target, Attribute: "max_length", A: a, B: b}, true
 		}
 	}
-	return slices.Equal(a.Lattice, b.Lattice)
+	return TargetDisagreement{}, false
+}
+
+// CheckTargetAgreement enforces spec/fold.md §5's and spec/schema-ops.md §8's
+// shared-target agreement relation over rules, every rule bound to one
+// target (TargetKey()) within one object type. The relation is stated as a
+// genuine equivalence relation, which is what WRIT-211 changed:
+//
+//  1. Partition rules into versionBumpClass groups — every rule sharing one
+//     (OpType, Field) is one class, whatever OpVersion each declares.
+//  2. Within a class, rules MUST agree on Strategy and Lattice; they MAY
+//     freely differ on ValueType, Key, KeyTypes, Enum and MaxLength (§8's
+//     version-bump carve-out).
+//  3. The moment the target is bound by more than one class, that carve-out
+//     is gone for every rule bound to it, not only the rules straddling two
+//     classes: a class internally non-uniform on an attribute cannot agree
+//     with any other class on it, so the exemption vanishing wholesale is
+//     the carve-out's transitive closure, not an extra rule. Every rule
+//     bound to the target — within a class or across classes — must then
+//     agree on all seven attributes: Strategy, Lattice, ValueType, Key,
+//     KeyTypes, Enum and MaxLength.
+//
+// Because every comparison is plain value equality — itself an equivalence
+// relation — agreement across the whole set holds iff every *consecutive*
+// pair agrees once rules is sorted into canonical order (fieldRuleOrderLess,
+// spec/fold.md §5's "Canonical rule order"): if a = b and b = c then a = c,
+// so checking every pair would only ever find the same violation a
+// consecutive scan already would (FindTargetDisagreement above does exactly
+// that scan). Sorting first is also what makes the reported pair — and so
+// the error message — independent of the order rules happened to be
+// supplied in, closing the exact hazard the superseded incremental,
+// insertion-order check left open (WRIT-211): which pair a violation gets
+// reported against no longer depends on which rule a caller happened to
+// bind first.
+//
+// It returns nil when rules holds fewer than two entries or every rule
+// agrees, and a descriptive error naming the first disagreeing consecutive
+// pair (in canonical order) and the attribute otherwise. It is the one
+// check all three sites that resolve field rules run: spec.FieldRules below
+// (this package's own tables), engine/schemasrc/compile.go's
+// checkTargetAgreement (a writ.schema file, at compile time), and
+// engine/schema.go's resolveSchemaTypes (the same schema, resolved from the
+// log) — so writ's own hand-written Go tables are held to the exact standard
+// writ imposes on writ.schema authors.
+func CheckTargetAgreement(target string, rules []FieldRule) error {
+	d, ok := FindTargetDisagreement(target, rules)
+	if !ok {
+		return nil
+	}
+
+	switch d.Attribute {
+	case "strategy":
+		return fmt.Errorf(
+			"field rule (%s, %d, %s) reuses target %q already bound by (%s, %d, %s), but they disagree on strategy (%q vs %q); a version bump that changes strategy must declare a distinct target",
+			d.B.OpType, d.B.OpVersion, d.B.Field, d.Target, d.A.OpType, d.A.OpVersion, d.A.Field, d.A.Strategy, d.B.Strategy)
+	case "lattice":
+		return fmt.Errorf(
+			"field rule (%s, %d, %s) reuses target %q already bound by (%s, %d, %s), but they disagree on lattice (%v vs %v); lattice is consulted by the strategy at fold time, so rules sharing a target MUST agree on it even across a version bump of the same (op_type, field) (spec/schema-ops.md §8)",
+			d.B.OpType, d.B.OpVersion, d.B.Field, d.Target, d.A.OpType, d.A.OpVersion, d.A.Field, d.A.Lattice, d.B.Lattice)
+	default:
+		return fmt.Errorf(
+			"field rule (%s, %d, %s) reuses target %q already bound by (%s, %d, %s), but they disagree on %s; the target is shared by more than one (op_type, field) version-bump class, so the version-bump carve-out for value_type, key, key_types, enum and max_length applies only within a class, not between them (spec/schema-ops.md §8) — every rule sharing this target must agree on %s",
+			d.B.OpType, d.B.OpVersion, d.B.Field, d.Target, d.A.OpType, d.A.OpVersion, d.A.Field, d.Attribute, d.Attribute)
+	}
 }

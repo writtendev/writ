@@ -597,7 +597,7 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 
 	// The unit is the target key: one column or one child-table
 	// participation per distinct target key, regardless of how many rules
-	// (op types) address it. spec.CheckTargetCollision guarantees every
+	// (op types) address it. spec.CheckTargetAgreement guarantees every
 	// rule sharing a target key agrees on strategy — always — but not on
 	// every other merge attribute: spec/fieldrules.go's carve-out and
 	// spec/schema-ops.md §8 both let a version bump of the same (op_type,

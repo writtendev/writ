@@ -35,7 +35,7 @@
       "object_ids": [
         "sch-acme"
       ],
-      "reason": "field rule (configure, 2, mode) reuses target \"mode\" already bound to strategy \"lww\" with a different strategy \"set-union\"; a version bump that changes strategy must declare a distinct target"
+      "reason": "field rule (configure, 2, mode) reuses target \"mode\" already bound by (configure, 1, mode), but they disagree on strategy (\"lww\" vs \"set-union\"); a version bump that changes strategy must declare a distinct target"
     }
   ],
   "objects": [
@@ -52,10 +52,14 @@
           "t_star": 1767225900
         }
       ],
-      "state": {
-        "mode": "legacy-status"
-      },
+      "state": {},
       "unknown_ops": [
+        {
+          "commit": "bd2d4a3b86ce89c5ef1a9049636fce427414be50",
+          "object_type": "gadget",
+          "op_type": "configure",
+          "op_version": 1
+        },
         {
           "commit": "0f8d8b6c71127d858245574764d0d7e774f11e44",
           "object_type": "gadget",

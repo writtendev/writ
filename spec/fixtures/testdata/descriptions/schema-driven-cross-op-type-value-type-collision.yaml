@@ -1,21 +1,28 @@
 name: schema-driven-cross-op-type-value-type-collision
 description: >
   WRIT-198's widened target-collision standard (spec/fold.md §5,
-  spec/schema-ops.md §8), at the resolver level: two different op_types,
-  "configure" and "reset", both declare field "mode" with no explicit
-  target, so both default to target "mode" (spec.FieldRule.TargetKey).
-  Both use strategy lww — the narrow, pre-WRIT-198 check compared only
-  Strategy and would have installed both — but they disagree on
-  value_type (string vs int), which is not the permitted op_version-bump
-  carve-out because "configure" and "reset" are different op_types.
-  RulesFromSchemas installs "configure"'s rule (declared first) and drops
-  "reset"'s, reporting a SchemaConflict; a "reset" op on the ordinary
-  object then matches no rule and becomes an UnknownOp. This is the
-  fixture spec.CheckTargetCollision's TestCheckTargetCollision Go table
-  pins at the function level and engine/schemasrc/compile_test.go's
+  spec/schema-ops.md §8), made transitive by WRIT-211, at the resolver
+  level: two different op_types, "configure" and "reset", both declare
+  field "mode" with no explicit target, so both default to target "mode"
+  (spec.FieldRule.TargetKey). Both use strategy lww — the narrow,
+  pre-WRIT-198 check compared only Strategy and would have installed
+  both — but they disagree on value_type (string vs int), which is not
+  the permitted op_version-bump carve-out because "configure" and "reset"
+  are different (op_type, field) version-bump classes. RulesFromSchemas
+  withholds every rule bound to target "mode" — neither "configure"'s nor
+  "reset"'s installs — reporting one SchemaConflict; both a "configure"
+  and a "reset" op on the ordinary object then match no rule and become
+  UnknownOps. Withholding the whole target rather than picking a survivor
+  (WRIT-211) is what keeps the outcome independent of which op_type
+  happened to declare "mode" first — the pre-WRIT-211 resolver installed
+  "configure"'s rule and dropped "reset"'s only because "configure"
+  sorted first in canonical order, an accident of naming rather than of
+  the schema's own agreement. This is the fixture
+  spec.CheckTargetAgreement's TestCheckTargetAgreement Go table pins at
+  the function level and engine/schemasrc/compile_test.go's
   TestCompileCrossOpTypeTargetReuseWithDifferentValueTypeIsRejected pins
   at the compiler level; nothing previously pinned it at the log-resolved
-  RulesFromSchemas level a schema-driven fold actually walks. (pins: reader)
+  resolver level a schema-driven fold actually walks. (pins: reader)
 
 refs:
   - name: refs/writ/0123456789abcdef/schema

@@ -238,6 +238,49 @@ type widget {
 	}
 }
 
+// TestCompileThreeRuleTargetSharingIsRejected pins WRIT-211's fix at the
+// compiler level with the ticket's own three-rule vector: "configure"'s two
+// versions are a version-bump class of one another (free to disagree on
+// value_type alone), but "reset" declares an explicit target(mode) that
+// reuses their shared target while belonging to neither's class. Once a
+// target is bound by more than one class the version-bump carve-out is
+// void for every rule on it (spec.CheckTargetAgreement), so Compile must
+// reject the whole type — not accept it because "configure"'s two versions
+// look pairwise fine in isolation, and not merely reject "reset" alone.
+func TestCompileThreeRuleTargetSharingIsRejected(t *testing.T) {
+	src := `namespace acme
+
+type widget {
+  op configure 1 {
+    mode  string  lww
+  }
+
+  op configure 2 {
+    mode  int  lww
+  }
+
+  op reset 1 {
+    value  string  lww  target(mode)
+  }
+}
+`
+	f := mustParse(t, src)
+	_, err := schemasrc.Compile(f, "sch-acme")
+	if err == nil {
+		t.Fatal("expected an error: a version-bump class (configure) and an unrelated class (reset) share target \"mode\"")
+	}
+	if !strings.Contains(err.Error(), `reuses target "mode"`) {
+		t.Errorf("unexpected error: %v", err)
+	}
+	var se *schemasrc.SyntaxError
+	if !errors.As(err, &se) {
+		t.Fatalf("expected a *schemasrc.SyntaxError, got %T: %v", err, err)
+	}
+	if se.Line == 0 || se.Col == 0 {
+		t.Errorf("expected a line and column on the collision error, got %+v", se)
+	}
+}
+
 // TestCompileVersionBumpValueTypeOnlyIsAccepted is the positive control for
 // TestCompileCrossOpTypeTargetReuseWithDifferentValueTypeIsRejected: an
 // op_version bump of the same (op_type, field) may freely change value_type
@@ -262,7 +305,7 @@ type ticket {
 	}
 }
 
-// TestCompileTargetCollisionIsOrderIndependent pins spec.CheckTargetCollision
+// TestCompileTargetCollisionIsOrderIndependent pins spec.CheckTargetAgreement
 // as a set-level rule (spec/fold.md §5), not one that only compares a
 // candidate against the most recently bound rule for its target. Both
 // schemas below declare the same three fields sharing the default target

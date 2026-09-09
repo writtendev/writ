@@ -247,96 +247,132 @@ func TestFieldRuleTargetKey(t *testing.T) {
 	}
 }
 
-// TestCheckTargetCollision pins WRIT-198's widened target-collision standard
-// (spec/fold.md §5, spec/schema-ops.md §8): rules sharing a TargetKey must
-// always agree on Strategy and on Lattice, and must also agree on
-// ValueType, Key, KeyTypes, Enum and MaxLength unless they are an
-// op_version bump of the same (op_type, field) — the one case those
-// sections let change everything but strategy and lattice. Lattice is held
-// to agreement even across a version bump — WRIT-206, pinned below by the
-// "different lattice ordering" cases both cross-op_type and within a
-// version bump — because, unlike the other five, it is consulted by the
-// strategy at fold time: two same-strategy lattice rules sharing a target
-// but declaring different orderings are exactly as order-dependent as two
-// rules disagreeing on strategy itself.
-func TestCheckTargetCollision(t *testing.T) {
+// TestCheckTargetAgreement pins WRIT-211's transitive shared-target
+// agreement relation (spec/fold.md §5, spec/schema-ops.md §8): rules
+// sharing a TargetKey must always agree on Strategy and on Lattice, and —
+// unless every one of them belongs to the same (op_type, field)
+// version-bump equivalence class — must also agree on ValueType, Key,
+// KeyTypes, Enum and MaxLength. Lattice is held to agreement even within a
+// single class — WRIT-206, pinned below by the "different lattice
+// ordering" cases both cross-op_type and within a version bump — because,
+// unlike the other five, it is consulted by the strategy at fold time: two
+// same-strategy lattice rules sharing a target but declaring different
+// orderings are exactly as order-dependent as two rules disagreeing on
+// strategy itself.
+func TestCheckTargetAgreement(t *testing.T) {
 	tests := []struct {
-		name      string
-		prior     spec.FieldRule
-		candidate spec.FieldRule
-		wantErr   bool
+		name    string
+		rules   []spec.FieldRule
+		wantErr bool
 	}{
 		{
-			name:      "different strategy, same target: rejected",
-			prior:     spec.FieldRule{OpType: "create", Field: "priority", Strategy: "lww", ValueType: "string"},
-			candidate: spec.FieldRule{OpType: "create", OpVersion: 2, Field: "priority", Strategy: "lattice", ValueType: "string"},
-			wantErr:   true,
+			name: "different strategy, same target: rejected",
+			rules: []spec.FieldRule{
+				{OpType: "create", Field: "priority", Strategy: "lww", ValueType: "string"},
+				{OpType: "create", OpVersion: 2, Field: "priority", Strategy: "lattice", ValueType: "string"},
+			},
+			wantErr: true,
 		},
 		{
-			name:      "same strategy, different value_type, cross op_type: rejected",
-			prior:     spec.FieldRule{OpType: "assign", Field: "add", Strategy: "set-observed-remove", ValueType: "person-ref"},
-			candidate: spec.FieldRule{OpType: "label", Field: "add", Strategy: "set-observed-remove", ValueType: "object-ref"},
-			wantErr:   true,
+			name: "same strategy, different value_type, cross op_type: rejected",
+			rules: []spec.FieldRule{
+				{OpType: "assign", Field: "add", Strategy: "set-observed-remove", ValueType: "person-ref"},
+				{OpType: "label", Field: "add", Strategy: "set-observed-remove", ValueType: "object-ref"},
+			},
+			wantErr: true,
 		},
 		{
-			name:      "same strategy, different key, cross field: rejected",
-			prior:     spec.FieldRule{OpType: "approval", Field: "revision", Strategy: "keyed-lww", Key: []string{"subject", "revision"}},
-			candidate: spec.FieldRule{OpType: "ci-status", Field: "revision", Strategy: "keyed-lww", Key: []string{"revision", "name"}},
-			wantErr:   true,
+			name: "same strategy, different key, cross field: rejected",
+			rules: []spec.FieldRule{
+				{OpType: "approval", Field: "revision", Strategy: "keyed-lww", Key: []string{"subject", "revision"}},
+				{OpType: "ci-status", Field: "revision", Strategy: "keyed-lww", Key: []string{"revision", "name"}},
+			},
+			wantErr: true,
 		},
 		{
-			name:      "same strategy, different lattice ordering, cross op_type: rejected",
-			prior:     spec.FieldRule{OpType: "promote", Field: "level", Target: "level", Strategy: "lattice", Lattice: []string{"low", "high"}},
-			candidate: spec.FieldRule{OpType: "demote", Field: "level", Target: "level", Strategy: "lattice", Lattice: []string{"high", "low"}},
-			wantErr:   true,
+			name: "same strategy, different lattice ordering, cross op_type: rejected",
+			rules: []spec.FieldRule{
+				{OpType: "promote", Field: "level", Target: "level", Strategy: "lattice", Lattice: []string{"low", "high"}},
+				{OpType: "demote", Field: "level", Target: "level", Strategy: "lattice", Lattice: []string{"high", "low"}},
+			},
+			wantErr: true,
 		},
 		{
-			name:      "version bump, same op_type and field, different value_type: permitted",
-			prior:     spec.FieldRule{OpType: "widget-op", OpVersion: 1, Field: "value", Strategy: "lww", ValueType: "string"},
-			candidate: spec.FieldRule{OpType: "widget-op", OpVersion: 2, Field: "value", Strategy: "lww", ValueType: "enum", Enum: []string{"draft", "approved"}},
-			wantErr:   false,
+			name: "version bump, same op_type and field, different value_type: permitted",
+			rules: []spec.FieldRule{
+				{OpType: "widget-op", OpVersion: 1, Field: "value", Strategy: "lww", ValueType: "string"},
+				{OpType: "widget-op", OpVersion: 2, Field: "value", Strategy: "lww", ValueType: "enum", Enum: []string{"draft", "approved"}},
+			},
+			wantErr: false,
 		},
 		{
-			// WRIT-206: the version-bump carve-out used to `continue` before
-			// equalMergeAttrs ran at all, so this pair — same (op_type,
-			// field), same strategy, disagreeing only on lattice ordering —
-			// was wrongly permitted. Lattice is not on spec/schema-ops.md
-			// §8's "MAY freely change" list, so a version bump must still
-			// agree on it.
-			name:      "version bump, same op_type and field, different lattice ordering: rejected",
-			prior:     spec.FieldRule{OpType: "promote", OpVersion: 1, Field: "level", Strategy: "lattice", Lattice: []string{"low", "high"}},
-			candidate: spec.FieldRule{OpType: "promote", OpVersion: 2, Field: "level", Strategy: "lattice", Lattice: []string{"high", "low"}},
-			wantErr:   true,
+			// WRIT-206: the version-bump carve-out used to exempt lattice
+			// too, so this pair — same (op_type, field), same strategy,
+			// disagreeing only on lattice ordering — was wrongly permitted.
+			// Lattice is not on spec/schema-ops.md §8's "MAY freely change"
+			// list, so a version bump must still agree on it.
+			name: "version bump, same op_type and field, different lattice ordering: rejected",
+			rules: []spec.FieldRule{
+				{OpType: "promote", OpVersion: 1, Field: "level", Strategy: "lattice", Lattice: []string{"low", "high"}},
+				{OpType: "promote", OpVersion: 2, Field: "level", Strategy: "lattice", Lattice: []string{"high", "low"}},
+			},
+			wantErr: true,
 		},
 		{
-			name:      "version bump, same op_type and field, same lattice, different value_type: permitted",
-			prior:     spec.FieldRule{OpType: "promote", OpVersion: 1, Field: "level", Strategy: "lattice", ValueType: "enum", Enum: []string{"low", "high"}, Lattice: []string{"low", "high"}},
-			candidate: spec.FieldRule{OpType: "promote", OpVersion: 2, Field: "level", Strategy: "lattice", ValueType: "enum", Enum: []string{"low", "medium", "high"}, Lattice: []string{"low", "high"}},
-			wantErr:   false,
+			name: "version bump, same op_type and field, same lattice, different value_type: permitted",
+			rules: []spec.FieldRule{
+				{OpType: "promote", OpVersion: 1, Field: "level", Strategy: "lattice", ValueType: "enum", Enum: []string{"low", "high"}, Lattice: []string{"low", "high"}},
+				{OpType: "promote", OpVersion: 2, Field: "level", Strategy: "lattice", ValueType: "enum", Enum: []string{"low", "medium", "high"}, Lattice: []string{"low", "high"}},
+			},
+			wantErr: false,
 		},
 		{
-			name:      "version bump, same op_type and field, strategy changes: still rejected",
-			prior:     spec.FieldRule{OpType: "widget-op", OpVersion: 1, Field: "value", Strategy: "lww", ValueType: "string"},
-			candidate: spec.FieldRule{OpType: "widget-op", OpVersion: 2, Field: "value", Strategy: "set-union", ValueType: "string"},
-			wantErr:   true,
+			name: "version bump, same op_type and field, strategy changes: still rejected",
+			rules: []spec.FieldRule{
+				{OpType: "widget-op", OpVersion: 1, Field: "value", Strategy: "lww", ValueType: "string"},
+				{OpType: "widget-op", OpVersion: 2, Field: "value", Strategy: "set-union", ValueType: "string"},
+			},
+			wantErr: true,
 		},
 		{
-			name:      "cross op_type, everything agrees: permitted (the 28 deliberate shares)",
-			prior:     spec.FieldRule{OpType: "create", Field: "title", Strategy: "lww", ValueType: "string"},
-			candidate: spec.FieldRule{OpType: "update", Field: "title", Strategy: "lww", ValueType: "string"},
-			wantErr:   false,
+			name: "cross op_type, everything agrees: permitted (the 28 deliberate shares)",
+			rules: []spec.FieldRule{
+				{OpType: "create", Field: "title", Strategy: "lww", ValueType: "string"},
+				{OpType: "update", Field: "title", Strategy: "lww", ValueType: "string"},
+			},
+			wantErr: false,
+		},
+		{
+			// WRIT-211's own three-rule vector: (X, f, v1, string) and
+			// (X, f, v2, int) are a version-bump class of one another (free
+			// to disagree on value_type in isolation), but a third rule
+			// (Y, g) shares their target and is not a version bump of
+			// either. The old pairwise, candidate-vs-bound form dropped a
+			// different one of the three depending on which order they were
+			// considered in; the transitive relation must reject the whole
+			// set regardless of the order rules are supplied in, because
+			// the target is bound by more than one (op_type, field) class
+			// and the version-bump exemption is void for every rule on it,
+			// including the pair that would have been permitted alone.
+			name: "three-rule case: a version-bump class plus an unrelated class sharing its target is rejected as a whole",
+			rules: []spec.FieldRule{
+				{OpType: "reset", Field: "value", Target: "mode", Strategy: "lww", ValueType: "string"},
+				{OpType: "configure", OpVersion: 1, Field: "mode", Strategy: "lww", ValueType: "string"},
+				{OpType: "configure", OpVersion: 2, Field: "mode", Strategy: "lww", ValueType: "int"},
+			},
+			wantErr: true,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			bound := map[string][]spec.FieldRule{tc.prior.TargetKey(): {tc.prior}}
-			err := spec.CheckTargetCollision(bound, tc.candidate)
+			target := tc.rules[0].TargetKey()
+			err := spec.CheckTargetAgreement(target, tc.rules)
 			if tc.wantErr && err == nil {
-				t.Fatalf("expected a collision error, got nil")
+				t.Fatalf("expected an agreement error, got nil")
 			}
 			if !tc.wantErr && err != nil {
-				t.Fatalf("expected no collision, got: %v", err)
+				t.Fatalf("expected no error, got: %v", err)
 			}
 		})
 	}
@@ -344,9 +380,9 @@ func TestCheckTargetCollision(t *testing.T) {
 
 // TestFieldRulesNoUndeclaredTargetCollisions asserts that every shipped
 // vocabulary in spec/testdata/**/field-rules.json passes the standard
-// TestCheckTargetCollision pins above — the same standard writ imposes on
-// writ.schema authors (engine/schemasrc/compile.go's checkTargetCollision)
-// and on log-resolved schemas (engine/schema.go's RulesFromSchemas).
+// TestCheckTargetAgreement pins above — the same standard writ imposes on
+// writ.schema authors (engine/schemasrc/compile.go's checkTargetAgreement)
+// and on log-resolved schemas (engine/schema.go's resolveSchemaTypes).
 // spec.FieldRules() runs this check itself while loading, so a corpus that
 // violates it fails to load at all; this test exists to name the invariant
 // directly, so a future collision (a renamed target reused, a reconciled

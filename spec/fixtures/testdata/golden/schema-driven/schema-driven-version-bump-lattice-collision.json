@@ -41,7 +41,7 @@
       "object_ids": [
         "sch-acme"
       ],
-      "reason": "field rule (promote, 2, level) is a version bump of (promote, 1, level) sharing target \"level\", but they disagree on lattice; a version bump MAY freely change value_type, key, key_types, enum and max_length but MUST still agree on lattice, which is consulted by the strategy at fold time (spec/schema-ops.md §8)"
+      "reason": "field rule (promote, 2, level) reuses target \"level\" already bound by (promote, 1, level), but they disagree on lattice ([low high] vs [high low]); lattice is consulted by the strategy at fold time, so rules sharing a target MUST agree on it even across a version bump of the same (op_type, field) (spec/schema-ops.md §8)"
     }
   ],
   "objects": [
@@ -58,10 +58,14 @@
           "t_star": 1767225900
         }
       ],
-      "state": {
-        "level": "high"
-      },
+      "state": {},
       "unknown_ops": [
+        {
+          "commit": "6ce3d04bdb558fbf7d94108751f1c5c83e44046c",
+          "object_type": "widget",
+          "op_type": "promote",
+          "op_version": 1
+        },
         {
           "commit": "74e9f1978be9853169efe5d9b0cf0fcac9eea37c",
           "object_type": "widget",

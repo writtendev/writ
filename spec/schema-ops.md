@@ -418,8 +418,8 @@ the others.
 ## 6. Conflicts
 
 Reading any object requires first folding the `schema` objects present in
-a repository and resolving them into per-`object_type` rule sets. Two
-kinds of conflict can arise, and neither is picked a winner:
+a repository and resolving them into per-`object_type` rule sets. Three
+kinds of conflict can arise, and none is ever picked a winner:
 
 1. **`object_type` collision** (§2): two schema objects both bind the
    same bare `object_type`. Withholding rules for the contested type is
@@ -432,6 +432,15 @@ kinds of conflict can arise, and neither is picked a winner:
 2. **Namespace collision**: two schema objects declare the same namespace.
    A weaker, mostly cosmetic case — reported alongside an `object_type`
    collision when both occur, but on its own it withholds nothing.
+3. **Target-agreement failure** (§8): two or more field rules bound to one
+   `target` within one `object_type` fail the shared-target agreement
+   relation. The remedy is the same shape as an `object_type` collision,
+   scoped to the target rather than the whole type: every rule bound to
+   that target is withheld, never a survivor picked, and ops written under
+   any of them fall through the absent-schema path (§7.1) to `UnknownOp` as
+   if none of those rules had ever been declared. The rest of the
+   `object_type` — its other targets, and any type-level metadata — is
+   unaffected.
 
 A conflict is **resolver output, not fold output**. `Fold(ops, rules) →
 ObjectState{ObjectID, ObjectType, TotalOrder, State, UnknownOps}` is
@@ -499,44 +508,67 @@ first of its matching rules in canonical rule order (ascending `(op_type,
 op_version, field)`), which for a version bump of one `(op_type, field)`
 is the lowest `op_version`. Two rules that share a target and a strategy
 are indistinguishable to the accumulator regardless of which one is
-"first" — so a version bump:
+"first" — so every rule sharing one `target` is first partitioned into
+**version-bump equivalence classes**, one class per distinct `(op_type,
+field)`, whatever `op_version` each member declares (grouping by a key is
+an equivalence relation by construction, which is what makes the rest of
+this section's agreement rule well-defined regardless of how many rules,
+or how many classes, share the target):
 
-- **MAY freely change** `value_type`, `enum`, `max_length`, `key`, or
-  `key_types` while keeping the same `target` (or omitting `target`,
-  which defaults to `field`): the accumulator factory selected is the
-  same either way, because these attributes are not consulted by the
-  strategy at fold time (`spec/value-types.md` §Producer-side and
-  reader-tolerant: nothing on the read path calls the value-type
-  validator). `lattice` is deliberately absent from this list: the
-  `lattice` accumulator reads it to order its semilattice, so it *is*
-  consulted at fold time. A version bump reusing a `target` therefore
-  **MUST still agree on `lattice`**, exactly as the cross-`op_type`/
-  cross-`field` case below requires — two same-strategy `lattice` rules
-  sharing a target but declaring different orderings are exactly as
-  order-dependent as two rules disagreeing on `strategy` itself, version
-  bump or not. `spec.CheckTargetCollision` (`spec/fieldrules.go`) enforces
-  this inside the carve-out, not only outside it; the resolver-level
-  consequence — the second rule dropped as a `SchemaConflict` and an op
-  written under it becoming an `UnknownOp` — is pinned by
-  `spec/fixtures/testdata/descriptions/schema-driven-version-bump-lattice-collision.yaml`.
-- **MUST declare a distinct `target`** when it changes `strategy`: reusing
-  a target across a strategy change makes the older version's strategy
-  silently run over the newer version's writes, since canonical rule order
-  hands the accumulator the lower `op_version`'s rule — neither rule's
-  declared behavior. `engine/schema.go`'s resolver enforces this: a version
-  bump that changes `strategy` while reusing a `target` already bound to a
-  different strategy is rejected — the rule is dropped, not installed, and
-  reported (§9) alongside an `object_type` collision.
+- **Within one class**, a version bump:
+  - **MAY freely change** `value_type`, `enum`, `max_length`, `key`, or
+    `key_types` while keeping the same `target` (or omitting `target`,
+    which defaults to `field`): the accumulator factory selected is the
+    same either way, because these attributes are not consulted by the
+    strategy at fold time (`spec/value-types.md` §Producer-side and
+    reader-tolerant: nothing on the read path calls the value-type
+    validator). `lattice` is deliberately absent from this list: the
+    `lattice` accumulator reads it to order its semilattice, so it *is*
+    consulted at fold time. A version bump reusing a `target` therefore
+    **MUST still agree on `lattice`**, exactly as the cross-class case
+    below requires — two same-strategy `lattice` rules sharing a target
+    but declaring different orderings are exactly as order-dependent as
+    two rules disagreeing on `strategy` itself, version bump or not. The
+    resolver-level consequence — every rule bound to the target withheld
+    as a `SchemaConflict` and an op written under any of them becoming an
+    `UnknownOp` — is pinned by
+    `spec/fixtures/testdata/descriptions/schema-driven-version-bump-lattice-collision.yaml`.
+  - **MUST declare a distinct `target`** when it changes `strategy`:
+    reusing a target across a strategy change makes the older version's
+    strategy silently run over the newer version's writes, since canonical
+    rule order hands the accumulator the lower `op_version`'s rule —
+    neither rule's declared behavior.
+- **Between classes** — the moment a target is bound by more than one
+  `(op_type, field)` class — the "MAY freely change" exemption above is
+  void, for every rule bound to that target, not only the rules straddling
+  two classes: a class internally non-uniform on an attribute cannot agree
+  with any other class on it, so the exemption vanishing wholesale is the
+  carve-out's transitive closure, not an extra rule. Every rule bound to
+  the target must then agree on all seven attributes — `strategy`,
+  `lattice`, `value_type`, `key`, `key_types`, `enum` and `max_length` —
+  the same standard two different `op_type`s or two different `field`s
+  reusing a target always had to meet (below). `spec.CheckTargetAgreement`
+  (`spec/fieldrules.go`) enforces both halves of this — within a class and
+  between classes — as one relation, not two special cases: it is what
+  makes the relation an equivalence relation (§6), where the superseded
+  pairwise, candidate-vs-bound check was not, so which rule survived a
+  violation depended on which prior a candidate happened to be compared
+  against first.
+
+`engine/schema.go`'s resolver enforces this: a target whose bound rules
+fail the relation above is rejected wholesale — every rule bound to it is
+withheld, not installed, and reported (§9) alongside an `object_type`
+collision — rather than a survivor being picked.
 
 The old and new strategy consequently land under different state keys.
 `testdata/fold/merge/schema-version-bump-same-target.json` and
 `schema-version-bump-new-target.json` pin both halves of this rule.
 
-The "MAY freely change" bullet is bounded to exactly this case — the same
+The "MAY freely change" bullet is bounded to exactly one class — the same
 `op_type` and `field`, differing only by `op_version` — and no wider. Two
 rules that share a `target` (declared, or defaulted from `field`) without
-being a version bump of one another — two different `op_type`s, or two
-different `field`s, that happen to reuse the same target — MUST agree on
+belonging to the same class — two different `op_type`s, or two different
+`field`s, that happen to reuse the same target — MUST agree on
 `value_type`, `key`, `key_types`, `enum`, `max_length` and `lattice` too,
 not only on `strategy` (`spec/fold.md` §5). Two OR-set halves that merely
 happen to share a body field name (`add`, `remove`) but mean different
@@ -546,7 +578,7 @@ tag set, say — are exactly the shape this catches: both would agree on
 table that lets them collide on an undeclared shared target is
 non-conforming and MUST target each one explicitly instead (an
 `assignees`/`tags` split is the worked example, `spec/fold.md` §5).
-The resolver enforces this alongside the strategy-only case above, and so
+The resolver enforces this alongside the within-class case above, and so
 does `engine/schemasrc`'s compiler for a `writ.schema` source file before it
 ever reaches the log.
 
