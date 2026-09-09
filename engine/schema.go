@@ -34,8 +34,9 @@ type SchemaOp = state.SchemaOp
 // exactly as if no schema had defined it.
 type SchemaConflict struct {
 	// ObjectType is set for an object_type collision (two schema objects
-	// binding the same bare type) and for a single field-rule validation
-	// failure; empty for a namespace-only collision.
+	// sharing a namespace and binding the identical qualified type) and for
+	// a single field-rule validation failure; empty for a namespace-only
+	// collision.
 	ObjectType string `json:"object_type,omitempty"`
 	// Namespace is set for a namespace collision, and echoed on an
 	// object_type collision when known.

@@ -212,7 +212,7 @@ The `schema` family defines six operation types:
 | `op_type` | Body Schema | Description |
 | --- | --- | --- |
 | `create` | `{"namespace": string, "description"?: string}` | Initializes the schema object and its namespace. |
-| `define-type` | `{"type": string, "description"?: string}` | Declares an object type: its bare wire name and description. |
+| `define-type` | `{"type": string, "description"?: string}` | Declares an object type: its namespace-qualified wire `object_type` (§2) and description. |
 | `define-field` | `{"type": string, "op_type": string, "op_version": string, "field": string, "value_type"?: string, "enum"?: [string], "max_length"?: int, "strategy": string, "key"?: [string], "key_types"?: {string: string}, "lattice"?: [string], "target"?: string}` | Declares a field on a type: the op that writes it, its merge strategy, and (orthogonally) its value type. |
 | `define-op` | `{"type": string, "op_type": string, "op_version": string, "description"?: string}` | Declares an op type within a type's vocabulary. |
 | `deprecate-type` | `{"type": string, "deprecated": true}` | Tombstone-style: marks a declared type deprecated. |
@@ -304,7 +304,9 @@ Declares one field on one op's body for one type.
 }
 ```
 
-- `type` (string, required): The declaring object type's bare wire name.
+- `type` (string, required): The object type this field belongs to, given
+  as the wire `object_type` on the terms §4.2 states for `define-type`'s
+  own `type`.
 - `op_type` (string, required): The op type, within `type`'s vocabulary,
   whose body carries this field.
 - `op_version` (string, required): The op version, as a decimal string
