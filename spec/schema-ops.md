@@ -454,10 +454,8 @@ kinds of conflict can arise, and none is ever picked a winner:
    not this section's. An op falls through the absent-schema path (§7.1)
    to `UnknownOp` on account of a target withholding only when that
    withholding happens to remove every rule that would otherwise have
-   matched the op's `(object_type, op_type, op_version)` — i.e. when the
-   withheld target was the only one that `op_type`/`op_version` pair ever
-   wrote — exactly as an `object_type` collision does for its whole type.
-   The rest of the
+   matched the op's `(object_type, op_type, op_version)` — exactly as an
+   `object_type` collision does for its whole type. The rest of the
    `object_type` — its other targets, and any type-level metadata — is
    unaffected.
 
