@@ -2,11 +2,11 @@
   "refs": [
     {
       "name": "refs/writ/0123456789abcdef/schema",
-      "commit": "58ad9d82f87b108d858d2f1f5363c96a63e1531c"
+      "commit": "e6e616d289d6f65efc145b49a077369f8b0162d4"
     },
     {
       "name": "refs/writ/0123456789abcdef/gadget",
-      "commit": "ad0713907eb6ab0cee159183ce27ccf813137973"
+      "commit": "b3e183721dc3bd4df4504a77121738fcfad2e027"
     }
   ],
   "generations": [
@@ -35,8 +35,8 @@
           "signed": true
         },
         {
-          "sha": "55b52f296be7638ee364728157c55e22cf4cdceb",
-          "tree": "89cd7911ba9638a945ed61dd9519e0a2ef45f2eb",
+          "sha": "906a97d0d553e02699968a3bf69bb7392df79f63",
+          "tree": "83d171b392b9a6e05f5f2aedc2994bb8b462d471",
           "parents": [
             "4656b2a6aee5df31bd11edbfe061c453af0a80aa"
           ],
@@ -46,10 +46,10 @@
           "signed": true
         },
         {
-          "sha": "58ad9d82f87b108d858d2f1f5363c96a63e1531c",
-          "tree": "4dec4efbee9c0c2818a7fe016f0dbd842176f182",
+          "sha": "e6e616d289d6f65efc145b49a077369f8b0162d4",
+          "tree": "0a420c723078d93ee0a079a008899260dfbb13b2",
           "parents": [
-            "55b52f296be7638ee364728157c55e22cf4cdceb"
+            "906a97d0d553e02699968a3bf69bb7392df79f63"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:03:00Z",
@@ -63,12 +63,12 @@
       "index": 0,
       "commits": [
         {
-          "sha": "ad0713907eb6ab0cee159183ce27ccf813137973",
-          "tree": "709284f42de7af6191626d2100ae1d0fce161f5d",
+          "sha": "b3e183721dc3bd4df4504a77121738fcfad2e027",
+          "tree": "8c1bb1d7d971773c2c3733511f48ee7e1868d95c",
           "parents": [],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:04:00Z",
-          "message": "writ: create gadget/gadget-1\n",
+          "message": "writ: create acme.gadget/gadget-1\n",
           "signed": true
         }
       ]

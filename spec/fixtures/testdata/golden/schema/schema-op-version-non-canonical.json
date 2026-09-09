@@ -7,7 +7,7 @@
         "namespace": "acme",
         "types": [
           {
-            "type": "widget",
+            "type": "acme.widget",
             "fields": [
               {
                 "field": "value",
@@ -36,31 +36,31 @@
         ],
         "unknown_ops": [
           {
-            "commit": "7b56581c85b997c51e318d3a6cfaca6a98ce7645",
+            "commit": "c1006d4f1f78db3b5df217bd733b6fa3ba6f1d46",
             "object_type": "schema",
             "op_type": "define-field",
             "op_version": 1
           },
           {
-            "commit": "708dcc4a7849d176bd8367b6a68454ca04fe7c32",
+            "commit": "db7c870ef7a4dfa7fdd01563235864ca23487f3d",
             "object_type": "schema",
             "op_type": "define-op",
             "op_version": 1
           },
           {
-            "commit": "7da9a64885afba499ed77adacae66e2cb2e9eb14",
+            "commit": "319d940ed84091badedb44e03048d20f68eb97b9",
             "object_type": "schema",
             "op_type": "deprecate-field",
             "op_version": 1
           },
           {
-            "commit": "06a3768ba5a1911dbf7fa47cabd80a9e07b58d00",
+            "commit": "c77004bf12c183e5f159b6861ca0d0fc14e70b3d",
             "object_type": "schema",
             "op_type": "define-field",
             "op_version": 1
           },
           {
-            "commit": "4b0780cf4ed64efe926cbaa016732f7f4696f15e",
+            "commit": "9b6578afdc16a370a1a66f5fd8baf6b851961e2a",
             "object_type": "schema",
             "op_type": "define-field",
             "op_version": 1

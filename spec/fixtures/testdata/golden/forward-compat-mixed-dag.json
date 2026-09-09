@@ -2,23 +2,23 @@
   "refs": [
     {
       "name": "refs/writ/0123456789abcdef/schema",
-      "commit": "09fec038d216acce9a9f7715f9736be7b5567638"
+      "commit": "e4a55ef14791e8864f301037002b708fd19bc48f"
     },
     {
       "name": "refs/writ/0123456789abcdef/widget",
-      "commit": "f1dd9038fe64b89ef9a8d373d8c87107961daa68"
+      "commit": "317bbdf7ba7c73291aaf404117a85b94da2a6d9e"
     },
     {
       "name": "refs/writ/fedcba9876543210/widget",
-      "commit": "63e3a8c2c3611ff11031de3528a64719f9295b4b"
+      "commit": "b9a8519f833e8e2d25c13400e90debb693d4c733"
     },
     {
       "name": "refs/writ/0123456789abcdef/widget-control",
-      "commit": "2d1c85929be74e7183ec94ab64401041c4563515"
+      "commit": "29f59e55901010175eeb03cf5db08970fc627b06"
     },
     {
       "name": "refs/writ/fedcba9876543210/widget-control",
-      "commit": "0c28032bbb7bf82fe0b9c5d563556cfc0bf05327"
+      "commit": "2938a05ef4d8809706e848dc5381bff8ee17e26c"
     }
   ],
   "generations": [
@@ -36,8 +36,8 @@
           "signed": true
         },
         {
-          "sha": "4becfd27f09972baaed6aebbac25e5edf0c1815d",
-          "tree": "28a4ca0269db83c9aeae44f12626f410b2f92f0d",
+          "sha": "d2d4bf47dccd80491cdecacab391d6840646c5a2",
+          "tree": "0d000adf9aa15b74b58f8785776daae39b83c5d1",
           "parents": [
             "7e7b98e49daea722263a972a87eb6425554eec85"
           ],
@@ -47,10 +47,10 @@
           "signed": true
         },
         {
-          "sha": "9e8378a415645030a39320d5301c6592e2c1cd52",
-          "tree": "89cd7911ba9638a945ed61dd9519e0a2ef45f2eb",
+          "sha": "b418d747e52331c52e28b53fb37e39d16f9748ab",
+          "tree": "83d171b392b9a6e05f5f2aedc2994bb8b462d471",
           "parents": [
-            "4becfd27f09972baaed6aebbac25e5edf0c1815d"
+            "d2d4bf47dccd80491cdecacab391d6840646c5a2"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2025-12-01T00:02:00Z",
@@ -58,10 +58,10 @@
           "signed": true
         },
         {
-          "sha": "861c3d439943408eadddcf6fa45981b0dbd8a270",
-          "tree": "0214859faf2e21c1f122efc6992f7ce7fbc68b50",
+          "sha": "44b0282ab8f68b2158df49e0e84f670bd2f925fe",
+          "tree": "4b3dd44001ababb8d1af928d34aed78dc9f8a55b",
           "parents": [
-            "9e8378a415645030a39320d5301c6592e2c1cd52"
+            "b418d747e52331c52e28b53fb37e39d16f9748ab"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2025-12-01T00:03:00Z",
@@ -69,10 +69,10 @@
           "signed": true
         },
         {
-          "sha": "b81fc61c973ca2ef20efd1d076ffaf85038353d2",
-          "tree": "93c8909db54477c56c94bf58e7e87ce72a064ced",
+          "sha": "90591742bcc4e3f4567c1b79261d332c4e5bdac8",
+          "tree": "22947712da9a8089d072ec0d64ba11eab8c6aadd",
           "parents": [
-            "861c3d439943408eadddcf6fa45981b0dbd8a270"
+            "44b0282ab8f68b2158df49e0e84f670bd2f925fe"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2025-12-01T00:04:00Z",
@@ -80,10 +80,10 @@
           "signed": true
         },
         {
-          "sha": "06129865d682f02fa08a38998cfef686771a5115",
-          "tree": "cbb5898942f5c00a551cdadbc3803a5229f95bc4",
+          "sha": "c1d89ac0da2eb5376d795276df6f616b90d70743",
+          "tree": "714fa33958a4cab15cb20c8b3910b985e2e74d69",
           "parents": [
-            "b81fc61c973ca2ef20efd1d076ffaf85038353d2"
+            "90591742bcc4e3f4567c1b79261d332c4e5bdac8"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2025-12-01T00:05:00Z",
@@ -91,10 +91,10 @@
           "signed": true
         },
         {
-          "sha": "4c0dc13d28976c2e7c7096a3241e4c032a3b67ec",
-          "tree": "436ca3d8d9579573dddecb6bb75281d38a6c03da",
+          "sha": "ac4dc2685a1a8ad4643d58b9055a08af4e31ef12",
+          "tree": "b12d7e962a82d3d700ddb3b6c994ae521b56ac2e",
           "parents": [
-            "06129865d682f02fa08a38998cfef686771a5115"
+            "c1d89ac0da2eb5376d795276df6f616b90d70743"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2025-12-01T00:06:00Z",
@@ -102,10 +102,10 @@
           "signed": true
         },
         {
-          "sha": "09fec038d216acce9a9f7715f9736be7b5567638",
-          "tree": "a442c3a3239cb360ea7d3e4ba92b1a79d40ea5c2",
+          "sha": "e4a55ef14791e8864f301037002b708fd19bc48f",
+          "tree": "b90eab771ee673d483705a58774ba1b8820ab753",
           "parents": [
-            "4c0dc13d28976c2e7c7096a3241e4c032a3b67ec"
+            "ac4dc2685a1a8ad4643d58b9055a08af4e31ef12"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2025-12-01T00:07:00Z",
@@ -119,34 +119,34 @@
       "index": 0,
       "commits": [
         {
-          "sha": "1e8779b5a5cbe6860d240f1b4583d59f9c332208",
-          "tree": "6d98aebd884d9088ce7bdec20fcddd10c2968363",
+          "sha": "4c0569b0e823a108b71926e1ef7a67f30d5f9ba7",
+          "tree": "ec1d5b23bf5bbb1559ce6b7fe40721220b81e875",
           "parents": [],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:00:00Z",
-          "message": "writ: create widget/widget-mixed-01\n",
+          "message": "writ: create acme.widget/widget-mixed-01\n",
           "signed": true
         },
         {
-          "sha": "58fc7d20905cf8c8ce3887d310d49010da88c8b8",
-          "tree": "56e3055807ee423cccf644f4ec23334bf707488c",
+          "sha": "cd5a679b6e438cc71a98304c705b3944a6951904",
+          "tree": "b338c6b3d3081cf664eb50de339d58e590945d83",
           "parents": [
-            "1e8779b5a5cbe6860d240f1b4583d59f9c332208"
+            "4c0569b0e823a108b71926e1ef7a67f30d5f9ba7"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:01:00Z",
-          "message": "writ: emit telemetry/widget-mixed-01\n",
+          "message": "writ: emit acme.telemetry/widget-mixed-01\n",
           "signed": true
         },
         {
-          "sha": "f1dd9038fe64b89ef9a8d373d8c87107961daa68",
-          "tree": "0f49782ba8a2a29c9401b6c50019634a77408e99",
+          "sha": "317bbdf7ba7c73291aaf404117a85b94da2a6d9e",
+          "tree": "44065679ad8e39d0d4b54f0933c9c24ee5e9b8e7",
           "parents": [
-            "58fc7d20905cf8c8ce3887d310d49010da88c8b8"
+            "cd5a679b6e438cc71a98304c705b3944a6951904"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:02:00Z",
-          "message": "writ: post gadget/widget-mixed-01\n",
+          "message": "writ: post acme.gadget/widget-mixed-01\n",
           "signed": true
         }
       ]
@@ -156,24 +156,24 @@
       "index": 0,
       "commits": [
         {
-          "sha": "0b27b4e01a82395d18b36a4ea3e300ee68fd186c",
-          "tree": "c08232620a747a96b382bd34820f9db9c80c4902",
+          "sha": "cf46431148355b0b850fabfd2ab62383cab870c3",
+          "tree": "9a0621b7d3266c1436b01c6bbed3a4a7ee7952ad",
           "parents": [],
           "author": "Bob Example \u003cbob@example.test\u003e",
           "timestamp": "2026-01-01T00:00:30Z",
-          "message": "writ: create widget/widget-mixed-01\n",
+          "message": "writ: create acme.widget/widget-mixed-01\n",
           "signed": true
         },
         {
-          "sha": "63e3a8c2c3611ff11031de3528a64719f9295b4b",
-          "tree": "b39d9d71c32243986f18c69f25b4617df866dbd1",
+          "sha": "b9a8519f833e8e2d25c13400e90debb693d4c733",
+          "tree": "1a6ede29ea8797e335916b43ddaec7af90d2b53f",
           "parents": [
-            "0b27b4e01a82395d18b36a4ea3e300ee68fd186c",
-            "f1dd9038fe64b89ef9a8d373d8c87107961daa68"
+            "cf46431148355b0b850fabfd2ab62383cab870c3",
+            "317bbdf7ba7c73291aaf404117a85b94da2a6d9e"
           ],
           "author": "Bob Example \u003cbob@example.test\u003e",
           "timestamp": "2026-01-01T00:03:00Z",
-          "message": "writ: close widget/widget-mixed-01\n",
+          "message": "writ: close acme.widget/widget-mixed-01\n",
           "signed": true
         }
       ]
@@ -183,23 +183,23 @@
       "index": 0,
       "commits": [
         {
-          "sha": "1e8779b5a5cbe6860d240f1b4583d59f9c332208",
-          "tree": "6d98aebd884d9088ce7bdec20fcddd10c2968363",
+          "sha": "4c0569b0e823a108b71926e1ef7a67f30d5f9ba7",
+          "tree": "ec1d5b23bf5bbb1559ce6b7fe40721220b81e875",
           "parents": [],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:00:00Z",
-          "message": "writ: create widget/widget-mixed-01\n",
+          "message": "writ: create acme.widget/widget-mixed-01\n",
           "signed": true
         },
         {
-          "sha": "2d1c85929be74e7183ec94ab64401041c4563515",
-          "tree": "0f49782ba8a2a29c9401b6c50019634a77408e99",
+          "sha": "29f59e55901010175eeb03cf5db08970fc627b06",
+          "tree": "44065679ad8e39d0d4b54f0933c9c24ee5e9b8e7",
           "parents": [
-            "1e8779b5a5cbe6860d240f1b4583d59f9c332208"
+            "4c0569b0e823a108b71926e1ef7a67f30d5f9ba7"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:02:00Z",
-          "message": "writ: post gadget/widget-mixed-01\n",
+          "message": "writ: post acme.gadget/widget-mixed-01\n",
           "signed": true
         }
       ]
@@ -209,14 +209,14 @@
       "index": 0,
       "commits": [
         {
-          "sha": "0c28032bbb7bf82fe0b9c5d563556cfc0bf05327",
-          "tree": "b39d9d71c32243986f18c69f25b4617df866dbd1",
+          "sha": "2938a05ef4d8809706e848dc5381bff8ee17e26c",
+          "tree": "1a6ede29ea8797e335916b43ddaec7af90d2b53f",
           "parents": [
-            "2d1c85929be74e7183ec94ab64401041c4563515"
+            "29f59e55901010175eeb03cf5db08970fc627b06"
           ],
           "author": "Bob Example \u003cbob@example.test\u003e",
           "timestamp": "2026-01-01T00:03:00Z",
-          "message": "writ: close widget/widget-mixed-01\n",
+          "message": "writ: close acme.widget/widget-mixed-01\n",
           "signed": true
         }
       ]

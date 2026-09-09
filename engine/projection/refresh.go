@@ -338,7 +338,7 @@ func (d *DB) rebuildWithConfig(store *dag.Store, cfg *refreshConfig, targetTips 
 		}
 	}
 	for _, t := range desc.allTables() {
-		if _, err := tx.Exec("DELETE FROM " + t.Name); err != nil {
+		if _, err := tx.Exec("DELETE FROM " + quoteIdent(t.Name)); err != nil {
 			return Stats{}, fmt.Errorf("projection: truncate table %s: %w", t.Name, err)
 		}
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -58,33 +59,51 @@ func mkField(typ, opType string, opVersion int64, field, strategy string) writ.S
 	return writ.SchemaField{Name: field, OpType: opType, OpVersion: opVersion, Strategy: strategy, ValueType: "string"}
 }
 
+// TestRulesFromSchemas_ObjectTypeCollisionInstallsNoRules pins the
+// collision that remains reachable after WRIT-217: two schema objects
+// sharing one namespace ("acme") that both declare a type named "standup"
+// both bind the identical qualified wire type "acme.standup" and contend
+// for it exactly as two bare "standup" declarations used to, pre-WRIT-217,
+// regardless of namespace. (Two different namespaces declaring the same
+// bare type name no longer collide at all — see
+// TestRulesFromSchemas_DifferentNamespacesSameBareTypeBothInstall.)
 func TestRulesFromSchemas_ObjectTypeCollisionInstallsNoRules(t *testing.T) {
 	a := state.Schema{
 		ObjectID:  "sch-a",
 		Namespace: "acme",
 		Types: []state.SchemaType{
-			{Name: "standup", Fields: []state.SchemaField{mkField("standup", "create", 1, "summary", "lww")}},
+			{Name: "acme.standup", Fields: []state.SchemaField{mkField("standup", "create", 1, "summary", "lww")}},
 		},
 	}
 	b := state.Schema{
 		ObjectID:  "sch-b",
-		Namespace: "beta",
+		Namespace: "acme",
 		Types: []state.SchemaType{
-			{Name: "standup", Fields: []state.SchemaField{mkField("standup", "create", 1, "notes", "lww")}},
+			{Name: "acme.standup", Fields: []state.SchemaField{mkField("standup", "create", 1, "notes", "lww")}},
 		},
 	}
 
 	rules, conflicts := writ.RulesFromSchemas([]state.Schema{b, a})
 
-	if _, ok := rules["standup"]; ok {
-		t.Fatalf("expected no rules installed for the contested object_type, got %+v", rules["standup"])
+	if _, ok := rules["acme.standup"]; ok {
+		t.Fatalf("expected no rules installed for the contested object_type, got %+v", rules["acme.standup"])
 	}
-	if len(conflicts) != 1 {
-		t.Fatalf("expected exactly 1 conflict, got %+v", conflicts)
+	// Two different schema objects binding the identical qualified type
+	// necessarily also declare the identical namespace, so a namespace
+	// collision (§6, cosmetic and non-withholding on its own) is reported
+	// alongside the object_type collision that actually withholds rules —
+	// exactly 2 conflicts, not 1.
+	if len(conflicts) != 2 {
+		t.Fatalf("expected exactly 2 conflicts (object_type + namespace), got %+v", conflicts)
 	}
-	c := conflicts[0]
-	if c.ObjectType != "standup" {
-		t.Errorf("conflict ObjectType = %q, want standup", c.ObjectType)
+	var c *writ.SchemaConflict
+	for i := range conflicts {
+		if conflicts[i].ObjectType == "acme.standup" {
+			c = &conflicts[i]
+		}
+	}
+	if c == nil {
+		t.Fatalf("expected an object_type conflict naming acme.standup, got %+v", conflicts)
 	}
 	wantIDs := []string{"sch-a", "sch-b"}
 	gotIDs := append([]string(nil), c.ObjectIDs...)
@@ -95,17 +114,18 @@ func TestRulesFromSchemas_ObjectTypeCollisionInstallsNoRules(t *testing.T) {
 
 	// §7.1 / FC-1 / FC-12: withholding rules for a contested object_type
 	// must never surface as a fold error for the ops that type's own data
-	// writes. Fold(dataOps, rules["standup"]) — rules["standup"] absent,
-	// same as an unresolvable object_type — must return a nil error with
-	// every op quarantined as unknown, exactly the absent-schema path.
+	// writes. Fold(dataOps, rules["acme.standup"]) — rules["acme.standup"]
+	// absent, same as an unresolvable object_type — must return a nil
+	// error with every op quarantined as unknown, exactly the
+	// absent-schema path.
 	dataOp := codec.Op{
 		Envelope: codec.Envelope{
-			ObjectID: "obj-1", ObjectType: "standup", OpType: "create", OpVersion: 1,
+			ObjectID: "obj-1", ObjectType: "acme.standup", OpType: "create", OpVersion: 1,
 			Body: json.RawMessage(`{"summary":"hello"}`),
 		},
 		ID: "op-1",
 	}
-	objState, err := writ.Fold([]codec.Op{dataOp}, rules["standup"])
+	objState, err := writ.Fold([]codec.Op{dataOp}, rules["acme.standup"])
 	if err != nil {
 		t.Fatalf("Fold on the contested object_type must not error, got: %v", err)
 	}
@@ -114,29 +134,114 @@ func TestRulesFromSchemas_ObjectTypeCollisionInstallsNoRules(t *testing.T) {
 	}
 }
 
+// TestRulesFromSchemas_DifferentNamespacesSameBareTypeBothInstall is
+// WRIT-217's central acceptance test at the resolver level: two schema
+// objects, "acme" and "bigco", each declaring a type whose bare source
+// name is "code-review", qualify to two distinct wire types
+// ("acme.code-review", "bigco.code-review") and never contend — both
+// install cleanly, with zero conflicts. Before this ticket, both would
+// have bound the identical bare object_type "code-review" and
+// TestRulesFromSchemas_ObjectTypeCollisionInstallsNoRules's withholding
+// would have applied to both; qualification is what makes independent
+// schema packages installable side by side (the distribution model this
+// restructuring exists to enable).
+func TestRulesFromSchemas_DifferentNamespacesSameBareTypeBothInstall(t *testing.T) {
+	acme := state.Schema{
+		ObjectID:  "sch-acme",
+		Namespace: "acme",
+		Types: []state.SchemaType{
+			{Name: "acme.code-review", Fields: []state.SchemaField{mkField("code-review", "create", 1, "summary", "lww")}},
+		},
+	}
+	bigco := state.Schema{
+		ObjectID:  "sch-bigco",
+		Namespace: "bigco",
+		Types: []state.SchemaType{
+			{Name: "bigco.code-review", Fields: []state.SchemaField{mkField("code-review", "create", 1, "notes", "lww")}},
+		},
+	}
+
+	rules, conflicts := writ.RulesFromSchemas([]state.Schema{bigco, acme})
+	if len(conflicts) != 0 {
+		t.Fatalf("expected no conflicts between two different namespaces' same-bare-name types, got %+v", conflicts)
+	}
+	if got := rules["acme.code-review"]; len(got) != 1 || got[0].Field != "summary" {
+		t.Fatalf("expected acme.code-review's own rule installed, got %+v", got)
+	}
+	if got := rules["bigco.code-review"]; len(got) != 1 || got[0].Field != "notes" {
+		t.Fatalf("expected bigco.code-review's own rule installed, got %+v", got)
+	}
+}
+
+// TestRulesFromSchemas_UnqualifiedConsumerTypeDroppedNotInstalled pins
+// WRIT-217's answer to "is the qualified form ever optional?": no. A
+// declared type whose name does not carry its own schema's namespace
+// prefix — bare, qualified under someone else's namespace, or carrying
+// more than one dot — is dropped and reported as a conflict, exactly like
+// any other invalid declaration, never installed. This is the
+// resolver-level gate that actually closes the global object_type
+// namespace: the envelope grammar alone cannot enforce it
+// (spec/op-envelope.md has no notion of namespace), so this is the one
+// place that does.
+func TestRulesFromSchemas_UnqualifiedConsumerTypeDroppedNotInstalled(t *testing.T) {
+	// One schema object, one namespace, three bad declarations — kept to a
+	// single ObjectID so the only conflicts reachable are the three
+	// namespace-qualification failures under test, with no cross-object
+	// namespace collision (TestRulesFromSchemas_NamespaceCollisionDoesNotWithholdRulesAlone)
+	// muddying the count.
+	sch := state.Schema{
+		ObjectID:  "sch-a",
+		Namespace: "acme",
+		Types: []state.SchemaType{
+			{Name: "standup", Fields: []state.SchemaField{mkField("standup", "create", 1, "summary", "lww")}},
+			{Name: "bigco.retro", Fields: []state.SchemaField{mkField("retro", "create", 1, "notes", "lww")}},
+			{Name: "acme.foo.bar", Fields: []state.SchemaField{mkField("foo.bar", "create", 1, "title", "lww")}},
+		},
+	}
+
+	rules, conflicts := writ.RulesFromSchemas([]state.Schema{sch})
+	if _, ok := rules["standup"]; ok {
+		t.Errorf("expected the unqualified bare type dropped, got %+v", rules["standup"])
+	}
+	if _, ok := rules["bigco.retro"]; ok {
+		t.Errorf("expected the foreign-namespace-qualified type dropped, got %+v", rules["bigco.retro"])
+	}
+	if _, ok := rules["acme.foo.bar"]; ok {
+		t.Errorf("expected the multi-dot type dropped, got %+v", rules["acme.foo.bar"])
+	}
+	if len(conflicts) != 3 {
+		t.Fatalf("expected 3 conflicts (one per unqualified declaration), got %+v", conflicts)
+	}
+	for _, c := range conflicts {
+		if !strings.Contains(c.Reason, "not qualified with this schema object's own namespace") {
+			t.Errorf("conflict reason does not name the namespace-qualification failure: %+v", c)
+		}
+	}
+}
+
 func TestRulesFromSchemas_NamespaceCollisionDoesNotWithholdRulesAlone(t *testing.T) {
 	a := state.Schema{
 		ObjectID:  "sch-a",
 		Namespace: "acme",
 		Types: []state.SchemaType{
-			{Name: "standup", Fields: []state.SchemaField{mkField("standup", "create", 1, "summary", "lww")}},
+			{Name: "acme.standup", Fields: []state.SchemaField{mkField("standup", "create", 1, "summary", "lww")}},
 		},
 	}
 	b := state.Schema{
 		ObjectID:  "sch-b",
 		Namespace: "acme", // same namespace, different type: cosmetic collision only
 		Types: []state.SchemaType{
-			{Name: "retro", Fields: []state.SchemaField{mkField("retro", "create", 1, "notes", "lww")}},
+			{Name: "acme.retro", Fields: []state.SchemaField{mkField("retro", "create", 1, "notes", "lww")}},
 		},
 	}
 
 	rules, conflicts := writ.RulesFromSchemas([]state.Schema{a, b})
 
-	if _, ok := rules["standup"]; !ok {
-		t.Errorf("expected rules installed for 'standup' despite the namespace collision, got %+v", rules)
+	if _, ok := rules["acme.standup"]; !ok {
+		t.Errorf("expected rules installed for 'acme.standup' despite the namespace collision, got %+v", rules)
 	}
-	if _, ok := rules["retro"]; !ok {
-		t.Errorf("expected rules installed for 'retro' despite the namespace collision, got %+v", rules)
+	if _, ok := rules["acme.retro"]; !ok {
+		t.Errorf("expected rules installed for 'acme.retro' despite the namespace collision, got %+v", rules)
 	}
 
 	var sawNamespaceConflict bool
@@ -169,9 +274,10 @@ func TestRulesFromSchemas_SchemaCannotBeRedefinedFromTheLog(t *testing.T) {
 
 func TestRulesFromSchemas_InvalidRuleDroppedNotInstalled(t *testing.T) {
 	a := state.Schema{
-		ObjectID: "sch-a",
+		ObjectID:  "sch-a",
+		Namespace: "acme",
 		Types: []state.SchemaType{
-			{Name: "standup", Fields: []state.SchemaField{
+			{Name: "acme.standup", Fields: []state.SchemaField{
 				mkField("standup", "create", 1, "summary", ""),        // strategy:"" - invalid
 				mkField("standup", "create", 1, "notes", "keyed-lww"), // keyed-lww with no key - invalid
 				mkField("standup", "create", 1, "owner", "bogus"),     // strategy:"bogus" - not in the catalogue at all
@@ -180,7 +286,7 @@ func TestRulesFromSchemas_InvalidRuleDroppedNotInstalled(t *testing.T) {
 	}
 
 	rules, conflicts := writ.RulesFromSchemas([]state.Schema{a})
-	if got := rules["standup"]; len(got) != 0 {
+	if got := rules["acme.standup"]; len(got) != 0 {
 		t.Fatalf("expected all three invalid rules dropped, got %+v", got)
 	}
 	if len(conflicts) != 3 {
@@ -194,12 +300,12 @@ func TestRulesFromSchemas_InvalidRuleDroppedNotInstalled(t *testing.T) {
 	// found missing: no test ever called Fold with the resolved rules.
 	dataOp := codec.Op{
 		Envelope: codec.Envelope{
-			ObjectID: "obj-1", ObjectType: "standup", OpType: "create", OpVersion: 1,
+			ObjectID: "obj-1", ObjectType: "acme.standup", OpType: "create", OpVersion: 1,
 			Body: json.RawMessage(`{"summary":"hello","notes":"hi","owner":"alice"}`),
 		},
 		ID: "op-1",
 	}
-	objState, err := writ.Fold([]codec.Op{dataOp}, rules["standup"])
+	objState, err := writ.Fold([]codec.Op{dataOp}, rules["acme.standup"])
 	if err != nil {
 		t.Fatalf("Fold must never see an unknown-strategy rule, got error: %v", err)
 	}
@@ -229,10 +335,11 @@ func TestRulesFromSchemas_InvalidRuleDroppedNotInstalled(t *testing.T) {
 // through the envelope path.
 func TestRulesFromSchemas_InvalidOpTypeGrammarDroppedNotInstalled(t *testing.T) {
 	sch := state.Schema{
-		ObjectID: "sch-a",
+		ObjectID:  "sch-a",
+		Namespace: "acme",
 		Types: []state.SchemaType{
 			{
-				Name: "standup",
+				Name: "acme.standup",
 				Fields: []state.SchemaField{
 					mkField("standup", "Bad_Type", 1, "summary", "lww"),            // uppercase/underscore - invalid
 					mkField("standup", strings.Repeat("a", 65), 1, "notes", "lww"), // over opTypeMaxLength - invalid
@@ -248,7 +355,7 @@ func TestRulesFromSchemas_InvalidOpTypeGrammarDroppedNotInstalled(t *testing.T) 
 	}
 
 	rules, conflicts := writ.RulesFromSchemas([]state.Schema{sch})
-	got := rules["standup"]
+	got := rules["acme.standup"]
 	if len(got) != 1 || got[0].Field != "owner" {
 		t.Fatalf("expected only the grammatically valid field rule installed, got %+v", got)
 	}
@@ -262,9 +369,9 @@ func TestRulesFromSchemas_InvalidOpTypeGrammarDroppedNotInstalled(t *testing.T) 
 	}
 
 	vocabularies, _ := writ.VocabulariesFromSchemas([]state.Schema{sch})
-	voc, ok := vocabularies["standup"]
+	voc, ok := vocabularies["acme.standup"]
 	if !ok || !voc.Declared {
-		t.Fatalf("expected standup Declared, got %+v", voc)
+		t.Fatalf("expected acme.standup Declared, got %+v", voc)
 	}
 	wantOpTypes := map[codec.OpVersionKey]bool{
 		{OpType: "create", OpVersion: 1}:    true, // from the valid define-field
@@ -279,12 +386,12 @@ func TestRulesFromSchemas_InvalidOpTypeGrammarDroppedNotInstalled(t *testing.T) 
 	// through to UnknownOps, never a hard fold error.
 	dataOp := codec.Op{
 		Envelope: codec.Envelope{
-			ObjectID: "obj-1", ObjectType: "standup", OpType: "UPPER", OpVersion: 1,
+			ObjectID: "obj-1", ObjectType: "acme.standup", OpType: "UPPER", OpVersion: 1,
 			Body: json.RawMessage(`{}`),
 		},
 		ID: "op-1",
 	}
-	objState, err := writ.Fold([]codec.Op{dataOp}, rules["standup"])
+	objState, err := writ.Fold([]codec.Op{dataOp}, rules["acme.standup"])
 	if err != nil {
 		t.Fatalf("Fold must never see a rule for a grammar-invalid op_type, got error: %v", err)
 	}
@@ -330,10 +437,11 @@ func TestRulesFromSchemas_InvalidOpTypeGrammarDroppedNotInstalled(t *testing.T) 
 //     both, wrongly taking gamma down with it.
 func TestRulesFromSchemas_InvalidTargetOrKeyGrammarDroppedNotInstalled(t *testing.T) {
 	sch := state.Schema{
-		ObjectID: "sch-a",
+		ObjectID:  "sch-a",
+		Namespace: "acme",
 		Types: []state.SchemaType{
 			{
-				Name: "standup",
+				Name: "acme.standup",
 				Fields: []state.SchemaField{
 					{Name: "summary", OpType: "create", OpVersion: 1, Strategy: "lww", ValueType: "string"},                                                                                // valid, control
 					{Name: "code", OpType: "create", OpVersion: 1, Strategy: "lww", ValueType: "string", Target: "identifier"},                                                             // valid target, sibling
@@ -356,7 +464,7 @@ func TestRulesFromSchemas_InvalidTargetOrKeyGrammarDroppedNotInstalled(t *testin
 	}
 
 	rules, conflicts := writ.RulesFromSchemas([]state.Schema{sch})
-	got := rules["standup"]
+	got := rules["acme.standup"]
 	if len(got) != 4 {
 		t.Fatalf("expected only the four grammatically valid fields installed, got %+v", got)
 	}
@@ -384,12 +492,12 @@ func TestRulesFromSchemas_InvalidTargetOrKeyGrammarDroppedNotInstalled(t *testin
 	// to UnknownOps rather than hard-erroring.
 	dataOp := codec.Op{
 		Envelope: codec.Envelope{
-			ObjectID: "obj-1", ObjectType: "standup", OpType: "create", OpVersion: 1,
+			ObjectID: "obj-1", ObjectType: "acme.standup", OpType: "create", OpVersion: 1,
 			Body: json.RawMessage(`{"summary":"hi","code":"abc","owner":"alice","Bad Col":"x","tags":"y"}`),
 		},
 		ID: "op-1",
 	}
-	objState, err := writ.Fold([]codec.Op{dataOp}, rules["standup"])
+	objState, err := writ.Fold([]codec.Op{dataOp}, rules["acme.standup"])
 	if err != nil {
 		t.Fatalf("Fold must never see a rule for a grammar-invalid target or key column, got error: %v", err)
 	}
@@ -404,19 +512,19 @@ func TestRulesFromSchemas_InvalidTargetOrKeyGrammarDroppedNotInstalled(t *testin
 	// fold normally under their own, unrelated ops.
 	alphaOp := codec.Op{
 		Envelope: codec.Envelope{
-			ObjectID: "obj-1", ObjectType: "standup", OpType: "set-alpha", OpVersion: 1,
+			ObjectID: "obj-1", ObjectType: "acme.standup", OpType: "set-alpha", OpVersion: 1,
 			Body: json.RawMessage(`{"alpha":"left"}`),
 		},
 		ID: "op-2",
 	}
 	gammaOp := codec.Op{
 		Envelope: codec.Envelope{
-			ObjectID: "obj-1", ObjectType: "standup", OpType: "set-subject", OpVersion: 1,
+			ObjectID: "obj-1", ObjectType: "acme.standup", OpType: "set-subject", OpVersion: 1,
 			Body: json.RawMessage(`{"gamma":"urgent","subject":"person-1","delta":"ignored"}`),
 		},
 		ID: "op-3",
 	}
-	objState2, err := writ.Fold([]codec.Op{alphaOp, gammaOp}, rules["standup"])
+	objState2, err := writ.Fold([]codec.Op{alphaOp, gammaOp}, rules["acme.standup"])
 	if err != nil {
 		t.Fatalf("Fold on alpha/gamma's own ops: %v", err)
 	}
@@ -446,14 +554,16 @@ func TestRulesFromSchemas_InvalidTargetOrKeyGrammarDroppedNotInstalled(t *testin
 func TestRulesFromSchemas_DeprecatedFieldStaysActiveForFolding(t *testing.T) {
 	active := mkField("standup", "create", 1, "summary", "lww")
 	a := state.Schema{
-		ObjectID: "sch-a",
-		Types:    []state.SchemaType{{Name: "standup", Fields: []state.SchemaField{active}}},
+		ObjectID:  "sch-a",
+		Namespace: "acme",
+		Types:     []state.SchemaType{{Name: "acme.standup", Fields: []state.SchemaField{active}}},
 	}
 	deprecated := active
 	deprecated.Deprecated = true
 	b := state.Schema{
-		ObjectID: "sch-a",
-		Types:    []state.SchemaType{{Name: "standup", Fields: []state.SchemaField{deprecated}}},
+		ObjectID:  "sch-a",
+		Namespace: "acme",
+		Types:     []state.SchemaType{{Name: "acme.standup", Fields: []state.SchemaField{deprecated}}},
 	}
 
 	rulesBefore, conflictsBefore := writ.RulesFromSchemas([]state.Schema{a})
@@ -463,7 +573,7 @@ func TestRulesFromSchemas_DeprecatedFieldStaysActiveForFolding(t *testing.T) {
 		t.Fatalf("expected no conflicts either way, got before=%+v after=%+v", conflictsBefore, conflictsAfter)
 	}
 
-	got := rulesAfter["standup"]
+	got := rulesAfter["acme.standup"]
 	if len(got) != 1 {
 		t.Fatalf("expected the deprecated field's rule still installed, got %+v", got)
 	}
@@ -476,13 +586,13 @@ func TestRulesFromSchemas_DeprecatedFieldStaysActiveForFolding(t *testing.T) {
 	// and it must not fall into UnknownOps in either case.
 	dataOp := codec.Op{
 		Envelope: codec.Envelope{
-			ObjectID: "obj-1", ObjectType: "standup", OpType: "create", OpVersion: 1,
+			ObjectID: "obj-1", ObjectType: "acme.standup", OpType: "create", OpVersion: 1,
 			Body: json.RawMessage(`{"summary":"important"}`),
 		},
 		ID: "op-1",
 	}
 
-	stateBefore, err := writ.Fold([]codec.Op{dataOp}, rulesBefore["standup"])
+	stateBefore, err := writ.Fold([]codec.Op{dataOp}, rulesBefore["acme.standup"])
 	if err != nil {
 		t.Fatalf("Fold before deprecation failed: %v", err)
 	}
@@ -493,7 +603,7 @@ func TestRulesFromSchemas_DeprecatedFieldStaysActiveForFolding(t *testing.T) {
 		t.Fatalf("expected summary=%q before deprecation, got %+v", "important", stateBefore.State)
 	}
 
-	stateAfter, err := writ.Fold([]codec.Op{dataOp}, rulesAfter["standup"])
+	stateAfter, err := writ.Fold([]codec.Op{dataOp}, rulesAfter["acme.standup"])
 	if err != nil {
 		t.Fatalf("Fold after deprecation failed: %v", err)
 	}
@@ -507,8 +617,9 @@ func TestRulesFromSchemas_DeprecatedFieldStaysActiveForFolding(t *testing.T) {
 
 func TestRulesFromSchemas_VersionBumpSameTargetSameStrategyOK(t *testing.T) {
 	a := state.Schema{
-		ObjectID: "sch-a",
-		Types: []state.SchemaType{{Name: "widget", Fields: []state.SchemaField{
+		ObjectID:  "sch-a",
+		Namespace: "acme",
+		Types: []state.SchemaType{{Name: "acme.widget", Fields: []state.SchemaField{
 			mkField("widget", "widget-op", 1, "value", "lww"),
 			mkField("widget", "widget-op", 2, "value", "lww"),
 		}}},
@@ -517,7 +628,7 @@ func TestRulesFromSchemas_VersionBumpSameTargetSameStrategyOK(t *testing.T) {
 	if len(conflicts) != 0 {
 		t.Fatalf("expected no conflicts, got %+v", conflicts)
 	}
-	if got := rules["widget"]; len(got) != 2 {
+	if got := rules["acme.widget"]; len(got) != 2 {
 		t.Fatalf("expected both version-1 and version-2 rules installed under the shared target, got %+v", got)
 	}
 }
@@ -534,11 +645,12 @@ func TestRulesFromSchemas_VersionBumpNewStrategySameTargetRejected(t *testing.T)
 	v1 := mkField("widget", "widget-op", 1, "value", "lww")
 	v2 := mkField("widget", "widget-op", 2, "value", "set-union") // same target ("value"), different strategy: rejected
 	a := state.Schema{
-		ObjectID: "sch-a",
-		Types:    []state.SchemaType{{Name: "widget", Fields: []state.SchemaField{v1, v2}}},
+		ObjectID:  "sch-a",
+		Namespace: "acme",
+		Types:     []state.SchemaType{{Name: "acme.widget", Fields: []state.SchemaField{v1, v2}}},
 	}
 	rules, conflicts := writ.RulesFromSchemas([]state.Schema{a})
-	if got := rules["widget"]; len(got) != 0 {
+	if got := rules["acme.widget"]; len(got) != 0 {
 		t.Fatalf("expected no rules installed for the target, got %+v", got)
 	}
 	if len(conflicts) != 1 {
@@ -551,14 +663,15 @@ func TestRulesFromSchemas_VersionBumpNewStrategyDistinctTargetOK(t *testing.T) {
 	v2 := mkField("widget", "widget-op", 2, "value", "set-union")
 	v2.Target = "value_v2"
 	a := state.Schema{
-		ObjectID: "sch-a",
-		Types:    []state.SchemaType{{Name: "widget", Fields: []state.SchemaField{v1, v2}}},
+		ObjectID:  "sch-a",
+		Namespace: "acme",
+		Types:     []state.SchemaType{{Name: "acme.widget", Fields: []state.SchemaField{v1, v2}}},
 	}
 	rules, conflicts := writ.RulesFromSchemas([]state.Schema{a})
 	if len(conflicts) != 0 {
 		t.Fatalf("expected no conflicts once the version bump declares a distinct target, got %+v", conflicts)
 	}
-	if got := rules["widget"]; len(got) != 2 {
+	if got := rules["acme.widget"]; len(got) != 2 {
 		t.Fatalf("expected both rules installed, got %+v", got)
 	}
 }
@@ -580,11 +693,12 @@ func TestRulesFromSchemas_CrossOpTypeTargetReuseWithDifferentValueTypeRejected(t
 	v2 := mkField("widget", "assign", 1, "owner", "lww")
 	v2.ValueType = "object-ref"
 	a := state.Schema{
-		ObjectID: "sch-a",
-		Types:    []state.SchemaType{{Name: "widget", Fields: []state.SchemaField{v1, v2}}},
+		ObjectID:  "sch-a",
+		Namespace: "acme",
+		Types:     []state.SchemaType{{Name: "acme.widget", Fields: []state.SchemaField{v1, v2}}},
 	}
 	rules, conflicts := writ.RulesFromSchemas([]state.Schema{a})
-	if got := rules["widget"]; len(got) != 0 {
+	if got := rules["acme.widget"]; len(got) != 0 {
 		t.Fatalf("expected no rules installed for the target, got %+v", got)
 	}
 	if len(conflicts) != 1 {
@@ -604,14 +718,15 @@ func TestRulesFromSchemas_VersionBumpValueTypeOnlyOK(t *testing.T) {
 	v2 := mkField("widget", "widget-op", 2, "value", "lww")
 	v2.ValueType = "int"
 	a := state.Schema{
-		ObjectID: "sch-a",
-		Types:    []state.SchemaType{{Name: "widget", Fields: []state.SchemaField{v1, v2}}},
+		ObjectID:  "sch-a",
+		Namespace: "acme",
+		Types:     []state.SchemaType{{Name: "acme.widget", Fields: []state.SchemaField{v1, v2}}},
 	}
 	rules, conflicts := writ.RulesFromSchemas([]state.Schema{a})
 	if len(conflicts) != 0 {
 		t.Fatalf("expected no conflicts for a version bump changing only value_type, got %+v", conflicts)
 	}
-	if got := rules["widget"]; len(got) != 2 {
+	if got := rules["acme.widget"]; len(got) != 2 {
 		t.Fatalf("expected both version-1 and version-2 rules installed, got %+v", got)
 	}
 }
@@ -649,15 +764,15 @@ func TestRulesFromSchemas_ThreeRuleTargetSharingIsOrderIndependent(t *testing.T)
 
 	dataOps := []codec.Op{
 		{
-			Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "widget", OpType: "configure", OpVersion: 1, Body: json.RawMessage(`{"mode":"legacy-status"}`)},
+			Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "acme.widget", OpType: "configure", OpVersion: 1, Body: json.RawMessage(`{"mode":"legacy-status"}`)},
 			ID:       "configure-1",
 		},
 		{
-			Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "widget", OpType: "configure", OpVersion: 2, Body: json.RawMessage(`{"mode":7}`)},
+			Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "acme.widget", OpType: "configure", OpVersion: 2, Body: json.RawMessage(`{"mode":7}`)},
 			ID:       "configure-2",
 		},
 		{
-			Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "widget", OpType: "reset", OpVersion: 1, Body: json.RawMessage(`{"value":"legacy-status"}`)},
+			Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "acme.widget", OpType: "reset", OpVersion: 1, Body: json.RawMessage(`{"value":"legacy-status"}`)},
 			ID:       "reset-1",
 		},
 	}
@@ -672,8 +787,9 @@ func TestRulesFromSchemas_ThreeRuleTargetSharingIsOrderIndependent(t *testing.T)
 		r.Shuffle(len(fields), func(a, b int) { fields[a], fields[b] = fields[b], fields[a] })
 
 		schemas := []state.Schema{{
-			ObjectID: "sch-a",
-			Types:    []state.SchemaType{{Name: "widget", Fields: fields}},
+			ObjectID:  "sch-a",
+			Namespace: "acme",
+			Types:     []state.SchemaType{{Name: "acme.widget", Fields: fields}},
 		}}
 		// Permuting the (single-element) schema slice too: spec/schema-ops.md
 		// §7 step 5 declares the resolver order-independent in the schema
@@ -681,14 +797,14 @@ func TestRulesFromSchemas_ThreeRuleTargetSharingIsOrderIndependent(t *testing.T)
 		r.Shuffle(len(schemas), func(a, b int) { schemas[a], schemas[b] = schemas[b], schemas[a] })
 
 		rules, conflicts := writ.RulesFromSchemas(schemas)
-		if got := rules["widget"]; len(got) != 0 {
+		if got := rules["acme.widget"]; len(got) != 0 {
 			t.Fatalf("permutation #%d: expected the whole target withheld, got %+v", i, got)
 		}
 		if len(conflicts) != 1 {
 			t.Fatalf("permutation #%d: expected exactly 1 conflict, got %+v", i, conflicts)
 		}
 
-		objState, err := writ.Fold(dataOps, rules["widget"])
+		objState, err := writ.Fold(dataOps, rules["acme.widget"])
 		if err != nil {
 			t.Fatalf("permutation #%d: Fold: %v", i, err)
 		}
@@ -752,15 +868,15 @@ func TestRulesFromSchemas_SharedKeyColumnDisagreementIsOrderIndependent(t *testi
 
 	dataOps := []codec.Op{
 		{
-			Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "widget", OpType: "approve", OpVersion: 1, Body: json.RawMessage(`{"aa":"yes","subject":"p-1"}`)},
+			Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "acme.widget", OpType: "approve", OpVersion: 1, Body: json.RawMessage(`{"aa":"yes","subject":"p-1"}`)},
 			ID:       "approve-aa",
 		},
 		{
-			Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "widget", OpType: "approve", OpVersion: 1, Body: json.RawMessage(`{"mm":"7","subject":"p-1","phase":"beta"}`)},
+			Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "acme.widget", OpType: "approve", OpVersion: 1, Body: json.RawMessage(`{"mm":"7","subject":"p-1","phase":"beta"}`)},
 			ID:       "approve-mm",
 		},
 		{
-			Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "widget", OpType: "approve", OpVersion: 1, Body: json.RawMessage(`{"zz":"no","subject":"p-1"}`)},
+			Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "acme.widget", OpType: "approve", OpVersion: 1, Body: json.RawMessage(`{"zz":"no","subject":"p-1"}`)},
 			ID:       "approve-zz",
 		},
 	}
@@ -775,20 +891,21 @@ func TestRulesFromSchemas_SharedKeyColumnDisagreementIsOrderIndependent(t *testi
 		r.Shuffle(len(fields), func(a, b int) { fields[a], fields[b] = fields[b], fields[a] })
 
 		schemas := []state.Schema{{
-			ObjectID: "sch-a",
-			Types:    []state.SchemaType{{Name: "widget", Fields: fields}},
+			ObjectID:  "sch-a",
+			Namespace: "acme",
+			Types:     []state.SchemaType{{Name: "acme.widget", Fields: fields}},
 		}}
 		r.Shuffle(len(schemas), func(a, b int) { schemas[a], schemas[b] = schemas[b], schemas[a] })
 
 		rules, conflicts := writ.RulesFromSchemas(schemas)
-		if got := rules["widget"]; len(got) != 0 {
+		if got := rules["acme.widget"]; len(got) != 0 {
 			t.Fatalf("permutation #%d: expected every rule bound to the disagreeing key column withheld, got %+v", i, got)
 		}
 		if len(conflicts) != 1 {
 			t.Fatalf("permutation #%d: expected exactly 1 conflict, got %+v", i, conflicts)
 		}
 
-		objState, err := writ.Fold(dataOps, rules["widget"])
+		objState, err := writ.Fold(dataOps, rules["acme.widget"])
 		if err != nil {
 			t.Fatalf("permutation #%d: Fold: %v", i, err)
 		}
@@ -832,8 +949,8 @@ func schemaFromDefineFields(t *testing.T, defs []map[string]any) writ.Schema {
 		envs = append(envs, codec.Envelope{ObjectID: "sch-a", ObjectType: "schema", OpType: opType, OpVersion: 1, Body: raw})
 	}
 	add("create", map[string]any{"namespace": "acme"})
-	add("define-type", map[string]any{"type": "widget"})
-	add("define-op", map[string]any{"type": "widget", "op_type": "approve", "op_version": "1"})
+	add("define-type", map[string]any{"type": "acme.widget"})
+	add("define-op", map[string]any{"type": "acme.widget", "op_type": "approve", "op_version": "1"})
 	for _, d := range defs {
 		add("define-field", d)
 	}
@@ -860,13 +977,13 @@ func TestRulesFromSchemas_KeyColumnVerdictDoesNotTurnOnFieldNames(t *testing.T) 
 	// mm sorts between "aa" and "zz", so the two variants below differ in
 	// which rule fold's canonical sort presents first and in nothing else.
 	mm := map[string]any{
-		"type": "widget", "op_type": "approve", "op_version": "1", "field": "mm",
+		"type": "acme.widget", "op_type": "approve", "op_version": "1", "field": "mm",
 		"value_type": "string", "strategy": "keyed-lww",
 		"key": []string{"subject", "phase"}, "key_types": map[string]string{"subject": "string", "phase": "string"},
 	}
 	dissenter := func(name string) map[string]any {
 		return map[string]any{
-			"type": "widget", "op_type": "approve", "op_version": "1", "field": name,
+			"type": "acme.widget", "op_type": "approve", "op_version": "1", "field": name,
 			"value_type": "string", "strategy": "keyed-lww",
 			"key": []string{"subject"}, "key_types": map[string]string{"subject": "person-ref"},
 		}
@@ -876,17 +993,17 @@ func TestRulesFromSchemas_KeyColumnVerdictDoesNotTurnOnFieldNames(t *testing.T) 
 		t.Run("dissenting field named "+name, func(t *testing.T) {
 			schemas := []writ.Schema{schemaFromDefineFields(t, []map[string]any{dissenter(name), mm})}
 			rules, conflicts := writ.RulesFromSchemas(schemas)
-			if got := rules["widget"]; len(got) != 0 {
+			if got := rules["acme.widget"]; len(got) != 0 {
 				t.Fatalf("expected both rules bound to the disagreeing key column withheld, got %+v", got)
 			}
 			if len(conflicts) != 1 {
 				t.Fatalf("expected exactly 1 conflict, got %+v", conflicts)
 			}
 			op := codec.Op{
-				Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "widget", OpType: "approve", OpVersion: 1, Body: json.RawMessage(`{"` + name + `":"yes","subject":"p-1"}`)},
+				Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "acme.widget", OpType: "approve", OpVersion: 1, Body: json.RawMessage(`{"` + name + `":"yes","subject":"p-1"}`)},
 				ID:       "approve-1",
 			}
-			objState, err := writ.Fold([]codec.Op{op}, rules["widget"])
+			objState, err := writ.Fold([]codec.Op{op}, rules["acme.widget"])
 			if err != nil {
 				t.Fatalf("Fold: %v", err)
 			}
@@ -925,11 +1042,12 @@ func TestRulesFromSchemas_DualRoleTombstoneFieldRefused(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a := state.Schema{
-				ObjectID: "sch-a",
-				Types:    []state.SchemaType{{Name: "widget", Fields: tc.fields}},
+				ObjectID:  "sch-a",
+				Namespace: "acme",
+				Types:     []state.SchemaType{{Name: "acme.widget", Fields: tc.fields}},
 			}
 			rules, conflicts := writ.RulesFromSchemas([]state.Schema{a})
-			if got := rules["widget"]; len(got) != 0 {
+			if got := rules["acme.widget"]; len(got) != 0 {
 				t.Fatalf("expected both rules withheld, got %+v", got)
 			}
 			if len(conflicts) != 1 {
@@ -958,14 +1076,15 @@ func TestRulesFromSchemas_SharedKeyColumnAgreementOK(t *testing.T) {
 		Key: []string{"subject", "phase"}, KeyTypes: map[string]string{"subject": "person-ref", "phase": "string"},
 	}
 	a := state.Schema{
-		ObjectID: "sch-a",
-		Types:    []state.SchemaType{{Name: "widget", Fields: []state.SchemaField{verdict, score}}},
+		ObjectID:  "sch-a",
+		Namespace: "acme",
+		Types:     []state.SchemaType{{Name: "acme.widget", Fields: []state.SchemaField{verdict, score}}},
 	}
 	rules, conflicts := writ.RulesFromSchemas([]state.Schema{a})
 	if len(conflicts) != 0 {
 		t.Fatalf("expected no conflicts when the shared key column agrees, got %+v", conflicts)
 	}
-	if got := rules["widget"]; len(got) != 2 {
+	if got := rules["acme.widget"]; len(got) != 2 {
 		t.Fatalf("expected both fields installed, got %+v", got)
 	}
 }
@@ -1009,7 +1128,7 @@ func TestStoreSchemaFoldsEveryLoggedSchemaObject(t *testing.T) {
 
 	appendSchemaOp("sch-b", "create", map[string]any{"namespace": "beta"})
 	appendSchemaOp("sch-a", "create", map[string]any{"namespace": "acme"})
-	appendSchemaOp("sch-a", "define-type", map[string]any{"type": "standup"})
+	appendSchemaOp("sch-a", "define-type", map[string]any{"type": "acme.standup"})
 
 	store, err := writ.Open(dir)
 	if err != nil {
@@ -1030,8 +1149,8 @@ func TestStoreSchemaFoldsEveryLoggedSchemaObject(t *testing.T) {
 	if schemas[0].Namespace != "acme" {
 		t.Errorf("schemas[0].Namespace = %q, want acme", schemas[0].Namespace)
 	}
-	if len(schemas[0].Types) != 1 || schemas[0].Types[0].Name != "standup" {
-		t.Errorf("schemas[0].Types = %+v, want [standup]", schemas[0].Types)
+	if len(schemas[0].Types) != 1 || schemas[0].Types[0].Name != "acme.standup" {
+		t.Errorf("schemas[0].Types = %+v, want [acme.standup]", schemas[0].Types)
 	}
 	if schemas[1].Namespace != "beta" {
 		t.Errorf("schemas[1].Namespace = %q, want beta", schemas[1].Namespace)
@@ -1161,8 +1280,8 @@ func TestApplySchema_AppendsAndFolds(t *testing.T) {
 	if logSchema.Namespace != "acme" {
 		t.Errorf("Namespace = %q, want acme", logSchema.Namespace)
 	}
-	if len(logSchema.Types) != 1 || logSchema.Types[0].Name != "standup" {
-		t.Fatalf("Types = %+v, want [standup]", logSchema.Types)
+	if len(logSchema.Types) != 1 || logSchema.Types[0].Name != "acme.standup" {
+		t.Fatalf("Types = %+v, want [acme.standup]", logSchema.Types)
 	}
 
 	memSchema, err := writ.SchemaFromEnvelopes(envs)
@@ -1310,9 +1429,9 @@ func TestSchemaAfterApply_MatchesRealApply(t *testing.T) {
 		store := newStore(t)
 		delta := []codec.Envelope{
 			schemaEnv(t, "sch-fresh", "create", map[string]any{"namespace": "acme"}),
-			schemaEnv(t, "sch-fresh", "define-type", map[string]any{"type": "standup"}),
+			schemaEnv(t, "sch-fresh", "define-type", map[string]any{"type": "acme.standup"}),
 			schemaEnv(t, "sch-fresh", "define-field", map[string]any{
-				"type": "standup", "op_type": "create", "op_version": "1", "field": "title",
+				"type": "acme.standup", "op_type": "create", "op_version": "1", "field": "title",
 				"value_type": "string", "strategy": "lww",
 			}),
 		}
@@ -1325,7 +1444,7 @@ func TestSchemaAfterApply_MatchesRealApply(t *testing.T) {
 		initial := []codec.Envelope{
 			schemaEnv(t, "sch-partial", "create", map[string]any{"namespace": "acme"}),
 			schemaEnv(t, "sch-partial", "define-field", map[string]any{
-				"type": "standup", "op_type": "create", "op_version": "1", "field": "title",
+				"type": "acme.standup", "op_type": "create", "op_version": "1", "field": "title",
 				"value_type": "string", "strategy": "lww",
 			}),
 		}
@@ -1333,9 +1452,9 @@ func TestSchemaAfterApply_MatchesRealApply(t *testing.T) {
 			t.Fatalf("initial ApplySchema failed: %v", err)
 		}
 		delta := []codec.Envelope{
-			schemaEnv(t, "sch-partial", "define-type", map[string]any{"type": "standup", "description": "A daily standup update"}),
+			schemaEnv(t, "sch-partial", "define-type", map[string]any{"type": "acme.standup", "description": "A daily standup update"}),
 			schemaEnv(t, "sch-partial", "define-field", map[string]any{
-				"type": "standup", "op_type": "create", "op_version": "1", "field": "body",
+				"type": "acme.standup", "op_type": "create", "op_version": "1", "field": "body",
 				"value_type": "text", "strategy": "multi-value",
 			}),
 		}
@@ -1348,7 +1467,7 @@ func TestSchemaAfterApply_MatchesRealApply(t *testing.T) {
 		initial := []codec.Envelope{
 			schemaEnv(t, "sch-empty-delta", "create", map[string]any{"namespace": "acme"}),
 			schemaEnv(t, "sch-empty-delta", "define-field", map[string]any{
-				"type": "standup", "op_type": "create", "op_version": "1", "field": "title",
+				"type": "acme.standup", "op_type": "create", "op_version": "1", "field": "title",
 				"value_type": "string", "strategy": "lww",
 			}),
 		}
@@ -1368,7 +1487,7 @@ func TestSchemaAfterApply_MatchesRealApply(t *testing.T) {
 		}
 		delta := []codec.Envelope{
 			schemaEnv(t, "sch-second", "create", map[string]any{"namespace": "beta"}),
-			schemaEnv(t, "sch-second", "define-type", map[string]any{"type": "retro"}),
+			schemaEnv(t, "sch-second", "define-type", map[string]any{"type": "beta.retro"}),
 		}
 		assertSchemaAfterApplyMatchesRealApply(t, store, "sch-second", delta)
 	})
@@ -1387,7 +1506,7 @@ func TestSchemaAfterApply_MatchesRealApply(t *testing.T) {
 			t.Fatalf("ApplySchema for the second object failed: %v", err)
 		}
 		delta := []codec.Envelope{
-			schemaEnv(t, "sch-first", "define-type", map[string]any{"type": "standup"}),
+			schemaEnv(t, "sch-first", "define-type", map[string]any{"type": "acme.standup"}),
 		}
 		assertSchemaAfterApplyMatchesRealApply(t, store, "sch-first", delta)
 	})
@@ -1398,7 +1517,7 @@ func TestSchemaAfterApply_MatchesRealApply(t *testing.T) {
 		initial := []codec.Envelope{
 			schemaEnv(t, "sch-widen", "create", map[string]any{"namespace": "acme"}),
 			schemaEnv(t, "sch-widen", "define-field", map[string]any{
-				"type": "standup", "op_type": "create", "op_version": "1", "field": "title",
+				"type": "acme.standup", "op_type": "create", "op_version": "1", "field": "title",
 				"value_type": "string", "strategy": "lww", "max_length": 50,
 			}),
 		}
@@ -1412,7 +1531,7 @@ func TestSchemaAfterApply_MatchesRealApply(t *testing.T) {
 		// independently (spec/schema-ops.md §8).
 		delta := []codec.Envelope{
 			schemaEnv(t, "sch-widen", "define-field", map[string]any{
-				"type": "standup", "op_type": "create", "op_version": "1", "field": "title",
+				"type": "acme.standup", "op_type": "create", "op_version": "1", "field": "title",
 				"strategy": "lww", "max_length": 200,
 			}),
 		}
@@ -1425,7 +1544,7 @@ func TestSchemaAfterApply_MatchesRealApply(t *testing.T) {
 		initial := []codec.Envelope{
 			schemaEnv(t, "sch-narrow", "create", map[string]any{"namespace": "acme"}),
 			schemaEnv(t, "sch-narrow", "define-field", map[string]any{
-				"type": "standup", "op_type": "create", "op_version": "1", "field": "state",
+				"type": "acme.standup", "op_type": "create", "op_version": "1", "field": "state",
 				"value_type": "string", "enum": []string{"open", "done"}, "strategy": "lww",
 			}),
 		}
@@ -1440,7 +1559,7 @@ func TestSchemaAfterApply_MatchesRealApply(t *testing.T) {
 		// below).
 		delta := []codec.Envelope{
 			schemaEnv(t, "sch-narrow", "define-field", map[string]any{
-				"type": "standup", "op_type": "create", "op_version": "1", "field": "state",
+				"type": "acme.standup", "op_type": "create", "op_version": "1", "field": "state",
 				"value_type": "string", "strategy": "lww",
 			}),
 		}
@@ -1476,7 +1595,7 @@ func TestSchemaAfterApply_MatchesRealApply(t *testing.T) {
 		if err != nil {
 			t.Fatalf("dag.Open (writer B) failed: %v", err)
 		}
-		if _, err := dagB.Append(ctx, schemaEnv(t, "sch-multi", "define-type", map[string]any{"type": "standup"}), []string{createOp.ID}); err != nil {
+		if _, err := dagB.Append(ctx, schemaEnv(t, "sch-multi", "define-type", map[string]any{"type": "acme.standup"}), []string{createOp.ID}); err != nil {
 			t.Fatalf("writer B append failed: %v", err)
 		}
 
@@ -1492,7 +1611,7 @@ func TestSchemaAfterApply_MatchesRealApply(t *testing.T) {
 
 		delta := []codec.Envelope{
 			schemaEnv(t, "sch-multi", "define-field", map[string]any{
-				"type": "standup", "op_type": "create", "op_version": "1", "field": "title",
+				"type": "acme.standup", "op_type": "create", "op_version": "1", "field": "title",
 				"value_type": "string", "strategy": "lww",
 			}),
 		}
@@ -1540,7 +1659,7 @@ func TestSchemaAfterApply_HonestFoldDivergesFromFileAloneFold(t *testing.T) {
 	initial := []codec.Envelope{
 		schemaEnv(t, objectID, "create", map[string]any{"namespace": "acme"}),
 		schemaEnv(t, objectID, "define-field", map[string]any{
-			"type": "standup", "op_type": "create", "op_version": "1", "field": "state",
+			"type": "acme.standup", "op_type": "create", "op_version": "1", "field": "state",
 			"value_type": "string", "enum": []string{"open", "done"}, "strategy": "lww",
 		}),
 	}
@@ -1552,7 +1671,7 @@ func TestSchemaAfterApply_HonestFoldDivergesFromFileAloneFold(t *testing.T) {
 	// enum for "state".
 	delta := []codec.Envelope{
 		schemaEnv(t, objectID, "define-field", map[string]any{
-			"type": "standup", "op_type": "create", "op_version": "1", "field": "state",
+			"type": "acme.standup", "op_type": "create", "op_version": "1", "field": "state",
 			"value_type": "string", "strategy": "lww",
 		}),
 	}
@@ -1645,8 +1764,8 @@ func TestDeclaredTypeWithNoFieldsIsWritable(t *testing.T) {
 
 	schemaEnvs := []codec.Envelope{
 		schemaEnv(t, "sch-widget", "create", map[string]any{"namespace": "acme"}),
-		schemaEnv(t, "sch-widget", "define-type", map[string]any{"type": "widget"}),
-		schemaEnv(t, "sch-widget", "define-op", map[string]any{"type": "widget", "op_type": "create", "op_version": "1"}),
+		schemaEnv(t, "sch-widget", "define-type", map[string]any{"type": "acme.widget"}),
+		schemaEnv(t, "sch-widget", "define-op", map[string]any{"type": "acme.widget", "op_type": "create", "op_version": "1"}),
 	}
 	if err := store.ApplySchema(ctx, schemaEnvs); err != nil {
 		t.Fatalf("ApplySchema failed: %v", err)
@@ -1655,7 +1774,7 @@ func TestDeclaredTypeWithNoFieldsIsWritable(t *testing.T) {
 	dagStore := writ.StoreDAGStore(store)
 	env := codec.Envelope{
 		ObjectID:   "widget-1",
-		ObjectType: "widget",
+		ObjectType: "acme.widget",
 		OpType:     "create",
 		OpVersion:  1,
 		Body:       json.RawMessage(`{}`),
@@ -1679,15 +1798,20 @@ func TestDeclaredTypeWithNoFieldsIsWritable(t *testing.T) {
 func TestContestedObjectTypeStaysWritable(t *testing.T) {
 	store, ctx := openWritableStore(t)
 
+	// Both schema objects declare the same namespace ("alpha") and the
+	// same bare type name: post-WRIT-217 that is the shape a genuine
+	// object_type collision requires (two different namespaces declaring
+	// the same bare name no longer collide at all — they qualify to two
+	// distinct wire types).
 	if err := store.ApplySchema(ctx, []codec.Envelope{
 		schemaEnv(t, "sch-a", "create", map[string]any{"namespace": "alpha"}),
-		schemaEnv(t, "sch-a", "define-type", map[string]any{"type": "standup"}),
+		schemaEnv(t, "sch-a", "define-type", map[string]any{"type": "alpha.standup"}),
 	}); err != nil {
 		t.Fatalf("ApplySchema sch-a failed: %v", err)
 	}
 	if err := store.ApplySchema(ctx, []codec.Envelope{
-		schemaEnv(t, "sch-b", "create", map[string]any{"namespace": "beta"}),
-		schemaEnv(t, "sch-b", "define-type", map[string]any{"type": "standup"}),
+		schemaEnv(t, "sch-b", "create", map[string]any{"namespace": "alpha"}),
+		schemaEnv(t, "sch-b", "define-type", map[string]any{"type": "alpha.standup"}),
 	}); err != nil {
 		t.Fatalf("ApplySchema sch-b failed: %v", err)
 	}
@@ -1699,8 +1823,8 @@ func TestContestedObjectTypeStaysWritable(t *testing.T) {
 		t.Fatalf("Store.Schema failed: %v", err)
 	}
 	rules, conflicts := writ.RulesFromSchemas(schemas)
-	if _, ok := rules["standup"]; ok {
-		t.Fatalf("expected no rules installed for the contested type, got %+v", rules["standup"])
+	if _, ok := rules["alpha.standup"]; ok {
+		t.Fatalf("expected no rules installed for the contested type, got %+v", rules["alpha.standup"])
 	}
 	if len(conflicts) == 0 {
 		t.Fatalf("expected a conflict for the contested object_type, got none")
@@ -1709,7 +1833,7 @@ func TestContestedObjectTypeStaysWritable(t *testing.T) {
 	dagStore := writ.StoreDAGStore(store)
 	env := codec.Envelope{
 		ObjectID:   "standup-1",
-		ObjectType: "standup",
+		ObjectType: "alpha.standup",
 		OpType:     "anything-at-all",
 		OpVersion:  1,
 		Body:       json.RawMessage(`{"unvalidated":true}`),
@@ -1750,10 +1874,10 @@ func TestLogSchemaGovernsDeclaredTypeExclusively(t *testing.T) {
 
 	if err := store.ApplySchema(ctx, []codec.Envelope{
 		schemaEnv(t, "sch-gadget", "create", map[string]any{"namespace": "acme"}),
-		schemaEnv(t, "sch-gadget", "define-type", map[string]any{"type": "gadget"}),
-		schemaEnv(t, "sch-gadget", "define-op", map[string]any{"type": "gadget", "op_type": "create", "op_version": "1"}),
+		schemaEnv(t, "sch-gadget", "define-type", map[string]any{"type": "acme.gadget"}),
+		schemaEnv(t, "sch-gadget", "define-op", map[string]any{"type": "acme.gadget", "op_type": "create", "op_version": "1"}),
 		schemaEnv(t, "sch-gadget", "define-field", map[string]any{
-			"type": "gadget", "op_type": "create", "op_version": "1",
+			"type": "acme.gadget", "op_type": "create", "op_version": "1",
 			"field": "title", "value_type": "string", "strategy": "lww",
 		}),
 	}); err != nil {
@@ -1765,7 +1889,7 @@ func TestLogSchemaGovernsDeclaredTypeExclusively(t *testing.T) {
 	// A body the narrow log schema fully covers: accepted.
 	if _, err := dagStore.Append(ctx, codec.Envelope{
 		ObjectID:   "g-1",
-		ObjectType: "gadget",
+		ObjectType: "acme.gadget",
 		OpType:     "create",
 		OpVersion:  1,
 		Body:       json.RawMessage(`{"title":"Initial"}`),
@@ -1777,7 +1901,7 @@ func TestLogSchemaGovernsDeclaredTypeExclusively(t *testing.T) {
 	// refused, naming the schema object.
 	_, err := dagStore.Append(ctx, codec.Envelope{
 		ObjectID:   "g-2",
-		ObjectType: "gadget",
+		ObjectType: "acme.gadget",
 		OpType:     "create",
 		OpVersion:  1,
 		Body:       json.RawMessage(`{"title":"Initial","description":"extra"}`),
@@ -1878,7 +2002,7 @@ func TestVocabulariesCacheStaysWarmAcrossNonSchemaAppends(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		env := codec.Envelope{
 			ObjectID:   fmt.Sprintf("w-%d", i),
-			ObjectType: "widget",
+			ObjectType: "acme.widget",
 			OpType:     "create",
 			OpVersion:  1,
 			Body:       json.RawMessage(`{"title":"T"}`),
@@ -1942,10 +2066,10 @@ func TestStoreTypes_ReturnsExactlyWhatTheLogDeclares(t *testing.T) {
 
 	if err := store.ApplySchema(ctx, []codec.Envelope{
 		schemaEnv(t, "sch-gizmo", "create", map[string]any{"namespace": "acme"}),
-		schemaEnv(t, "sch-gizmo", "define-type", map[string]any{"type": "gizmo"}),
-		schemaEnv(t, "sch-gizmo", "define-op", map[string]any{"type": "gizmo", "op_type": "spin", "op_version": "1"}),
+		schemaEnv(t, "sch-gizmo", "define-type", map[string]any{"type": "acme.gizmo"}),
+		schemaEnv(t, "sch-gizmo", "define-op", map[string]any{"type": "acme.gizmo", "op_type": "spin", "op_version": "1"}),
 		schemaEnv(t, "sch-gizmo", "define-field", map[string]any{
-			"type": "gizmo", "op_type": "spin", "op_version": "1",
+			"type": "acme.gizmo", "op_type": "spin", "op_version": "1",
 			"field": "speed", "value_type": "int", "strategy": "lww",
 		}),
 	}); err != nil {
@@ -1959,9 +2083,9 @@ func TestStoreTypes_ReturnsExactlyWhatTheLogDeclares(t *testing.T) {
 	if len(after) != 1 {
 		t.Fatalf("Store.Types after ApplySchema = %+v, want exactly the one declared type", after)
 	}
-	gizmo, ok := findSchemaType(after, "gizmo")
+	gizmo, ok := findSchemaType(after, "acme.gizmo")
 	if !ok {
-		t.Fatalf("Store.Types after ApplySchema: declared type %q missing from %+v", "gizmo", after)
+		t.Fatalf("Store.Types after ApplySchema: declared type %q missing from %+v", "acme.gizmo", after)
 	}
 	if len(gizmo.Fields) != 1 || gizmo.Fields[0].Name != "speed" || gizmo.Fields[0].OpType != "spin" || gizmo.Fields[0].ValueType != "int" {
 		t.Fatalf("gizmo.Fields = %+v, want one field {speed, spin, int}", gizmo.Fields)
@@ -1986,20 +2110,20 @@ func TestStoreTypes_DescriptionAndDeprecated(t *testing.T) {
 
 	if err := store.ApplySchema(ctx, []codec.Envelope{
 		schemaEnv(t, "sch-widget", "create", map[string]any{"namespace": "acme"}),
-		schemaEnv(t, "sch-widget", "define-type", map[string]any{"type": "widget", "description": "A widget type"}),
-		schemaEnv(t, "sch-widget", "define-op", map[string]any{"type": "widget", "op_type": "spin", "op_version": "1", "description": "spin it"}),
+		schemaEnv(t, "sch-widget", "define-type", map[string]any{"type": "acme.widget", "description": "A widget type"}),
+		schemaEnv(t, "sch-widget", "define-op", map[string]any{"type": "acme.widget", "op_type": "spin", "op_version": "1", "description": "spin it"}),
 		schemaEnv(t, "sch-widget", "define-field", map[string]any{
-			"type": "widget", "op_type": "spin", "op_version": "1",
+			"type": "acme.widget", "op_type": "spin", "op_version": "1",
 			"field": "speed", "value_type": "int", "strategy": "lww",
 		}),
-		schemaEnv(t, "sch-widget", "deprecate-type", map[string]any{"type": "widget", "deprecated": true}),
+		schemaEnv(t, "sch-widget", "deprecate-type", map[string]any{"type": "acme.widget", "deprecated": true}),
 	}); err != nil {
 		t.Fatalf("ApplySchema (widget) failed: %v", err)
 	}
 	if err := store.ApplySchema(ctx, []codec.Envelope{
 		schemaEnv(t, "sch-beacon", "create", map[string]any{"namespace": "acme"}),
-		schemaEnv(t, "sch-beacon", "define-type", map[string]any{"type": "beacon", "description": "A fieldless beacon type"}),
-		schemaEnv(t, "sch-beacon", "define-op", map[string]any{"type": "beacon", "op_type": "ping", "op_version": "1"}),
+		schemaEnv(t, "sch-beacon", "define-type", map[string]any{"type": "acme.beacon", "description": "A fieldless beacon type"}),
+		schemaEnv(t, "sch-beacon", "define-op", map[string]any{"type": "acme.beacon", "op_type": "ping", "op_version": "1"}),
 	}); err != nil {
 		t.Fatalf("ApplySchema (beacon) failed: %v", err)
 	}
@@ -2009,9 +2133,9 @@ func TestStoreTypes_DescriptionAndDeprecated(t *testing.T) {
 		t.Fatalf("Store.Types failed: %v", err)
 	}
 
-	widget, ok := findSchemaType(types, "widget")
+	widget, ok := findSchemaType(types, "acme.widget")
 	if !ok {
-		t.Fatal("Store.Types: declared type \"widget\" missing")
+		t.Fatal("Store.Types: declared type \"acme.widget\" missing")
 	}
 	if widget.Description != "A widget type" {
 		t.Errorf("widget.Description = %q, want %q", widget.Description, "A widget type")
@@ -2023,14 +2147,146 @@ func TestStoreTypes_DescriptionAndDeprecated(t *testing.T) {
 		t.Errorf("widget.Ops = %+v, want exactly one op carrying description %q", widget.Ops, "spin it")
 	}
 
-	beacon, ok := findSchemaType(types, "beacon")
+	beacon, ok := findSchemaType(types, "acme.beacon")
 	if !ok {
-		t.Fatal("Store.Types: define-op-only type \"beacon\" missing")
+		t.Fatal("Store.Types: define-op-only type \"acme.beacon\" missing")
 	}
 	if beacon.Description != "A fieldless beacon type" {
 		t.Errorf("beacon.Description = %q, want %q", beacon.Description, "A fieldless beacon type")
 	}
 	if beacon.Deprecated {
 		t.Errorf("beacon.Deprecated = true, want false (never deprecated)")
+	}
+}
+
+// TestProjectionHazardB_QualifiedTypesFromDifferentNamespacesGetOwnTables
+// is WRIT-217 hazard B's own acceptance check, end to end against a real
+// SQLite projection, not merely "does it not crash": engine/projection/
+// ddl.go builds a generated table name as "o_" + strings.ReplaceAll(
+// objectType, "-", "_") — a qualified object_type's dot survives that
+// replace verbatim — so left unquoted, "o_acme.standup" parses in SQLite
+// as table "standup" in schema "o_acme" rather than one table literally
+// named "o_acme.standup". Two different namespaces declaring the same
+// bare type name ("standup") must project into two distinct, independently
+// queryable tables, and a Rebuild (drop-and-recreate, since the
+// projection is a droppable cache) must not disturb that.
+func TestProjectionHazardB_QualifiedTypesFromDifferentNamespacesGetOwnTables(t *testing.T) {
+	store, ctx := openWritableStore(t)
+
+	if err := store.ApplySchema(ctx, []codec.Envelope{
+		schemaEnv(t, "sch-acme", "create", map[string]any{"namespace": "acme"}),
+		schemaEnv(t, "sch-acme", "define-type", map[string]any{"type": "acme.standup"}),
+		schemaEnv(t, "sch-acme", "define-op", map[string]any{"type": "acme.standup", "op_type": "create", "op_version": "1"}),
+		schemaEnv(t, "sch-acme", "define-field", map[string]any{
+			"type": "acme.standup", "op_type": "create", "op_version": "1",
+			"field": "title", "value_type": "string", "strategy": "lww",
+		}),
+	}); err != nil {
+		t.Fatalf("ApplySchema (acme) failed: %v", err)
+	}
+	if err := store.ApplySchema(ctx, []codec.Envelope{
+		schemaEnv(t, "sch-other", "create", map[string]any{"namespace": "other"}),
+		schemaEnv(t, "sch-other", "define-type", map[string]any{"type": "other.standup"}),
+		schemaEnv(t, "sch-other", "define-op", map[string]any{"type": "other.standup", "op_type": "create", "op_version": "1"}),
+		schemaEnv(t, "sch-other", "define-field", map[string]any{
+			"type": "other.standup", "op_type": "create", "op_version": "1",
+			"field": "title", "value_type": "string", "strategy": "lww",
+		}),
+	}); err != nil {
+		t.Fatalf("ApplySchema (other) failed: %v", err)
+	}
+
+	schemas, err := store.Schema(ctx)
+	if err != nil {
+		t.Fatalf("Store.Schema failed: %v", err)
+	}
+	rules, conflicts := writ.RulesFromSchemas(schemas)
+	if len(conflicts) != 0 {
+		t.Fatalf("expected no conflicts between acme.standup and other.standup, got %+v", conflicts)
+	}
+	if _, ok := rules["acme.standup"]; !ok {
+		t.Fatalf("expected rules installed for acme.standup, got %+v", rules)
+	}
+	if _, ok := rules["other.standup"]; !ok {
+		t.Fatalf("expected rules installed for other.standup, got %+v", rules)
+	}
+
+	acmeID, err := store.Objects.Create(ctx, "acme.standup", writ.NewOp{
+		Type: "create", Fields: map[string]any{"title": "Acme standup"},
+	})
+	if err != nil {
+		t.Fatalf("Objects.Create(acme.standup) failed: %v", err)
+	}
+	otherID, err := store.Objects.Create(ctx, "other.standup", writ.NewOp{
+		Type: "create", Fields: map[string]any{"title": "Other standup"},
+	})
+	if err != nil {
+		t.Fatalf("Objects.Create(other.standup) failed: %v", err)
+	}
+
+	// The projection is a droppable cache: drop and rebuild it, then
+	// confirm both objects still resolve to their own type's own data —
+	// this is what actually exercises the generated DDL and its quoting,
+	// not just the create-time write path.
+	if _, err := store.Rebuild(ctx); err != nil {
+		t.Fatalf("Store.Rebuild failed: %v", err)
+	}
+
+	acmeObj, err := store.Objects.Get(ctx, acmeID)
+	if err != nil {
+		t.Fatalf("Objects.Get(acme) after rebuild failed: %v", err)
+	}
+	if acmeObj.ObjectType != "acme.standup" || acmeObj.Fields["title"] != "Acme standup" {
+		t.Fatalf("acme object after rebuild = %+v, want type acme.standup, title \"Acme standup\"", acmeObj)
+	}
+
+	otherObj, err := store.Objects.Get(ctx, otherID)
+	if err != nil {
+		t.Fatalf("Objects.Get(other) after rebuild failed: %v", err)
+	}
+	if otherObj.ObjectType != "other.standup" || otherObj.Fields["title"] != "Other standup" {
+		t.Fatalf("other object after rebuild = %+v, want type other.standup, title \"Other standup\"", otherObj)
+	}
+
+	// Query.Objects filtered to one qualified type must not leak the
+	// other's rows — the exact symptom hazard B's unquoted "o_acme.standup"
+	// (read by SQLite as table "standup" in schema "o_acme") would produce
+	// if it happened to resolve to something other than an outright error.
+	acmeResults, err := store.Query.Objects(writ.ObjectFilter{Type: []string{"acme.standup"}})
+	if err != nil {
+		t.Fatalf("Query.Objects(acme.standup) failed: %v", err)
+	}
+	if len(acmeResults) != 1 || acmeResults[0].ObjectID != acmeID {
+		t.Fatalf("Query.Objects(acme.standup) = %+v, want exactly [%s]", acmeResults, acmeID)
+	}
+
+	otherResults, err := store.Query.Objects(writ.ObjectFilter{Type: []string{"other.standup"}})
+	if err != nil {
+		t.Fatalf("Query.Objects(other.standup) failed: %v", err)
+	}
+	if len(otherResults) != 1 || otherResults[0].ObjectID != otherID {
+		t.Fatalf("Query.Objects(other.standup) = %+v, want exactly [%s]", otherResults, otherID)
+	}
+
+	// Belt-and-braces: two distinct generated tables, each named with the
+	// dot verbatim ("o_acme.standup", "o_other.standup" — hyphen still
+	// maps to underscore, the dot survives), not one table shared by
+	// coincidence of an unquoted schema-qualified name.
+	rows, err := writ.StoreProjection(store).DB().Query(
+		`SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'o\_%' ESCAPE '\' ORDER BY name`)
+	if err != nil {
+		t.Fatalf("query sqlite_master: %v", err)
+	}
+	defer rows.Close()
+	var tableNames []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatalf("scan table name: %v", err)
+		}
+		tableNames = append(tableNames, name)
+	}
+	if !slices.Contains(tableNames, "o_acme.standup") || !slices.Contains(tableNames, "o_other.standup") {
+		t.Fatalf("generated tables = %v, want both \"o_acme.standup\" and \"o_other.standup\"", tableNames)
 	}
 }

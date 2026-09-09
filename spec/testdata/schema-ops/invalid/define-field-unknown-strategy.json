@@ -1,1 +1,1 @@
-{"body":{"field":"summary","op_type":"create","op_version":"1","strategy":"counter","type":"standup","value_type":"string"},"object_id":"sch-acme","object_type":"schema","op_type":"define-field","op_version":1}
+{"body":{"field":"summary","op_type":"create","op_version":"1","strategy":"counter","type":"acme.standup","value_type":"string"},"object_id":"sch-acme","object_type":"schema","op_type":"define-field","op_version":1}

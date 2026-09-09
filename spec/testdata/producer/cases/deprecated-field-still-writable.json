@@ -4,22 +4,22 @@
       "object_id": "sch-widget",
       "ops": [
         { "op_type": "create", "body": { "namespace": "acme" } },
-        { "op_type": "define-type", "body": { "type": "widget" } },
-        { "op_type": "define-op", "body": { "type": "widget", "op_type": "create", "op_version": "1" } },
+        { "op_type": "define-type", "body": { "type": "acme.widget" } },
+        { "op_type": "define-op", "body": { "type": "acme.widget", "op_type": "create", "op_version": "1" } },
         {
           "op_type": "define-field",
-          "body": { "type": "widget", "op_type": "create", "op_version": "1", "field": "title", "value_type": "string", "strategy": "lww" }
+          "body": { "type": "acme.widget", "op_type": "create", "op_version": "1", "field": "title", "value_type": "string", "strategy": "lww" }
         },
         {
           "op_type": "deprecate-field",
-          "body": { "type": "widget", "op_type": "create", "op_version": "1", "field": "title", "deprecated": true }
+          "body": { "type": "acme.widget", "op_type": "create", "op_version": "1", "field": "title", "deprecated": true }
         }
       ]
     }
   ],
   "envelope": {
     "object_id": "widget-1",
-    "object_type": "widget",
+    "object_type": "acme.widget",
     "op_type": "create",
     "op_version": 1,
     "body": { "title": "Still going" }

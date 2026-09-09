@@ -226,7 +226,7 @@ func TestOpenMatrix(t *testing.T) {
 	defer s5.Close()
 
 	// Query should succeed
-	results, err := s5.Query.Objects(writ.ObjectFilter{Type: []string{"widget"}})
+	results, err := s5.Query.Objects(writ.ObjectFilter{Type: []string{"acme.widget"}})
 	if err != nil {
 		t.Fatalf("Query on unconfigured repo failed: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestOpenMatrix(t *testing.T) {
 
 	// Write should fail with ErrNoIdentity, before any vocabulary lookup
 	// the undeclared type would otherwise fail first.
-	_, err = s5.Objects.Create(context.Background(), "widget", writ.NewOp{
+	_, err = s5.Objects.Create(context.Background(), "acme.widget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Unconfigured write"},
 	})
@@ -297,7 +297,7 @@ func TestStoreMissingSigningKey(t *testing.T) {
 		t.Errorf("unexpected writer: %+v", w)
 	}
 
-	_, err = s1.Objects.Create(ctx, "widget", writ.NewOp{
+	_, err = s1.Objects.Create(ctx, "acme.widget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Should fail signing key"},
 	})
@@ -314,7 +314,7 @@ func TestStoreMissingSigningKey(t *testing.T) {
 
 	applyCoreSchema(t, ctx, s2)
 
-	id, err := s2.Objects.Create(ctx, "widget", writ.NewOp{
+	id, err := s2.Objects.Create(ctx, "acme.widget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Should succeed with custom signer"},
 	})

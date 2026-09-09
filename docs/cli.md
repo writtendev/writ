@@ -79,9 +79,9 @@ that is object-shaped, or that declares no value type at all (such as an
 #### Examples
 
 ```bash
-writ object create ticket create -field title="Fix the thing"
-writ object create ticket create -field title="Fix the thing" --json
-writ object create gadget create -field-json subject='{"object_type":"ticket","object_id":"<id>"}' -field text="needs a second look"
+writ object create acme.ticket create -field title="Fix the thing"
+writ object create acme.ticket create -field title="Fix the thing" --json
+writ object create acme.gadget create -field-json subject='{"object_type":"acme.ticket","object_id":"<id>"}' -field text="needs a second look"
 ```
 
 ### `writ object apply`
@@ -169,8 +169,8 @@ List collaborative objects, optionally filtered to one schema-declared type.
 
 ```bash
 writ object list
-writ object list ticket
-writ object list ticket -text urgent --json
+writ object list acme.ticket
+writ object list acme.ticket -text urgent --json
 ```
 
 ### `writ schema plan`
@@ -251,8 +251,8 @@ type name per line. With <type>, print that type's declared ops and fields.
 
 ```bash
 writ schema show
-writ schema show ticket
-writ schema show ticket --json
+writ schema show acme.ticket
+writ schema show acme.ticket --json
 ```
 
 ### `writ sync`

@@ -195,7 +195,7 @@ func writeTypeRow(tx *sql.Tx, td *typeDescriptor, objectID string, folded map[st
 	}
 
 	qmarks := strings.Repeat("?, ", len(cols)-1) + "?"
-	insertSQL := "INSERT INTO " + td.Table.Name + " (" + strings.Join(cols, ", ") + ") VALUES (" + qmarks + ")"
+	insertSQL := "INSERT INTO " + quoteIdent(td.Table.Name) + " (" + strings.Join(cols, ", ") + ") VALUES (" + qmarks + ")"
 	if _, err := tx.Exec(insertSQL, vals...); err != nil {
 		return fmt.Errorf("projection: insert %s row %s: %w", td.Table.Name, objectID, err)
 	}
@@ -239,7 +239,7 @@ func writeTypeRow(tx *sql.Tx, td *typeDescriptor, objectID string, folded map[st
 				gVals = append(gVals, row[c])
 			}
 			ph := strings.Repeat("?, ", len(gCols)-1) + "?"
-			insertSQL := "INSERT INTO " + g.table.Name + " (" + strings.Join(gCols, ", ") + ") VALUES (" + ph + ")"
+			insertSQL := "INSERT INTO " + quoteIdent(g.table.Name) + " (" + strings.Join(gCols, ", ") + ") VALUES (" + ph + ")"
 			if _, err := tx.Exec(insertSQL, gVals...); err != nil {
 				return fmt.Errorf("projection: insert %s row: %w", g.table.Name, err)
 			}
@@ -298,9 +298,9 @@ func writeChildRows(tx *sql.Tx, plan *targetPlan, objectID string, val any) erro
 		converted := columnValue(plan.ValueType, it)
 		var err error
 		if plan.ChildKind == "idx" {
-			_, err = tx.Exec("INSERT INTO "+plan.ChildTable+" (object_id, idx, value) VALUES (?, ?, ?)", objectID, i, converted)
+			_, err = tx.Exec("INSERT INTO "+quoteIdent(plan.ChildTable)+" (object_id, idx, value) VALUES (?, ?, ?)", objectID, i, converted)
 		} else {
-			_, err = tx.Exec("INSERT INTO "+plan.ChildTable+" (object_id, item) VALUES (?, ?)", objectID, converted)
+			_, err = tx.Exec("INSERT INTO "+quoteIdent(plan.ChildTable)+" (object_id, item) VALUES (?, ?)", objectID, converted)
 		}
 		if err != nil {
 			return fmt.Errorf("projection: insert %s row for %s: %w", plan.ChildTable, objectID, err)
@@ -385,7 +385,7 @@ func writeAppendGroupRows(tx *sql.Tx, ag appendGroupPlan, objectID string, order
 		}
 
 		ph := strings.Repeat("?, ", len(cols)-1) + "?"
-		if _, err := tx.Exec("INSERT INTO "+ag.Table+" ("+strings.Join(cols, ", ")+") VALUES ("+ph+")", vals...); err != nil {
+		if _, err := tx.Exec("INSERT INTO "+quoteIdent(ag.Table)+" ("+strings.Join(cols, ", ")+") VALUES ("+ph+")", vals...); err != nil {
 			return fmt.Errorf("projection: insert %s row for %s: %w", ag.Table, objectID, err)
 		}
 		idx++
@@ -490,7 +490,7 @@ func writeMembersRows(tx *sql.Tx, table, objectID string, raw any) error {
 
 	for _, k := range keys {
 		val := toText(obj[k])
-		if _, err := tx.Exec("INSERT INTO "+table+" (object_id, member, value) VALUES (?, ?, ?)", objectID, k, val); err != nil {
+		if _, err := tx.Exec("INSERT INTO "+quoteIdent(table)+" (object_id, member, value) VALUES (?, ?, ?)", objectID, k, val); err != nil {
 			return fmt.Errorf("projection: insert %s row for %s: %w", table, objectID, err)
 		}
 	}
@@ -766,11 +766,11 @@ func deleteObjectState(tx *sql.Tx, desc *schemaDescriptor, objectID string) erro
 
 	if priorType.Valid && desc != nil {
 		if td, ok := desc.types[priorType.String]; ok {
-			if _, err := tx.Exec("DELETE FROM "+td.Table.Name+" WHERE object_id = ?", objectID); err != nil {
+			if _, err := tx.Exec("DELETE FROM "+quoteIdent(td.Table.Name)+" WHERE object_id = ?", objectID); err != nil {
 				return fmt.Errorf("projection: delete %s row (%s): %w", td.Table.Name, objectID, err)
 			}
 			for _, child := range td.Children {
-				if _, err := tx.Exec("DELETE FROM "+child.Name+" WHERE object_id = ?", objectID); err != nil {
+				if _, err := tx.Exec("DELETE FROM "+quoteIdent(child.Name)+" WHERE object_id = ?", objectID); err != nil {
 					return fmt.Errorf("projection: delete %s rows (%s): %w", child.Name, objectID, err)
 				}
 			}
@@ -829,7 +829,7 @@ func materializeAnchors(tx *sql.Tx, desc *schemaDescriptor, s storage.Storer) (i
 
 	var comments []commentToResolve
 	for _, ref := range desc.anchorColumns {
-		cRows, err := tx.Query("SELECT object_id, " + ref.Column + " FROM " + ref.Table + " WHERE " + ref.Column + " IS NOT NULL AND " + ref.Column + " != '' AND " + ref.Column + " != 'null'")
+		cRows, err := tx.Query("SELECT object_id, " + ref.Column + " FROM " + quoteIdent(ref.Table) + " WHERE " + ref.Column + " IS NOT NULL AND " + ref.Column + " != '' AND " + ref.Column + " != 'null'")
 		if err != nil {
 			return 0, fmt.Errorf("projection: query anchors from %s.%s: %w", ref.Table, ref.Column, err)
 		}

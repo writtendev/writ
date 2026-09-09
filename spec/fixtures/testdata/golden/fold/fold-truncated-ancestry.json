@@ -2,10 +2,10 @@
   "objects": [
     {
       "object_id": "g-other",
-      "object_type": "gadget",
+      "object_type": "acme.gadget",
       "total_order": [
         {
-          "commit": "b68ef10a3c5db6afa863b4fd490a0a8072ed5d00",
+          "commit": "2e1a7f1c0ebae2498f5a9af6329ec0054489ab4b",
           "label": "bob-gadget-other-obj",
           "t_star": 1767225660
         }
@@ -13,22 +13,22 @@
       "state": {
         "subject": {
           "object_id": "w-truncated",
-          "object_type": "widget"
+          "object_type": "acme.widget"
         },
         "text": "Gadget attached to the truncated widget"
       }
     },
     {
       "object_id": "w-truncated",
-      "object_type": "widget",
+      "object_type": "acme.widget",
       "total_order": [
         {
-          "commit": "6b40fc783affe53c8e341cc348ec5699dcbb64a8",
+          "commit": "e6335d8792494548714ca52eb51183d783710651",
           "label": "alice-create",
           "t_star": 1767225600
         },
         {
-          "commit": "e0dae71f4a99b7b1055f6842a676d184bf5c978d",
+          "commit": "0d2fc1609784eddd8d70c92b24a9a781106d04e1",
           "label": "alice-update",
           "t_star": 1767225720
         }

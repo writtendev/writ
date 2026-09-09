@@ -14,7 +14,7 @@
     "op_type": "define-type",
     "op_version": 1,
     "body": {
-      "type": "widget"
+      "type": "acme.widget"
     }
   },
   {
@@ -25,7 +25,7 @@
     "body": {
       "op_type": "create",
       "op_version": "1",
-      "type": "widget"
+      "type": "acme.widget"
     }
   },
   {
@@ -38,7 +38,7 @@
       "op_type": "create",
       "op_version": "1",
       "strategy": "tombstone",
-      "type": "widget",
+      "type": "acme.widget",
       "value_type": "bool"
     }
   },
@@ -52,7 +52,7 @@
       "op_type": "create",
       "op_version": "1",
       "strategy": "lww",
-      "type": "widget",
+      "type": "acme.widget",
       "value_type": "int"
     }
   },
@@ -66,7 +66,7 @@
       "op_type": "create",
       "op_version": "1",
       "strategy": "lww",
-      "type": "widget",
+      "type": "acme.widget",
       "value_type": "timestamp"
     }
   },
@@ -80,7 +80,7 @@
       "op_type": "create",
       "op_version": "1",
       "strategy": "lww",
-      "type": "widget",
+      "type": "acme.widget",
       "value_type": "anchor"
     }
   },
@@ -94,7 +94,7 @@
       "op_type": "create",
       "op_version": "1",
       "strategy": "append",
-      "type": "widget"
+      "type": "acme.widget"
     }
   },
   {
@@ -107,7 +107,7 @@
       "op_type": "create",
       "op_version": "1",
       "strategy": "lww",
-      "type": "widget",
+      "type": "acme.widget",
       "value_type": "git-oid"
     }
   },
@@ -121,7 +121,7 @@
       "op_type": "create",
       "op_version": "1",
       "strategy": "set-union",
-      "type": "widget",
+      "type": "acme.widget",
       "value_type": "object-ref"
     }
   },
@@ -135,7 +135,7 @@
       "op_type": "create",
       "op_version": "1",
       "strategy": "lww",
-      "type": "widget",
+      "type": "acme.widget",
       "value_type": "number"
     }
   }

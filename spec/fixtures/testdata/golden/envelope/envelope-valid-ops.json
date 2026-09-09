@@ -2,7 +2,7 @@
   "ops": [
     {
       "ref": "refs/writ/alice/widget",
-      "commit": "06e7bb2b50f98c9dfff9220945cb7e3ad5763778",
+      "commit": "f63b430ffcd8f3e6193ce85e0df20afaa204a1b6",
       "parents": [],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -11,11 +11,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "527e32be577bf20411a2b1024a610244f2333129"
+          "sha": "09a7914d2cb339a12abc15c90ffb356530d90a48"
         }
       ],
-      "payload": "{\"body\":{\"title\":\"Initial widget\"},\"object_id\":\"widget-01\",\"object_type\":\"widget\",\"op_type\":\"create\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{\"title\":\"Initial widget\"},\"object_id\":\"widget-01\",\"object_type\":\"widget\",\"op_type\":\"create\",\"op_version\":1}",
+      "payload": "{\"body\":{\"title\":\"Initial widget\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"create\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"title\":\"Initial widget\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"create\",\"op_version\":1}",
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "valid",
@@ -28,9 +28,9 @@
     },
     {
       "ref": "refs/writ/alice/widget",
-      "commit": "eb3ec0ce619556b50689e71d43c7671d62983d00",
+      "commit": "1f5a709c24e7aa0bf58fd018866669a566a314ae",
       "parents": [
-        "06e7bb2b50f98c9dfff9220945cb7e3ad5763778"
+        "f63b430ffcd8f3e6193ce85e0df20afaa204a1b6"
       ],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -39,11 +39,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "c89f9f95235b36bcfbcc1dbbe4abfd50ae28db19"
+          "sha": "f1d909862028bee72ddef9818371cdfa4f568ca5"
         }
       ],
-      "payload": "{\"body\":{\"summary\":\"日本語 • 🚀 • \\u0000\",\"title\":\"Updated widget\"},\"object_id\":\"widget-01\",\"object_type\":\"widget\",\"op_type\":\"update\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{\"summary\":\"日本語 • 🚀 • \\u0000\",\"title\":\"Updated widget\"},\"object_id\":\"widget-01\",\"object_type\":\"widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "payload": "{\"body\":{\"summary\":\"日本語 • 🚀 • \\u0000\",\"title\":\"Updated widget\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"summary\":\"日本語 • 🚀 • \\u0000\",\"title\":\"Updated widget\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"update\",\"op_version\":1}",
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "valid",
@@ -56,9 +56,9 @@
     },
     {
       "ref": "refs/writ/alice/widget",
-      "commit": "31d569fc457b327450bb3650a583f42704d84daf",
+      "commit": "06723e2e4f14414a01bfe0f82d6a0fc4cc7de7c7",
       "parents": [
-        "eb3ec0ce619556b50689e71d43c7671d62983d00"
+        "1f5a709c24e7aa0bf58fd018866669a566a314ae"
       ],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -67,11 +67,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "51e4a9eee9d0b95a212eec629cf1d68945820063"
+          "sha": "55703105d87ea1550e4932bf661c9751c6f24116"
         }
       ],
-      "payload": "{\"body\":{\"note\":\"forward compatibility\"},\"custom_top_level_field\":\"preserved-and-ignored\",\"object_id\":\"x\",\"object_type\":\"custom-object\",\"op_type\":\"custom-op\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{\"note\":\"forward compatibility\"},\"custom_top_level_field\":\"preserved-and-ignored\",\"object_id\":\"x\",\"object_type\":\"custom-object\",\"op_type\":\"custom-op\",\"op_version\":1}",
+      "payload": "{\"body\":{\"note\":\"forward compatibility\"},\"custom_top_level_field\":\"preserved-and-ignored\",\"object_id\":\"x\",\"object_type\":\"acme.custom-object\",\"op_type\":\"custom-op\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"note\":\"forward compatibility\"},\"custom_top_level_field\":\"preserved-and-ignored\",\"object_id\":\"x\",\"object_type\":\"acme.custom-object\",\"op_type\":\"custom-op\",\"op_version\":1}",
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "valid",
@@ -84,9 +84,9 @@
     },
     {
       "ref": "refs/writ/alice/widget",
-      "commit": "d7283ef69bc5ad1ad42ee70d7642f689c0c362bc",
+      "commit": "9044c989b7d7fbb586f6436cd3bab27633eedb8b",
       "parents": [
-        "31d569fc457b327450bb3650a583f42704d84daf"
+        "06723e2e4f14414a01bfe0f82d6a0fc4cc7de7c7"
       ],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -95,11 +95,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "79c169961fdc217d57546c701970101fd0775d79"
+          "sha": "01fe12383ee7c8eeea5e628400ff99af7ff53cd6"
         }
       ],
-      "payload": "{\"body\":{\"status\":\"published\"},\"object_id\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"object_type\":\"widget\",\"op_type\":\"publish\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{\"status\":\"published\"},\"object_id\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"object_type\":\"widget\",\"op_type\":\"publish\",\"op_version\":1}",
+      "payload": "{\"body\":{\"status\":\"published\"},\"object_id\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"object_type\":\"acme.widget\",\"op_type\":\"publish\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"status\":\"published\"},\"object_id\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"object_type\":\"acme.widget\",\"op_type\":\"publish\",\"op_version\":1}",
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "valid",
@@ -112,7 +112,7 @@
     },
     {
       "ref": "refs/writ/bob/widget",
-      "commit": "93d3c366753b975c178c2090f3130bf5b0af0256",
+      "commit": "d8a18bbe2249cb0d68121df9ee408aa3434b767c",
       "parents": [],
       "author": "Bob Example \u003cbob@example.test\u003e",
       "committer": "Bob Example \u003cbob@example.test\u003e",
@@ -121,11 +121,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "2a623d103463ba3d7f5203148a979600d0be211b"
+          "sha": "525fa292842cd0eb0f07f405fcf1af5fca754060"
         }
       ],
-      "payload": "{\"body\":{},\"object_id\":\"widget-02\",\"object_type\":\"widget\",\"op_type\":\"create\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{},\"object_id\":\"widget-02\",\"object_type\":\"widget\",\"op_type\":\"create\",\"op_version\":1}",
+      "payload": "{\"body\":{},\"object_id\":\"widget-02\",\"object_type\":\"acme.widget\",\"op_type\":\"create\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{},\"object_id\":\"widget-02\",\"object_type\":\"acme.widget\",\"op_type\":\"create\",\"op_version\":1}",
       "signed": true,
       "signature_key_fingerprint": "SHA256:O/tazBDLdOtpewVOG55l3W8ZJOSCXXSbkFws9gBOhYc",
       "verification_outcome": "valid",
@@ -138,10 +138,10 @@
     },
     {
       "ref": "refs/writ/bob/widget",
-      "commit": "e9a71bfbb5b326f71663a602198f507d1ec751f3",
+      "commit": "48cbf66f8137ed7a9dc43bdb7df8a4d5a09aeefc",
       "parents": [
-        "93d3c366753b975c178c2090f3130bf5b0af0256",
-        "eb3ec0ce619556b50689e71d43c7671d62983d00"
+        "d8a18bbe2249cb0d68121df9ee408aa3434b767c",
+        "1f5a709c24e7aa0bf58fd018866669a566a314ae"
       ],
       "author": "Bob Example \u003cbob@example.test\u003e",
       "committer": "Bob Example \u003cbob@example.test\u003e",
@@ -150,11 +150,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "9421615498839f1070b7408a4f878acd29bec2c3"
+          "sha": "92f60e099780971f92b7a16a83885fa633990531"
         }
       ],
-      "payload": "{\"body\":{\"large_int\":\"9007199254740992837482910384729\",\"note\":\"looks good\"},\"object_id\":\"widget-01\",\"object_type\":\"gadget\",\"op_type\":\"create\",\"op_version\":9007199254740991}",
-      "canonical_payload": "{\"body\":{\"large_int\":\"9007199254740992837482910384729\",\"note\":\"looks good\"},\"object_id\":\"widget-01\",\"object_type\":\"gadget\",\"op_type\":\"create\",\"op_version\":9007199254740991}",
+      "payload": "{\"body\":{\"large_int\":\"9007199254740992837482910384729\",\"note\":\"looks good\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.gadget\",\"op_type\":\"create\",\"op_version\":9007199254740991}",
+      "canonical_payload": "{\"body\":{\"large_int\":\"9007199254740992837482910384729\",\"note\":\"looks good\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.gadget\",\"op_type\":\"create\",\"op_version\":9007199254740991}",
       "signed": true,
       "signature_key_fingerprint": "SHA256:O/tazBDLdOtpewVOG55l3W8ZJOSCXXSbkFws9gBOhYc",
       "verification_outcome": "valid",

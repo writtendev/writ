@@ -2,25 +2,25 @@
   "objects": [
     {
       "object_id": "w-multi-device",
-      "object_type": "widget",
+      "object_type": "acme.widget",
       "total_order": [
         {
-          "commit": "48139253c4796fa8ddb70f89a708ca4025b24c32",
+          "commit": "c81bad46009054b1035c0ae4aa1822813525ac80",
           "label": "alice-init-create",
           "t_star": 1767225600
         },
         {
-          "commit": "3c4c7e4dd7452f4895ab85b49a57516906a9d628",
+          "commit": "ae489c731b1290bed4a9e9eecf80061cc52fe54c",
           "label": "alice-desktop-edit",
           "t_star": 1767225660
         },
         {
-          "commit": "fad1dd2fb9ddcec1138d636ad309afc21d94966c",
+          "commit": "38a6a105ce317f7aca517cb639f0ce90ca1137a2",
           "label": "alice-laptop-edit",
           "t_star": 1767225690
         },
         {
-          "commit": "7370b6a0e2a57a4017d35ed8ee8d9ed2bb3e330d",
+          "commit": "10b5f41c0970814bf1bc83846d8f88a9638ec8ea",
           "label": "alice-laptop-sync",
           "t_star": 1767225720
         }

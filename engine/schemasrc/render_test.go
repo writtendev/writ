@@ -20,7 +20,7 @@ func schemaWithField(f state.SchemaField) state.Schema {
 		Namespace: "acme",
 		Types: []state.SchemaType{
 			{
-				Name:   "widget",
+				Name:   "acme.widget",
 				Ops:    []state.SchemaOp{{OpType: f.OpType, OpVersion: f.OpVersion}},
 				Fields: []state.SchemaField{f},
 			},
@@ -209,7 +209,7 @@ func TestRenderRejectsUnparseableNames(t *testing.T) {
 			Namespace: "acme",
 			Types: []state.SchemaType{
 				{
-					Name: "widget",
+					Name: "acme.widget",
 					Ops:  []state.SchemaOp{{OpType: "create", OpVersion: 1}},
 					Fields: []state.SchemaField{
 						{Name: "title", OpType: "create", OpVersion: 1, ValueType: "string", Strategy: "lww"},
@@ -243,7 +243,7 @@ func TestRenderRejectsUnparseableNames(t *testing.T) {
 		{
 			name: "type name containing a space",
 			mutate: func(s state.Schema) state.Schema {
-				s.Types[0].Name = "wid get"
+				s.Types[0].Name = "acme.wid get"
 				return s
 			},
 			wantErr: `type name "wid get" would not parse back`,
@@ -251,7 +251,7 @@ func TestRenderRejectsUnparseableNames(t *testing.T) {
 		{
 			name: "type name is a reserved word",
 			mutate: func(s state.Schema) state.Schema {
-				s.Types[0].Name = "op"
+				s.Types[0].Name = "acme.op"
 				return s
 			},
 			wantErr: `type name "op" is a reserved word`,
@@ -300,7 +300,7 @@ func TestRenderAcceptsConformingNames(t *testing.T) {
 		Namespace: "acme",
 		Types: []state.SchemaType{
 			{
-				Name: "widget",
+				Name: "acme.widget",
 				Ops:  []state.SchemaOp{{OpType: "create", OpVersion: 1}},
 				Fields: []state.SchemaField{
 					{Name: "title", OpType: "create", OpVersion: 1, ValueType: "string", Strategy: "lww"},
@@ -330,7 +330,7 @@ func TestRenderAcceptsFieldsNamedDescriptionTargetAndType(t *testing.T) {
 		Namespace: "acme",
 		Types: []state.SchemaType{
 			{
-				Name: "widget",
+				Name: "acme.widget",
 				Ops:  []state.SchemaOp{{OpType: "create", OpVersion: 1}},
 				Fields: []state.SchemaField{
 					{Name: "description", OpType: "create", OpVersion: 1, ValueType: "string", Strategy: "lww"},

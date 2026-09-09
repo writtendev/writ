@@ -31,7 +31,7 @@ func TestStepsWithoutExplicitTime(t *testing.T) {
 		Device: aliceLaptop,
 		Envelope: codec.Envelope{
 			ObjectID:   "w-no-time",
-			ObjectType: "widget",
+			ObjectType: "acme.widget",
 			OpType:     "create",
 			OpVersion:  1,
 			Body:       body,

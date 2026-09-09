@@ -7,7 +7,7 @@
         "namespace": "acme",
         "types": [
           {
-            "type": "widget",
+            "type": "acme.widget",
             "fields": [
               {
                 "field": "priority",

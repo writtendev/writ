@@ -30,7 +30,7 @@ refs:
               op_type: define-type
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
             expect: accept
 
           - id: schema-define-gadget
@@ -43,7 +43,7 @@ refs:
               op_type: define-type
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
             expect: accept
 
           - id: schema-define-widget-create-title
@@ -56,7 +56,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
                 op_type: "create"
                 op_version: "1"
                 field: "title"
@@ -74,7 +74,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
                 op_type: "update"
                 op_version: "1"
                 field: "title"
@@ -95,7 +95,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
                 op_type: "create"
                 op_version: "1"
                 field: "subject"
@@ -112,7 +112,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
                 op_type: "create"
                 op_version: "1"
                 field: "text"
@@ -128,12 +128,12 @@ refs:
             timestamp: 2026-01-01T00:01:00Z
             op:
               object_id: g-other
-              object_type: gadget
+              object_type: acme.gadget
               op_type: create
               op_version: 1
               body:
                 subject:
-                  object_type: widget
+                  object_type: acme.widget
                   object_id: w-truncated
                 text: "Gadget attached to the truncated widget"
             expect: accept
@@ -146,7 +146,7 @@ refs:
             timestamp: 2026-01-01T00:00:00Z
             op:
               object_id: w-truncated
-              object_type: widget
+              object_type: acme.widget
               op_type: create
               op_version: 1
               body:
@@ -159,7 +159,7 @@ refs:
             timestamp: 2026-01-01T00:02:00Z
             op:
               object_id: w-truncated
-              object_type: widget
+              object_type: acme.widget
               op_type: update
               op_version: 1
               body:

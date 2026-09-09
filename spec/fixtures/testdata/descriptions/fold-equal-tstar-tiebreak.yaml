@@ -30,7 +30,7 @@ refs:
               op_type: define-type
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
             expect: accept
 
           - id: schema-define-create-title
@@ -43,7 +43,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
                 op_type: "create"
                 op_version: "1"
                 field: "title"
@@ -61,7 +61,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
                 op_type: "update"
                 op_version: "1"
                 field: "title"
@@ -79,7 +79,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
                 op_type: "set-status"
                 op_version: "1"
                 field: "status"
@@ -96,7 +96,7 @@ refs:
             timestamp: 2026-01-01T00:00:00Z
             op:
               object_id: w-tiebreak
-              object_type: widget
+              object_type: acme.widget
               op_type: create
               op_version: 1
               body:
@@ -109,7 +109,7 @@ refs:
             timestamp: 2026-01-01T00:01:00Z
             op:
               object_id: w-tiebreak
-              object_type: widget
+              object_type: acme.widget
               op_type: update
               op_version: 1
               body:
@@ -125,7 +125,7 @@ refs:
             timestamp: 2026-01-01T00:01:00Z
             op:
               object_id: w-tiebreak
-              object_type: widget
+              object_type: acme.widget
               op_type: update
               op_version: 1
               body:
@@ -138,7 +138,7 @@ refs:
             timestamp: 2026-01-01T00:05:00Z
             op:
               object_id: w-tiebreak
-              object_type: widget
+              object_type: acme.widget
               op_type: set-status
               op_version: 1
               body:
@@ -151,7 +151,7 @@ refs:
             timestamp: 2026-01-01T00:02:00Z
             op:
               object_id: w-tiebreak
-              object_type: widget
+              object_type: acme.widget
               op_type: set-status
               op_version: 1
               body:

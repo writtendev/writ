@@ -56,7 +56,7 @@ refs:
               op_type: define-type
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
             expect: accept
 
           - id: define-field-title
@@ -69,7 +69,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
                 op_type: "create"
                 op_version: "1"
                 field: "title"
@@ -87,7 +87,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
                 op_type: "set-code"
                 op_version: "1"
                 field: "code"
@@ -106,7 +106,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
                 op_type: "set-owner"
                 op_version: "1"
                 field: "owner"
@@ -125,7 +125,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
                 op_type: "set-tags"
                 op_version: "1"
                 field: "tags"
@@ -146,7 +146,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
                 op_type: "set-alpha"
                 op_version: "1"
                 field: "alpha"
@@ -165,7 +165,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
                 op_type: "set-beta"
                 op_version: "1"
                 field: "beta"
@@ -187,7 +187,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
                 op_type: "set-subject"
                 op_version: "1"
                 field: "gamma"
@@ -208,7 +208,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
                 op_type: "set-subject"
                 op_version: "1"
                 field: "delta"
@@ -228,7 +228,7 @@ refs:
             timestamp: 2026-01-01T00:10:00Z
             op:
               object_id: gadget-1
-              object_type: gadget
+              object_type: acme.gadget
               op_type: create
               op_version: 1
               body:
@@ -241,7 +241,7 @@ refs:
             timestamp: 2026-01-01T00:11:00Z
             op:
               object_id: gadget-1
-              object_type: gadget
+              object_type: acme.gadget
               op_type: set-code
               op_version: 1
               body:
@@ -254,7 +254,7 @@ refs:
             timestamp: 2026-01-01T00:12:00Z
             op:
               object_id: gadget-1
-              object_type: gadget
+              object_type: acme.gadget
               op_type: set-owner
               op_version: 1
               body:
@@ -267,7 +267,7 @@ refs:
             timestamp: 2026-01-01T00:13:00Z
             op:
               object_id: gadget-1
-              object_type: gadget
+              object_type: acme.gadget
               op_type: set-tags
               op_version: 1
               body:
@@ -281,7 +281,7 @@ refs:
             timestamp: 2026-01-01T00:14:00Z
             op:
               object_id: gadget-1
-              object_type: gadget
+              object_type: acme.gadget
               op_type: set-alpha
               op_version: 1
               body:
@@ -294,7 +294,7 @@ refs:
             timestamp: 2026-01-01T00:15:00Z
             op:
               object_id: gadget-1
-              object_type: gadget
+              object_type: acme.gadget
               op_type: set-beta
               op_version: 1
               body:
@@ -308,7 +308,7 @@ refs:
             timestamp: 2026-01-01T00:16:00Z
             op:
               object_id: gadget-1
-              object_type: gadget
+              object_type: acme.gadget
               op_type: set-subject
               op_version: 1
               body:

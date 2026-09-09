@@ -68,6 +68,16 @@
       "ref": "refs/writ/550e8400e29b41d4/a012345678901234567890123456789012345678901234567890123456789012",
       "writer_id": "550e8400e29b41d4",
       "object_type": "a012345678901234567890123456789012345678901234567890123456789012"
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/acme.standup",
+      "writer_id": "0123456789abcdef",
+      "object_type": "acme.standup"
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/a012345678901234567890123456789012345678901234567890123456789012.b012345678901234567890123456789012345678901234567890123456789012",
+      "writer_id": "0123456789abcdef",
+      "object_type": "a012345678901234567890123456789012345678901234567890123456789012.b012345678901234567890123456789012345678901234567890123456789012"
     }
   ],
   "invalid": [
@@ -149,7 +159,11 @@
     },
     {
       "ref": "refs/writ/0123456789abcdef/widget.lock",
-      "reason": "object-type contains dot and ends in .lock"
+      "reason": "object-type's trailing segment is exactly \"lock\" -- git rejects any slash-separated ref path component ending in .lock outright, regardless of the dot itself being a legal qualified-object_type separator (spec/ref-layout.md)"
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/acme.lock",
+      "reason": "same .lock exclusion as widget.lock, but with a legal namespace prefix -- the trailing segment, not the presence of a dot, is what git rejects"
     },
     {
       "ref": "refs/writ/0123456789abcdef/widget/sub",
@@ -157,7 +171,15 @@
     },
     {
       "ref": "refs/writ/0123456789abcdef/a0123456789012345678901234567890123456789012345678901234567890123",
-      "reason": "object-type exceeds 64 characters (65 chars)"
+      "reason": "object-type's single segment exceeds the per-segment 64-character limit (65 chars)"
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/a0123456789012345678901234567890123456789012345678901234567890123.b012345678901234567890123456789012345678901234567890123456789012",
+      "reason": "object-type's first segment exceeds the per-segment 64-character limit (65 chars) even though the qualified whole and the second segment are each otherwise legal"
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/acme.bigco.standup",
+      "reason": "object-type contains more than one dot; the qualified form is exactly one optional dot separating two segments, not an arbitrary path"
     },
     {
       "ref": "refs/writ/0123456789abcdef/..",

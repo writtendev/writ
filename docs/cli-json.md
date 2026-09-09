@@ -163,7 +163,7 @@ A refused plan (an invalid file, or an edit that would remove a declaration) exi
       },
       {
         "op_type": "define-type",
-        "body": { "type": "standup", "description": "A daily standup update" }
+        "body": { "type": "acme.standup", "description": "A daily standup update" }
       }
     ],
     "current_source": "",
@@ -229,7 +229,7 @@ Runs the same computation as `writ schema plan`, then signs and appends the resu
       },
       {
         "op_type": "define-type",
-        "body": { "type": "standup", "description": "A daily standup update" }
+        "body": { "type": "acme.standup", "description": "A daily standup update" }
       }
     ]
   }
@@ -251,7 +251,7 @@ Reports the vocabulary `Store.Types` resolves right now — built-in types overl
 
 | Field | Type | Description |
 |---|---|---|
-| `type` | string | The bare wire `object_type`. |
+| `type` | string | The wire `object_type` — namespace-qualified as `<namespace>.<type>` for every consumer-declared type; bare only for `schema` itself. |
 | `description` | string | Optional type description. Omitted when empty. |
 | `deprecated` | boolean | `true` if the type is deprecated. Omitted when `false`. |
 | `fields` | array | `SchemaField` entries this type declares. Omitted when empty. |
@@ -279,7 +279,7 @@ Reports the vocabulary `Store.Types` resolves right now — built-in types overl
   "schema_version": 1,
   "kind": "schema.show",
   "data": {
-    "type": "ticket",
+    "type": "acme.ticket",
     "fields": [
       { "field": "title", "op_type": "create", "op_version": 1, "value_type": "string", "strategy": "lww" }
     ],
@@ -318,7 +318,7 @@ Appends the op that starts a new object of `<type>`, using `<op-type>`'s field r
   "kind": "object.create",
   "data": {
     "object_id": "0123456789abcdef0123456789abcdef",
-    "object_type": "ticket"
+    "object_type": "acme.ticket"
   }
 }
 ```
@@ -382,7 +382,7 @@ Folds an object's state directly from the log — never the projection cache —
   "kind": "object.show",
   "data": {
     "object_id": "0123456789abcdef0123456789abcdef",
-    "object_type": "ticket",
+    "object_type": "acme.ticket",
     "fields": {
       "title": "Fix the thing",
       "tags": ["urgent", "backend"]
@@ -423,7 +423,7 @@ Lists collaborative objects across every schema-declared type, or within one, fr
   "data": [
     {
       "object_id": "0123456789abcdef0123456789abcdef",
-      "object_type": "ticket",
+      "object_type": "acme.ticket",
       "author": { "name": "Alice", "email": "alice@example.com" },
       "created_at": "2026-01-01T00:00:00Z",
       "updated_at": "2026-01-01T00:00:00Z",
@@ -439,13 +439,13 @@ Lists collaborative objects across every schema-declared type, or within one, fr
 
 ### List every object of one type
 ```bash
-writ object list ticket --json | jq -r '.data[] | "\(.object_id) \(.object_type)"'
+writ object list acme.ticket --json | jq -r '.data[] | "\(.object_id) \(.object_type)"'
 ```
 `object.list` reports only summary columns (id, type, author, timestamps,
 op count) — a field like `title` lives on the folded object itself, so
 listing titles takes one `object.show` per row:
 ```bash
-writ object list ticket --json \
+writ object list acme.ticket --json \
   | jq -r '.data[].object_id' \
   | while read -r id; do
       writ object show "$id" --json | jq -r '"\(.data.object_id) \(.data.fields.title)"'
@@ -469,7 +469,7 @@ writ sync --status --json | jq '[.data[].unsynced] | add'
 
 ### List the fields and ops a type declares
 ```bash
-writ schema show ticket --json | jq -r '.data.fields[] | "\(.field) (\(.op_type) v\(.op_version))"'
+writ schema show acme.ticket --json | jq -r '.data.fields[] | "\(.field) (\(.op_type) v\(.op_version))"'
 ```
 
 ### List every installed type name

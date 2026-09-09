@@ -125,7 +125,7 @@ type sprocket {
 
 // publishedType is the object type publishedTypeSchemaSrc declares, and the
 // type these tests hand to Drafts.Publish.
-const publishedType = "sprocket"
+const publishedType = "acme.sprocket"
 
 // applyPublishedTypeSchema installs publishedTypeSchemaSrc, which every
 // test calling Drafts.Publish needs and no other test does.
@@ -142,7 +142,7 @@ func TestDraftPublishOnWidget(t *testing.T) {
 	applyPublishedTypeSchema(t, ctx, store)
 
 	// Create a widget
-	widgetID, err := store.Objects.Create(ctx, "widget", writ.NewOp{
+	widgetID, err := store.Objects.Create(ctx, "acme.widget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Publish Widget Test"},
 	})
@@ -178,7 +178,7 @@ func TestDraftPublishOnWidget(t *testing.T) {
 		t.Fatalf("unexpected published object: %+v", published)
 	}
 	subject := decodePublishedSubject(t, published.Fields["subject"])
-	if subject["object_type"] != "widget" || subject["object_id"] != widgetID {
+	if subject["object_type"] != "acme.widget" || subject["object_id"] != widgetID {
 		t.Fatalf("unexpected published subject: %+v", subject)
 	}
 
@@ -193,7 +193,7 @@ func TestDraftPublishOnGadget(t *testing.T) {
 	applyPublishedTypeSchema(t, ctx, store)
 
 	// Create a gadget
-	gadgetID, err := store.Objects.Create(ctx, "gadget", writ.NewOp{
+	gadgetID, err := store.Objects.Create(ctx, "acme.gadget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Publish Gadget Test"},
 	})
@@ -229,7 +229,7 @@ func TestDraftPublishOnGadget(t *testing.T) {
 		t.Fatalf("unexpected published object: %+v", published)
 	}
 	subject := decodePublishedSubject(t, published.Fields["subject"])
-	if subject["object_type"] != "gadget" || subject["object_id"] != gadgetID {
+	if subject["object_type"] != "acme.gadget" || subject["object_id"] != gadgetID {
 		t.Fatalf("unexpected published subject: %+v", subject)
 	}
 
@@ -253,7 +253,7 @@ func TestDraftsNeverReachSharedRefs(t *testing.T) {
 	applyPublishedTypeSchema(t, ctx, sA)
 
 	// Alice creates a widget
-	widgetID, err := sA.Objects.Create(ctx, "widget", writ.NewOp{
+	widgetID, err := sA.Objects.Create(ctx, "acme.widget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Draft Leak Test Widget"},
 	})
@@ -365,7 +365,7 @@ func TestDraftPublish_UnknownSubjectRefused(t *testing.T) {
 func TestDraftPublish_UnknownInReplyToRefused(t *testing.T) {
 	store, ctx, _ := openStoreWithCoreSchema(t)
 
-	widgetID, err := store.Objects.Create(ctx, "widget", writ.NewOp{
+	widgetID, err := store.Objects.Create(ctx, "acme.widget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Reply Existence Test"},
 	})
@@ -402,7 +402,7 @@ func TestDraftPublish_EmptySubjectTypeResolvesRealType(t *testing.T) {
 	store, ctx, _ := openStoreWithCoreSchema(t)
 	applyPublishedTypeSchema(t, ctx, store)
 
-	gadgetID, err := store.Objects.Create(ctx, "gadget", writ.NewOp{
+	gadgetID, err := store.Objects.Create(ctx, "acme.gadget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Untyped Draft Subject Test"},
 	})
@@ -428,8 +428,8 @@ func TestDraftPublish_EmptySubjectTypeResolvesRealType(t *testing.T) {
 		t.Fatalf("Objects.Get(published) failed: %v", err)
 	}
 	subject := decodePublishedSubject(t, published.Fields["subject"])
-	if subject["object_type"] != "gadget" || subject["object_id"] != gadgetID {
-		t.Fatalf("unexpected published subject: %+v, want object_type=gadget object_id=%s", subject, gadgetID)
+	if subject["object_type"] != "acme.gadget" || subject["object_id"] != gadgetID {
+		t.Fatalf("unexpected published subject: %+v, want object_type=acme.gadget object_id=%s", subject, gadgetID)
 	}
 }
 
@@ -453,7 +453,7 @@ func TestDraftPublish_AnySchemaDeclaredType(t *testing.T) {
 	}
 	applyPublishedTypeSchema(t, ctx, store)
 
-	standupID, err := store.Objects.Create(ctx, "standup", writ.NewOp{
+	standupID, err := store.Objects.Create(ctx, "acme.standup", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Daily Standup"},
 	})
@@ -480,8 +480,8 @@ func TestDraftPublish_AnySchemaDeclaredType(t *testing.T) {
 		t.Fatalf("Objects.Get(published) failed: %v", err)
 	}
 	subject := decodePublishedSubject(t, published.Fields["subject"])
-	if subject["object_type"] != "standup" || subject["object_id"] != standupID {
-		t.Fatalf("unexpected published subject: %+v, want object_type=standup object_id=%s", subject, standupID)
+	if subject["object_type"] != "acme.standup" || subject["object_id"] != standupID {
+		t.Fatalf("unexpected published subject: %+v, want object_type=acme.standup object_id=%s", subject, standupID)
 	}
 }
 

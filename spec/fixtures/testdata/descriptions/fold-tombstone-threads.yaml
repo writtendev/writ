@@ -41,7 +41,7 @@ refs:
               op_type: define-type
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
             expect: accept
 
           - id: schema-define-create-subject
@@ -54,7 +54,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
                 op_type: "create"
                 op_version: "1"
                 field: "subject"
@@ -72,7 +72,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
                 op_type: "create"
                 op_version: "1"
                 field: "text"
@@ -90,7 +90,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
                 op_type: "create"
                 op_version: "1"
                 field: "in_reply_to"
@@ -108,7 +108,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
                 op_type: "edit"
                 op_version: "1"
                 field: "text"
@@ -127,7 +127,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
                 op_type: "delete"
                 op_version: "1"
                 field: "deleted"
@@ -145,7 +145,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
                 op_type: "undelete"
                 op_version: "1"
                 field: "deleted"
@@ -162,7 +162,7 @@ refs:
             timestamp: 2026-01-01T00:00:00Z
             op:
               object_id: g-root
-              object_type: gadget
+              object_type: acme.gadget
               op_type: create
               op_version: 1
               body:
@@ -176,7 +176,7 @@ refs:
             timestamp: 2026-01-01T00:01:00Z
             op:
               object_id: g-root
-              object_type: gadget
+              object_type: acme.gadget
               op_type: edit
               op_version: 1
               body:
@@ -189,7 +189,7 @@ refs:
             timestamp: 2026-01-01T00:01:10Z
             op:
               object_id: g-del-target
-              object_type: gadget
+              object_type: acme.gadget
               op_type: create
               op_version: 1
               body:
@@ -203,7 +203,7 @@ refs:
             timestamp: 2026-01-01T00:01:40Z
             op:
               object_id: g-del-target
-              object_type: gadget
+              object_type: acme.gadget
               op_type: edit
               op_version: 1
               body:
@@ -216,7 +216,7 @@ refs:
             timestamp: 2026-01-01T00:02:10Z
             op:
               object_id: g-del-target
-              object_type: gadget
+              object_type: acme.gadget
               op_type: undelete
               op_version: 1
               body:
@@ -232,7 +232,7 @@ refs:
             timestamp: 2026-01-01T00:01:30Z
             op:
               object_id: g-root
-              object_type: gadget
+              object_type: acme.gadget
               op_type: edit
               op_version: 1
               body:
@@ -245,7 +245,7 @@ refs:
             timestamp: 2026-01-01T00:01:40Z
             op:
               object_id: g-del-target
-              object_type: gadget
+              object_type: acme.gadget
               op_type: delete
               op_version: 1
               body:
@@ -258,7 +258,7 @@ refs:
             timestamp: 2026-01-01T00:02:00Z
             op:
               object_id: g-reply
-              object_type: gadget
+              object_type: acme.gadget
               op_type: create
               op_version: 1
               body:
@@ -273,7 +273,7 @@ refs:
             timestamp: 2026-01-01T00:02:30Z
             op:
               object_id: g-reply
-              object_type: gadget
+              object_type: acme.gadget
               op_type: delete
               op_version: 1
               body: {}
@@ -285,7 +285,7 @@ refs:
             timestamp: 2026-01-01T00:03:00Z
             op:
               object_id: g-reply
-              object_type: gadget
+              object_type: acme.gadget
               op_type: edit
               op_version: 1
               body:

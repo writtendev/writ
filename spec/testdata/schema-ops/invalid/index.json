@@ -7,12 +7,17 @@
   {
     "file": "wrong-object-type.json",
     "rejects": "schema",
-    "reason": "object_type is 'widget', not the constant 'schema' this schema requires"
+    "reason": "object_type is 'acme.widget', not the constant 'schema' this schema requires"
   },
   {
     "file": "define-type-missing-type.json",
     "rejects": "schema",
     "reason": "define-type op body is missing required type"
+  },
+  {
+    "file": "define-type-multi-dot.json",
+    "rejects": "schema",
+    "reason": "type 'acme.foo.bar' contains more than one dot; the qualified form is exactly one optional dot separating two segments, not an arbitrary path (WRIT-217)"
   },
   {
     "file": "define-field-missing-strategy.json",

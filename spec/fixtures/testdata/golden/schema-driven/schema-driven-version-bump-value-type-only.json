@@ -7,7 +7,7 @@
         "namespace": "acme",
         "types": [
           {
-            "type": "gadget",
+            "type": "acme.gadget",
             "fields": [
               {
                 "field": "mode",
@@ -32,14 +32,14 @@
   "objects": [
     {
       "object_id": "gadget-1",
-      "object_type": "gadget",
+      "object_type": "acme.gadget",
       "total_order": [
         {
-          "commit": "bd2d4a3b86ce89c5ef1a9049636fce427414be50",
+          "commit": "d44d947bfaa9901a9d4ccb4bcc10ba1bb57fc8c5",
           "t_star": 1767225840
         },
         {
-          "commit": "710df59314185a05523c3f55083c41f824a9f41e",
+          "commit": "eb1b880c926b44fab0dd376c9f5a0aafa0c9a29e",
           "t_star": 1767225900
         }
       ],

@@ -104,9 +104,9 @@ var objectCreateCmd = &command{
 		{Name: "json"},
 	},
 	Examples: []string{
-		"writ object create ticket create -field title=\"Fix the thing\"",
-		"writ object create ticket create -field title=\"Fix the thing\" --json",
-		"writ object create gadget create -field-json subject='{\"object_type\":\"ticket\",\"object_id\":\"<id>\"}' -field text=\"needs a second look\"",
+		"writ object create acme.ticket create -field title=\"Fix the thing\"",
+		"writ object create acme.ticket create -field title=\"Fix the thing\" --json",
+		"writ object create acme.gadget create -field-json subject='{\"object_type\":\"acme.ticket\",\"object_id\":\"<id>\"}' -field text=\"needs a second look\"",
 	},
 }
 
@@ -164,8 +164,8 @@ var objectListCmd = &command{
 	},
 	Examples: []string{
 		"writ object list",
-		"writ object list ticket",
-		"writ object list ticket -text urgent --json",
+		"writ object list acme.ticket",
+		"writ object list acme.ticket -text urgent --json",
 	},
 }
 
@@ -232,8 +232,8 @@ var schemaShowCmd = &command{
 	},
 	Examples: []string{
 		"writ schema show",
-		"writ schema show ticket",
-		"writ schema show ticket --json",
+		"writ schema show acme.ticket",
+		"writ schema show acme.ticket --json",
 	},
 }
 

@@ -1,0 +1,140 @@
+{
+  "schemas": [
+    {
+      "object_id": "sch-acme",
+      "schema": {
+        "object_id": "sch-acme",
+        "namespace": "acme",
+        "types": [
+          {
+            "type": "acme.foo.bar",
+            "fields": [
+              {
+                "field": "title",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              }
+            ]
+          },
+          {
+            "type": "acme.gadget",
+            "fields": [
+              {
+                "field": "title",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              }
+            ]
+          },
+          {
+            "type": "bigco.retro",
+            "fields": [
+              {
+                "field": "notes",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              }
+            ]
+          },
+          {
+            "type": "standup",
+            "fields": [
+              {
+                "field": "summary",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "conflicts": [
+    {
+      "object_type": "acme.foo.bar",
+      "namespace": "acme",
+      "object_ids": [
+        "sch-acme"
+      ],
+      "reason": "define-type \"acme.foo.bar\" is not qualified with this schema object's own namespace \"acme\" (must be \"acme.\u003ctype\u003e\") and was not installed"
+    },
+    {
+      "object_type": "bigco.retro",
+      "namespace": "acme",
+      "object_ids": [
+        "sch-acme"
+      ],
+      "reason": "define-type \"bigco.retro\" is not qualified with this schema object's own namespace \"acme\" (must be \"acme.\u003ctype\u003e\") and was not installed"
+    },
+    {
+      "object_type": "standup",
+      "namespace": "acme",
+      "object_ids": [
+        "sch-acme"
+      ],
+      "reason": "define-type \"standup\" is not qualified with this schema object's own namespace \"acme\" (must be \"acme.\u003ctype\u003e\") and was not installed"
+    }
+  ],
+  "objects": [
+    {
+      "object_id": "gadget-1",
+      "object_type": "acme.gadget",
+      "total_order": [
+        {
+          "commit": "85e9d226ca6b09a10192e1768aa6e1d8ce309830",
+          "t_star": 1767226140
+        }
+      ],
+      "state": {
+        "title": "Widget"
+      }
+    },
+    {
+      "object_id": "retro-1",
+      "object_type": "bigco.retro",
+      "total_order": [
+        {
+          "commit": "2f73f0b71dc9116aaf60e359cd64c441896b056f",
+          "t_star": 1767226260
+        }
+      ],
+      "state": {},
+      "unknown_ops": [
+        {
+          "commit": "2f73f0b71dc9116aaf60e359cd64c441896b056f",
+          "object_type": "bigco.retro",
+          "op_type": "create",
+          "op_version": 1
+        }
+      ]
+    },
+    {
+      "object_id": "standup-1",
+      "object_type": "standup",
+      "total_order": [
+        {
+          "commit": "c8b2f5fdac9aeec98b810948caa696d248e1e9b7",
+          "t_star": 1767226200
+        }
+      ],
+      "state": {},
+      "unknown_ops": [
+        {
+          "commit": "c8b2f5fdac9aeec98b810948caa696d248e1e9b7",
+          "object_type": "standup",
+          "op_type": "create",
+          "op_version": 1
+        }
+      ]
+    }
+  ]
+}

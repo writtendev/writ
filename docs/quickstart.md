@@ -103,12 +103,12 @@ folding right now — this is the source of truth for op and field names, not
 the working-tree file you just edited:
 
 ```bash
-writ schema show ticket
+writ schema show my-project.ticket
 ```
 
 Output:
 ```
-type  ticket
+type  my-project.ticket
 Ops:
   create  v1
   update  v1
@@ -124,7 +124,7 @@ no `-title` flag, no per-type shape, only `-field <k>=<v>` pairs the
 installed vocabulary parses:
 
 ```bash
-writ object create ticket create -field "title=Add main entry point"
+writ object create my-project.ticket create -field "title=Add main entry point"
 ```
 
 Output:
@@ -153,7 +153,7 @@ writ object show 0192a1b2c3d4e5f60718293a4b5c6d7e
 Output:
 ```
 object_id    0192a1b2c3d4e5f60718293a4b5c6d7e
-object_type  ticket
+object_type  my-project.ticket
 title        Add main entry point (ready for review)
 ```
 
@@ -191,12 +191,12 @@ Your collaborator can now list and inspect tickets offline — filtering to
 one schema-declared type at a time:
 
 ```bash
-writ object list ticket
+writ object list my-project.ticket
 ```
 
 Output:
 ```
-0192a1b2  ticket  Alice <alice@example.com>  2026-08-31 16:00:00
+0192a1b2  my-project.ticket  Alice <alice@example.com>  2026-08-31 16:00:00
 ```
 
 And show one object's full folded state:
@@ -208,7 +208,7 @@ writ object show 0192a1b2
 Output:
 ```
 object_id    0192a1b2c3d4e5f60718293a4b5c6d7e
-object_type  ticket
+object_type  my-project.ticket
 title        Add main entry point (ready for review)
 ```
 

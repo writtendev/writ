@@ -7,7 +7,7 @@
         "namespace": "acme",
         "types": [
           {
-            "type": "gadget",
+            "type": "acme.gadget",
             "fields": [
               {
                 "field": "mode",
@@ -39,7 +39,7 @@
   ],
   "conflicts": [
     {
-      "object_type": "gadget",
+      "object_type": "acme.gadget",
       "object_ids": [
         "sch-acme"
       ],
@@ -49,38 +49,38 @@
   "objects": [
     {
       "object_id": "gadget-1",
-      "object_type": "gadget",
+      "object_type": "acme.gadget",
       "total_order": [
         {
-          "commit": "deb510c43c0467213057b28f37e60c2a2200d781",
+          "commit": "2e1b85879273b258545ca862f7762881e5f06bad",
           "t_star": 1767225900
         },
         {
-          "commit": "518cfd96a65db5cd04698baeab555f8e69100289",
+          "commit": "6c15955296cfdcede6546856d32f67172cc76ff1",
           "t_star": 1767225960
         },
         {
-          "commit": "a72abe9a418cbdb62060742e3034255e028b9d84",
+          "commit": "4edc2148f30d60885cf968af064e46636c23d9eb",
           "t_star": 1767226020
         }
       ],
       "state": {},
       "unknown_ops": [
         {
-          "commit": "deb510c43c0467213057b28f37e60c2a2200d781",
-          "object_type": "gadget",
+          "commit": "2e1b85879273b258545ca862f7762881e5f06bad",
+          "object_type": "acme.gadget",
           "op_type": "configure",
           "op_version": 1
         },
         {
-          "commit": "518cfd96a65db5cd04698baeab555f8e69100289",
-          "object_type": "gadget",
+          "commit": "6c15955296cfdcede6546856d32f67172cc76ff1",
+          "object_type": "acme.gadget",
           "op_type": "configure",
           "op_version": 2
         },
         {
-          "commit": "a72abe9a418cbdb62060742e3034255e028b9d84",
-          "object_type": "gadget",
+          "commit": "4edc2148f30d60885cf968af064e46636c23d9eb",
+          "object_type": "acme.gadget",
           "op_type": "reset",
           "op_version": 1
         }

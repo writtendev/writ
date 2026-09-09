@@ -2,7 +2,7 @@
   "refs": [
     {
       "name": "refs/writ/alice/widget",
-      "commit": "f2d23cab46c9b1d345be9f0c75259c3c108f0830"
+      "commit": "be0e602d33ec8c27b234b1432fe5bc4e53e5c07f"
     }
   ],
   "generations": [
@@ -11,45 +11,45 @@
       "index": 0,
       "commits": [
         {
-          "sha": "dc30df091c7bc280b1bdb83cd09e011bf92d15d9",
-          "tree": "b8d45ce43b11dd8ac4a2ac6649a446a955ffcb27",
+          "sha": "330ea6dee11d83c13d478566a4b9672a6f460e7c",
+          "tree": "a572db73f1f2f8f8ec2dbbb62141f53127ad4a1e",
           "parents": [],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:00:00Z",
-          "message": "writ: create widget/widget-01\n",
+          "message": "writ: create acme.widget/widget-01\n",
           "signed": true
         },
         {
-          "sha": "b18ab5146fb570a9c8aa8188cdd9e99b4e910547",
-          "tree": "c0c8f478b6cc48576c77088675a7a2c132acb245",
+          "sha": "721fb33ab2af873cce29a9bb86ab59db799457d1",
+          "tree": "cc650b74e6b9134deea2e560fa5092b4a374f59f",
           "parents": [
-            "dc30df091c7bc280b1bdb83cd09e011bf92d15d9"
+            "330ea6dee11d83c13d478566a4b9672a6f460e7c"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:01:00Z",
-          "message": "writ: update widget/widget-01\n",
+          "message": "writ: update acme.widget/widget-01\n",
           "signed": true
         },
         {
-          "sha": "2654ccf32e7b3f6ac431741abb88472aae55e335",
-          "tree": "2efe432ba4fcaaa125dca93e4b90d4dd44ade2f6",
+          "sha": "18197acc1243e4ed6b0a7a7fc2e7390be3cd7907",
+          "tree": "7857d1ccd5ee0685db72b95f758a3dbeebabfb71",
           "parents": [
-            "b18ab5146fb570a9c8aa8188cdd9e99b4e910547"
+            "721fb33ab2af873cce29a9bb86ab59db799457d1"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:02:00Z",
-          "message": "writ: update widget/widget-01\n",
+          "message": "writ: update acme.widget/widget-01\n",
           "signed": true
         },
         {
-          "sha": "f2d23cab46c9b1d345be9f0c75259c3c108f0830",
-          "tree": "ce0cb8c66355320f759a022e37bad9f9d09e8935",
+          "sha": "be0e602d33ec8c27b234b1432fe5bc4e53e5c07f",
+          "tree": "c3ba8e838083994a61143d320e62c4c8e21fce3b",
           "parents": [
-            "2654ccf32e7b3f6ac431741abb88472aae55e335"
+            "18197acc1243e4ed6b0a7a7fc2e7390be3cd7907"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:03:00Z",
-          "message": "writ: update widget/widget-01\n",
+          "message": "writ: update acme.widget/widget-01\n",
           "signed": false
         }
       ]

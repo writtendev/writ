@@ -56,7 +56,7 @@ func TestObjectsCreateApplyGetRoundTrip_NeverHeardOfType(t *testing.T) {
 
 	// Create: objectType and op.Type both come from the schema; Version 0
 	// resolves to the type's one declared "mark" version.
-	id, err := store.Objects.Create(ctx, "waypoint", writ.NewOp{
+	id, err := store.Objects.Create(ctx, "acme.waypoint", writ.NewOp{
 		Type: "mark",
 		Fields: map[string]any{
 			"title": "Basecamp",
@@ -88,8 +88,8 @@ func TestObjectsCreateApplyGetRoundTrip_NeverHeardOfType(t *testing.T) {
 	if obj.ObjectID != id {
 		t.Errorf("ObjectID = %q, want %q", obj.ObjectID, id)
 	}
-	if obj.ObjectType != "waypoint" {
-		t.Errorf("ObjectType = %q, want %q", obj.ObjectType, "waypoint")
+	if obj.ObjectType != "acme.waypoint" {
+		t.Errorf("ObjectType = %q, want %q", obj.ObjectType, "acme.waypoint")
 	}
 	if obj.Fields["title"] != "Basecamp" {
 		t.Errorf("Fields[title] = %v, want Basecamp", obj.Fields["title"])
@@ -111,14 +111,14 @@ func TestObjectsCreateApplyGetRoundTrip_NeverHeardOfType(t *testing.T) {
 	// Query.Objects finds it by type and by full-text search over the
 	// generic, descriptor-driven Text clause (engine/projection/query.go).
 	results, err := store.Query.Objects(writ.ObjectFilter{
-		Type: []string{"waypoint"},
+		Type: []string{"acme.waypoint"},
 		Text: "Basecamp",
 	})
 	if err != nil {
 		t.Fatalf("Query.Objects failed: %v", err)
 	}
 	if len(results) != 1 || results[0].ObjectID != id {
-		t.Fatalf("Query.Objects(Type: waypoint, Text: Basecamp) = %+v, want [%s]", results, id)
+		t.Fatalf("Query.Objects(Type: acme.waypoint, Text: Basecamp) = %+v, want [%s]", results, id)
 	}
 }
 
@@ -139,7 +139,7 @@ func TestObjectsGet_FieldsSurviveRebuildAndCacheDeletion(t *testing.T) {
 
 	applyCoreSchema(t, ctx, store)
 
-	id, err := store.Objects.Create(ctx, "widget", writ.NewOp{
+	id, err := store.Objects.Create(ctx, "acme.widget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Cache independence"},
 	})
@@ -219,7 +219,7 @@ type widgetv {
 		t.Fatalf("ApplySchema failed: %v", err)
 	}
 
-	if _, err := store.Objects.Create(ctx, "widgetv", writ.NewOp{
+	if _, err := store.Objects.Create(ctx, "acme.widgetv", writ.NewOp{
 		Type:   "make",
 		Fields: map[string]any{"title": "ambiguous"},
 	}); err == nil {
@@ -228,7 +228,7 @@ type widgetv {
 		t.Fatalf("Objects.Create with an ambiguous op version: error %q does not name the fix", err.Error())
 	}
 
-	id, err := store.Objects.Create(ctx, "widgetv", writ.NewOp{
+	id, err := store.Objects.Create(ctx, "acme.widgetv", writ.NewOp{
 		Type:    "make",
 		Version: 2,
 		Fields:  map[string]any{"title": "explicit version"},
@@ -253,7 +253,7 @@ type widgetv {
 func TestObjectsApply_TargetKeyDiffersFromWriteField(t *testing.T) {
 	store, ctx, _ := openStoreWithCoreSchema(t)
 
-	id, err := store.Objects.Create(ctx, "widget", writ.NewOp{
+	id, err := store.Objects.Create(ctx, "acme.widget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Target key example"},
 	})
@@ -340,8 +340,8 @@ func TestObjectsCreate_DeclaredTypeWithNoFieldsIsCreatable(t *testing.T) {
 
 	schemaEnvs := []codec.Envelope{
 		schemaEnv(t, "sch-widget", "create", map[string]any{"namespace": "acme"}),
-		schemaEnv(t, "sch-widget", "define-type", map[string]any{"type": "widget"}),
-		schemaEnv(t, "sch-widget", "define-op", map[string]any{"type": "widget", "op_type": "create", "op_version": "1"}),
+		schemaEnv(t, "sch-widget", "define-type", map[string]any{"type": "acme.widget"}),
+		schemaEnv(t, "sch-widget", "define-op", map[string]any{"type": "acme.widget", "op_type": "create", "op_version": "1"}),
 	}
 	if err := store.ApplySchema(ctx, schemaEnvs); err != nil {
 		t.Fatalf("ApplySchema failed: %v", err)
@@ -353,18 +353,18 @@ func TestObjectsCreate_DeclaredTypeWithNoFieldsIsCreatable(t *testing.T) {
 	}
 	var widget *writ.SchemaType
 	for i := range types {
-		if types[i].Name == "widget" {
+		if types[i].Name == "acme.widget" {
 			widget = &types[i]
 		}
 	}
 	if widget == nil {
-		t.Fatalf("Store.Types does not list define-op-only type %q at all: %+v", "widget", types)
+		t.Fatalf("Store.Types does not list define-op-only type %q at all: %+v", "acme.widget", types)
 	}
 	if len(widget.Ops) != 1 || widget.Ops[0].OpType != "create" || widget.Ops[0].OpVersion != 1 {
 		t.Fatalf("widget.Ops = %+v, want exactly [{OpType: create, OpVersion: 1}]", widget.Ops)
 	}
 
-	id, err := store.Objects.Create(ctx, "widget", writ.NewOp{Type: "create"})
+	id, err := store.Objects.Create(ctx, "acme.widget", writ.NewOp{Type: "create"})
 	if err != nil {
 		t.Fatalf("Objects.Create on a define-op-only declared type: %v", err)
 	}
@@ -382,7 +382,7 @@ func TestObjectsCreate_DeclaredTypeWithNoFieldsIsCreatable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Objects.Get failed: %v", err)
 	}
-	if obj.ObjectType != "widget" {
-		t.Errorf("ObjectType = %q, want %q", obj.ObjectType, "widget")
+	if obj.ObjectType != "acme.widget" {
+		t.Errorf("ObjectType = %q, want %q", obj.ObjectType, "acme.widget")
 	}
 }

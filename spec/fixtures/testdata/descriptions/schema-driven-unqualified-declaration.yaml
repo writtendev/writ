@@ -1,0 +1,220 @@
+name: schema-driven-unqualified-declaration
+description: >
+  One schema object, namespace "acme", declares four types: one correctly
+  qualified ("acme.gadget", a control) and three that are not — bare
+  ("standup"), qualified under a different namespace ("bigco.retro"), and
+  carrying more than one dot ("acme.foo.bar"). spec/schema-ops.md §6.3 is
+  the fourth conflict kind (WRIT-217): a declared type whose name does not
+  carry its own schema object's namespace as its prefix is dropped and
+  reported, never installed, exactly like an invalid field rule (§9) --
+  the difference is what is being validated (the type name itself) and
+  where the check lives (a property of the declaration, not per-field).
+  This is a resolver rule, not a grammar one: the "type" field a
+  define-type/define-field body carries is JSON-schema-validated against
+  the same pattern object_type itself uses (schemas/schema-ops.schema.json's
+  type_name), so a well-behaved producer's own tooling already refuses to
+  emit any of these three shapes -- but nothing stops a hand-crafted op
+  from reaching the log anyway (the whole reason §2 calls this "a
+  hand-crafted define-type"), and once such an op is folded into schema
+  state, only RulesFromSchemas's namespace check
+  (TypeIsQualifiedForNamespace) stands between it and installation. This
+  fixture constructs that folded state directly, bypassing schema
+  validation exactly as a non-conforming producer would, to pin the
+  resolver's own defense: none of the three bad types gets any rule
+  installed. "standup" and "bigco.retro" are each independently valid
+  object_type shapes on their own (bare, and single-dot), so a real
+  object created under either demonstrates the consequence end to end: no
+  installed rule means every op falls through the absent-schema path to
+  UnknownOp, exactly as if no schema had ever declared it. "acme.foo.bar"
+  has no such demonstration here: two dots makes it invalid as a real
+  wire object_type in its own right (spec/op-envelope.md), so no
+  conforming op could ever carry it as an outer object_type at all --
+  its only reachable form is the declaration this fixture pins, which
+  RulesFromSchemas drops and reports the same as the other two.
+  acme.gadget's own ops fold normally throughout, unaffected by any of
+  the three. (pins: reader)
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: define-type-gadget
+            parents: [create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "acme.gadget"
+            expect: accept
+
+          - id: define-field-gadget
+            parents: [define-type-gadget]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.gadget"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: define-type-bare
+            parents: [define-field-gadget]
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "standup"
+            expect: accept
+
+          - id: define-field-bare
+            parents: [define-type-bare]
+            author: alice
+            timestamp: 2026-01-01T00:04:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "standup"
+                op_type: "create"
+                op_version: "1"
+                field: "summary"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: define-type-foreign
+            parents: [define-field-bare]
+            author: alice
+            timestamp: 2026-01-01T00:05:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "bigco.retro"
+            expect: accept
+
+          - id: define-field-foreign
+            parents: [define-type-foreign]
+            author: alice
+            timestamp: 2026-01-01T00:06:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "bigco.retro"
+                op_type: "create"
+                op_version: "1"
+                field: "notes"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: define-type-multidot
+            parents: [define-field-foreign]
+            author: alice
+            timestamp: 2026-01-01T00:07:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "acme.foo.bar"
+            expect: accept
+
+          - id: define-field-multidot
+            parents: [define-type-multidot]
+            author: alice
+            timestamp: 2026-01-01T00:08:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.foo.bar"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/gadget
+    history:
+      - commits:
+          - id: gadget-create
+            author: alice
+            timestamp: 2026-01-01T00:09:00Z
+            op:
+              object_id: gadget-1
+              object_type: acme.gadget
+              op_type: create
+              op_version: 1
+              body:
+                title: "Widget"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/standup
+    history:
+      - commits:
+          - id: standup-create
+            author: alice
+            timestamp: 2026-01-01T00:10:00Z
+            op:
+              object_id: standup-1
+              object_type: standup
+              op_type: create
+              op_version: 1
+              body:
+                summary: "Daily sync"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/retro
+    history:
+      - commits:
+          - id: retro-create
+            author: alice
+            timestamp: 2026-01-01T00:11:00Z
+            op:
+              object_id: retro-1
+              object_type: bigco.retro
+              op_type: create
+              op_version: 1
+              body:
+                notes: "Went well"
+            expect: accept

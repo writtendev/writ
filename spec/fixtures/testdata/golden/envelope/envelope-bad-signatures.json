@@ -2,7 +2,7 @@
   "ops": [
     {
       "ref": "refs/writ/alice/widget",
-      "commit": "dc30df091c7bc280b1bdb83cd09e011bf92d15d9",
+      "commit": "330ea6dee11d83c13d478566a4b9672a6f460e7c",
       "parents": [],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -11,11 +11,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "363f590321c720da9db0abed7b54908cbd81c703"
+          "sha": "638c620c0f9148205d99481bb7a87e4acd693909"
         }
       ],
-      "payload": "{\"body\":{\"title\":\"Signed with Bob's key instead of Alice's\"},\"object_id\":\"widget-01\",\"object_type\":\"widget\",\"op_type\":\"create\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{\"title\":\"Signed with Bob's key instead of Alice's\"},\"object_id\":\"widget-01\",\"object_type\":\"widget\",\"op_type\":\"create\",\"op_version\":1}",
+      "payload": "{\"body\":{\"title\":\"Signed with Bob's key instead of Alice's\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"create\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"title\":\"Signed with Bob's key instead of Alice's\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"create\",\"op_version\":1}",
       "signed": true,
       "signature_key_fingerprint": "SHA256:O/tazBDLdOtpewVOG55l3W8ZJOSCXXSbkFws9gBOhYc",
       "verification_outcome": "wrong-key",
@@ -30,9 +30,9 @@
     },
     {
       "ref": "refs/writ/alice/widget",
-      "commit": "b18ab5146fb570a9c8aa8188cdd9e99b4e910547",
+      "commit": "721fb33ab2af873cce29a9bb86ab59db799457d1",
       "parents": [
-        "dc30df091c7bc280b1bdb83cd09e011bf92d15d9"
+        "330ea6dee11d83c13d478566a4b9672a6f460e7c"
       ],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -41,11 +41,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "4c9511f90fc5492726b53dccdf4e4a9e535b5ecc"
+          "sha": "08572ef7c24e62dbb18259b7aa346f314cf2179a"
         }
       ],
-      "payload": "{\"body\":{\"title\":\"Bayload mutated after signing\"},\"object_id\":\"widget-01\",\"object_type\":\"widget\",\"op_type\":\"update\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{\"title\":\"Bayload mutated after signing\"},\"object_id\":\"widget-01\",\"object_type\":\"widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "payload": "{\"body\":{\"title\":\"Bayload mutated after signing\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"title\":\"Bayload mutated after signing\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"update\",\"op_version\":1}",
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "payload-mutated",
@@ -60,9 +60,9 @@
     },
     {
       "ref": "refs/writ/alice/widget",
-      "commit": "2654ccf32e7b3f6ac431741abb88472aae55e335",
+      "commit": "18197acc1243e4ed6b0a7a7fc2e7390be3cd7907",
       "parents": [
-        "b18ab5146fb570a9c8aa8188cdd9e99b4e910547"
+        "721fb33ab2af873cce29a9bb86ab59db799457d1"
       ],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -71,11 +71,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "3ad90b892217b259f642975a26ec6ff7ef82b52d"
+          "sha": "f5fd2d24820ebe7a5fc3734a36eb638d24ab9b9c"
         }
       ],
-      "payload": "{\"body\":{\"title\":\"Corrupted armor signature\"},\"object_id\":\"widget-01\",\"object_type\":\"widget\",\"op_type\":\"update\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{\"title\":\"Corrupted armor signature\"},\"object_id\":\"widget-01\",\"object_type\":\"widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "payload": "{\"body\":{\"title\":\"Corrupted armor signature\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"title\":\"Corrupted armor signature\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"update\",\"op_version\":1}",
       "signed": true,
       "verification_outcome": "corrupted-signature",
       "expected": {
@@ -89,9 +89,9 @@
     },
     {
       "ref": "refs/writ/alice/widget",
-      "commit": "f2d23cab46c9b1d345be9f0c75259c3c108f0830",
+      "commit": "be0e602d33ec8c27b234b1432fe5bc4e53e5c07f",
       "parents": [
-        "2654ccf32e7b3f6ac431741abb88472aae55e335"
+        "18197acc1243e4ed6b0a7a7fc2e7390be3cd7907"
       ],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -100,11 +100,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "d2d1b88abb73d9ad84198e16d6838c09f8fb39bb"
+          "sha": "7479105e8d0f23f26f48899ecc6238b5fcc526b4"
         }
       ],
-      "payload": "{\"body\":{\"title\":\"Unsigned commit\"},\"object_id\":\"widget-01\",\"object_type\":\"widget\",\"op_type\":\"update\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{\"title\":\"Unsigned commit\"},\"object_id\":\"widget-01\",\"object_type\":\"widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "payload": "{\"body\":{\"title\":\"Unsigned commit\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"title\":\"Unsigned commit\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"update\",\"op_version\":1}",
       "signed": false,
       "verification_outcome": "unsigned",
       "expected": {

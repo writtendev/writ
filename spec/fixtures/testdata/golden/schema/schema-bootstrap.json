@@ -8,7 +8,7 @@
         "description": "Acme's SDLC vocabulary",
         "types": [
           {
-            "type": "widget",
+            "type": "acme.widget",
             "description": "A daily widget",
             "fields": [
               {

@@ -1,0 +1,7 @@
+namespace acme
+
+type lock {
+  op create 1 {
+    a  string  lww
+  }
+}

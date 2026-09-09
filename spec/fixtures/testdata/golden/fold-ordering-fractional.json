@@ -2,15 +2,15 @@
   "refs": [
     {
       "name": "refs/writ/0123456789abcdef/schema",
-      "commit": "85d7804b131abfd5f11524a8a313294f8cc607ed"
+      "commit": "8486b4bb3b86203397f3cfb356c1840ae2fe19ab"
     },
     {
       "name": "refs/writ/0123456789abcdef/widget",
-      "commit": "7ce5346a8dee879825acc881d6b37ec7f2b0ec5f"
+      "commit": "4489ec5188e7fba8b67f5e29f4a57cce8cfbf55b"
     },
     {
       "name": "refs/writ/fedcba9876543210/widget",
-      "commit": "eb04a600c9da92ee025882dab2a1f6959eeaa89b"
+      "commit": "4e56530d024e41954ee76586204971adffaff2c5"
     }
   ],
   "generations": [
@@ -28,8 +28,8 @@
           "signed": true
         },
         {
-          "sha": "4becfd27f09972baaed6aebbac25e5edf0c1815d",
-          "tree": "28a4ca0269db83c9aeae44f12626f410b2f92f0d",
+          "sha": "d2d4bf47dccd80491cdecacab391d6840646c5a2",
+          "tree": "0d000adf9aa15b74b58f8785776daae39b83c5d1",
           "parents": [
             "7e7b98e49daea722263a972a87eb6425554eec85"
           ],
@@ -39,10 +39,10 @@
           "signed": true
         },
         {
-          "sha": "05be825287833aba9cdfcda59c2236dba06fbebd",
-          "tree": "0214859faf2e21c1f122efc6992f7ce7fbc68b50",
+          "sha": "49837d590b1e97b7cc66499561dcd029d0d7497f",
+          "tree": "4b3dd44001ababb8d1af928d34aed78dc9f8a55b",
           "parents": [
-            "4becfd27f09972baaed6aebbac25e5edf0c1815d"
+            "d2d4bf47dccd80491cdecacab391d6840646c5a2"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2025-12-01T00:02:00Z",
@@ -50,10 +50,10 @@
           "signed": true
         },
         {
-          "sha": "85d7804b131abfd5f11524a8a313294f8cc607ed",
-          "tree": "703cbbeebc25cabddf8636b313edb4f714d1972e",
+          "sha": "8486b4bb3b86203397f3cfb356c1840ae2fe19ab",
+          "tree": "ccdf76ae70cfc132f932ecb06da4256540eebcf6",
           "parents": [
-            "05be825287833aba9cdfcda59c2236dba06fbebd"
+            "49837d590b1e97b7cc66499561dcd029d0d7497f"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2025-12-01T00:03:00Z",
@@ -67,23 +67,23 @@
       "index": 0,
       "commits": [
         {
-          "sha": "b0a7ba33a525f7a555828dc81c21920bec5f3cf2",
-          "tree": "51ee7d580e49511aa102e6343b25730c79dc0f81",
+          "sha": "86dfb724ac96d853ca4884a33d03b2d417effb10",
+          "tree": "00edc1099a4e41c9f1d781983d2dabec70d955f6",
           "parents": [],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:00:00Z",
-          "message": "writ: create widget/w-fractional-order\n",
+          "message": "writ: create acme.widget/w-fractional-order\n",
           "signed": true
         },
         {
-          "sha": "7ce5346a8dee879825acc881d6b37ec7f2b0ec5f",
-          "tree": "8ed5aa68d236355eec28112a13679aea4e287653",
+          "sha": "4489ec5188e7fba8b67f5e29f4a57cce8cfbf55b",
+          "tree": "4d04962ee1f960ce538beafdda00c2769710f2fc",
           "parents": [
-            "b0a7ba33a525f7a555828dc81c21920bec5f3cf2"
+            "86dfb724ac96d853ca4884a33d03b2d417effb10"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:01:00Z",
-          "message": "writ: update widget/w-fractional-order\n",
+          "message": "writ: update acme.widget/w-fractional-order\n",
           "signed": true
         }
       ]
@@ -93,14 +93,14 @@
       "index": 0,
       "commits": [
         {
-          "sha": "eb04a600c9da92ee025882dab2a1f6959eeaa89b",
-          "tree": "b4fc04611bcd9c551f6247a0242b9b6c50635903",
+          "sha": "4e56530d024e41954ee76586204971adffaff2c5",
+          "tree": "a755bbb88924ac1d8bf3e68455512e41c36319db",
           "parents": [
-            "b0a7ba33a525f7a555828dc81c21920bec5f3cf2"
+            "86dfb724ac96d853ca4884a33d03b2d417effb10"
           ],
           "author": "Bob Example \u003cbob@example.test\u003e",
           "timestamp": "2026-01-01T00:01:00Z",
-          "message": "writ: update widget/w-fractional-order\n",
+          "message": "writ: update acme.widget/w-fractional-order\n",
           "signed": true
         }
       ]

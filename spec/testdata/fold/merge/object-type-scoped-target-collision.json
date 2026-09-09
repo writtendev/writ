@@ -1,6 +1,6 @@
 {
   "name": "object-type-scoped-target-collision",
-  "description": "Two rules from different object types share an op_type, field, and target — the shape any two schema-declared object types produce the moment they name the same target, collapsed here onto a single op_type 'tag' so a normalizing and a non-normalizing value_type visibly disagree. object_type 'beta' declares 'add' as a person-ref (normalizing) OR-set; unrelated object_type 'alpha' declares the identical op_type/field/target as a plain string (non-normalizing) OR-set. The single op folded here is an 'alpha' object, so only the 'alpha' rule may govern it (spec/fold.md §5's object-type scoping) — the 'beta' rule must never match, however its target or op_type happen to line up. If object-type scoping is dropped from opMatchesRule, the 'beta' rule matches too: the engine's break-after-first-match dispatch normalizes the item and drops it into a single-item set with the wrong value, while the reference fold's un-broken per-op loop applies both rules and produces a two-item set — either way, a mismatch against expected_state.",
+  "description": "Two rules from different object types share an op_type, field, and target — the shape any two schema-declared object types produce the moment they name the same target, collapsed here onto a single op_type 'tag' so a normalizing and a non-normalizing value_type visibly disagree. object_type 'acme.beta' declares 'add' as a person-ref (normalizing) OR-set; unrelated object_type 'acme.alpha' declares the identical op_type/field/target as a plain string (non-normalizing) OR-set. The single op folded here is an 'acme.alpha' object, so only the 'acme.alpha' rule may govern it (spec/fold.md §5's object-type scoping) — the 'acme.beta' rule must never match, however its target or op_type happen to line up. If object-type scoping is dropped from opMatchesRule, the 'acme.beta' rule matches too: the engine's break-after-first-match dispatch normalizes the item and drops it into a single-item set with the wrong value, while the reference fold's un-broken per-op loop applies both rules and produces a two-item set — either way, a mismatch against expected_state.",
   "object_id": "obj-1",
   "fields": {
     "cross_type_conflicting": {
@@ -9,7 +9,7 @@
       "target": "items",
       "op_type": "tag",
       "value_type": "person-ref",
-      "object_type": "beta"
+      "object_type": "acme.beta"
     },
     "same_type_correct": {
       "strategy": "set-observed-remove",
@@ -17,7 +17,7 @@
       "target": "items",
       "op_type": "tag",
       "value_type": "string",
-      "object_type": "alpha"
+      "object_type": "acme.alpha"
     }
   },
   "ops": [
@@ -26,7 +26,7 @@
       "parents": [],
       "time": 100,
       "object_id": "obj-1",
-      "object_type": "alpha",
+      "object_type": "acme.alpha",
       "op_type": "tag",
       "body": {
         "add": ["  Foo Bar  "]

@@ -127,16 +127,33 @@ content addressing never depend on encoder quirks.
   opaque id.
 - `object_type` (string, required) — the object's type. `schema` is the
   one type this specification defines
-  ([`spec/schema-ops.md`](schema-ops.md)); every other value — `widget`,
-  `gadget`, whatever a consumer's schema declares — is data a `schema`
-  object writes into the log, not a name this document knows. Lowercase
-  `^[a-z][a-z0-9-]*$`, at most 64 characters. Deliberately not a closed
-  enum — see forward compatibility below.
+  ([`spec/schema-ops.md`](schema-ops.md)); every other value — `acme.widget`,
+  `bigco.gadget`, whatever a consumer's schema declares — is data a
+  `schema` object writes into the log, not a name this document knows.
+  Namespace-qualified as `<namespace>.<type>` (`spec/schema-ops.md` §2):
+  `^[a-z][a-z0-9-]{0,63}(\.[a-z][a-z0-9-]{0,63})?$`, at most 129
+  characters (64 per segment, plus the separating dot) — the optional
+  second segment is what lets two independently authored schemas each
+  declare a type of the same bare name without contending for one wire
+  `object_type`. `schema` itself is exempt: it has no namespace of its
+  own, so it is the one value this grammar admits bare. This layer only
+  admits the grammar and enforces nothing about which shape a given
+  value must take; whether a non-`schema` `object_type` is required to
+  be qualified is a schema-layer rule (`spec/schema-ops.md` §2) this
+  envelope layer deliberately does not know or enforce. Deliberately not
+  a closed enum — see forward compatibility below. A trailing segment of
+  `lock` is grammar-legal here but unwritable as a chain — git rejects
+  any ref path component ending in `.lock`; see
+  [`spec/ref-layout.md`](ref-layout.md) §4.
 - `op_type` (string, required) — the operation's type within its object
-  type's vocabulary (e.g. `create`). Same lexical form as `object_type`.
-  Which op types an `object_type` has is declared by the `schema` object
-  governing it ([`spec/schema-ops.md`](schema-ops.md) §4.2), except for
-  `schema` itself, whose op vocabulary that document fixes.
+  type's vocabulary (e.g. `create`). Lowercase `^[a-z][a-z0-9-]*$`, at
+  most 64 characters — unlike `object_type`, `op_type` is never
+  namespace-qualified: op types live inside a declaring type's own
+  vocabulary and were never globally contended, so qualifying them would
+  be scope growth with no collision to close. Which op types an
+  `object_type` has is declared by the `schema` object governing it
+  ([`spec/schema-ops.md`](schema-ops.md) §4.2), except for `schema`
+  itself, whose op vocabulary that document fixes.
 - `op_version` (integer, required) — schema version of this op type's
   body, starting at 1. A small JSON integer; it MUST be ≥ 1 and ≤ 2⁵³−1
   so it is always exactly representable as a double. Any field that
@@ -320,7 +337,7 @@ description; this is the producer-side consequence of it):
    `object_type` and it is not contested (see tier 3) — the log-sourced
    declaration, and only it.
 3. Otherwise, `object_type` is **contested** — two or more `schema`
-   objects in the log bind the same bare `object_type`
+   objects in the log bind the same (namespace-qualified) `object_type`
    ([`spec/schema-ops.md`](schema-ops.md) §6) — the write is **permitted,
    unvalidated**. Nothing is ever removed from the log, so a contested
    `object_type` is contested *forever*: there is no step that resolves

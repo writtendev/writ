@@ -19,14 +19,14 @@ func TestReadStateLifecycle(t *testing.T) {
 	}
 
 	// 1. Create two widgets
-	w1, err := store.Objects.Create(ctx, "widget", writ.NewOp{
+	w1, err := store.Objects.Create(ctx, "acme.widget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Widget One"},
 	})
 	if err != nil {
 		t.Fatalf("Create w1 failed: %v", err)
 	}
-	w2, err := store.Objects.Create(ctx, "widget", writ.NewOp{
+	w2, err := store.Objects.Create(ctx, "acme.widget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Widget Two"},
 	})

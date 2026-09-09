@@ -30,7 +30,7 @@ func TestWatchLocalWritesEmit(t *testing.T) {
 	events := store.Watch(ctx)
 
 	// 1. Create widget, then push a revision (appends create + revision)
-	widgetID, err := store.Objects.Create(ctx, "widget", writ.NewOp{
+	widgetID, err := store.Objects.Create(ctx, "acme.widget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Add Authentication"},
 	})
@@ -52,7 +52,7 @@ func TestWatchLocalWritesEmit(t *testing.T) {
 		if ev.Kind != writ.EventCreated {
 			t.Errorf("expected EventCreated, got %q", ev.Kind)
 		}
-		if ev.ObjectType != "widget" {
+		if ev.ObjectType != "acme.widget" {
 			t.Errorf("expected ObjectType 'widget', got %q", ev.ObjectType)
 		}
 		if ev.ObjectID != widgetID {
@@ -84,11 +84,11 @@ func TestWatchLocalWritesEmit(t *testing.T) {
 	}
 
 	// 2. Add a note against the widget (appends a create op for the note)
-	noteID, err := store.Objects.Create(ctx, "note", writ.NewOp{
+	noteID, err := store.Objects.Create(ctx, "acme.note", writ.NewOp{
 		Type: "create",
 		Fields: map[string]any{
 			"text":    "Please check auth header format",
-			"subject": map[string]string{"object_type": "widget", "object_id": widgetID},
+			"subject": map[string]string{"object_type": "acme.widget", "object_id": widgetID},
 		},
 	})
 	if err != nil {
@@ -100,7 +100,7 @@ func TestWatchLocalWritesEmit(t *testing.T) {
 		if ev.Kind != writ.EventCreated {
 			t.Errorf("expected EventCreated, got %q", ev.Kind)
 		}
-		if ev.ObjectType != "note" {
+		if ev.ObjectType != "acme.note" {
 			t.Errorf("expected ObjectType 'note', got %q", ev.ObjectType)
 		}
 		if ev.ObjectID != noteID {
@@ -128,7 +128,7 @@ func TestWatchLocalWritesEmit(t *testing.T) {
 		if ev.Kind != writ.EventChanged {
 			t.Errorf("expected EventChanged, got %q", ev.Kind)
 		}
-		if ev.ObjectType != "widget" {
+		if ev.ObjectType != "acme.widget" {
 			t.Errorf("expected ObjectType 'widget', got %q", ev.ObjectType)
 		}
 		if ev.ObjectID != widgetID {
@@ -168,7 +168,7 @@ func TestWatchPostFetchRefoldsEmit(t *testing.T) {
 	}
 
 	// Alice creates a widget and syncs to origin
-	widgetID, err := sA.Objects.Create(ctx, "widget", writ.NewOp{
+	widgetID, err := sA.Objects.Create(ctx, "acme.widget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Alice's Widget"},
 	})
@@ -197,7 +197,7 @@ func TestWatchPostFetchRefoldsEmit(t *testing.T) {
 		if ev.ObjectID != widgetID {
 			t.Errorf("expected ObjectID %q, got %q", widgetID, ev.ObjectID)
 		}
-		if ev.ObjectType != "widget" {
+		if ev.ObjectType != "acme.widget" {
 			t.Errorf("expected ObjectType 'widget', got %q", ev.ObjectType)
 		}
 	case <-time.After(3 * time.Second):
@@ -222,7 +222,7 @@ func TestWatchNothingMissedAfterSubscribe(t *testing.T) {
 	const n = 10
 	var createdIDs []string
 	for i := 0; i < n; i++ {
-		id, err := store.Objects.Create(ctx, "gadget", writ.NewOp{
+		id, err := store.Objects.Create(ctx, "acme.gadget", writ.NewOp{
 			Type:   "create",
 			Fields: map[string]any{"title": fmt.Sprintf("Gadget %d", i)},
 		})
@@ -284,7 +284,7 @@ func TestWatchConcurrentSubscribeAndRefreshRace(t *testing.T) {
 	wg.Wait()
 
 	// Subsequent write must be delivered to all subscribers
-	id, err := store.Objects.Create(ctx, "gadget", writ.NewOp{
+	id, err := store.Objects.Create(ctx, "acme.gadget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Raced Gadget"},
 	})
@@ -318,7 +318,7 @@ func TestWatchEventPrecedesVisibility(t *testing.T) {
 
 	events := store.Watch(ctx)
 
-	id, err := store.Objects.Create(ctx, "widget", writ.NewOp{
+	id, err := store.Objects.Create(ctx, "acme.widget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Visibility Test Widget"},
 	})
@@ -375,7 +375,7 @@ func TestWatchSlowConsumerOverflowAndReset(t *testing.T) {
 	// Write 128 + 50 = 178 gadgets
 	const totalWrites = 178
 	for i := 0; i < totalWrites; i++ {
-		_, err := store.Objects.Create(ctx, "gadget", writ.NewOp{
+		_, err := store.Objects.Create(ctx, "acme.gadget", writ.NewOp{
 			Type:   "create",
 			Fields: map[string]any{"title": fmt.Sprintf("Overflow Gadget %d", i)},
 		})
@@ -385,7 +385,7 @@ func TestWatchSlowConsumerOverflowAndReset(t *testing.T) {
 	}
 
 	// Projection is intact and query succeeds
-	gadgets, err := store.Query.Objects(writ.ObjectFilter{Type: []string{"gadget"}})
+	gadgets, err := store.Query.Objects(writ.ObjectFilter{Type: []string{"acme.gadget"}})
 	if err != nil {
 		t.Fatalf("Query.Objects(gadget) failed: %v", err)
 	}
@@ -401,7 +401,7 @@ func TestWatchSlowConsumerOverflowAndReset(t *testing.T) {
 	}
 
 	// Perform another write so emit sees available buffer capacity and delivers reset
-	_, err = store.Objects.Create(ctx, "gadget", writ.NewOp{
+	_, err = store.Objects.Create(ctx, "acme.gadget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Post-overflow Gadget"},
 	})
@@ -444,7 +444,7 @@ func TestWatchRebuildEmitsReset(t *testing.T) {
 	applyCoreSchema(t, ctx, store)
 
 	// Create an initial widget
-	_, err = store.Objects.Create(ctx, "widget", writ.NewOp{
+	_, err = store.Objects.Create(ctx, "acme.widget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Rebuild Widget"},
 	})
@@ -470,7 +470,7 @@ func TestWatchRebuildEmitsReset(t *testing.T) {
 	}
 
 	// Chain deletion triggers rebuild on Refresh
-	cmd := exec.Command("git", "update-ref", "-d", "refs/writ/0123456789abcdef/widget")
+	cmd := exec.Command("git", "update-ref", "-d", "refs/writ/0123456789abcdef/acme.widget")
 	cmd.Dir = repoDir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("delete ref failed: %v, out: %s", err, string(out))
@@ -518,7 +518,7 @@ func TestWatchLifecycle(t *testing.T) {
 	}
 
 	// Further writes succeed without panicking
-	_, err = store.Objects.Create(ctx, "gadget", writ.NewOp{
+	_, err = store.Objects.Create(ctx, "acme.gadget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Post-cancel Gadget"},
 	})
@@ -584,7 +584,7 @@ func TestWatchWithoutAutoRefresh(t *testing.T) {
 	events := store.Watch(ctx)
 
 	// Write without auto-refresh produces no event immediately
-	widgetID, err := store.Objects.Create(ctx, "widget", writ.NewOp{
+	widgetID, err := store.Objects.Create(ctx, "acme.widget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Manual Refresh Widget"},
 	})

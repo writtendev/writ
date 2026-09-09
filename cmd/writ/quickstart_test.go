@@ -13,7 +13,7 @@ import (
 
 // quickstartTestSchema is the writ.schema this test writes and applies,
 // mirroring docs/quickstart.md's own first step: a schema-authoring
-// tutorial before an object one. "ticket" is the neutral example type
+// tutorial before an object one. "quickstart.ticket" is the neutral example type
 // AGENTS.md and spec/schema-source.md use — writ names no downstream
 // product.
 const quickstartTestSchema = `namespace quickstart
@@ -63,7 +63,7 @@ func TestQuickstart(t *testing.T) {
 	stdout.Reset()
 	stderr.Reset()
 	code = run(ctx, []string{
-		"object", "create", "-C", aliceDir, "ticket", "create",
+		"object", "create", "-C", aliceDir, "quickstart.ticket", "create",
 		"-field", "title=Add main entry point",
 	}, &stdout, &stderr)
 	if code != 0 {
@@ -135,7 +135,7 @@ func TestQuickstart(t *testing.T) {
 	// Collaborator lists tickets
 	stdout.Reset()
 	stderr.Reset()
-	code = run(ctx, []string{"object", "list", "-C", bobDir, "ticket"}, &stdout, &stderr)
+	code = run(ctx, []string{"object", "list", "-C", bobDir, "quickstart.ticket"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("bob object list failed with %d; stderr: %s", code, stderr.String())
 	}

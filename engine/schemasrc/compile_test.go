@@ -65,8 +65,8 @@ type widget {
 	if len(conflicts) != 0 {
 		t.Fatalf("unexpected conflicts: %+v", conflicts)
 	}
-	if _, ok := rules["widget"]; !ok {
-		t.Fatalf("expected rules installed for object_type %q, got %v", "widget", rules)
+	if _, ok := rules["acme.widget"]; !ok {
+		t.Fatalf("expected rules installed for object_type %q, got %v", "acme.widget", rules)
 	}
 }
 

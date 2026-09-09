@@ -8,7 +8,7 @@
         "description": "Acme's vocabulary",
         "types": [
           {
-            "type": "gadget",
+            "type": "acme.gadget",
             "description": "A small gadget",
             "fields": [
               {
@@ -21,7 +21,7 @@
             ]
           },
           {
-            "type": "widget",
+            "type": "acme.widget",
             "description": "A daily widget",
             "fields": [
               {

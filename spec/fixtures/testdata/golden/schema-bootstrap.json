@@ -2,7 +2,7 @@
   "refs": [
     {
       "name": "refs/writ/0123456789abcdef/schema",
-      "commit": "977d44f1ed28b5b49a727b2d2f14021becc9f223"
+      "commit": "9ed49052bd4f7234a2ef7360d561ba35a2116733"
     }
   ],
   "generations": [
@@ -20,8 +20,8 @@
           "signed": true
         },
         {
-          "sha": "1f8cd361e958bb999729b00b29bc423764969ab9",
-          "tree": "0a9ce938b84dc4eebf5c421e75fadaabbe1525e1",
+          "sha": "4f7ed4b26f662e8a6fa619fec5aa6ba050acb58d",
+          "tree": "f4c0c798e9c02442a11d9f1079e1e06511d0b0d3",
           "parents": [
             "6d685c6dafc1407e871ed423b22147fbe4c7220c"
           ],
@@ -31,10 +31,10 @@
           "signed": true
         },
         {
-          "sha": "152c5cf17fec5a39039155f263484400733172dd",
-          "tree": "0214859faf2e21c1f122efc6992f7ce7fbc68b50",
+          "sha": "98a6145089e2fadb54491546fb969eecd126d897",
+          "tree": "4b3dd44001ababb8d1af928d34aed78dc9f8a55b",
           "parents": [
-            "1f8cd361e958bb999729b00b29bc423764969ab9"
+            "4f7ed4b26f662e8a6fa619fec5aa6ba050acb58d"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:02:00Z",
@@ -42,10 +42,10 @@
           "signed": true
         },
         {
-          "sha": "977d44f1ed28b5b49a727b2d2f14021becc9f223",
-          "tree": "1eea1fbfc20efe28a8822d8913d946999f79b5fc",
+          "sha": "9ed49052bd4f7234a2ef7360d561ba35a2116733",
+          "tree": "837ec565e5341bb4cbe43ce870c70e1515304324",
           "parents": [
-            "152c5cf17fec5a39039155f263484400733172dd"
+            "98a6145089e2fadb54491546fb969eecd126d897"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:03:00Z",

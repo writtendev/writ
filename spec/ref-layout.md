@@ -38,9 +38,18 @@ A conforming Writ ref MUST match the following structure:
    exactly 16 characters (`^[0-9a-f]{16}$`), representing 64 bits of
    cryptographic randomness. It MUST NOT contain uppercase characters,
    hyphens, slashes, or other non-hexadecimal characters.
-4. **Object type:** `<object-type>` MUST match `^[a-z][a-z0-9-]*$` with a
-   length of at least 1 and at most 64 characters. It MUST be byte-identical
-   to the `object_type` field of the ops stored on that chain.
+4. **Object type:** `<object-type>` MUST match
+   `^[a-z][a-z0-9-]{0,63}(\.[a-z][a-z0-9-]{0,63})?$` with a length of at
+   least 1 and at most 129 characters (64 per segment, plus the
+   separating dot for the namespace-qualified form,
+   `spec/op-envelope.md`). It MUST be byte-identical to the `object_type`
+   field of the ops stored on that chain. The final (or only) segment
+   MUST NOT be exactly `lock`: git rejects any slash-separated ref path
+   component ending in `.lock` outright, so an object type whose trailing
+   segment is `lock` — bare `lock`, or a qualified `<namespace>.lock` —
+   can never be written to a chain at all. A namespace of `lock` is
+   fine (`lock.thing` is a legal, ref-writable object type); the
+   exclusion is on the trailing segment only.
 
 Because the grammar disallows uppercase characters, two chains can never
 collide on case-insensitive filesystems (such as macOS and Windows default

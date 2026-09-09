@@ -2,11 +2,11 @@
   "refs": [
     {
       "name": "refs/writ/0123456789abcdef/schema",
-      "commit": "4d6ce34ebdbc2352cc1ff6ba39a89b29ad85890e"
+      "commit": "ae8794f2a5f25c7735ee9bea0e29426d7600033a"
     },
     {
       "name": "refs/writ/fedcba9876543210/schema",
-      "commit": "67b88bf880d0ffa13d489da8583c6a116e7766d3"
+      "commit": "1a2705d15dd87a255b8c357d76477c5999add155"
     }
   ],
   "generations": [
@@ -24,8 +24,8 @@
           "signed": true
         },
         {
-          "sha": "4d6ce34ebdbc2352cc1ff6ba39a89b29ad85890e",
-          "tree": "06ee0046b6f2336f018434517b37525e57a5c821",
+          "sha": "ae8794f2a5f25c7735ee9bea0e29426d7600033a",
+          "tree": "3cd94d9523b9a2105f1279d5ec4dc71f8d663b38",
           "parents": [
             "e757135a7ea39025ef0c9e671178087fde6ca133"
           ],
@@ -41,8 +41,8 @@
       "index": 0,
       "commits": [
         {
-          "sha": "67b88bf880d0ffa13d489da8583c6a116e7766d3",
-          "tree": "a5d68bf2df71338778bb3de768ab0ae30887af7b",
+          "sha": "1a2705d15dd87a255b8c357d76477c5999add155",
+          "tree": "978e00755c2fa0052dbb895437f013ca786d18a8",
           "parents": [],
           "author": "Bob Example \u003cbob@example.test\u003e",
           "timestamp": "2026-01-01T00:01:00Z",

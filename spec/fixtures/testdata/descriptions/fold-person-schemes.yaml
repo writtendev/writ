@@ -41,7 +41,7 @@ refs:
               op_type: define-type
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
             expect: accept
 
           - id: schema-define-title
@@ -54,7 +54,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
                 op_type: "create"
                 op_version: "1"
                 field: "title"
@@ -72,7 +72,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
                 op_type: "log"
                 op_version: "1"
                 field: "base"
@@ -90,7 +90,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
                 op_type: "log"
                 op_version: "1"
                 field: "head"
@@ -108,7 +108,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
                 op_type: "assign"
                 op_version: "1"
                 field: "add"
@@ -127,7 +127,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
                 op_type: "assign"
                 op_version: "1"
                 field: "remove"
@@ -149,7 +149,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
                 op_type: "vote"
                 op_version: "1"
                 field: "subject"
@@ -171,7 +171,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
                 op_type: "vote"
                 op_version: "1"
                 field: "revision"
@@ -193,7 +193,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
                 op_type: "vote"
                 op_version: "1"
                 field: "choice"
@@ -216,7 +216,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "widget"
+                type: "acme.widget"
                 op_type: "vote"
                 op_version: "1"
                 field: "note"
@@ -236,7 +236,7 @@ refs:
             timestamp: 2026-03-01T00:00:00Z
             op:
               object_id: w-person-schemes
-              object_type: widget
+              object_type: acme.widget
               op_type: create
               op_version: 1
               body:
@@ -249,7 +249,7 @@ refs:
             timestamp: 2026-03-01T00:01:00Z
             op:
               object_id: w-person-schemes
-              object_type: widget
+              object_type: acme.widget
               op_type: log
               op_version: 1
               body:
@@ -265,7 +265,7 @@ refs:
             timestamp: 2026-03-01T00:02:00Z
             op:
               object_id: w-person-schemes
-              object_type: widget
+              object_type: acme.widget
               op_type: assign
               op_version: 1
               body:
@@ -286,7 +286,7 @@ refs:
             timestamp: 2026-03-01T00:02:30Z
             op:
               object_id: w-person-schemes
-              object_type: widget
+              object_type: acme.widget
               op_type: assign
               op_version: 1
               body:
@@ -301,7 +301,7 @@ refs:
             timestamp: 2026-03-01T00:03:00Z
             op:
               object_id: w-person-schemes
-              object_type: widget
+              object_type: acme.widget
               op_type: assign
               op_version: 1
               body:
@@ -316,7 +316,7 @@ refs:
             timestamp: 2026-03-01T00:04:00Z
             op:
               object_id: w-person-schemes
-              object_type: widget
+              object_type: acme.widget
               op_type: vote
               op_version: 1
               body:
@@ -337,7 +337,7 @@ refs:
             timestamp: 2026-03-01T00:05:00Z
             op:
               object_id: w-person-schemes
-              object_type: widget
+              object_type: acme.widget
               op_type: vote
               op_version: 1
               body:
@@ -353,7 +353,7 @@ refs:
             timestamp: 2026-03-01T00:06:00Z
             op:
               object_id: w-person-schemes
-              object_type: widget
+              object_type: acme.widget
               op_type: vote
               op_version: 1
               body:

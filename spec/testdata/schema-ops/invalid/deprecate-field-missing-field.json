@@ -1,1 +1,1 @@
-{"body":{"deprecated":true,"op_type":"create","op_version":"1","type":"standup"},"object_id":"sch-acme","object_type":"schema","op_type":"deprecate-field","op_version":1}
+{"body":{"deprecated":true,"op_type":"create","op_version":"1","type":"acme.standup"},"object_id":"sch-acme","object_type":"schema","op_type":"deprecate-field","op_version":1}

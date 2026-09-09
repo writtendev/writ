@@ -2,7 +2,7 @@
   "ops": [
     {
       "ref": "refs/writ/alice/widget",
-      "commit": "0b5abcb7489ee4fd6168dee73863f2436e6dc4a8",
+      "commit": "f2d63b2decc3c497c8ae92b3239ae6809b87e64c",
       "parents": [],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -16,11 +16,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "1f113aab27f07817c29c131ec78dd1a67cd3e656"
+          "sha": "dee5cfc2565e789e0a7d27f06ec7ad920a503c0f"
         }
       ],
-      "payload": "{\"body\":{},\"object_id\":\"r1\",\"object_type\":\"widget\",\"op_type\":\"create\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{},\"object_id\":\"r1\",\"object_type\":\"widget\",\"op_type\":\"create\",\"op_version\":1}",
+      "payload": "{\"body\":{},\"object_id\":\"r1\",\"object_type\":\"acme.widget\",\"op_type\":\"create\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{},\"object_id\":\"r1\",\"object_type\":\"acme.widget\",\"op_type\":\"create\",\"op_version\":1}",
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "valid",
@@ -35,9 +35,9 @@
     },
     {
       "ref": "refs/writ/alice/widget",
-      "commit": "d65722f68f9986f300892d37d2a8d62e69f98c49",
+      "commit": "a193b3ee9726004c4ab40dd8cb104ddd6e4db9c4",
       "parents": [
-        "0b5abcb7489ee4fd6168dee73863f2436e6dc4a8"
+        "f2d63b2decc3c497c8ae92b3239ae6809b87e64c"
       ],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -46,7 +46,7 @@
         {
           "name": "subdir",
           "mode": "0040000",
-          "sha": "894d01dd698dff2998d929ad4d1917f20140aaeb"
+          "sha": "60044c98107651bc7acb2d6ebaa7f73f6ead7e43"
         }
       ],
       "signed": true,
@@ -63,9 +63,9 @@
     },
     {
       "ref": "refs/writ/alice/widget",
-      "commit": "75759c9b55803a1c2f5927349cc1d8ab618d90d5",
+      "commit": "3c7f9ef8dc1328b0c5717d60b3692e65197cdd1c",
       "parents": [
-        "d65722f68f9986f300892d37d2a8d62e69f98c49"
+        "a193b3ee9726004c4ab40dd8cb104ddd6e4db9c4"
       ],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -91,9 +91,9 @@
     },
     {
       "ref": "refs/writ/alice/widget",
-      "commit": "0aa328dcdd3fa808bb8e1de06b135ca8c35d749a",
+      "commit": "56e694f047aa84f2aa0d3866d3e8c7cc06ac7ffb",
       "parents": [
-        "75759c9b55803a1c2f5927349cc1d8ab618d90d5"
+        "3c7f9ef8dc1328b0c5717d60b3692e65197cdd1c"
       ],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -102,11 +102,11 @@
         {
           "name": "op.json",
           "mode": "0100755",
-          "sha": "1f113aab27f07817c29c131ec78dd1a67cd3e656"
+          "sha": "dee5cfc2565e789e0a7d27f06ec7ad920a503c0f"
         }
       ],
-      "payload": "{\"body\":{},\"object_id\":\"r1\",\"object_type\":\"widget\",\"op_type\":\"create\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{},\"object_id\":\"r1\",\"object_type\":\"widget\",\"op_type\":\"create\",\"op_version\":1}",
+      "payload": "{\"body\":{},\"object_id\":\"r1\",\"object_type\":\"acme.widget\",\"op_type\":\"create\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{},\"object_id\":\"r1\",\"object_type\":\"acme.widget\",\"op_type\":\"create\",\"op_version\":1}",
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "payload-mutated",
@@ -121,9 +121,9 @@
     },
     {
       "ref": "refs/writ/alice/widget",
-      "commit": "c984a36ab5381015c724ec2cd1792e01baafaf46",
+      "commit": "dbe5961d5b56f4a5d23e7d961e8dcee39a10264a",
       "parents": [
-        "0aa328dcdd3fa808bb8e1de06b135ca8c35d749a"
+        "56e694f047aa84f2aa0d3866d3e8c7cc06ac7ffb"
       ],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Bob Example \u003cbob@example.test\u003e",
@@ -132,11 +132,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "1f113aab27f07817c29c131ec78dd1a67cd3e656"
+          "sha": "dee5cfc2565e789e0a7d27f06ec7ad920a503c0f"
         }
       ],
-      "payload": "{\"body\":{},\"object_id\":\"r1\",\"object_type\":\"widget\",\"op_type\":\"create\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{},\"object_id\":\"r1\",\"object_type\":\"widget\",\"op_type\":\"create\",\"op_version\":1}",
+      "payload": "{\"body\":{},\"object_id\":\"r1\",\"object_type\":\"acme.widget\",\"op_type\":\"create\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{},\"object_id\":\"r1\",\"object_type\":\"acme.widget\",\"op_type\":\"create\",\"op_version\":1}",
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "valid",

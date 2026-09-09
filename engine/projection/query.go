@@ -94,7 +94,7 @@ func objectsTextClause(desc *schemaDescriptor, restrictTypes []string) (clause s
 		for _, col := range columns {
 			colParts = append(colParts, "x."+col+" LIKE ? ESCAPE '\\'")
 		}
-		parts = append(parts, "EXISTS (SELECT 1 FROM "+table+" x WHERE x.object_id = o.object_id AND ("+strings.Join(colParts, " OR ")+"))")
+		parts = append(parts, "EXISTS (SELECT 1 FROM "+quoteIdent(table)+" x WHERE x.object_id = o.object_id AND ("+strings.Join(colParts, " OR ")+"))")
 		params += len(columns)
 	}
 	if len(parts) == 0 {
@@ -151,7 +151,7 @@ func objectsNotDeletedClause(desc *schemaDescriptor, restrictTypes []string) str
 		for _, col := range cols {
 			notDeleted = append(notDeleted, "(x."+col+" = 0 OR x."+col+" IS NULL)")
 		}
-		parts = append(parts, "(o.object_type != '"+objectType+"' OR EXISTS (SELECT 1 FROM "+shape.Table+" x WHERE x.object_id = o.object_id AND "+strings.Join(notDeleted, " AND ")+"))")
+		parts = append(parts, "(o.object_type != '"+objectType+"' OR EXISTS (SELECT 1 FROM "+quoteIdent(shape.Table)+" x WHERE x.object_id = o.object_id AND "+strings.Join(notDeleted, " AND ")+"))")
 	}
 	if len(parts) == 0 {
 		return ""

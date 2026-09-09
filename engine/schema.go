@@ -34,8 +34,9 @@ type SchemaOp = state.SchemaOp
 // exactly as if no schema had defined it.
 type SchemaConflict struct {
 	// ObjectType is set for an object_type collision (two schema objects
-	// binding the same bare type) and for a single field-rule validation
-	// failure; empty for a namespace-only collision.
+	// sharing a namespace and binding the identical qualified type) and for
+	// a single field-rule validation failure; empty for a namespace-only
+	// collision.
 	ObjectType string `json:"object_type,omitempty"`
 	// Namespace is set for a namespace collision, and echoed on an
 	// object_type collision when known.
@@ -648,6 +649,40 @@ func validOpTypeGrammar(opType string) bool {
 	return opType != "" && len(opType) <= opTypeMaxLength && opTypeGrammar.MatchString(opType)
 }
 
+// typeIsQualifiedForNamespace reports whether a declared type name is
+// exactly "<namespace>.<segment>" for a non-empty, single-segment
+// remainder (WRIT-217): the resolver-level gate that closes the global
+// object_type namespace the envelope grammar alone cannot, since
+// spec/op-envelope.md's object_type pattern only admits an optional dot
+// and has no notion of which schema object's namespace, if any, a given
+// declaration is entitled to use. An empty namespace (a schema whose own
+// "create" op never set one) qualifies nothing — there is no prefix to
+// require agreement with, so every type name it declares is refused here,
+// not silently admitted as bare. A remainder carrying its own dot (a
+// multi-dot type name, e.g. "acme.foo.bar" under namespace "acme") is
+// refused too: it is not the single segment §6.3 requires, and admitting
+// it would install a type whose ops engine/dag's objectTypeRegexp can
+// never write and that schemasrc.Render cannot round-trip.
+//
+// Unexported: nothing outside this package needs to ask the question.
+// Callers see the answer in the shapes the resolver already returns — an
+// unqualified declaration is absent from the rules/vocabularies and
+// present as a SchemaConflict naming why — which is the schema-shaped
+// form of it. An earlier revision exported this for cmd/writ's
+// contested-type guard to filter against; that guard no longer exists,
+// so the export went with it rather than sitting in api/engine.txt with
+// no caller.
+func typeIsQualifiedForNamespace(typeName, namespace string) bool {
+	if namespace == "" {
+		return false
+	}
+	prefix := namespace + "."
+	if !strings.HasPrefix(typeName, prefix) || len(typeName) <= len(prefix) {
+		return false
+	}
+	return !strings.Contains(typeName[len(prefix):], ".")
+}
+
 // resolvedSchemaTypes is the shared collision/validation pass over folded
 // schema objects (spec/schema-ops.md §6, §7, §9), computed once and
 // consumed by both RulesFromSchemas (the fold engine's []Rule shape) and
@@ -765,8 +800,8 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 		}
 
 		for _, t := range sch.Types {
-			declared[t.Name] = true
 			if t.Name == "schema" {
+				declared[t.Name] = true
 				contested["schema"] = true
 				conflicts = append(conflicts, SchemaConflict{
 					ObjectType: "schema",
@@ -776,6 +811,29 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 				})
 				continue
 			}
+
+			// A declared type must be qualified with this schema object's
+			// own namespace (WRIT-217): the envelope grammar
+			// (spec/op-envelope.md) only admits object_type's optional
+			// "<segment>.<segment>" shape and has no idea what a namespace
+			// is, so it cannot enforce this — this resolver is the one
+			// place that can. Anything else — bare, one dot but a foreign
+			// namespace, more than one dot — is dropped and reported here,
+			// never installed, and never touches boundBy/contested for
+			// t.Name: a hand-crafted define-type squatting a name outside
+			// its own namespace must not contest another schema's
+			// legitimate binding of that same wire type.
+			if !typeIsQualifiedForNamespace(t.Name, sch.Namespace) {
+				conflicts = append(conflicts, SchemaConflict{
+					ObjectType: t.Name,
+					Namespace:  sch.Namespace,
+					ObjectIDs:  []string{sch.ObjectID},
+					Reason:     fmt.Sprintf("define-type %q is not qualified with this schema object's own namespace %q (must be %q) and was not installed", t.Name, sch.Namespace, sch.Namespace+".<type>"),
+				})
+				continue
+			}
+			declared[t.Name] = true
+
 			owner, bound := boundBy[t.Name]
 			if !bound {
 				boundBy[t.Name] = sch.ObjectID
@@ -798,7 +856,14 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 	deprecatedTypes := make(map[string]bool)
 	for _, sch := range sorted {
 		for _, t := range sch.Types {
-			if t.Name == "schema" || contested[t.Name] {
+			// Mirrors the first pass's namespace-qualification gate
+			// (WRIT-217): a type that failed it above never touched
+			// boundBy/declared and was never a candidate for contested
+			// either, so it must be excluded here by the same test, not
+			// inferred from contested[t.Name] alone — otherwise an
+			// unqualified declaration's own fields would still populate
+			// fields[t.Name] and end up installed regardless.
+			if t.Name == "schema" || contested[t.Name] || !typeIsQualifiedForNamespace(t.Name, sch.Namespace) {
 				continue
 			}
 
@@ -1016,14 +1081,21 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 //     candidate rule is validated through spec.ValidateFieldRule before it
 //     can be installed; one that fails is dropped and reported here, never
 //     handed to the fold driver.
-//   - Conflicts (spec/schema-ops.md §Conflicts). object_type is what reaches
-//     the wire — namespace never does (Correction 2) — so the load-bearing
-//     collision is two schema objects binding the same bare object_type.
-//     Neither schema's rules are installed for the contested type: no winner
-//     is picked, and its ops fall through the absent-schema path to
-//     UnknownOp. Two schemas declaring the same namespace is a weaker,
-//     mostly cosmetic case, reported alongside the first but never
-//     withholding rules on its own. Rules that share a target but disagree
+//   - Conflicts (spec/schema-ops.md §6). object_type reaches the wire
+//     namespace-qualified (§2, WRIT-217): the load-bearing collision is two
+//     schema objects binding the identical qualified object_type, which
+//     now requires them to share a namespace — two different namespaces
+//     can never produce the same qualified object_type. Neither schema's
+//     rules are installed for the contested type: no winner is picked, and
+//     its ops fall through the absent-schema path to UnknownOp. Two
+//     schemas declaring the same namespace is a weaker, mostly cosmetic
+//     case, reported alongside an object_type collision when both occur,
+//     but on its own it withholds nothing. A declared type whose name does
+//     not carry its own schema object's namespace as its prefix — bare,
+//     qualified under a different namespace, or carrying more than one dot
+//     — is a distinct conflict (§6.3, typeIsQualifiedForNamespace): dropped
+//     and reported, never installed, so a hand-crafted define-type cannot
+//     squat a name outside its own namespace. Rules that share a target but disagree
 //     (spec/fold.md §5, spec/schema-ops.md §8) — including a version bump
 //     that changes strategy while reusing a target already bound to a
 //     different strategy — are rejected the same way, and by the same

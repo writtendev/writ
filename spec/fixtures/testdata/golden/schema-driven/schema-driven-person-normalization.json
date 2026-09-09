@@ -7,7 +7,7 @@
         "namespace": "acme",
         "types": [
           {
-            "type": "person-vocab",
+            "type": "acme.person-vocab",
             "fields": [
               {
                 "field": "add",
@@ -93,38 +93,38 @@
   "objects": [
     {
       "object_id": "pv-1",
-      "object_type": "person-vocab",
+      "object_type": "acme.person-vocab",
       "total_order": [
         {
-          "commit": "29f7538c471ad68b23b472b95c313e77cbef59ed",
+          "commit": "274d312e57c85e4f616c1d243d00f5005f4aefde",
           "t_star": 1767226260
         },
         {
-          "commit": "a8dc7b06ea33b0c77ca99d42046ed7bdea6ea805",
+          "commit": "4ca88f7c34f51e51c7d313da1de3cdc462e80b98",
           "t_star": 1767226320
         },
         {
-          "commit": "1a7c2f40775cf2a8fe0f90e8c5a3ba85550f6363",
+          "commit": "cde9d079271f13a3cc87295f208f89b024a1adb9",
           "t_star": 1767226380
         },
         {
-          "commit": "0515d0efba11ed0cc29224839546bccbcdb8364c",
+          "commit": "ed2417a1421f859fe0466738d97293b3e50c118e",
           "t_star": 1767226440
         },
         {
-          "commit": "d1bd2b6c910ad46eab77a587ebcef2158c75135f",
+          "commit": "87848d9f2729157f75a9dab0a546ea393f68cc02",
           "t_star": 1767226500
         },
         {
-          "commit": "7029f006aae8a5da08a61bebcb7d4b99a89b6ac0",
+          "commit": "d41dece01df13d5c6bba010b86f4ccb49fd7d3de",
           "t_star": 1767226560
         },
         {
-          "commit": "d89b55105a629744ada5172ad91851ebc8cf086c",
+          "commit": "4cc6c2927b6a6674032468fc8b25bbd0ea12d3fb",
           "t_star": 1767226620
         },
         {
-          "commit": "719da78d1c48bd7d6a419ef1f892b04695ab8cf6",
+          "commit": "cd633a29db81d09d2a30b24b14d994c247cf3a9d",
           "t_star": 1767226680
         }
       ],
