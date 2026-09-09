@@ -522,7 +522,7 @@ func TestAppendResolvesVocabulariesOnceDespiteCASRetries(t *testing.T) {
 // Append must never even call the producer-vocabularies resolver for a
 // "schema" envelope — a resolver that fails must not be able to block
 // writing the very "schema" ops that could fix whatever made it fail
-// (the ruling that carved out tier 4 specifically to avoid a *permanent*
+// (the ruling that carved out tier 3 specifically to avoid a *permanent*
 // write outage would not tolerate that coupling for tier 1 either).
 //
 // The control case proves the assertion is not vacuous: the identical

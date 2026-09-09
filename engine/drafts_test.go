@@ -103,18 +103,16 @@ func TestDraftsLifecycle(t *testing.T) {
 	}
 }
 
-// publishedTypeSchemaSrc declares the object type Drafts.Publish writes.
-// Every other object type these tests use is one the test itself picked;
-// this one is not. engine/drafts.go still names its object type in Go — the
-// last hard-coded object type outside `schema` — so a repository that
-// publishes a draft must have exactly that type declared for the write to
-// be accepted. This constant exists only to satisfy that literal, and goes
-// when it does.
+// publishedTypeSchemaSrc declares the object type these tests pass to
+// Drafts.Publish. The name is the test's own pick, like every other object
+// type here: Publish takes the type from its caller, so the only
+// requirement is that the repository declares whatever the caller names,
+// with the fields Publish writes.
 const publishedTypeSchemaSrc = `namespace acme
 description "The type a published draft lands under"
 
-type comment {
-  description "The object type engine/drafts.go writes when it publishes a draft"
+type sprocket {
+  description "The object type these tests publish a draft as"
 
   op create 1 {
     text         text     lww
@@ -124,6 +122,10 @@ type comment {
   }
 }
 `
+
+// publishedType is the object type publishedTypeSchemaSrc declares, and the
+// type these tests hand to Drafts.Publish.
+const publishedType = "sprocket"
 
 // applyPublishedTypeSchema installs publishedTypeSchemaSrc, which every
 // test calling Drafts.Publish needs and no other test does.
@@ -159,7 +161,7 @@ func TestDraftPublishOnWidget(t *testing.T) {
 	}
 
 	// Publish draft
-	publishedID, err := store.Drafts.Publish(ctx, draftID)
+	publishedID, err := store.Drafts.Publish(ctx, draftID, publishedType)
 	if err != nil {
 		t.Fatalf("Drafts.Publish failed: %v", err)
 	}
@@ -210,7 +212,7 @@ func TestDraftPublishOnGadget(t *testing.T) {
 	}
 
 	// Publish draft
-	publishedID, err := store.Drafts.Publish(ctx, draftID)
+	publishedID, err := store.Drafts.Publish(ctx, draftID, publishedType)
 	if err != nil {
 		t.Fatalf("Drafts.Publish failed: %v", err)
 	}
@@ -292,7 +294,7 @@ func TestDraftsNeverReachSharedRefs(t *testing.T) {
 	assertSentinelNotInWritRefs(t, bareDir, sentinel)
 
 	// Now Alice publishes the draft
-	publishedID, err := sA.Drafts.Publish(ctx, draftID)
+	publishedID, err := sA.Drafts.Publish(ctx, draftID, publishedType)
 	if err != nil {
 		t.Fatalf("Alice Drafts.Publish failed: %v", err)
 	}
@@ -347,7 +349,7 @@ func TestDraftPublish_UnknownSubjectRefused(t *testing.T) {
 		t.Fatalf("Drafts.Save failed: %v", err)
 	}
 
-	if _, err := store.Drafts.Publish(ctx, draftID); err != writ.ErrNotFound {
+	if _, err := store.Drafts.Publish(ctx, draftID, publishedType); err != writ.ErrNotFound {
 		t.Fatalf("Drafts.Publish on unknown subject: got err %v, want ErrNotFound", err)
 	}
 
@@ -381,7 +383,7 @@ func TestDraftPublish_UnknownInReplyToRefused(t *testing.T) {
 		t.Fatalf("Drafts.Save failed: %v", err)
 	}
 
-	if _, err := store.Drafts.Publish(ctx, draftID); err != writ.ErrNotFound {
+	if _, err := store.Drafts.Publish(ctx, draftID, publishedType); err != writ.ErrNotFound {
 		t.Fatalf("Drafts.Publish on unknown in_reply_to: got err %v, want ErrNotFound", err)
 	}
 
@@ -416,7 +418,7 @@ func TestDraftPublish_EmptySubjectTypeResolvesRealType(t *testing.T) {
 		t.Fatalf("Drafts.Save failed: %v", err)
 	}
 
-	publishedID, err := store.Drafts.Publish(ctx, draftID)
+	publishedID, err := store.Drafts.Publish(ctx, draftID, publishedType)
 	if err != nil {
 		t.Fatalf("Drafts.Publish failed: %v", err)
 	}
@@ -468,7 +470,7 @@ func TestDraftPublish_AnySchemaDeclaredType(t *testing.T) {
 		t.Fatalf("Drafts.Save failed: %v", err)
 	}
 
-	publishedID, err := store.Drafts.Publish(ctx, draftID)
+	publishedID, err := store.Drafts.Publish(ctx, draftID, publishedType)
 	if err != nil {
 		t.Fatalf("Drafts.Publish failed: %v", err)
 	}

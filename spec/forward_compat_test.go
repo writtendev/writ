@@ -400,7 +400,7 @@ func TestNegativeDispositionDerivation(t *testing.T) {
 			leg:  "type",
 		},
 		{
-			// review/create v1 is in the reader profile and its envelope is
+			// widget/create v1 is in the reader profile and its envelope is
 			// beyond reproach. Only `body` makes it opaque: `title` carries a
 			// declared `lww` rule and holds null, which §7.1 rejects.
 			name: "body a strategy cannot consume",

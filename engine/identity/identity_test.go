@@ -980,7 +980,7 @@ func TestConfigErrorMessage(t *testing.T) {
 // of "writ.personId is unset and there is no user.email to derive one from".
 // A caller with nothing but the Identity in hand could not tell that apart
 // from "this repository has no identity at all", so it diagnosed the first:
-// `writ review approve` on a clone whose owner never ran `writ init` named
+// a write on a clone whose owner never ran `writ init` named
 // writ.personId and user.email, both of which were already correct.
 //
 // The sweep aims at every one of Load's ten returns — nine failures and the

@@ -1,0 +1,87 @@
+{
+  "objects": [
+    {
+      "object_id": "g-del-target",
+      "object_type": "gadget",
+      "total_order": [
+        {
+          "commit": "62fd9330471f38405b85ff75ae3502912250c15e",
+          "label": "alice-gdel-create",
+          "t_star": 1767225670
+        },
+        {
+          "commit": "d2d62a3e727d5e3ffabc0aeff45cee823a981f85",
+          "label": "bob-gdel-delete",
+          "t_star": 1767225700
+        },
+        {
+          "commit": "f5714a0114377e098997bf30b73a798c47d37eda",
+          "label": "alice-gdel-edit",
+          "t_star": 1767225700
+        },
+        {
+          "commit": "c45c1bb97a0203c74dcc60e8200cd98a999c9376",
+          "label": "alice-gdel-undelete",
+          "t_star": 1767225730
+        }
+      ],
+      "state": {
+        "deleted": true,
+        "subject": "w-7f3a",
+        "text": "Alice concurrent edit on del target"
+      }
+    },
+    {
+      "object_id": "g-reply",
+      "object_type": "gadget",
+      "total_order": [
+        {
+          "commit": "40a3f93e87963c6901eee45f76f2f7de2beab964",
+          "label": "bob-greply-create",
+          "t_star": 1767225720
+        },
+        {
+          "commit": "43eba02ab4e25c6a3285951275ab442163fdc121",
+          "label": "bob-greply-delete",
+          "t_star": 1767225750
+        },
+        {
+          "commit": "09eacd8fb1ede349fbc4b43b30514bf4c7c3eab8",
+          "label": "bob-greply-causal-edit",
+          "t_star": 1767225780
+        }
+      ],
+      "state": {
+        "deleted": true,
+        "in_reply_to": "g-root",
+        "subject": "w-7f3a",
+        "text": "Bob post-delete edit"
+      }
+    },
+    {
+      "object_id": "g-root",
+      "object_type": "gadget",
+      "total_order": [
+        {
+          "commit": "c9f9c64b6e125bedefa9ac7dc224e0624f300d5c",
+          "label": "alice-groot-create",
+          "t_star": 1767225600
+        },
+        {
+          "commit": "67867fbcad1bbb8046be651ff361d31e63c26fcd",
+          "label": "alice-groot-edit",
+          "t_star": 1767225660
+        },
+        {
+          "commit": "53b0092276f4d3a5a69f68bca2e159c320656ab5",
+          "label": "bob-groot-edit",
+          "t_star": 1767225690
+        }
+      ],
+      "state": {
+        "subject": "w-7f3a",
+        "text": "Bob edited root note"
+      }
+    }
+  ]
+}

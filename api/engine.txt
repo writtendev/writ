@@ -74,7 +74,7 @@ type Drafts struct {
 func (*Drafts) Discard(ctx context.Context, id string) error
 func (*Drafts) Get(ctx context.Context, id string) (Draft, error)
 func (*Drafts) List(ctx context.Context, filter DraftFilter) ([]Draft, error)
-func (*Drafts) Publish(ctx context.Context, id string) (string, error)
+func (*Drafts) Publish(ctx context.Context, id, objectType string) (string, error)
 func (*Drafts) Save(ctx context.Context, draft Draft) (string, error)
 
 type Event struct {

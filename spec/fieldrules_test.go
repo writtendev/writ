@@ -361,16 +361,14 @@ func TestFieldRulesNoUndeclaredTargetCollisions(t *testing.T) {
 // TestFieldRulesDeriveNonEmptyObjectType asserts that every rule
 // spec.FieldRules() loads from the shipped testdata/**/field-rules.json
 // corpus carries a non-empty ObjectType. FieldRules derives ObjectType from
-// vocabularyObjectTypes (spec/vocabulary.go) keyed by directory, and fails
+// bootstrapObjectTypes (spec/fieldrules.go) keyed by directory, and fails
 // closed — returning an error rather than an empty string — when a
 // directory has no entry there; this test pins that every shipped directory
 // does have one, so a directory added without updating the map fails here
 // by name instead of silently matching every object type in fold's rule
-// matching (spec/fold.md §5). It does not apply to the hand-written Go rule
-// tables (engine/state/{review,issue}.go and friends), which deliberately
-// leave ObjectType empty (Plan §C3), or to the abstract merge vectors under
-// testdata/fold/merge/, which declare no object type at all — neither goes
-// through FieldRules.
+// matching (spec/fold.md §5). It does not apply to the abstract merge vectors
+// under testdata/fold/merge/, which declare no object type at all and do not
+// go through FieldRules.
 func TestFieldRulesDeriveNonEmptyObjectType(t *testing.T) {
 	rules, err := spec.FieldRules()
 	if err != nil {

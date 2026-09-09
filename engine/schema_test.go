@@ -1183,7 +1183,7 @@ func TestContestedObjectTypeStaysWritable(t *testing.T) {
 	}
 
 	// Confirm the type really is contested before relying on that to test
-	// tier 4: RulesFromSchemas installs no rules for it.
+	// tier 3: RulesFromSchemas installs no rules for it.
 	schemas, err := store.Schema(ctx)
 	if err != nil {
 		t.Fatalf("Store.Schema failed: %v", err)

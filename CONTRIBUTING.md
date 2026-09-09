@@ -48,8 +48,9 @@ which one is the bug, and that ambiguity is exactly what erodes trust in a
 convention other implementations are meant to build against.
 
 A worked example, once `/spec` and `/engine` exist per the layout in
-ARCHITECTURE.md: suppose the fold rule for concurrent edits to an `Issue`'s
-title needs to change — say, from last-writer-wins to a per-field rule. The
+ARCHITECTURE.md: suppose the fold rule for concurrent edits to a
+schema-declared object's title field needs to change — say, from
+last-writer-wins to a per-field rule. The
 PR that makes that change includes:
 
 1. A new or updated fixture under `spec/fixtures/` — the op sequence
@@ -146,8 +147,8 @@ exceptions break callers despite reading as plain additions:
 - **A slice, map or func field added to a struct that was comparable.** Those
   types are not comparable, so the struct stops being comparable: every `==`,
   every use as a map key, every `switch` on one stops compiling. Adding
-  `Labels []string` to `engine.NewIssue` is one added line in the listing and
-  `./engine.NewIssue: old is comparable, new is not` from apidiff. **If the
+  `Labels []string` to `writ.UnknownOp` is one added line in the listing and
+  `./writ.UnknownOp: old is comparable, new is not` from apidiff. **If the
   field is unexported and the struct already had unexported fields, the
   listing does not change at all** — the whole struct is already one
   `// unexported fields` line, so a breaking change lands with an empty diff.

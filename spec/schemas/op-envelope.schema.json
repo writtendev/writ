@@ -22,7 +22,7 @@
       "type": "string",
       "maxLength": 64,
       "pattern": "^[a-z][a-z0-9-]*$",
-      "description": "The operation's type within its object type's vocabulary, e.g. create. Deliberately not an enum: the per-type vocabularies are specified separately (WRIT-8 through WRIT-11), and readers must tolerate op types they do not know."
+      "description": "The operation's type within its object type's vocabulary, e.g. create. Deliberately not an enum: the op types an object type admits are declared by a schema object in the log (spec/schema-ops.md), and readers must tolerate op types they do not know."
     },
     "op_version": {
       "type": "integer",
@@ -32,7 +32,7 @@
     },
     "body": {
       "type": "object",
-      "description": "Type-specific operation content. An open slot at this layer: each (object_type, op_type, op_version) triple defines its own body schema in the op vocabulary specs (WRIT-8 through WRIT-11). Unknown body fields are likewise preserved and ignored."
+      "description": "Type-specific operation content. An open slot at this layer: the fields a (object_type, op_type, op_version) triple admits are declared by a schema object in the log (spec/schema-ops.md). Unknown body fields are likewise preserved and ignored."
     }
   },
   "required": [

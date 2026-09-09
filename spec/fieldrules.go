@@ -23,7 +23,7 @@ type FieldRule struct {
 	MaxLength  int64             `json:"max_length,omitempty"`
 	KeyTypes   map[string]string `json:"key_types,omitempty"`
 	Vocabulary string            `json:"-"`
-	// ObjectType is derived from Vocabulary via vocabularyObjectTypes, not
+	// ObjectType is derived from Vocabulary via bootstrapObjectTypes, not
 	// serialized: the log's define-field already carries a `type` field, and
 	// this is that same association, made reachable for the fold matching
 	// layer to scope rule matching by object type (spec/fold.md §5) without
