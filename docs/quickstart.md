@@ -23,10 +23,14 @@ detail, not a promise.)
 Writ stores all operations directly inside your git repository as signed
 commits under `refs/writ/*`.
 
-Initialize your git repository and ensure your SSH signing key and identity
-are configured:
+Create a project directory and initialize your git repository, then ensure
+your SSH signing key and identity are configured. `writ init` derives the
+starter schema's namespace from the directory name, so the name you choose
+here is the `my-project` you will see in step 2's output:
 
 ```bash
+mkdir my-project
+cd my-project
 git init
 git config user.name "Alice"
 git config user.email "alice@example.com"
