@@ -68,8 +68,9 @@ id below is not drawn from a 128-bit random space at all — it is a pure
 function of the namespace — so "collision" does not apply to it the way it
 does here: two schema objects sharing an id is not a low-probability event
 to be bounded, it is the certain, intended outcome for any two producers
-that declare the same namespace. See the next section for what that means
-when those producers are not in the same repository.
+that declare the same namespace. See
+§[The `schema` object type: a derived exception](#the-schema-object-type-a-derived-exception)
+below for what that means when those producers are not in the same repository.
 
 ### Rationale and closed alternatives
 
@@ -110,7 +111,7 @@ different random ids for what is meant to be one object. Both push; the
 repository now holds two schema objects each binding the same
 `object_type`(s), and `RulesFromSchemas` withholds every rule for those
 types, permanently, because it has no way to pick a winner between them
-(see [`spec/schema-ops.md`](schema-ops.md) §3). Deriving the id from the
+(see [`spec/schema-ops.md`](schema-ops.md) §6). Deriving the id from the
 namespace makes that collision unreachable: both writers compute the same
 id and append to the same object, and their ops merge through the same
 keyed-lww resolution that already handles any other concurrent edit.
@@ -147,8 +148,16 @@ namespace is the entire point of this change, and a namespace is meant to
 name one vocabulary regardless of which repository declares it. A schema
 object's identity being its namespace, globally, is the carve-out's
 premise, not a gap in it. Two repositories that mean *different*
-vocabularies choosing the same namespace string is a naming collision on
-the writers' part, not something this derivation can detect or arbitrate.
+vocabularies can still end up with the same namespace string with no
+writer ever choosing it: `writ init` derives a repository's starter
+namespace from its working-tree directory basename, falling back to the
+fixed placeholder `repo` when nothing legal survives the derivation. Two
+unrelated repositories checked out under directories with the same name
+— or two whose basenames both fail to survive derivation and both land
+on the `repo` fallback — collide on namespace by that default alone,
+reachable without anyone opting into a shared string. That is a naming
+collision this derivation cannot detect or arbitrate, not something a
+writer has to choose their way into.
 
 ### Producer and reader conformance
 
