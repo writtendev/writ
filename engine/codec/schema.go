@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
+	"github.com/writtendev/writ/engine/codec/canonicaljson"
 	"github.com/writtendev/writ/engine/internal/value"
 	"github.com/writtendev/writ/spec"
 )
@@ -442,6 +443,18 @@ func validateValueTypes(env Envelope, raw []byte) error {
 // floor) — the same producer/reader lockstep break the null case above was
 // fixed for, on the one path a plain byField-then-key-column dispatch
 // cannot see.
+//
+// The floor and the field's own check can still disagree on what "the
+// value" even is: once the floor confirms val is a JSON string, a field
+// whose own value_type is int, number, bool, or anchor cannot typecheck
+// that string directly (a JSON string is never a conforming JSON integer,
+// number, boolean, or object) — the string instead carries the field's
+// ordinary encoding as text, the same "content" relationship
+// validateKeyColumnValue already applies to a key-column-only name. Round
+// 4 found this half of the union left unfixed: the code below decodes that
+// content the same way before checking it against r.ValueType, so the two
+// checks are jointly satisfiable instead of permanently refusing every
+// value.
 func validateFieldsAgainstRules(rules []spec.FieldRule, body map[string]any, strict bool) error {
 	byField := make(map[string]spec.FieldRule, len(rules))
 	keyColumnTypes := make(map[string]string)
@@ -486,13 +499,36 @@ func validateFieldsAgainstRules(rules []spec.FieldRule, body map[string]any, str
 		// applies here too, unconditionally — including when val is nil,
 		// the one case the field branch below tolerates as "no write" but a
 		// key column never does.
-		if _, isKeyColumn := keyColumnTypes[field]; isKeyColumn {
+		_, isKeyColumn := keyColumnTypes[field]
+		if isKeyColumn {
 			if _, isStr := val.(string); !isStr {
 				return &RejectError{Reason: RejectSchemaViolation, Err: fmt.Errorf("field %q: key column value must be a JSON string (spec/fold.md §5 keyed-lww)", field)}
 			}
 		}
 		if val == nil || r.ValueType == "" {
 			continue
+		}
+		// val is confirmed a JSON string above by the key-column floor. When
+		// the field's own value_type is itself string-shaped (including
+		// "enum": a field's own enum member is always a JSON string), that
+		// string IS the value to typecheck, same as any other field. But
+		// when r.ValueType is int/number/bool/anchor — the same four
+		// catalogue members validateKeyColumnValue decodes for a
+		// key-column-only name — the string instead carries r.ValueType's
+		// ordinary encoding as text (spec/op-envelope.md's "or when its
+		// value is encoded as the string form the paragraph below
+		// describes"), so it must be decoded the same way before
+		// value.Validate runs, or the field's own type check and the
+		// key-column floor above are mutually unsatisfiable and the field
+		// becomes permanently unwritable — WRIT-214 round 4's finding on
+		// this exact branch.
+		checkVal := val
+		if isKeyColumn && r.ValueType != "enum" && !keyColumnStringEncoded[r.ValueType] {
+			decoded, err := canonicalKeyColumnContent(r.ValueType, val.(string))
+			if err != nil {
+				return &RejectError{Reason: RejectSchemaViolation, Err: fmt.Errorf("field %q: %w", field, err)}
+			}
+			checkVal = decoded
 		}
 		params := value.Params{Enum: r.Enum, MaxLength: r.MaxLength}
 		// set-union/set-observed-remove type the elements, not the array; a
@@ -501,7 +537,7 @@ func validateFieldsAgainstRules(rules []spec.FieldRule, body map[string]any, str
 		// validated as a single element, matching the accumulators' own
 		// flexibility (engine/internal/fold/strategy.go).
 		if r.Strategy == "set-union" || r.Strategy == "set-observed-remove" {
-			if items, ok := val.([]any); ok {
+			if items, ok := checkVal.([]any); ok {
 				for _, item := range items {
 					if err := value.Validate(r.ValueType, params, item); err != nil {
 						return &RejectError{Reason: RejectSchemaViolation, Err: fmt.Errorf("field %q: %w", field, err)}
@@ -510,7 +546,7 @@ func validateFieldsAgainstRules(rules []spec.FieldRule, body map[string]any, str
 				continue
 			}
 		}
-		if err := value.Validate(r.ValueType, params, val); err != nil {
+		if err := value.Validate(r.ValueType, params, checkVal); err != nil {
 			return &RejectError{Reason: RejectSchemaViolation, Err: fmt.Errorf("field %q: %w", field, err)}
 		}
 	}
@@ -560,6 +596,13 @@ var keyColumnStringEncoded = map[string]bool{
 // `key(seq int)` is writable instead of permanently refusing every value
 // while never being refused itself.
 //
+// The content must be canonicaljson's own encoding of itself, not merely
+// text that parses (WRIT-214 round 4): "7", "7.0", " 7", "1e3", and "-0"
+// all decode to the same JSON number, but fold keys a keyed-lww register on
+// the raw string, so accepting every spelling would let semantically equal
+// keys address different registers that never converge. See
+// canonicalKeyColumnContent.
+//
 // valueType "enum" is the one catalogue member no amount of decoding fixes:
 // value.Validate requires the declared member list (value.Params.Enum) to
 // check membership, and key_types (spec/value-types.md, a column name ->
@@ -586,11 +629,49 @@ func validateKeyColumnValue(valueType string, val any) error {
 	// valueType's ordinary encoding is not a JSON string (int, number, bool,
 	// anchor): the confirmed string above carries that encoding as text, not
 	// the value itself, so it is decoded back to JSON before typechecking.
-	var decoded any
-	if err := json.Unmarshal([]byte(s), &decoded); err != nil {
-		return fmt.Errorf("key column value %q is not a valid JSON encoding of value_type %q: %w", s, valueType, err)
+	decoded, err := canonicalKeyColumnContent(valueType, s)
+	if err != nil {
+		return err
 	}
 	return value.Validate(valueType, value.Params{}, decoded)
+}
+
+// canonicalKeyColumnContent decodes a non-string-shaped key column's (or a
+// dual-role field's) JSON-string content — confirmed a string by the
+// caller's floor check — into the JSON value valueType's own encoding
+// checks against.
+//
+// A bare json.Unmarshal is not enough: spec/op-envelope.md is explicit that
+// the content is "the decimal string \"1\"" and "a compact JSON object's
+// text", not merely some JSON text that happens to parse to the right
+// shape — the same standard spec/schema-ops.md §3.1 already holds
+// op_version to. "7", "7.0", " 7", "7 ", "1e3", and "-0" all parse to the
+// same number, but they are six different byte strings, and fold's
+// keyed-lww accumulator keys a register on the byte string, not the number
+// it denotes (engine/internal/fold/strategy.go's value.Normalize is the
+// identity for everything but person-ref) — so admitting more than one
+// spelling here would let two producers who mean the same key write to two
+// registers that can never converge, the opposite of what a keyed-lww
+// column exists for. Reusing canonicaljson — the codec's own existing
+// standard for "the one true encoding of a JSON value" — rather than
+// inventing a second canonicalization concept: content is accepted only
+// when it already IS canonicaljson's encoding of itself, byte for byte,
+// which also rejects leading/trailing whitespace and (for anchor) a
+// reordered or non-compact object, since canonicaljson sorts object
+// members and writes no insignificant whitespace.
+func canonicalKeyColumnContent(valueType, s string) (any, error) {
+	canon, err := canonicaljson.Marshal([]byte(s))
+	if err != nil {
+		return nil, fmt.Errorf("key column value %q is not a valid JSON encoding of value_type %q: %w", s, valueType, err)
+	}
+	if string(canon) != s {
+		return nil, fmt.Errorf("key column value %q is not the canonical JSON encoding of value_type %q (want %q)", s, valueType, canon)
+	}
+	var decoded any
+	if err := json.Unmarshal(canon, &decoded); err != nil {
+		return nil, fmt.Errorf("key column value %q is not a valid JSON encoding of value_type %q: %w", s, valueType, err)
+	}
+	return decoded, nil
 }
 
 // validateOpTypeAndVersion is producer rule 4: an op_type or op_version writ

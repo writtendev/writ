@@ -207,15 +207,19 @@ var bootstrapObjectTypes = map[string]string{
 	"schema-ops": "schema",
 }
 
-// keyGroupKey identifies the set of sibling rules that share one keyed-lww
-// key tuple, for the cross-rule key_types consistency check in FieldRules:
-// every rule keyed on the same (op_type, op_version, key) must declare the
-// same key_types, because they describe the same key columns.
-type keyGroupKey struct {
+// keyColumnScope identifies one (op_type, op_version) within one
+// field-rules.json directory — the scope CheckKeyColumnCollision checks
+// within, matching the scope a producer actually resolves a key column's
+// declared type in (engine/codec/schema.go's validateFieldsAgainstRules,
+// one (op_type, op_version) for one object type). This is deliberately
+// wider than "sibling rules sharing a full key tuple": two rules with
+// different key tuples that happen to share a column name are unconstrained
+// by a per-tuple grouping, which is exactly the gap WRIT-214 round 3 found
+// in this file's previous, narrower keyGroupKey check.
+type keyColumnScope struct {
 	Dir       string
 	OpType    string
 	OpVersion int64
-	Key       string
 }
 
 // FieldRules loads all field-rules.json files from the embedded spec.FS and validates each entry
@@ -223,7 +227,7 @@ type keyGroupKey struct {
 func FieldRules() ([]FieldRule, error) {
 	var allRules []FieldRule
 	seen := make(map[ruleKey]bool)
-	keyTypesByGroup := make(map[keyGroupKey]map[string]string)
+	keyColumnBindings := make(map[keyColumnScope]map[string]FieldRule)
 	// objectTypeDirs asserts bootstrapObjectTypes is injective: it records
 	// the first directory seen claiming each object type, so a second
 	// directory mapped to that same object type is caught here rather than
@@ -290,14 +294,17 @@ func FieldRules() ([]FieldRule, error) {
 			targetBindings[r.TargetKey()] = append(targetBindings[r.TargetKey()], r)
 
 			if r.Strategy == "keyed-lww" {
-				group := keyGroupKey{Dir: path.Dir(filePath), OpType: r.OpType, OpVersion: r.OpVersion, Key: strings.Join(r.Key, "\x00")}
-				if prior, ok := keyTypesByGroup[group]; ok {
-					if !equalKeyTypes(prior, r.KeyTypes) {
-						return fmt.Errorf("spec: %s field %q declares key_types %v, disagreeing with sibling rule(s) on key %v under (%s, %d): %v",
-							filePath, r.Field, r.KeyTypes, r.Key, r.OpType, r.OpVersion, prior)
-					}
-				} else {
-					keyTypesByGroup[group] = r.KeyTypes
+				scope := keyColumnScope{Dir: path.Dir(filePath), OpType: r.OpType, OpVersion: r.OpVersion}
+				bound := keyColumnBindings[scope]
+				if err := CheckKeyColumnCollision(bound, r); err != nil {
+					return fmt.Errorf("spec: %s %w", filePath, err)
+				}
+				if bound == nil {
+					bound = make(map[string]FieldRule)
+					keyColumnBindings[scope] = bound
+				}
+				for col := range r.KeyTypes {
+					bound[col] = r
 				}
 			}
 
@@ -505,6 +512,16 @@ func CheckTargetAgreement(target string, rules []FieldRule) error {
 // second rule to declare a disagreeing entry for an already-bound column
 // is rejected outright, not silently reconciled by whichever happens to
 // be resolved first or last.
+//
+// Wired at two of the three sites that resolve field rules (round 4):
+// engine/schema.go's resolveSchemaTypes (a log-sourced schema) and
+// FieldRules below (writ's own hand-written bootstrap tables) — matching
+// the standard CheckTargetCollision's own doc comment holds writ's tables
+// to. There is deliberately no third, compile-time twin in
+// engine/schemasrc/compile.go: unlike a target collision, a colliding
+// key-column schema still compiles and is refused only once resolved as a
+// whole (spec/schema-ops.md §8), and writ schema apply already refuses it
+// there before anything reaches the log.
 //
 // bound maps key column name to the keyed-lww rule that already bound it,
 // scoped by the caller to one (op_type, op_version) — CheckTargetCollision

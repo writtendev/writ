@@ -316,17 +316,22 @@ func TestBuildCommitAcceptsEnumKeyColumn(t *testing.T) {
 // textual encoding (spec/schema-ops.md §3.1's op_version-as-decimal-string
 // precedent, generalized), so "7" decodes to the JSON integer 7, "true" to
 // the JSON boolean true, and a compact anchor object's JSON text to the
-// anchor value itself.
+// anchor value itself. Round 4 tightened "the type's own textual encoding"
+// to canonicaljson's own encoding of itself (canonicalKeyColumnContent), so
+// every content string below is written in that canonical form — sorted
+// object members, no insignificant whitespace — on purpose, not just
+// coincidentally: TestBuildCommitRejectsInvalidNonStringShapedKeyColumnEncoding
+// pins the non-canonical spellings this rejects.
 func TestBuildCommitAcceptsNonStringShapedKeyColumns(t *testing.T) {
 	cases := []struct {
 		name    string
 		keyType string
-		content string // the key column's JSON-string content: valueType's own JSON encoding, as text.
+		content string // the key column's JSON-string content: valueType's own canonical JSON encoding, as text.
 	}{
 		{name: "int", keyType: "int", content: "7"},
 		{name: "number", keyType: "number", content: "3.5"},
 		{name: "bool", keyType: "bool", content: "true"},
-		{name: "anchor", keyType: "anchor", content: `{"version":1,"old":{"commit":"c","path":"p","blob":"b"}}`},
+		{name: "anchor", keyType: "anchor", content: `{"old":{"blob":"b","commit":"c","path":"p"},"version":1}`},
 	}
 
 	for _, tc := range cases {
@@ -357,12 +362,18 @@ func TestBuildCommitAcceptsNonStringShapedKeyColumns(t *testing.T) {
 }
 
 // TestBuildCommitRejectsInvalidNonStringShapedKeyColumnEncoding covers the
-// two ways a non-string-shaped key column's content can still fail after
-// round 3's decode fix: the content is not valid JSON at all, or it decodes
-// to a JSON value of the wrong shape for the declared key_types entry. Both
-// remain producer rejections — the decode is stricter than fold, which never
-// looks past "is this a JSON string" for a key column, so a reader still
-// tolerates either shape (spec/testdata/producer/cases/keyed-lww-key-column-int-invalid-encoding.json
+// three ways a non-string-shaped key column's content can still fail after
+// round 3's decode fix: the content is not valid JSON at all, it decodes to
+// a JSON value of the wrong shape for the declared key_types entry, or it
+// is valid JSON of the right shape but not that value's one canonical
+// spelling (round 4: canonicalKeyColumnContent requires the content to
+// already be canonicaljson's own encoding of itself, because fold keys a
+// keyed-lww register on the raw string — "7", "7.0", " 7", "1e3", and "-0"
+// all mean the same int but would otherwise address four different
+// registers that can never converge). All three remain producer
+// rejections — the decode is stricter than fold, which never looks past
+// "is this a JSON string" for a key column, so a reader still tolerates
+// every shape (spec/testdata/producer/cases/keyed-lww-key-column-int-invalid-encoding.json
 // pins that asymmetry at the corpus level).
 func TestBuildCommitRejectsInvalidNonStringShapedKeyColumnEncoding(t *testing.T) {
 	cases := []struct {
@@ -374,6 +385,12 @@ func TestBuildCommitRejectsInvalidNonStringShapedKeyColumnEncoding(t *testing.T)
 		{name: "int content decodes to a JSON string, not a JSON number", keyType: "int", content: `"seven"`},
 		{name: "bool content is not JSON", keyType: "bool", content: "yes"},
 		{name: "anchor content is not JSON", keyType: "anchor", content: "not-json"},
+		{name: "int content has a non-canonical trailing .0", keyType: "int", content: "7.0"},
+		{name: "int content has leading whitespace", keyType: "int", content: " 7"},
+		{name: "int content has trailing whitespace", keyType: "int", content: "7 "},
+		{name: "int content uses exponential notation", keyType: "int", content: "1e3"},
+		{name: "int content is negative zero", keyType: "int", content: "-0"},
+		{name: "anchor content has reordered, non-compact members", keyType: "anchor", content: `{"version": 1, "old": {"commit":"c","path":"p","blob":"b"}}`},
 	}
 
 	for _, tc := range cases {
@@ -451,6 +468,108 @@ func TestBuildCommitRejectsFieldRuleAlsoKeyColumnNonString(t *testing.T) {
 	}
 	if rejErr.Reason != codec.RejectSchemaViolation {
 		t.Errorf("reason = %q, want %q", rejErr.Reason, codec.RejectSchemaViolation)
+	}
+}
+
+// TestBuildCommitAcceptsFieldRuleAlsoKeyColumnNonStringDecoded is round 4's
+// fix for the half of the field-rule/key-column union round 3 left broken:
+// a dual-role name whose *field* rule declares int, number, bool, or anchor
+// was permanently unwritable, because the key-column JSON-string floor and
+// value.Validate(r.ValueType, ..., val) ran against the same raw string,
+// which is unsatisfiable for all four (a JSON string is never a conforming
+// JSON integer, number, boolean, or object). The fix decodes that string's
+// content against r.ValueType the same way validateKeyColumnValue already
+// does for a key-column-only name, so "seq" declared `int lww` and also
+// keyed on by "verdict" is writable via the canonical decimal string, not
+// permanently refused.
+func TestBuildCommitAcceptsFieldRuleAlsoKeyColumnNonStringDecoded(t *testing.T) {
+	cases := []struct {
+		name      string
+		valueType string
+		content   string // the body's JSON-string value: the field's own value_type, canonically encoded as text.
+	}{
+		{name: "int", valueType: "int", content: "7"},
+		{name: "number", valueType: "number", content: "3.5"},
+		{name: "bool", valueType: "bool", content: "true"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			vocabularies := declareVocabulary("widget",
+				spec.FieldRule{OpType: "approve", OpVersion: 1, Field: "seq", Strategy: "lww", ValueType: tc.valueType},
+				spec.FieldRule{
+					OpType: "approve", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww",
+					Key: []string{"seq"}, KeyTypes: map[string]string{"seq": tc.valueType},
+					ValueType: "string",
+				},
+			)
+			body, err := json.Marshal(map[string]any{"verdict": "approve", "seq": tc.content})
+			if err != nil {
+				t.Fatalf("marshal body: %v", err)
+			}
+			if _, err := codec.BuildCommit(codec.Envelope{
+				ObjectID:   "w-1",
+				ObjectType: "widget",
+				OpType:     "approve",
+				OpVersion:  1,
+				Body:       body,
+			}, testAuthor(), nil, vocabularies); err != nil {
+				t.Fatalf("BuildCommit rejected a dual-role %s field/key-column whose string content %q "+
+					"is a conforming canonical encoding: %v", tc.valueType, tc.content, err)
+			}
+		})
+	}
+}
+
+// TestBuildCommitRejectsFieldRuleAlsoKeyColumnNonCanonicalContent covers the
+// two ways the decode TestBuildCommitAcceptsFieldRuleAlsoKeyColumnNonStringDecoded
+// pins can still fail: the string's content does not conform to the
+// field's own value_type at all, or it conforms but is not that value's
+// one canonical spelling (round 4's canonicalKeyColumnContent, the same
+// requirement TestBuildCommitRejectsInvalidNonStringShapedKeyColumnEncoding
+// pins for a key-column-only name).
+func TestBuildCommitRejectsFieldRuleAlsoKeyColumnNonCanonicalContent(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+	}{
+		{name: "content is not valid JSON", content: "not-a-number"},
+		{name: "content is a non-canonical trailing .0", content: "7.0"},
+		{name: "content has leading whitespace", content: " 7"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			vocabularies := declareVocabulary("widget",
+				spec.FieldRule{OpType: "approve", OpVersion: 1, Field: "seq", Strategy: "lww", ValueType: "int"},
+				spec.FieldRule{
+					OpType: "approve", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww",
+					Key: []string{"seq"}, KeyTypes: map[string]string{"seq": "int"},
+					ValueType: "string",
+				},
+			)
+			body, err := json.Marshal(map[string]any{"verdict": "approve", "seq": tc.content})
+			if err != nil {
+				t.Fatalf("marshal body: %v", err)
+			}
+			_, err = codec.BuildCommit(codec.Envelope{
+				ObjectID:   "w-1",
+				ObjectType: "widget",
+				OpType:     "approve",
+				OpVersion:  1,
+				Body:       body,
+			}, testAuthor(), nil, vocabularies)
+			if err == nil {
+				t.Fatalf("BuildCommit accepted a dual-role int field/key-column with non-conforming content %q", tc.content)
+			}
+			var rejErr *codec.RejectError
+			if !errors.As(err, &rejErr) {
+				t.Fatalf("error is not a *codec.RejectError: %v", err)
+			}
+			if rejErr.Reason != codec.RejectSchemaViolation {
+				t.Errorf("reason = %q, want %q", rejErr.Reason, codec.RejectSchemaViolation)
+			}
+		})
 	}
 }
 

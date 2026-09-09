@@ -84,5 +84,22 @@
     "reason_code": "schema-violation",
     "reader_disposition": "interpretable",
     "reason": "rule 3 (WRIT-214 round 3): a key column string whose content is not valid JSON at all, let alone a JSON integer, fails the producer's int decode -- but fold never decodes key-column content (only isString), so the read path folds the op with the key component intact, same asymmetry as value-type-mismatch.json"
+  },
+  "keyed-lww-key-column-int-non-canonical.json": {
+    "producer_verdict": "reject",
+    "reason_code": "schema-violation",
+    "reader_disposition": "interpretable",
+    "reason": "rule 3 (WRIT-214 round 4): \"7.0\" decodes to the same JSON integer as \"7\", but it is not that integer's canonical decimal spelling (spec/op-envelope.md's \"decimal string\" language, spec/schema-ops.md §3.1's op_version precedent) -- fold keys a keyed-lww register on the raw string, so admitting every spelling that merely parses would let two producers who mean the same key write to registers that never converge. The producer now requires the content to already be canonicaljson's own encoding of itself; the reader still only checks isString, so it folds the op with the non-canonical key component intact, same asymmetry as keyed-lww-key-column-int-invalid-encoding.json"
+  },
+  "keyed-lww-key-column-also-a-field-int-decoded.json": {
+    "producer_verdict": "accept",
+    "reader_disposition": "interpretable",
+    "reason": "rule 3 (WRIT-214 round 4): where a name is both a declared field (here, seq int lww) and another rule's keyed-lww key column typed int, the key-column JSON-string floor and the field's own int value_type are jointly satisfiable once the field-rule branch decodes the string's content the same way validateKeyColumnValue already does for a key-column-only name -- \"7\" decodes to the JSON integer 7, which the field's own value_type int accepts, so the field is writable instead of every value being permanently refused"
+  },
+  "keyed-lww-key-column-also-a-field-int-not-a-string.json": {
+    "producer_verdict": "reject",
+    "reason_code": "schema-violation",
+    "reader_disposition": "unknown-op",
+    "reason": "rule 3 (WRIT-214 round 4): the same dual-role int field/key-column still refuses a raw JSON number -- it satisfies the field's own int value_type but fails the key-column JSON-string floor every keyed-lww key column carries regardless of key_types, which fold.ruleAccepts also refuses (isString(7) is false), so the reader quarantines the op as unknown"
   }
 }

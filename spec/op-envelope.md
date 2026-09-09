@@ -203,14 +203,21 @@ value from also being a JSON string when fold would key on it. A value
 satisfying an `int` or `bool` field's own `value_type` — a JSON number or
 boolean — is not a JSON string, so a name playing both roles can only be
 written when the field's own encoding is already string-shaped, or when its
-value is encoded as the string form the paragraph below describes.
+value is encoded as the string form the paragraph below describes — and
+that string form is what the field's own `value_type` is checked against
+too, not the raw string: a producer decodes the content before typechecking
+on both sides of the union, the field-rule side exactly as the key-column
+side, or an `int`/`number`/`bool`/`anchor` field that doubles as a key
+column would satisfy no encoding at all and be permanently unwritable.
 
-The value's *content* MUST additionally conform to the `key_types` entry,
+The value's *content* MUST additionally conform to the governing entry —
+the field's own `value_type` when the name is also a declared field
+(the paragraph above), the key column's `key_types` entry otherwise —
 checked the same way a field's value is checked against its `value_type`.
 For a catalogue member whose ordinary encoding is already a JSON string —
 `string`, `text`, `timestamp`, `person-ref`, `object-ref`, `git-oid`,
 `position` — the key column's value *is* that content, unchanged: the
-JSON-string floor above and the `key_types` check are the same string. For
+JSON-string floor above and the content check are the same string. For
 `int`, `number`, `bool`, and `anchor`, whose ordinary encoding is a JSON
 integer, number, boolean, or object respectively, the key column's string
 content is instead read as that encoding, in text: `"7"` decodes to the
@@ -219,12 +226,30 @@ object's text to the `anchor` value itself. This is not a new constraint —
 [`spec/schema-ops.md`](schema-ops.md) §3.1 already lives with it for
 `op_version`, which travels as the decimal string `"1"` rather than the
 JSON integer `1` wherever it is a key component — only its extension from
-`int` alone to every non-string-shaped catalogue member. A `key_types`
-entry of `enum` is the one catalogue member this second check cannot fully
-apply, decoding or not: `key_types` names a column's type only, with no
-slot for the member list an `enum` field's own `enum` attribute would
-supply, so an enum-typed key column is held to the JSON-string floor above
-and checked no further. Two `keyed-lww` rules within the same `(op_type,
+`int` alone to every non-string-shaped catalogue member.
+
+The content MUST be that value's canonical JSON encoding, not merely text
+that happens to parse to the right shape: the decimal string with no
+leading zero, leading `+`, trailing fractional zero, exponent, or
+surrounding whitespace; the literal `true`/`false`; or the object's
+*compact* encoding, with no insignificant whitespace and members in the
+sorted order [`spec/canonicalization.md`](canonicalization.md) already
+defines for canonical JSON generally. `"7"`, `"7.0"`, `" 7"`, `"1e3"`, and
+`"-0"` all decode to the same JSON number, but fold's `keyed-lww`
+strategy ([`spec/fold.md`](fold.md) §5) keys a register on the key
+column's raw string, not on the number it denotes — admitting every
+spelling that merely parses would let two producers who mean the same key
+address two registers that never converge, the opposite of what a
+`keyed-lww` column exists for. A key column whose content parses but is
+not that canonical spelling is a producer rejection, the same as content
+that does not parse at all.
+
+A `key_types` entry of `enum` is the one catalogue member this second
+check cannot fully apply, decoding or not: `key_types` names a column's
+type only, with no slot for the member list an `enum` field's own `enum`
+attribute would supply, so an enum-typed key column is held to the
+JSON-string floor above and checked no further. Two `keyed-lww` rules
+within the same `(op_type,
 op_version)` that share a key column name MUST agree on that column's
 `key_types` entry, even when their `key` tuples otherwise differ: a
 producer resolves a key column's declared type by column name alone, not

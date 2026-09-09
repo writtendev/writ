@@ -609,10 +609,13 @@ and a column name — whether or not their `key` tuples, `field`s, or
 `key_types` entry too, or neither rule gives a producer a correct answer
 for the column's type. `spec.CheckKeyColumnCollision` enforces this at
 the resolver, dropping the second such rule as a `SchemaConflict` exactly
-as the shared-`target` case above does; unlike that case, there is no
-compile-time twin for it in `engine/schemasrc` — a `writ.schema` source
-file with this shape compiles, and the conflict surfaces only once the
-resolver sees the whole type, at `apply` time.
+as the shared-`target` case above does, and `spec.FieldRules()` runs the
+same check while loading writ's own hand-written bootstrap tables, so a
+future `schema`-vocabulary rule cannot reintroduce this hazard in writ's
+own tables unnoticed; unlike the shared-`target` case, there is no
+compile-time twin for either site in `engine/schemasrc` — a `writ.schema`
+source file with this shape compiles, and the conflict surfaces only once
+the resolver sees the whole type, at `apply` time.
 
 ### 8.1. Clearing a field attribute (decided, WRIT-200)
 
