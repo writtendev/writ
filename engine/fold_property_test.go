@@ -1139,7 +1139,7 @@ func regressionVectorWRIT196() FuzzCase {
 				ObjectType: "synthetic-196",
 				OpType:     "create",
 				OpVersion:  1,
-				Body:       json.RawMessage(`{"title":"writ-196"}`),
+				Body:       json.RawMessage(`{"title":"writ-196","empty_strategy":"x","unknown_strategy":"y"}`),
 			},
 			Author: codec.Identity{When: now},
 		},
