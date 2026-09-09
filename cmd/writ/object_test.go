@@ -329,6 +329,113 @@ func TestObjectCLI_KeyedLWWKeyColumn_KeyColumnAbsentStillCollapsesToEmptyKey(t *
 	}
 }
 
+// dualRoleKeyColumnTestSchema declares "seq" both as an ordinary int/lww
+// field and as another rule's keyed-lww key column typed int -- the exact
+// shape spec/testdata/producer/cases/keyed-lww-key-column-also-a-field-int-decoded.json
+// pins as producer-accepted -- so TestObjectCLI_DualRoleKeyColumnWritableViaField
+// can drive it end to end through a real binary.
+const dualRoleKeyColumnTestSchema = `namespace acme
+description "Dual-role key column vocabulary"
+
+type widget {
+  op approve 1 {
+    seq      int     lww
+    verdict  string  keyed-lww  key(seq int)
+  }
+}
+`
+
+// TestObjectCLI_DualRoleKeyColumnWritableViaField is WRIT-214 round 5's
+// acceptance case: before the fix, parseFieldFlags only checked
+// lookupSchemaKeyColumn when lookupSchemaField returned nil, so a name that
+// is BOTH a declared field and another rule's keyed-lww key column always
+// went through convertFieldValue's type-directed conversion -- emitting a
+// JSON number for "seq" here -- which the producer's keyed-lww key-column
+// floor (spec/op-envelope.md §Producer validation rule 3) always refuses, a
+// shape the producer corpus pins as accepted but the CLI could never
+// actually produce. lookupSchemaKeyColumn is now checked unconditionally,
+// so "seq" gets the same string pass-through a key-column-only name gets,
+// and the caller types its canonical decimal spelling directly.
+func TestObjectCLI_DualRoleKeyColumnWritableViaField(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, dualRoleKeyColumnTestSchema)
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code := run(context.Background(), []string{
+		"object", "create", "-C", env.repoDir, "widget", "approve",
+		"-field", "verdict=approve",
+		"-field", "seq=7",
+		"--json",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("object create failed with %d; stderr: %s", code, stderr.String())
+	}
+	var created wire.ObjectCreated
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectCreate, &created)
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run(context.Background(), []string{"object", "show", "-C", env.repoDir, created.ObjectID, "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("object show failed with %d; stderr: %s", code, stderr.String())
+	}
+	var obj wire.Object
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectShow, &obj)
+	if len(obj.UnknownOps) != 0 {
+		t.Fatalf("unexpected unknown ops: %+v", obj.UnknownOps)
+	}
+	// lww stores the body value verbatim (spec/fold.md §5): the producer
+	// wrote "seq" as the JSON string "7", not the JSON integer 7, because
+	// the same body value also has to satisfy "verdict"'s key-column
+	// floor, so the folded state carries that same string, unchanged.
+	if seq, _ := obj.Fields["seq"].(string); seq != "7" {
+		t.Errorf("seq = %#v, want the string \"7\" (lww stores the dual-role body value verbatim)", obj.Fields["seq"])
+	}
+	entries, ok := obj.Fields["verdict"].([]any)
+	if !ok || len(entries) != 1 {
+		t.Fatalf("verdict = %#v, want one keyed-lww register entry", obj.Fields["verdict"])
+	}
+}
+
+// TestObjectCLI_DualRoleKeyColumnRejectionHintsFieldJSON pins the other half
+// of the round 5 fix: -field's pass-through hands a key column's value to
+// the producer unvalidated (see parseFieldFlags's doc comment), so a value
+// that is not the exact canonical spelling -- "7.0" here, decoding to the
+// same integer as "7" but not its canonical decimal text -- is only ever
+// caught engine-side. renderObjectMutationErr adds a pointer to -field-json
+// on top of the engine's own message (which already names the canonical
+// spelling it wants) for exactly this class of rejection.
+func TestObjectCLI_DualRoleKeyColumnRejectionHintsFieldJSON(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, dualRoleKeyColumnTestSchema)
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code := run(context.Background(), []string{
+		"object", "create", "-C", env.repoDir, "widget", "approve",
+		"-field", "verdict=approve",
+		"-field", "seq=7.0",
+	}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatalf("object create accepted a non-canonical dual-role key column value, stdout: %s", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "key column") {
+		t.Errorf("stderr does not name the key column rejection: %q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "-field-json") {
+		t.Errorf("stderr does not point at -field-json: %q", stderr.String())
+	}
+}
+
 // untypedFieldTestSchema declares a type with a field that has no declared
 // value_type at all -- spec/value-types.md's "untyped" exception, written
 // with the schema-source DSL's `untyped` keyword (spec/schema-source.md

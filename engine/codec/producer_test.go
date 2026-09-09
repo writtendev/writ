@@ -573,6 +573,152 @@ func TestBuildCommitRejectsFieldRuleAlsoKeyColumnNonCanonicalContent(t *testing.
 	}
 }
 
+// TestBuildCommitRejectsTombstoneAlsoKeyColumn is round 5's fix: round 4's
+// field-rule/key-column decode branch keyed off r.ValueType alone, so a name
+// that is both a tombstone field (value_type bool) and another rule's
+// keyed-lww key column had its "true"/"false" string content decoded to the
+// JSON boolean it needed for its own bool check -- while the raw body value
+// stayed the JSON string the key-column floor demands. fold's tombstone
+// reducer requires the *raw* value to already be a JSON boolean
+// (engine/internal/fold/reject.go's ruleAccepts), so that JSON string is
+// exactly what every reader's fold.Uninterpretable quarantines: the op was
+// signed, appended, and universally ignored. No value can ever satisfy both
+// the key-column floor and tombstone's own requirement for the same body
+// value, so BuildCommit now refuses every value for this combination,
+// whether or not the field even declares value_type "bool" (tombstone's own
+// ValidateFieldRule rule permits "" too).
+func TestBuildCommitRejectsTombstoneAlsoKeyColumn(t *testing.T) {
+	cases := []struct {
+		name      string
+		valueType string
+	}{
+		{name: "bool value_type", valueType: "bool"},
+		{name: "no declared value_type", valueType: ""},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			vocabularies := declareVocabulary("widget",
+				spec.FieldRule{OpType: "approve", OpVersion: 1, Field: "flag", Strategy: "tombstone", ValueType: tc.valueType},
+				spec.FieldRule{
+					OpType: "approve", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww",
+					Key: []string{"flag"}, KeyTypes: map[string]string{"flag": "bool"},
+					ValueType: "string",
+				},
+			)
+
+			for _, val := range []string{"true", "false"} {
+				body, err := json.Marshal(map[string]any{"verdict": "approve", "flag": val})
+				if err != nil {
+					t.Fatalf("marshal body: %v", err)
+				}
+				_, err = codec.BuildCommit(codec.Envelope{
+					ObjectID:   "w-1",
+					ObjectType: "widget",
+					OpType:     "approve",
+					OpVersion:  1,
+					Body:       body,
+				}, testAuthor(), nil, vocabularies)
+				if err == nil {
+					t.Fatalf("BuildCommit accepted %q for a tombstone field that also names a keyed-lww key column, "+
+						"which fold.ruleAccepts's tombstone case would quarantine (it requires a raw JSON boolean, not a string)", val)
+				}
+				var rejErr *codec.RejectError
+				if !errors.As(err, &rejErr) {
+					t.Fatalf("error is not a *codec.RejectError: %v", err)
+				}
+				if rejErr.Reason != codec.RejectSchemaViolation {
+					t.Errorf("reason = %q, want %q", rejErr.Reason, codec.RejectSchemaViolation)
+				}
+			}
+		})
+	}
+}
+
+// TestBuildCommitAcceptsCanonicalTimestampKeyColumn and
+// TestBuildCommitRejectsNonCanonicalTimestampKeyColumn are round 5's second
+// fix: timestamp was in keyColumnStringEncoded (no decode needed, since its
+// ordinary encoding is already a JSON string) but that let three different
+// spellings of the same instant -- a UTC "Z" offset, a numeric offset, and a
+// trailing-zero-padded fraction -- each address a different keyed-lww
+// register that can never converge (fold keys on the raw string;
+// value.Normalize is the identity for timestamp). A timestamp key column's
+// value must now already be its one canonical spelling: UTC, with
+// fractional seconds present only when nonzero and written with no
+// trailing zero digits.
+func TestBuildCommitAcceptsCanonicalTimestampKeyColumn(t *testing.T) {
+	vocabularies := declareVocabulary("widget",
+		spec.FieldRule{
+			OpType: "approve", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww",
+			Key: []string{"at"}, KeyTypes: map[string]string{"at": "timestamp"},
+			ValueType: "string",
+		},
+	)
+
+	for _, ts := range []string{"2024-01-01T00:00:00Z", "2024-01-01T00:00:00.5Z"} {
+		t.Run(ts, func(t *testing.T) {
+			body, err := json.Marshal(map[string]any{"verdict": "approve", "at": ts})
+			if err != nil {
+				t.Fatalf("marshal body: %v", err)
+			}
+			if _, err := codec.BuildCommit(codec.Envelope{
+				ObjectID:   "w-1",
+				ObjectType: "widget",
+				OpType:     "approve",
+				OpVersion:  1,
+				Body:       body,
+			}, testAuthor(), nil, vocabularies); err != nil {
+				t.Fatalf("BuildCommit rejected a canonically-spelled timestamp key column %q: %v", ts, err)
+			}
+		})
+	}
+}
+
+func TestBuildCommitRejectsNonCanonicalTimestampKeyColumn(t *testing.T) {
+	cases := []struct {
+		name string
+		ts   string
+	}{
+		{name: "numeric offset instead of Z", ts: "2024-01-01T01:00:00+01:00"},
+		{name: "trailing zero fractional digits", ts: "2024-01-01T00:00:00.000Z"},
+		{name: "not a real calendar date", ts: "2024-13-01T00:00:00Z"},
+		{name: "not a timestamp at all", ts: "not-a-timestamp"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			vocabularies := declareVocabulary("widget",
+				spec.FieldRule{
+					OpType: "approve", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww",
+					Key: []string{"at"}, KeyTypes: map[string]string{"at": "timestamp"},
+					ValueType: "string",
+				},
+			)
+			body, err := json.Marshal(map[string]any{"verdict": "approve", "at": tc.ts})
+			if err != nil {
+				t.Fatalf("marshal body: %v", err)
+			}
+			_, err = codec.BuildCommit(codec.Envelope{
+				ObjectID:   "w-1",
+				ObjectType: "widget",
+				OpType:     "approve",
+				OpVersion:  1,
+				Body:       body,
+			}, testAuthor(), nil, vocabularies)
+			if err == nil {
+				t.Fatalf("BuildCommit accepted a non-canonical timestamp key column %q", tc.ts)
+			}
+			var rejErr *codec.RejectError
+			if !errors.As(err, &rejErr) {
+				t.Fatalf("error is not a *codec.RejectError: %v", err)
+			}
+			if rejErr.Reason != codec.RejectSchemaViolation {
+				t.Errorf("reason = %q, want %q", rejErr.Reason, codec.RejectSchemaViolation)
+			}
+		})
+	}
+}
+
 // knownCreateBodies is a minimal, schema-valid create body for each vocabulary
 // writ ships, so the forward-compatibility cases below can be driven against
 // every one of them rather than against whichever one happens to be most

@@ -101,5 +101,22 @@
     "reason_code": "schema-violation",
     "reader_disposition": "unknown-op",
     "reason": "rule 3 (WRIT-214 round 4): the same dual-role int field/key-column still refuses a raw JSON number -- it satisfies the field's own int value_type but fails the key-column JSON-string floor every keyed-lww key column carries regardless of key_types, which fold.ruleAccepts also refuses (isString(7) is false), so the reader quarantines the op as unknown"
+  },
+  "keyed-lww-key-column-also-a-field-tombstone.json": {
+    "producer_verdict": "reject",
+    "reason_code": "schema-violation",
+    "reader_disposition": "unknown-op",
+    "reason": "rule 3 (WRIT-214 round 5): where a name is both a declared field with strategy tombstone (here, flag bool tombstone) and another rule's keyed-lww key column, no value ever satisfies both roles at once -- fold's tombstone reducer requires the raw body value to already be a JSON boolean, while the key-column floor requires the same body value to be a JSON string, and a JSON value cannot be both. Round 4's decode branch keyed off value_type alone and wrongly accepted the string \"true\" by decoding its content to the JSON boolean true for the field's own bool check, leaving the raw string in the body for fold.ruleAccepts to refuse (v.(bool) on a string is false) -- the producer now refuses every value for this combination outright, matching what the reader would do with any value that slipped through"
+  },
+  "keyed-lww-key-column-timestamp.json": {
+    "producer_verdict": "accept",
+    "reader_disposition": "interpretable",
+    "reason": "rule 3 (WRIT-214 round 5): a timestamp-typed key column's value is already a JSON string with no content to decode, but it must also already be in its instant's one canonical spelling -- UTC (\"Z\"), fractional seconds only when nonzero and with no trailing zero digits -- so \"2024-01-01T00:00:00Z\" is accepted as written"
+  },
+  "keyed-lww-key-column-timestamp-non-canonical.json": {
+    "producer_verdict": "reject",
+    "reason_code": "schema-violation",
+    "reader_disposition": "interpretable",
+    "reason": "rule 3 (WRIT-214 round 5): \"2024-01-01T01:00:00+01:00\" names the same instant as \"2024-01-01T00:00:00Z\" but is a different byte string, and fold keys a keyed-lww register on the byte string (value.Normalize is the identity for timestamp), so admitting every RFC 3339 spelling of an instant would let two producers who mean the same key address registers that never converge. The producer now requires the canonical UTC spelling; the reader still only checks isString, so it folds the op with the non-canonical key component intact, the same asymmetry keyed-lww-key-column-int-non-canonical.json pins for int"
   }
 }

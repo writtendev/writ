@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/writtendev/writ/engine/codec/canonicaljson"
@@ -455,6 +456,26 @@ func validateValueTypes(env Envelope, raw []byte) error {
 // content the same way before checking it against r.ValueType, so the two
 // checks are jointly satisfiable instead of permanently refusing every
 // value.
+//
+// `tombstone` is the one strategy no decode ever reconciles with the floor,
+// which is why it gets its own check ahead of everything else here rather
+// than joining the r.ValueType-keyed decode logic (round 5): every other
+// strategy either stores the body value verbatim without caring about its
+// JSON shape (lww, create-once, keyed-lww, append) or already requires a
+// JSON string itself (set-union, set-observed-remove, lattice, multi-value)
+// — a keyed-lww key column's confirmed-string floor satisfies all of them —
+// but fold's tombstone reducer requires the *raw* body value to already be
+// a JSON boolean (engine/internal/fold/reject.go's `v.(bool)`), never a
+// string carrying "true"/"false" as decoded content. Since the floor and
+// tombstone's own requirement are mutually exclusive JSON shapes for the
+// very same body value, no value a producer could write ever satisfies
+// both, whatever r.ValueType says (tombstone's is "" or "bool", never
+// anything decode-eligible) — round 4's decode branch nonetheless decoded
+// and accepted `{"tag":"true"}` for a bool-typed tombstone field, signing
+// an op every reader's fold.Uninterpretable then quarantines. The fix is to
+// refuse every value up front for this combination, the same conclusion
+// fold reaches on the read side, instead of letting the decode step
+// discover a false positive.
 func validateFieldsAgainstRules(rules []spec.FieldRule, body map[string]any, strict bool) error {
 	byField := make(map[string]spec.FieldRule, len(rules))
 	keyColumnTypes := make(map[string]string)
@@ -504,6 +525,19 @@ func validateFieldsAgainstRules(rules []spec.FieldRule, body map[string]any, str
 			if _, isStr := val.(string); !isStr {
 				return &RejectError{Reason: RejectSchemaViolation, Err: fmt.Errorf("field %q: key column value must be a JSON string (spec/fold.md §5 keyed-lww)", field)}
 			}
+			// tombstone is the one strategy the floor above and the
+			// strategy's own reducer can never jointly satisfy (see this
+			// function's doc comment): fold requires a raw JSON boolean,
+			// the floor just confirmed val is a JSON string, and those are
+			// two different JSON values, not two encodings of the same
+			// one. Refusing here, ahead of the val==nil/ValueType=="" skip
+			// below, covers a blank ValueType too — tombstone's is legally
+			// "" or "bool" (spec.FieldRule's own ValidateFieldRule), and
+			// blank would otherwise reach that skip and pass through
+			// unchecked.
+			if r.Strategy == "tombstone" {
+				return &RejectError{Reason: RejectSchemaViolation, Err: fmt.Errorf("field %q: a tombstone field cannot also be a keyed-lww key column of another rule: tombstone's reducer requires a raw JSON boolean (engine/internal/fold/reject.go), which is never the JSON string a keyed-lww key column's value must be (spec/fold.md §5) -- no value ever satisfies both, so every write to this field is refused", field)}
+			}
 		}
 		if val == nil || r.ValueType == "" {
 			continue
@@ -521,14 +555,24 @@ func validateFieldsAgainstRules(rules []spec.FieldRule, body map[string]any, str
 		// value.Validate runs, or the field's own type check and the
 		// key-column floor above are mutually unsatisfiable and the field
 		// becomes permanently unwritable — WRIT-214 round 4's finding on
-		// this exact branch.
+		// this exact branch. `timestamp` needs no unwrap step (its ordinary
+		// encoding is already a JSON string, same as validateKeyColumnValue
+		// treats it) but does need the same canonical-spelling floor a
+		// key-column-only timestamp gets — see validateCanonicalTimestamp.
 		checkVal := val
-		if isKeyColumn && r.ValueType != "enum" && !keyColumnStringEncoded[r.ValueType] {
-			decoded, err := canonicalKeyColumnContent(r.ValueType, val.(string))
-			if err != nil {
-				return &RejectError{Reason: RejectSchemaViolation, Err: fmt.Errorf("field %q: %w", field, err)}
+		if isKeyColumn && r.ValueType != "enum" {
+			switch {
+			case r.ValueType == "timestamp":
+				if err := validateCanonicalTimestamp(val.(string)); err != nil {
+					return &RejectError{Reason: RejectSchemaViolation, Err: fmt.Errorf("field %q: %w", field, err)}
+				}
+			case !keyColumnStringEncoded[r.ValueType]:
+				decoded, err := canonicalKeyColumnContent(r.ValueType, val.(string))
+				if err != nil {
+					return &RejectError{Reason: RejectSchemaViolation, Err: fmt.Errorf("field %q: %w", field, err)}
+				}
+				checkVal = decoded
 			}
-			checkVal = decoded
 		}
 		params := value.Params{Enum: r.Enum, MaxLength: r.MaxLength}
 		// set-union/set-observed-remove type the elements, not the array; a
@@ -555,13 +599,19 @@ func validateFieldsAgainstRules(rules []spec.FieldRule, body map[string]any, str
 
 // keyColumnStringEncoded is the set of catalogue value types whose ordinary
 // wire encoding (spec/value-types.md's "Encoding" column) already is a JSON
-// string: value.Validate's cases for these all start with `v.(string)`, so a
+// string AND whose own validation already admits exactly one spelling per
+// value: value.Validate's cases for these all start with `v.(string)`, so a
 // key column's raw body value — already confirmed to be a JSON string below
-// — IS the value to typecheck, unchanged.
+// — IS the value to typecheck, unchanged, with no further canonical-form
+// requirement needed on top.
+//
+// `timestamp` is deliberately not in this set despite also being
+// string-encoded (round 5): RFC 3339 admits more than one spelling of the
+// same instant, so it gets validateCanonicalTimestamp's own canonical-form
+// check instead — see that function's doc comment.
 var keyColumnStringEncoded = map[string]bool{
 	"string":     true,
 	"text":       true,
-	"timestamp":  true,
 	"person-ref": true,
 	"object-ref": true,
 	"git-oid":    true,
@@ -623,6 +673,9 @@ func validateKeyColumnValue(valueType string, val any) error {
 	if valueType == "enum" {
 		return nil
 	}
+	if valueType == "timestamp" {
+		return validateCanonicalTimestamp(s)
+	}
 	if keyColumnStringEncoded[valueType] {
 		return value.Validate(valueType, value.Params{}, val)
 	}
@@ -634,6 +687,57 @@ func validateKeyColumnValue(valueType string, val any) error {
 		return err
 	}
 	return value.Validate(valueType, value.Params{}, decoded)
+}
+
+// validateCanonicalTimestamp checks a keyed-lww key column's (or a
+// dual-role field's) timestamp value: it must conform to value_type
+// `timestamp` (spec/value-types.md) AND already be in that instant's one
+// canonical spelling (round 5), the same standard canonicalKeyColumnContent
+// holds int/number/bool/anchor to, applied here to a value that is already
+// a JSON string rather than needing one more decode step first.
+//
+// Without the second check, RFC 3339 lets "2024-01-01T00:00:00Z",
+// "2024-01-01T01:00:00+01:00", and "2024-01-01T00:00:00.000Z" name the same
+// instant with three different byte strings, and fold's keyed-lww strategy
+// keys a register on the byte string, not the instant it denotes
+// (value.Normalize is the identity for timestamp — only person-ref
+// normalizes, engine/internal/value/value_test.go's
+// TestNormalizeOnlyPersonRef) — so three producers who mean the same key
+// would address three registers that can never converge, exactly the
+// failure canonicalKeyColumnContent closes for the other non-string-shaped
+// catalogue members.
+//
+// canonicalTimestamp defines the one accepted spelling: UTC (a `Z` offset,
+// never a numeric one) with fractional seconds present only when nonzero
+// and written with no trailing zero digits. time.Parse is used ahead of
+// value.Validate's own regex (spec/value-types.md's
+// `$defs/timestamp` pattern) because the regex, like any fixed-width
+// pattern, accepts calendar nonsense (month 13, a February 30th) that a
+// real calendar parse refuses — a stricter rule for a value this function
+// is also about to reformat and byte-compare, not a relaxation of what
+// value.Validate already enforces elsewhere.
+func validateCanonicalTimestamp(s string) error {
+	if err := value.Validate("timestamp", value.Params{}, s); err != nil {
+		return err
+	}
+	t, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		return fmt.Errorf("key column value %q is not a valid RFC 3339 timestamp: %w", s, err)
+	}
+	if canon := canonicalTimestamp(t); canon != s {
+		return fmt.Errorf("key column value %q is not the canonical timestamp encoding of the same instant (want %q): spec/op-envelope.md §Producer validation", s, canon)
+	}
+	return nil
+}
+
+// canonicalTimestamp is validateCanonicalTimestamp's one accepted spelling
+// for an instant: UTC, with time.RFC3339Nano's "9"-run fractional-second
+// digits, which Go's time.Format already trims to the shortest spelling
+// (dropping the fraction entirely when it is exactly zero) — the same
+// "shortest round-tripping spelling" discipline spec/canonicalization.md
+// holds JSON numbers to, applied here to an instant instead of a number.
+func canonicalTimestamp(t time.Time) string {
+	return t.UTC().Format(time.RFC3339Nano)
 }
 
 // canonicalKeyColumnContent decodes a non-string-shaped key column's (or a

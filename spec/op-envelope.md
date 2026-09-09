@@ -210,19 +210,34 @@ on both sides of the union, the field-rule side exactly as the key-column
 side, or an `int`/`number`/`bool`/`anchor` field that doubles as a key
 column would satisfy no encoding at all and be permanently unwritable.
 
+That resolution assumes the field's own merge strategy does not itself
+inspect the value's raw JSON shape beyond "is this a JSON string" — true of
+every strategy but one. `tombstone`'s reducer requires the *raw* body value
+to already be a JSON boolean, never a string carrying `"true"`/`"false"` as
+encoded content the way the paragraph above lets `int`, `number`, `bool`,
+and `anchor` field values do ([`spec/fold.md`](fold.md) §7.1, enforced via
+`fold.Uninterpretable`/`fold.ruleAccepts`). A `tombstone` field that also
+names a keyed-lww key column of another rule is therefore refused for
+*every* value, not merely encoded differently: the key-column floor's
+JSON-string requirement and `tombstone`'s own JSON-boolean requirement can
+never both hold for the same body value, whatever the field's own
+`value_type` says (`tombstone`'s is unset or `bool`, never one of the
+decodable members above).
+
 The value's *content* MUST additionally conform to the governing entry —
 the field's own `value_type` when the name is also a declared field
 (the paragraph above), the key column's `key_types` entry otherwise —
 checked the same way a field's value is checked against its `value_type`.
-For a catalogue member whose ordinary encoding is already a JSON string —
-`string`, `text`, `timestamp`, `person-ref`, `object-ref`, `git-oid`,
-`position` — the key column's value *is* that content, unchanged: the
-JSON-string floor above and the content check are the same string. For
-`int`, `number`, `bool`, and `anchor`, whose ordinary encoding is a JSON
-integer, number, boolean, or object respectively, the key column's string
-content is instead read as that encoding, in text: `"7"` decodes to the
-JSON integer `7`, `"true"` to the JSON boolean `true`, and a compact JSON
-object's text to the `anchor` value itself. This is not a new constraint —
+For a catalogue member whose ordinary encoding is already a JSON string
+*and* whose own validation already admits exactly one spelling per value —
+`string`, `text`, `person-ref`, `object-ref`, `git-oid`, `position` — the
+key column's value *is* that content, unchanged: the JSON-string floor
+above and the content check are the same string. For `int`, `number`,
+`bool`, and `anchor`, whose ordinary encoding is a JSON integer, number,
+boolean, or object respectively, the key column's string content is
+instead read as that encoding, in text: `"7"` decodes to the JSON integer
+`7`, `"true"` to the JSON boolean `true`, and a compact JSON object's text
+to the `anchor` value itself. This is not a new constraint —
 [`spec/schema-ops.md`](schema-ops.md) §3.1 already lives with it for
 `op_version`, which travels as the decimal string `"1"` rather than the
 JSON integer `1` wherever it is a key component — only its extension from
@@ -243,6 +258,26 @@ address two registers that never converge, the opposite of what a
 `keyed-lww` column exists for. A key column whose content parses but is
 not that canonical spelling is a producer rejection, the same as content
 that does not parse at all.
+
+`timestamp` is the one catalogue member whose ordinary encoding is already
+a JSON string but whose own grammar ([`spec/value-types.md`](value-types.md))
+admits more than one spelling of the same instant, so it does not belong
+in the "unchanged" bucket above despite needing no decode step: an RFC 3339
+timestamp carries a UTC offset or an explicit numeric one, and optional
+fractional seconds of any precision, so `"2024-01-01T00:00:00Z"`,
+`"2024-01-01T01:00:00+01:00"`, and `"2024-01-01T00:00:00.000Z"` all name the
+same instant with three different byte strings. Fold keys a `keyed-lww`
+register on the byte string, not the instant it denotes (`value.Normalize`
+is the identity for `timestamp` — normalization is intrinsic only to
+`person-ref`, per its catalogue entry above), so a `timestamp` key column's
+value MUST already be in that instant's one canonical spelling: UTC (a `Z`
+offset, never a numeric one) with fractional seconds present only when
+nonzero and written with no trailing zero digits — the same
+one-spelling-per-value discipline the paragraph above holds `int` and
+`number`'s decimal text to, applied here to a value that is already a JSON
+string. A key column value that parses as a conforming `timestamp` but is
+not that canonical spelling is a producer rejection, the same as one whose
+content does not parse at all.
 
 A `key_types` entry of `enum` is the one catalogue member this second
 check cannot fully apply, decoding or not: `key_types` names a column's
