@@ -67,8 +67,8 @@
           "op_version": 1
         },
         {
-          "commit": "007f7c1a9674a25acce4235c329149b3af41550c",
-          "object_type": "widget",
+          "commit": "108700f79e5a869593cfc15670d3589ef9e00f41",
+          "object_type": "acme.widget",
           "op_type": "demote",
           "op_version": 1
         }

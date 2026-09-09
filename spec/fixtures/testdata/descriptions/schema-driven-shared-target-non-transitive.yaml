@@ -51,7 +51,7 @@ refs:
               op_type: define-type
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
             expect: accept
 
           - id: define-field-configure-v1
@@ -64,7 +64,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
                 op_type: "configure"
                 op_version: "1"
                 field: "mode"
@@ -82,7 +82,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
                 op_type: "configure"
                 op_version: "2"
                 field: "mode"
@@ -100,7 +100,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "gadget"
+                type: "acme.gadget"
                 op_type: "reset"
                 op_version: "1"
                 field: "value"
@@ -117,7 +117,7 @@ refs:
             timestamp: 2026-01-01T00:05:00Z
             op:
               object_id: gadget-1
-              object_type: gadget
+              object_type: acme.gadget
               op_type: configure
               op_version: 1
               body:
@@ -130,7 +130,7 @@ refs:
             timestamp: 2026-01-01T00:06:00Z
             op:
               object_id: gadget-1
-              object_type: gadget
+              object_type: acme.gadget
               op_type: configure
               op_version: 2
               body:
@@ -143,7 +143,7 @@ refs:
             timestamp: 2026-01-01T00:07:00Z
             op:
               object_id: gadget-1
-              object_type: gadget
+              object_type: acme.gadget
               op_type: reset
               op_version: 1
               body:
