@@ -36,7 +36,7 @@ deterministically folding an object's operations in causal order.
 
 ```console
 $ writ init                        # fetch refspecs, plus a starter writ.schema
-$ cat writ.schema                  # your vocabulary, declared as data
+$ cat > writ.schema <<'EOF'         # replace the starter: your vocabulary, as data
 namespace acme
 type ticket {
   op create 1   { title string(200) lww }
@@ -45,6 +45,7 @@ type ticket {
 type gadget {
   op create 1 { subject untyped lww  text text multi-value }
 }
+EOF
 $ writ schema apply                # signs and appends the ops declaring them
 $ writ object create ticket create -field title="Add rate limiting"
 $ writ object apply <id> revision -field base=<base-sha> -field head=<head-sha>

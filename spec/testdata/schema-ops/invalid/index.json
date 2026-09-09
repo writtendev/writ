@@ -7,7 +7,7 @@
   {
     "file": "wrong-object-type.json",
     "rejects": "schema",
-    "reason": "object_type is 'workflow-state', not the constant 'schema' this schema requires"
+    "reason": "object_type is 'widget', not the constant 'schema' this schema requires"
   },
   {
     "file": "define-type-missing-type.json",

@@ -931,7 +931,7 @@ func RulesFromSchemas(schemas []state.Schema) (map[string][]Rule, []SchemaConfli
 // VocabulariesFromSchemas resolves every folded schema object present in a
 // repo into the codec.Vocabularies shape the generic producer validator
 // (engine/codec's BuildCommit/ValidateBody) checks tier 2 of
-// spec/op-envelope.md's five-tier precedence against — the log-sourced
+// spec/op-envelope.md's four-tier precedence against — the log-sourced
 // counterpart to RulesFromSchemas's fold-rule shape, built from the exact
 // same collision/validation pass (resolveSchemaTypes) so the two can never
 // disagree about what is contested or declared.

@@ -65,8 +65,9 @@ type Object struct {
 
 // Objects provides generic create, apply, and get operations over
 // collaborative objects of any schema-declared type — the schema-shaped
-// replacement for the per-type typed services this deleted: AGENTS.md "the shapes callers see come from the schema in
-// the log, not from Go structs writ ships."
+// replacement for the per-type typed services writ once shipped: AGENTS.md
+// "the shapes callers see come from the schema in the log, not from Go
+// structs writ ships."
 type Objects struct {
 	store *Store
 }

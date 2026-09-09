@@ -1,5 +1,5 @@
 {
-  "name": "lattice-ci-status",
+  "name": "lattice-status-progression",
   "description": "Status progression along a join-semilattice where later phases subsume earlier ones",
   "object_id": "obj-1",
   "fields": {

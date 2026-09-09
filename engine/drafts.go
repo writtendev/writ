@@ -168,8 +168,8 @@ func (d *Drafts) Discard(ctx context.Context, id string) error {
 // this loss is narrower than "no parents[1:] edge anywhere": what's gone is
 // specifically the cross-object edge from a published draft to its subject.
 // An object another writer published a draft against is no longer kept
-// reachable by that object once its own ref rolls back or is only
-// partially fetched.
+// reachable by the object that publish created, once the subject's own
+// ref rolls back or is only partially fetched.
 // Objects.Create has no parameter for observed causal parents, so
 // restoring this is out of scope here — recorded as a deliberate,
 // disclosed loss, not fixed (see CHANGELOG.md's "Known consequence, not

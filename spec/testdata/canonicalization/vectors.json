@@ -231,7 +231,7 @@
   },
   {
     "name": "envelope-shaped payload canonicalizes with sorted top-level fields",
-    "input": "{\"op_version\":1,\"op_type\":\"create\",\"object_type\":\"review\",\"object_id\":\"r-7f3a\",\"body\":{\"head\":\"cafe\",\"base\":\"beef\"}}",
-    "canonical": "{\"body\":{\"base\":\"beef\",\"head\":\"cafe\"},\"object_id\":\"r-7f3a\",\"object_type\":\"review\",\"op_type\":\"create\",\"op_version\":1}"
+    "input": "{\"op_version\":1,\"op_type\":\"create\",\"object_type\":\"widget\",\"object_id\":\"w-7f3a\",\"body\":{\"size\":\"cafe\",\"color\":\"beef\"}}",
+    "canonical": "{\"body\":{\"color\":\"beef\",\"size\":\"cafe\"},\"object_id\":\"w-7f3a\",\"object_type\":\"widget\",\"op_type\":\"create\",\"op_version\":1}"
   }
 ]

@@ -50,8 +50,8 @@ convention other implementations are meant to build against.
 A worked example, once `/spec` and `/engine` exist per the layout in
 ARCHITECTURE.md: suppose the fold rule for concurrent edits to a
 schema-declared object's title field needs to change — say, from
-last-writer-wins to a per-field rule. The
-PR that makes that change includes:
+last-writer-wins to a per-field rule. The PR that makes that change
+includes:
 
 1. A new or updated fixture under `spec/fixtures/` — the op sequence
    (including the concurrent title-edit ops) and the golden folded output

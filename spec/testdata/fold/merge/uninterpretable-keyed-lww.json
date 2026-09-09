@@ -1,6 +1,6 @@
 {
   "name": "uninterpretable-keyed-lww",
-  "description": "A keyed-lww key component that is not a string makes the operation uninterpretable. Rejection and not substitution: were a malformed subject to key on the empty component instead, it would address the anonymous register and could overwrite a verdict nobody meant it to touch. Alice's approval is untouched by four malformed writes at her own revision",
+  "description": "A keyed-lww key component that is not a string makes the operation uninterpretable. Rejection and not substitution: were a malformed subject to key on the empty component instead, it would address the anonymous register and could overwrite a verdict nobody meant it to touch. Alice's verdict is untouched by four malformed writes at her own revision",
   "object_id": "obj-1",
   "fields": {
     "verdict": {
