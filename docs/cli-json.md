@@ -297,6 +297,8 @@ With no `<type>`, `data` is a bare array of the same shape, one entry per instal
 
 Appends the op that starts a new object of `<type>`, using `<op-type>`'s field rules from the installed vocabulary to parse each `-field` value.
 
+`-field <k>=<v>` converts its value by the field's declared `value_type` (`writ schema show <type>` reports it). That conversion has one gap: the closed value-type catalogue (`spec/value-types.md`) has no generic "object" entry — `anchor` is the only object-shaped catalogue type — and a field with no declared `value_type` at all (the catalogue's documented `untyped` case, such as `comment.create`'s `subject`, a `{object_type, object_id}` record) has no type to convert by in the first place. `-field-json <k>=<v>` is the escape hatch: it decodes its value as JSON directly, with no type-directed conversion, and works for any field regardless of what `value_type` it declares or whether it declares one. Like `-field`, it does no validation of its own — `enum` membership, `max_length`, and every other constraint are left to the producer validator that already runs inside `Objects.Create`/`Apply`, so a `-field-json` write that fails validation is refused there, exactly like an invalid `-field` write. Repeating `-field-json` for the same key builds a JSON array of the decoded elements, same as repeating `-field`; giving the same key to both `-field` and `-field-json` is refused.
+
 - **Envelope `kind`**: `"object.create"`
 - **`data` Type**: `ObjectCreated` object
 
