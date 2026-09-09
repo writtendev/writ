@@ -189,7 +189,7 @@ func TestObjectCLI_KeyedLWWKeyColumn(t *testing.T) {
 	stdout.Reset()
 	stderr.Reset()
 	code := run(context.Background(), []string{
-		"object", "create", "-C", env.repoDir, "standup", "approval",
+		"object", "create", "-C", env.repoDir, "acme.standup", "approval",
 		"-field", "verdict=approve",
 		"-field", "subject=email:alice@example.com",
 		"--json",
@@ -246,7 +246,7 @@ func TestObjectCLI_KeyedLWWKeyColumn_UndeclaredKeyColumnStillRefused(t *testing.
 	stdout.Reset()
 	stderr.Reset()
 	code := run(context.Background(), []string{
-		"object", "create", "-C", env.repoDir, "standup", "approval",
+		"object", "create", "-C", env.repoDir, "acme.standup", "approval",
 		"-field", "verdict=approve",
 		"-field", "subject=email:alice@example.com",
 		"-field", "reviewer=email:carol@example.com",
@@ -284,7 +284,7 @@ func TestObjectCLI_KeyedLWWKeyColumn_KeyColumnAbsentStillCollapsesToEmptyKey(t *
 	stdout.Reset()
 	stderr.Reset()
 	code := run(context.Background(), []string{
-		"object", "create", "-C", env.repoDir, "standup", "approval",
+		"object", "create", "-C", env.repoDir, "acme.standup", "approval",
 		"-field", "verdict=approve",
 		"--json",
 	}, &stdout, &stderr)
@@ -367,7 +367,7 @@ func TestObjectCLI_DualRoleKeyColumnWritableViaField(t *testing.T) {
 	stdout.Reset()
 	stderr.Reset()
 	code := run(context.Background(), []string{
-		"object", "create", "-C", env.repoDir, "widget", "approve",
+		"object", "create", "-C", env.repoDir, "acme.widget", "approve",
 		"-field", "verdict=approve",
 		"-field", "seq=7",
 		"--json",
@@ -421,7 +421,7 @@ func TestObjectCLI_DualRoleKeyColumnRejectionHintsFieldJSON(t *testing.T) {
 	stdout.Reset()
 	stderr.Reset()
 	code := run(context.Background(), []string{
-		"object", "create", "-C", env.repoDir, "widget", "approve",
+		"object", "create", "-C", env.repoDir, "acme.widget", "approve",
 		"-field", "verdict=approve",
 		"-field", "seq=7.0",
 	}, &stdout, &stderr)

@@ -4,12 +4,12 @@
       "object_id": "sch-widget",
       "ops": [
         { "op_type": "create", "body": { "namespace": "acme" } },
-        { "op_type": "define-type", "body": { "type": "widget" } },
-        { "op_type": "define-op", "body": { "type": "widget", "op_type": "approve", "op_version": "1" } },
+        { "op_type": "define-type", "body": { "type": "acme.widget" } },
+        { "op_type": "define-op", "body": { "type": "acme.widget", "op_type": "approve", "op_version": "1" } },
         {
           "op_type": "define-field",
           "body": {
-            "type": "widget",
+            "type": "acme.widget",
             "op_type": "approve",
             "op_version": "1",
             "field": "verdict",
@@ -24,7 +24,7 @@
   ],
   "envelope": {
     "object_id": "widget-1",
-    "object_type": "widget",
+    "object_type": "acme.widget",
     "op_type": "approve",
     "op_version": 1,
     "body": { "verdict": "approve", "at": "2024-01-01T01:00:00+01:00" }

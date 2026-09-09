@@ -1040,11 +1040,12 @@ func TestRulesFromSchemas_DualRoleTombstoneFieldRefused(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a := state.Schema{
-				ObjectID: "sch-a",
-				Types:    []state.SchemaType{{Name: "widget", Fields: tc.fields}},
+				ObjectID:  "sch-a",
+				Namespace: "acme",
+				Types:     []state.SchemaType{{Name: "acme.widget", Fields: tc.fields}},
 			}
 			rules, conflicts := writ.RulesFromSchemas([]state.Schema{a})
-			if got := rules["widget"]; len(got) != 0 {
+			if got := rules["acme.widget"]; len(got) != 0 {
 				t.Fatalf("expected both rules withheld, got %+v", got)
 			}
 			if len(conflicts) != 1 {
@@ -1073,14 +1074,15 @@ func TestRulesFromSchemas_SharedKeyColumnAgreementOK(t *testing.T) {
 		Key: []string{"subject", "phase"}, KeyTypes: map[string]string{"subject": "person-ref", "phase": "string"},
 	}
 	a := state.Schema{
-		ObjectID: "sch-a",
-		Types:    []state.SchemaType{{Name: "widget", Fields: []state.SchemaField{verdict, score}}},
+		ObjectID:  "sch-a",
+		Namespace: "acme",
+		Types:     []state.SchemaType{{Name: "acme.widget", Fields: []state.SchemaField{verdict, score}}},
 	}
 	rules, conflicts := writ.RulesFromSchemas([]state.Schema{a})
 	if len(conflicts) != 0 {
 		t.Fatalf("expected no conflicts when the shared key column agrees, got %+v", conflicts)
 	}
-	if got := rules["widget"]; len(got) != 2 {
+	if got := rules["acme.widget"]; len(got) != 2 {
 		t.Fatalf("expected both fields installed, got %+v", got)
 	}
 }
