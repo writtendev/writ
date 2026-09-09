@@ -130,3 +130,4 @@ jobs:
         with:
           version: v1.64.8
           install-mode: goinstall
+          args: --timeout=5m
