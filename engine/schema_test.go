@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"reflect"
 	"sort"
 	"strings"
@@ -377,6 +378,14 @@ func TestRulesFromSchemas_VersionBumpSameTargetSameStrategyOK(t *testing.T) {
 	}
 }
 
+// TestRulesFromSchemas_VersionBumpNewStrategySameTargetRejected pins
+// WRIT-211's no-survivors response: a version bump that changes strategy
+// while reusing a target withholds every rule bound to that target, not
+// only the later one. Before WRIT-211 this dropped only the version-2 rule
+// and kept version-1 installed — a "declared first wins" outcome that
+// happened to work here only because there were exactly two rules; the
+// same response now applies whether the target is bound by two rules or
+// twenty, so it needs no per-arity special case.
 func TestRulesFromSchemas_VersionBumpNewStrategySameTargetRejected(t *testing.T) {
 	v1 := mkField("widget", "widget-op", 1, "value", "lww")
 	v2 := mkField("widget", "widget-op", 2, "value", "set-union") // same target ("value"), different strategy: rejected
@@ -385,12 +394,11 @@ func TestRulesFromSchemas_VersionBumpNewStrategySameTargetRejected(t *testing.T)
 		Types:    []state.SchemaType{{Name: "widget", Fields: []state.SchemaField{v1, v2}}},
 	}
 	rules, conflicts := writ.RulesFromSchemas([]state.Schema{a})
-	got := rules["widget"]
-	if len(got) != 1 || got[0].OpVersion != 1 {
-		t.Fatalf("expected only the version-1 rule installed, got %+v", got)
+	if got := rules["widget"]; len(got) != 0 {
+		t.Fatalf("expected no rules installed for the target, got %+v", got)
 	}
 	if len(conflicts) != 1 {
-		t.Fatalf("expected 1 conflict reporting the rejected version-2 rule, got %+v", conflicts)
+		t.Fatalf("expected 1 conflict reporting the withheld target, got %+v", conflicts)
 	}
 }
 
@@ -412,11 +420,16 @@ func TestRulesFromSchemas_VersionBumpNewStrategyDistinctTargetOK(t *testing.T) {
 }
 
 // TestRulesFromSchemas_CrossOpTypeTargetReuseWithDifferentValueTypeRejected
-// pins WRIT-198's widened collision check: two fields sharing a target (here
-// the default, the field name) across different op_types must agree on
-// value_type too, not just strategy. Before the widening this was accepted
-// silently — the exact shape of the five colliding targets WRIT-198 found,
-// all of which agreed on strategy and disagreed on value_type.
+// pins WRIT-198's widened collision check, made transitive and
+// no-survivors by WRIT-211: two fields sharing a target (here the default,
+// the field name) across different op_types must agree on value_type too,
+// not just strategy. Before WRIT-198's widening this was accepted silently
+// — the exact shape of the five colliding targets WRIT-198 found, all of
+// which agreed on strategy and disagreed on value_type. Before WRIT-211,
+// the resolver additionally picked "create"'s rule as a survivor because it
+// happened to sort first in canonical (op_type, op_version, field) order —
+// an accident of the two op_types' names, not of the schema's own
+// agreement — rather than withholding the whole target the way it now does.
 func TestRulesFromSchemas_CrossOpTypeTargetReuseWithDifferentValueTypeRejected(t *testing.T) {
 	v1 := mkField("widget", "create", 1, "owner", "lww")
 	v1.ValueType = "person-ref"
@@ -427,12 +440,11 @@ func TestRulesFromSchemas_CrossOpTypeTargetReuseWithDifferentValueTypeRejected(t
 		Types:    []state.SchemaType{{Name: "widget", Fields: []state.SchemaField{v1, v2}}},
 	}
 	rules, conflicts := writ.RulesFromSchemas([]state.Schema{a})
-	got := rules["widget"]
-	if len(got) != 1 || got[0].OpType != "create" {
-		t.Fatalf("expected only the create rule installed, got %+v", got)
+	if got := rules["widget"]; len(got) != 0 {
+		t.Fatalf("expected no rules installed for the target, got %+v", got)
 	}
 	if len(conflicts) != 1 {
-		t.Fatalf("expected 1 conflict reporting the rejected assign rule (same strategy, different value_type, cross op_type), got %+v", conflicts)
+		t.Fatalf("expected 1 conflict reporting the withheld target (same strategy, different value_type, cross op_type), got %+v", conflicts)
 	}
 }
 
@@ -457,6 +469,102 @@ func TestRulesFromSchemas_VersionBumpValueTypeOnlyOK(t *testing.T) {
 	}
 	if got := rules["widget"]; len(got) != 2 {
 		t.Fatalf("expected both version-1 and version-2 rules installed, got %+v", got)
+	}
+}
+
+// TestRulesFromSchemas_ThreeRuleTargetSharingIsOrderIndependent pins
+// WRIT-211's fix directly with the ticket's own three-rule vector — the
+// smallest input that distinguishes a transitive shared-target agreement
+// relation from the non-transitive one it replaced:
+//
+//   - (configure, v1, mode, string) and (configure, v2, mode, int) are a
+//     version-bump class of one another (same op_type and field): taken
+//     alone they would be permitted to disagree on value_type, §8's
+//     carve-out.
+//   - (reset, v1, value, target: mode, string) shares their target but
+//     belongs to neither's class.
+//
+// Once a target is bound by more than one class, the carve-out is void for
+// every rule on it (spec.CheckTargetAgreement), so the whole target — all
+// three rules — must be withheld. That answer must not depend on the order
+// RulesFromSchemas is handed the type's fields in: the superseded
+// candidate-vs-bound form dropped a different one of the three depending on
+// that order, which is the defect WRIT-211 fixed. This shuffles both the
+// field order within the type and the (single-element) schema slice, and
+// asserts the resolved rules, the conflicts, and the resulting folded
+// ObjectState are byte-identical across every permutation.
+func TestRulesFromSchemas_ThreeRuleTargetSharingIsOrderIndependent(t *testing.T) {
+	v1 := mkField("widget", "configure", 1, "mode", "lww")
+	v1.ValueType = "string"
+	v2 := mkField("widget", "configure", 2, "mode", "lww")
+	v2.ValueType = "int"
+	v3 := mkField("widget", "reset", 1, "value", "lww")
+	v3.ValueType = "string"
+	v3.Target = "mode"
+	allFields := []state.SchemaField{v1, v2, v3}
+
+	dataOps := []codec.Op{
+		{
+			Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "widget", OpType: "configure", OpVersion: 1, Body: json.RawMessage(`{"mode":"legacy-status"}`)},
+			ID:       "configure-1",
+		},
+		{
+			Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "widget", OpType: "configure", OpVersion: 2, Body: json.RawMessage(`{"mode":7}`)},
+			ID:       "configure-2",
+		},
+		{
+			Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "widget", OpType: "reset", OpVersion: 1, Body: json.RawMessage(`{"value":"legacy-status"}`)},
+			ID:       "reset-1",
+		},
+	}
+
+	r := rand.New(rand.NewSource(211))
+	var wantRules map[string][]writ.Rule
+	var wantConflicts []writ.SchemaConflict
+	var wantState writ.ObjectState
+
+	for i := 0; i < 30; i++ {
+		fields := append([]state.SchemaField(nil), allFields...)
+		r.Shuffle(len(fields), func(a, b int) { fields[a], fields[b] = fields[b], fields[a] })
+
+		schemas := []state.Schema{{
+			ObjectID: "sch-a",
+			Types:    []state.SchemaType{{Name: "widget", Fields: fields}},
+		}}
+		// Permuting the (single-element) schema slice too: spec/schema-ops.md
+		// §7 step 5 declares the resolver order-independent in the schema
+		// objects it is handed, not only in the fields within one of them.
+		r.Shuffle(len(schemas), func(a, b int) { schemas[a], schemas[b] = schemas[b], schemas[a] })
+
+		rules, conflicts := writ.RulesFromSchemas(schemas)
+		if got := rules["widget"]; len(got) != 0 {
+			t.Fatalf("permutation #%d: expected the whole target withheld, got %+v", i, got)
+		}
+		if len(conflicts) != 1 {
+			t.Fatalf("permutation #%d: expected exactly 1 conflict, got %+v", i, conflicts)
+		}
+
+		objState, err := writ.Fold(dataOps, rules["widget"])
+		if err != nil {
+			t.Fatalf("permutation #%d: Fold: %v", i, err)
+		}
+		if len(objState.UnknownOps) != 3 {
+			t.Fatalf("permutation #%d: expected all 3 ops to fall through as unknown, got %+v", i, objState.UnknownOps)
+		}
+
+		if i == 0 {
+			wantRules, wantConflicts, wantState = rules, conflicts, objState
+			continue
+		}
+		if !reflect.DeepEqual(rules, wantRules) {
+			t.Fatalf("permutation #%d: RulesFromSchemas order-dependence:\n got:  %+v\nwant: %+v", i, rules, wantRules)
+		}
+		if !reflect.DeepEqual(conflicts, wantConflicts) {
+			t.Fatalf("permutation #%d: conflict order-dependence:\n got:  %+v\nwant: %+v", i, conflicts, wantConflicts)
+		}
+		if !reflect.DeepEqual(objState, wantState) {
+			t.Fatalf("permutation #%d: folded state order-dependence:\n got:  %+v\nwant: %+v", i, objState, wantState)
+		}
 	}
 }
 

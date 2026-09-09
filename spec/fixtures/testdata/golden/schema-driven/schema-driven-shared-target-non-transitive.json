@@ -1,0 +1,90 @@
+{
+  "schemas": [
+    {
+      "object_id": "sch-acme",
+      "schema": {
+        "object_id": "sch-acme",
+        "namespace": "acme",
+        "types": [
+          {
+            "type": "gadget",
+            "fields": [
+              {
+                "field": "mode",
+                "op_type": "configure",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              },
+              {
+                "field": "mode",
+                "op_type": "configure",
+                "op_version": 2,
+                "value_type": "int",
+                "strategy": "lww"
+              },
+              {
+                "field": "value",
+                "op_type": "reset",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww",
+                "target": "mode"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "conflicts": [
+    {
+      "object_type": "gadget",
+      "object_ids": [
+        "sch-acme"
+      ],
+      "reason": "field rule (configure, 2, mode) reuses target \"mode\" already bound by (configure, 1, mode), but they disagree on value_type; the target is shared by more than one (op_type, field) version-bump class, so the version-bump carve-out for value_type, key, key_types, enum and max_length applies only within a class, not between them (spec/schema-ops.md §8) — every rule sharing this target must agree on value_type"
+    }
+  ],
+  "objects": [
+    {
+      "object_id": "gadget-1",
+      "object_type": "gadget",
+      "total_order": [
+        {
+          "commit": "deb510c43c0467213057b28f37e60c2a2200d781",
+          "t_star": 1767225900
+        },
+        {
+          "commit": "518cfd96a65db5cd04698baeab555f8e69100289",
+          "t_star": 1767225960
+        },
+        {
+          "commit": "a72abe9a418cbdb62060742e3034255e028b9d84",
+          "t_star": 1767226020
+        }
+      ],
+      "state": {},
+      "unknown_ops": [
+        {
+          "commit": "deb510c43c0467213057b28f37e60c2a2200d781",
+          "object_type": "gadget",
+          "op_type": "configure",
+          "op_version": 1
+        },
+        {
+          "commit": "518cfd96a65db5cd04698baeab555f8e69100289",
+          "object_type": "gadget",
+          "op_type": "configure",
+          "op_version": 2
+        },
+        {
+          "commit": "a72abe9a418cbdb62060742e3034255e028b9d84",
+          "object_type": "gadget",
+          "op_type": "reset",
+          "op_version": 1
+        }
+      ]
+    }
+  ]
+}

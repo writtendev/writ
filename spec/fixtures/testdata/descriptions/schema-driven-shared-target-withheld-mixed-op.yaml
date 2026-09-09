@@ -1,0 +1,178 @@
+name: schema-driven-shared-target-withheld-mixed-op
+description: >
+  WRIT-211 round 3's finding: spec/schema-ops.md §6 item 3 used to claim
+  that an op falls through the absent-schema path (§7.1) to UnknownOp
+  whenever *every* field it writes lands on a withheld target — still
+  wrong, because knownness is decided at the op envelope, not per field:
+  `opMatchesRule` matches on `(object_type, op_type, op_version)` alone,
+  never on which fields the body carries. Reusing the collision from
+  schema-driven-shared-target-non-transitive.yaml ("configure" v1/v2 and
+  "reset" all bound to target "mode", disagreeing enough that the
+  resolver withholds every rule bound to it), this fixture adds one more
+  wrinkle "reset" did not have there: "reset" also declares field "note",
+  defaulting to its own target "note" and never touching "mode", so its
+  rule survives untouched by the collision — a surviving rule for
+  `(gadget, reset, 1)` still exists. The "reset-1" op below writes both
+  "value" (target "mode", withheld) and "note" (target "note",
+  resolvable) in the same envelope. Because a surviving rule matches its
+  `(object_type, op_type, op_version)`, "reset-1" is known regardless of
+  which fields its body carries; spec/fold.md §7.1's Scope bullets
+  already say a field with no resolvable rule is an ordinary unrecognized
+  field ("preserve-and-ignore ... is not uninterpretable; the field is
+  ignored and the operation folds") — the same standard an op writing a
+  field no schema has ever declared meets — so "reset-1" folds to state
+  `{"note": "hello"}`, "value" leaves no trace in state (preserved only
+  in the log, per forward-compatibility.md, never in `ObjectState`), and
+  "reset-1" does NOT appear in unknown_ops. "configure-v1" and
+  "configure-v2" become UnknownOp for a different reason entirely: their
+  `op_type`/`op_version` pairs — `(gadget, configure, 1)` and `(gadget,
+  configure, 2)` — have no surviving rule at all, since "configure" only
+  ever declared the one field ("mode") and that rule was withheld
+  wholesale, not because of which fields the ops happen to write. Both
+  fall through the absent-schema path to UnknownOp exactly as
+  schema-driven-shared-target-non-transitive.yaml already pins. This is
+  the mixed case that vector does not cover. (pins: reader)
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: define-type
+            parents: [create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "gadget"
+            expect: accept
+
+          - id: define-field-configure-v1
+            parents: [define-type]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "configure"
+                op_version: "1"
+                field: "mode"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: define-field-configure-v2
+            parents: [define-field-configure-v1]
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "configure"
+                op_version: "2"
+                field: "mode"
+                value_type: "int"
+                strategy: "lww"
+            expect: accept
+
+          - id: define-field-reset-value
+            parents: [define-field-configure-v2]
+            author: alice
+            timestamp: 2026-01-01T00:04:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "reset"
+                op_version: "1"
+                field: "value"
+                target: "mode"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: define-field-reset-note
+            parents: [define-field-reset-value]
+            author: alice
+            timestamp: 2026-01-01T00:05:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "reset"
+                op_version: "1"
+                field: "note"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/gadget
+    history:
+      - commits:
+          - id: configure-v1
+            author: alice
+            timestamp: 2026-01-01T00:06:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: configure
+              op_version: 1
+              body:
+                mode: "legacy-status"
+            expect: accept
+
+          - id: configure-v2
+            parents: [configure-v1]
+            author: alice
+            timestamp: 2026-01-01T00:07:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: configure
+              op_version: 2
+              body:
+                mode: 7
+            expect: accept
+
+          - id: reset-1
+            parents: [configure-v2]
+            author: alice
+            timestamp: 2026-01-01T00:08:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: reset
+              op_version: 1
+              body:
+                value: "legacy-status"
+                note: "hello"
+            expect: accept

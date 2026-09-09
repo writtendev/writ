@@ -1,8 +1,8 @@
 name: schema-driven-version-bump-lattice-collision
 description: >
-  WRIT-206's finding: CheckTargetCollision's version-bump carve-out used to
-  `continue` before equalMergeAttrs ran at all, so every attribute
-  equalMergeAttrs compares — including `lattice` — was in fact freely
+  WRIT-206's finding: the version-bump carve-out used to skip the
+  agreement check entirely for a version-bump pair, so every attribute
+  the check compares — including `lattice` — was in fact freely
   changeable under the carve-out, defeating WRIT-198's fix
   (schema-driven-cross-op-type-lattice-collision.yaml, which pins the
   cross-op_type half of the same standard). Here op_version 2 of "promote"
@@ -13,13 +13,14 @@ description: >
   value_type, enum, max_length, key and key_types for a version bump —
   lattice is deliberately absent, because the lattice accumulator
   (engine/internal/fold/strategy.go) reads it to order its semilattice, so
-  it *is* consulted at fold time. RulesFromSchemas must therefore reject
-  op_version 2's rule as a collision even though it is a version bump of
+  it *is* consulted at fold time. The resolver must therefore reject
+  op_version 2's rule as a disagreement even though it is a version bump of
   op_version 1: the define-field-v2 op still folds cleanly into schema
-  state (schema's own fold performs no rule validation), but the rule it
-  declares is dropped as a SchemaConflict rather than installed, and a
-  "promote" op written under op_version 2 matches no installed rule and
-  becomes an UnknownOp — exactly the same shape
+  state (schema's own fold performs no rule validation), but WRIT-211
+  withholds every rule bound to target "level" — both op_version 1's and
+  op_version 2's — rather than dropping only the second one, so a
+  "promote" op written under either op_version matches no installed rule
+  and becomes an UnknownOp — exactly the same shape
   schema-driven-cross-op-type-lattice-collision.yaml pins for the
   cross-op_type case. (pins: reader)
 

@@ -200,7 +200,7 @@ Field merge rules are declared in machine-readable tables (`field-rules.json`, c
 - `op_type` (string): The operation type.
 - `op_version` (integer): The operation schema version.
 - `field` (string): The target field in the operation body.
-- `target` (optional string): The state key in the generic fold map (`ObjectState.State`). Defaults to `field` if omitted. Rules may declare a `target` state key to avoid strategy collisions when multiple op types define identical body field names with differing merge strategies. The same remedy applies across versions of one op type, not only across op types: `Fold` groups matched rules by target key alone (not by `op_version`) and instantiates one accumulator per target from the first of its matching rules in canonical rule order (§Canonical rule order below), which for a version bump is the lowest `op_version`, so a `define-field` version bump (`spec/schema-ops.md`) that changes `strategy` while reusing a `target` already bound to a different strategy would silently run the older version's strategy over the newer version's writes rather than either rule's declared behavior. A version bump MAY freely change `value_type`, `enum`, `max_length`, `key`, or `key_types` under the same target, because those never change which accumulator factory runs; `lattice` is not on that list, because the `lattice` accumulator reads it at fold time to order its semilattice, so reusing a target across a `lattice` change would likewise order the newer version's writes by the older version's semilattice, and a version bump reusing a target MUST still agree on it. A version bump that changes `strategy` MUST declare a distinct `target`, and a rule table that reuses a target across a strategy change is non-conforming.
+- `target` (optional string): The state key in the generic fold map (`ObjectState.State`). Defaults to `field` if omitted. Rules may declare a `target` state key to avoid strategy collisions when multiple op types define identical body field names with differing merge strategies. The same remedy applies across versions of one op type, not only across op types: `Fold` groups matched rules by target key alone (not by `op_version`) and instantiates one accumulator per target from the first of its matching rules in canonical rule order (§Canonical rule order below), which for a version bump is the lowest `op_version`, so a `define-field` version bump (`spec/schema-ops.md`) that changes `strategy` while reusing a `target` already bound to a different strategy would silently run the older version's strategy over the newer version's writes rather than either rule's declared behavior. Within the version-bump equivalence class formed by one `(op_type, field)`, a version bump MAY freely change `value_type`, `enum`, `max_length`, `key`, or `key_types` under the same target, because those never change which accumulator factory runs; `lattice` is not on that list, because the `lattice` accumulator reads it at fold time to order its semilattice, so reusing a target across a `lattice` change would likewise order the newer version's writes by the older version's semilattice, and a version bump reusing a target MUST still agree on it. A version bump that changes `strategy` MUST declare a distinct `target`, and a rule table that reuses a target across a strategy change is non-conforming. The moment a target is bound by more than one such class, the "MAY freely change" exemption is void for every rule bound to it, not only the rules straddling two classes — see the shared-target agreement rule below.
 - `strategy` (string): Exactly one strategy from the closed catalogue.
 - `key` (array of strings, required for `keyed-lww`): The ordered list of body fields forming the composite key.
 - `lattice` (array of strings, required for `lattice`): The ordered elements of the semilattice.
@@ -227,29 +227,49 @@ with a different merge strategy, without every schema having to declare a
 distinct `target` defensively against every other schema that exists.
 
 **Rules sharing a `target` within one object type MUST agree on every
-merge attribute.** Two rules whose `TargetKey()` (`target`, or `field` if
-undeclared) is equal MUST agree on `strategy`, `value_type`, `key`,
-`key_types`, `enum`, `max_length` and `lattice` — with one exception: two
-rules that share both `op_type` and `field`, differing only by `op_version`
-(a version bump), MAY freely change `value_type`, `enum`, `max_length`,
-`key`, or `key_types` under the same target, as already stated above, and
-MUST declare a distinct `target` if the bump also changes `strategy`.
-`lattice` is not on that freely-changeable list: unlike those five, it is
-consulted by the strategy at fold time — the `lattice` accumulator reads it
-to order its semilattice — so two rules that share a target MUST agree on
-it even when they are a version bump of one another, exactly as they must
-on `value_type`, `key`, `key_types`, `enum` and `max_length` outside a
-version bump, and exactly as they must on `strategy` itself. This is what
-stops two body fields that merely happen to share a name — such as
-one OR-set's `add` side and an unrelated OR-set's `add` side, declared
-under different `op_type`s with no `target` of their own — from silently
-sharing one accumulator: a rule table with such a case MUST target each
-OR-set explicitly (a type whose `assign` op and `tag` op both carry
-`add`/`remove` is the worked example: `assign`'s pair declares
+merge attribute.** This is a genuine equivalence relation, stated over
+every rule bound to one `target` at once, not a pairwise test between one
+candidate and one prior:
+
+1. Partition the target's rules into **version-bump equivalence classes**,
+   one class per distinct `(op_type, field)`, whatever `op_version` each
+   member declares. Grouping by a key is an equivalence relation by
+   construction — reflexive, symmetric and transitive — which is what
+   makes the rest of this rule well-defined regardless of how many rules,
+   or how many classes, end up sharing the target.
+2. **Within one class**, rules MUST agree on `strategy` and `lattice`, and
+   MAY freely differ on `value_type`, `enum`, `max_length`, `key`, or
+   `key_types` — the version-bump carve-out already stated above — with a
+   version bump that also changes `strategy` required to declare a
+   distinct `target` instead of reusing this one. `lattice` is never on
+   the freely-changeable list, class or no class: unlike the other five,
+   it is consulted by the strategy at fold time — the `lattice`
+   accumulator reads it to order its semilattice — so two rules sharing a
+   target MUST agree on it even within a single version-bump class.
+3. **Between classes** — the moment a target is bound by more than one
+   class — the carve-out in (2) is void, for every rule bound to the
+   target, not only the rules straddling two classes: a class internally
+   non-uniform on an attribute cannot agree with any other class on it, so
+   the exemption vanishing wholesale is the carve-out's transitive
+   closure, not an extra rule. Every rule bound to the target must then
+   agree on all seven attributes: `strategy`, `lattice`, `value_type`,
+   `key`, `key_types`, `enum` and `max_length`.
+
+This is what stops two body fields that merely happen to share a name —
+such as one OR-set's `add` side and an unrelated OR-set's `add` side,
+declared under different `op_type`s with no `target` of their own — from
+silently sharing one accumulator: a rule table with such a case MUST
+target each OR-set explicitly (a type whose `assign` op and `tag` op both
+carry `add`/`remove` is the worked example: `assign`'s pair declares
 `target: "assignees"` and `tag`'s declares `target: "tags"`, so the two
 OR-sets land in separate state keys instead of one shared `add`/`remove`
 pair). A rule table that violates this agreement rule is non-conforming,
-exactly as one that reuses a target across a `strategy` change already was.
+exactly as one that reuses a target across a `strategy` change already
+was. Because the relation above is a genuine equivalence relation — unlike
+a pairwise "is this candidate a version bump of that specific prior" test,
+which is not transitive once a target is shared by three or more rules —
+which rules a resolver finds disagreeing can never depend on the order it
+happens to consider them in.
 
 **Every rule that matches an operation applies.** An operation is not
 limited to the first declared rule that matches it, by declaration order or

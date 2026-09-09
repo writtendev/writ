@@ -87,15 +87,18 @@ type compiledField struct {
 // and column, instead of silently vanishing at resolve time.
 //
 // One further check spans more than one rule, so ValidateFieldRule cannot
-// see it on its own: two define-fields within the same type whose
-// TargetKey() (the declared target, or the field name if undeclared)
-// collides while their strategies differ — a version bump that changes
-// strategy without also declaring a distinct target, the WRIT-198 class
-// (spec/schema-ops.md §8, `fold.md` §5). compileType holds every field of
-// the type at once, so this is checked here too, across the type's fields
-// in canonical order, rather than deferred to RulesFromSchemas, which
-// would otherwise drop the colliding rule silently once the ops are
-// already signed and unremovable in the log.
+// see it on its own: define-fields within the same type sharing a
+// TargetKey() (the declared target, or the field name if undeclared) but
+// disagreeing on a merge attribute (spec/schema-ops.md §8, `fold.md` §5) —
+// a version bump that changes strategy without also declaring a distinct
+// target is the WRIT-198 class of this, but the check is set-level, not
+// pairwise (WRIT-211): it partitions each target's rules into
+// (op_type, field) version-bump classes first, so which pair a disagreement
+// is reported against never depends on declaration order. compileType holds
+// every field of the type at once, so this is checked here too, across the
+// type's fields in canonical order, rather than deferred to the resolver,
+// which would otherwise withhold the colliding rules silently once the ops
+// are already signed and unremovable in the log.
 func Compile(f *File, objectID string) ([]codec.Envelope, error) {
 	if f == nil {
 		return nil, fmt.Errorf("schemasrc: Compile: nil file")
@@ -201,7 +204,23 @@ func compileType(fileName, objectID string, t *Type) ([]codec.Envelope, error) {
 	}
 
 	sort.Slice(fieldOrder, func(i, j int) bool { return fieldKeyLess(fieldOrder[i], fieldOrder[j]) })
-	targetBindings := make(map[string][]spec.FieldRule) // TargetKey() -> every rule already bound to it
+
+	// Build every field's body and derived rule first, in canonical order,
+	// binding each into targetBindings as it goes — but withhold judgment on
+	// any of them (§8, spec/fold.md §5's shared-target agreement) until
+	// every field in the type has been seen. Running the check
+	// incrementally, candidate-against-bound as each field arrived, is
+	// exactly the pairwise form WRIT-211 replaced: whether a version-bump
+	// carve-out applied depended on which prior a candidate happened to be
+	// compared against first. Checking each target's whole rule set once,
+	// after the loop, makes the answer a function of the type's fields
+	// alone.
+	type fieldRuleEntry struct {
+		key  fieldKey
+		body map[string]any
+	}
+	entries := make([]fieldRuleEntry, 0, len(fieldOrder))
+	targetBindings := make(map[string][]spec.FieldRule) // TargetKey() -> every rule bound to it
 	for _, k := range fieldOrder {
 		cf := fields[k]
 		body, err := fieldBody(t.Name, k, cf.field)
@@ -212,10 +231,16 @@ func compileType(fileName, objectID string, t *Type) ([]codec.Envelope, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := checkTargetCollision(fileName, cf, rule, targetBindings); err != nil {
-			return nil, err
-		}
-		env, err := envelope(objectID, "define-field", body)
+		entries = append(entries, fieldRuleEntry{key: k, body: body})
+		targetBindings[rule.TargetKey()] = append(targetBindings[rule.TargetKey()], rule)
+	}
+
+	if err := checkTargetAgreement(fileName, fields, targetBindings); err != nil {
+		return nil, err
+	}
+
+	for _, e := range entries {
+		env, err := envelope(objectID, "define-field", e.body)
 		if err != nil {
 			return nil, err
 		}
@@ -309,7 +334,7 @@ func fieldBody(typeName string, k fieldKey, f *Field) (map[string]any, error) {
 // vocabulary's field-rules.json is validated through — so a rule this
 // package would emit but RulesFromSchemas would later drop is rejected
 // here instead, with the source position that produced it. It returns the
-// derived rule so checkTargetCollision can run the one cross-field check
+// derived rule so checkTargetAgreement can run the one cross-field check
 // ValidateFieldRule cannot see (it validates one rule at a time) without
 // re-deriving it.
 func validateFieldBody(fileName string, cf *compiledField, body map[string]any) (spec.FieldRule, error) {
@@ -347,28 +372,45 @@ func validateFieldBody(fileName string, cf *compiledField, body map[string]any) 
 	return rule, nil
 }
 
-// checkTargetCollision rejects a define-field whose rule reuses a target
-// (spec.FieldRule.TargetKey: the declared target, or the field name if
-// undeclared) already bound by an earlier field in the same type but
-// disagreeing on a merge attribute spec.CheckTargetCollision holds shared
-// targets to — the exact collision engine/schema.go's RulesFromSchemas
-// detects at resolve time by dropping the rule and recording a
-// SchemaConflict nobody on the `apply` path is obliged to inspect
-// (spec/schema-ops.md §8, `fold.md` §5's shared-target agreement rule).
-// compileType already holds the whole type when this runs, so — contrary
-// to what an earlier draft of spec/schema-source.md §7 claimed — there is
-// no missing information that would force this check to wait for the
-// resolver; targetBindings accumulates across the type's fields in the
-// same canonical (op_type, op_version, field) order Compile emits them in,
-// so the reported collision always names the second-declared field, the
-// one whose version bump silently changed strategy (or, now, another merge
-// attribute outside the permitted version-bump carve-out) without a new
-// target.
-func checkTargetCollision(fileName string, cf *compiledField, rule spec.FieldRule, targetBindings map[string][]spec.FieldRule) error {
-	if err := spec.CheckTargetCollision(targetBindings, rule); err != nil {
-		return &SyntaxError{File: fileName, Line: cf.pos.Line, Col: cf.pos.Col, Msg: err.Error()}
+// checkTargetAgreement rejects a type whose fields include two or more
+// rules sharing a target (spec.FieldRule.TargetKey: the declared target, or
+// the field name if undeclared) that disagree on a merge attribute
+// spec.CheckTargetAgreement holds shared targets to — the exact disagreement
+// engine/schema.go's resolveSchemaTypes detects at resolve time by
+// withholding every rule bound to the target and recording a SchemaConflict
+// nobody on the `apply` path is obliged to inspect (spec/schema-ops.md §8,
+// `fold.md` §5's shared-target agreement rule). compileType already holds
+// the whole type when this runs, so — contrary to what an earlier draft of
+// spec/schema-source.md §7 claimed — there is no missing information that
+// would force this check to wait for the resolver; it runs once per target,
+// over every rule targetBindings accumulated across the type's fields, in
+// ascending target-key order so which of possibly several bad targets is
+// reported first is deterministic. Compile REJECTS the file rather than
+// withholding the target the way the resolver does — a source file is
+// authored, not folded — and the SyntaxError names the position of the
+// later-declared rule (canonical (op_type, op_version, field) order,
+// fieldRuleOrderLess) among the disagreeing pair spec.FindTargetDisagreement
+// names, the one whose version bump (or reused target) actually goes wrong.
+func checkTargetAgreement(fileName string, fields map[fieldKey]*compiledField, targetBindings map[string][]spec.FieldRule) error {
+	targetKeys := make([]string, 0, len(targetBindings))
+	for tk := range targetBindings {
+		targetKeys = append(targetKeys, tk)
 	}
-	targetBindings[rule.TargetKey()] = append(targetBindings[rule.TargetKey()], rule)
+	sort.Strings(targetKeys)
+
+	for _, tk := range targetKeys {
+		err := spec.CheckTargetAgreement(tk, targetBindings[tk])
+		if err == nil {
+			continue
+		}
+		if d, ok := spec.FindTargetDisagreement(tk, targetBindings[tk]); ok {
+			laterKey := fieldKey{opType: d.B.OpType, opVersion: d.B.OpVersion, field: d.B.Field}
+			if cf, ok := fields[laterKey]; ok {
+				return &SyntaxError{File: fileName, Line: cf.pos.Line, Col: cf.pos.Col, Msg: err.Error()}
+			}
+		}
+		return &SyntaxError{File: fileName, Msg: err.Error()}
+	}
 	return nil
 }
 

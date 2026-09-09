@@ -11,19 +11,18 @@ description: >
   before this fix compared only Strategy, value_type, key, key_types,
   enum and max_length, and would have installed both despite their
   lattice orderings disagreeing (["low","high"] vs ["high","low"]),
-  making the folded state depend on which rule RulesFromSchemas happened
+  making the folded state depend on which rule the resolver happened
   to resolve first: exactly the order-dependence hazard WRIT-186 named.
-  RulesFromSchemas iterates a type's fields in the canonical
-  (op_type, op_version, field) order engine/state/schema.go's
-  fieldKeyLess sorts them into (WRIT-186 round 1), so "demote" (which
-  sorts before "promote") is bound first regardless of declaration
-  order in the log; "promote"'s rule then collides on the shared
-  "level" target and is dropped, reporting a SchemaConflict, and a
-  "promote" op on the ordinary object matches no rule and becomes an
-  UnknownOp. This is the fixture spec.CheckTargetCollision's
-  TestCheckTargetCollision Go table pins at the function level; this
-  fixture pins it at the log-resolved RulesFromSchemas level a
-  schema-driven fold actually walks. (pins: reader)
+  WRIT-211 made the shared-target agreement relation transitive and its
+  response withhold-every-rule-for-the-target rather than drop-one, so
+  the resolver now withholds both "promote"'s and "demote"'s rules for
+  target "level", reporting one SchemaConflict, regardless of which
+  op_type happens to sort first in canonical (op_type, op_version, field)
+  order; both a "promote" and a "demote" op on the ordinary object then
+  match no rule and become UnknownOps. This is the fixture
+  spec.CheckTargetAgreement's TestCheckTargetAgreement Go table pins at
+  the function level; this fixture pins it at the log-resolved resolver
+  level a schema-driven fold actually walks. (pins: reader)
 
 refs:
   - name: refs/writ/0123456789abcdef/schema

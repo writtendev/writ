@@ -667,7 +667,7 @@ type resolvedSchemaTypes struct {
 	contested map[string]bool
 	// fields holds, per non-contested non-"schema" object type, every
 	// field declaration that survived grammar, spec.ValidateFieldRule, and
-	// spec.CheckTargetCollision — the original state.SchemaField, not the
+	// spec.CheckTargetAgreement — the original state.SchemaField, not the
 	// spec.FieldRule built from it for validation, so Deprecated and the
 	// rest of its shape are not lost building it back into a Rule.
 	fields map[string][]state.SchemaField
@@ -691,11 +691,10 @@ type resolvedSchemaTypes struct {
 }
 
 // toFieldRule builds the spec.FieldRule form of a schema-declared field,
-// used to run it through spec.ValidateFieldRule and
-// spec.CheckTargetCollision (both defined against that type) and, for a
-// non-contested type, to populate a codec.Vocabulary's Fields directly:
-// spec.FieldRule is the field-rule currency engine/codec already imports
-// spec for.
+// used to run it through spec.ValidateFieldRule and spec.CheckTargetAgreement
+// (both defined against that type) and, for a non-contested type, to
+// populate a codec.Vocabulary's Fields directly: spec.FieldRule is the
+// field-rule currency engine/codec already imports spec for.
 func toFieldRule(objectType string, f state.SchemaField) spec.FieldRule {
 	return spec.FieldRule{
 		OpType: f.OpType, OpVersion: f.OpVersion, Field: f.Name, Target: f.Target,
@@ -782,8 +781,13 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 			descriptions[t.Name] = t.Description
 			deprecatedTypes[t.Name] = t.Deprecated
 
-			targetBindings := make(map[string][]spec.FieldRule)
-			var typeFields []state.SchemaField
+			// Pass 1: grammar and spec.ValidateFieldRule, per field — each
+			// failure dropped with its own SchemaConflict, exactly as
+			// before. survivingRules mirrors survivingFields index for
+			// index so pass 2 below can go from a target's rules back to
+			// the state.SchemaField values it withholds or installs.
+			var survivingFields []state.SchemaField
+			var survivingRules []spec.FieldRule
 			for _, f := range t.Fields {
 				sr := toFieldRule(t.Name, f)
 
@@ -805,17 +809,54 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 					continue
 				}
 
-				if err := spec.CheckTargetCollision(targetBindings, sr); err != nil {
+				survivingFields = append(survivingFields, f)
+				survivingRules = append(survivingRules, sr)
+			}
+
+			// Pass 2: spec.CheckTargetAgreement, per target, over every
+			// grammar- and rule-valid field the type declares — not
+			// incrementally as each field is validated (WRIT-211): a
+			// candidate-vs-bound check picks a survivor and so is
+			// order-dependent whenever the shared-target agreement
+			// relation it tests is not transitive, exactly the defect
+			// class WRIT-186 named for map iteration and WRIT-198 named
+			// for fieldRules[0]. Grouping every survivor by TargetKey()
+			// first and checking each target's whole set once makes the
+			// installed rule set a function of the schema alone.
+			byTarget := make(map[string][]int) // TargetKey() -> indices into survivingFields/survivingRules
+			for i, sr := range survivingRules {
+				byTarget[sr.TargetKey()] = append(byTarget[sr.TargetKey()], i)
+			}
+			targetKeys := make([]string, 0, len(byTarget))
+			for tk := range byTarget {
+				targetKeys = append(targetKeys, tk)
+			}
+			sort.Strings(targetKeys)
+
+			withheld := make([]bool, len(survivingFields))
+			for _, tk := range targetKeys {
+				idxs := byTarget[tk]
+				targetRules := make([]spec.FieldRule, len(idxs))
+				for j, idx := range idxs {
+					targetRules[j] = survivingRules[idx]
+				}
+				if err := spec.CheckTargetAgreement(tk, targetRules); err != nil {
 					conflicts = append(conflicts, SchemaConflict{
 						ObjectType: t.Name,
 						ObjectIDs:  []string{sch.ObjectID},
 						Reason:     err.Error(),
 					})
-					continue
+					for _, idx := range idxs {
+						withheld[idx] = true
+					}
 				}
-				targetBindings[sr.TargetKey()] = append(targetBindings[sr.TargetKey()], sr)
+			}
 
-				typeFields = append(typeFields, f)
+			var typeFields []state.SchemaField
+			for i, f := range survivingFields {
+				if !withheld[i] {
+					typeFields = append(typeFields, f)
+				}
 			}
 
 			var typeOps []state.SchemaOp
@@ -877,10 +918,14 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 //     is picked, and its ops fall through the absent-schema path to
 //     UnknownOp. Two schemas declaring the same namespace is a weaker,
 //     mostly cosmetic case, reported alongside the first but never
-//     withholding rules on its own. A version bump that changes strategy
-//     while reusing a target already bound to a different strategy
-//     (spec/fold.md §5, spec/schema-ops.md §Evolution) is rejected the same
-//     way: the rule is dropped and the collision reported.
+//     withholding rules on its own. Rules that share a target but disagree
+//     (spec/fold.md §5, spec/schema-ops.md §8) — including a version bump
+//     that changes strategy while reusing a target already bound to a
+//     different strategy — are rejected the same way, and by the same
+//     no-winner idiom: spec.CheckTargetAgreement withholds every rule bound
+//     to that target, not only the one that would have been "the last one
+//     in," so which rules install can never depend on the order the schema
+//     happened to declare them in (WRIT-211).
 //
 // Schema objects are visited in ascending ObjectID order so two conforming
 // implementations build the same index from the same input regardless of

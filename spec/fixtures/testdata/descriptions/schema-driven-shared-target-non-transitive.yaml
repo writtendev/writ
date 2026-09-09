@@ -1,0 +1,151 @@
+name: schema-driven-shared-target-non-transitive
+description: >
+  WRIT-211's own filing vector, at the resolver level: the smallest input
+  that distinguishes a transitive shared-target agreement relation from
+  the non-transitive one it replaced. "configure" v1 and v2 declare field
+  "mode" with no explicit target (defaulting to "mode") and disagree only
+  on value_type (string vs int) — same (op_type, field), so §8's
+  version-bump carve-out would permit that disagreement in isolation.
+  "reset" declares field "value" with an explicit target("mode"), reusing
+  the same target while belonging to neither's (op_type, field) class.
+  Once a target is bound by more than one version-bump class, the
+  carve-out is void for every rule bound to it, not only the rules
+  straddling two classes (spec/schema-ops.md §8, spec/fold.md §5): all
+  three rules disagree, so the resolver withholds every rule bound to
+  target "mode" and reports one SchemaConflict, regardless of which pair
+  a pairwise, order-dependent check would have happened to compare first.
+  Before WRIT-211, an incremental candidate-vs-bound check dropped a
+  different one of the three rules depending on declaration order — which
+  rule two conforming implementations kept, and so which ops folded to
+  real state versus UnknownOp, depended on nothing but that order. Here,
+  every op under all three op types — "configure" v1, "configure" v2, and
+  "reset" v1 — matches no installed rule and becomes an UnknownOp.
+  engine/schema_test.go's TestRulesFromSchemas_ThreeRuleTargetSharingIsOrderIndependent
+  pins the same vector at the resolver level directly, shuffling field
+  order across permutations; this fixture pins it at the log-resolved
+  level a schema-driven fold actually walks. (pins: reader)
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: define-type
+            parents: [create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "gadget"
+            expect: accept
+
+          - id: define-field-configure-v1
+            parents: [define-type]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "configure"
+                op_version: "1"
+                field: "mode"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: define-field-configure-v2
+            parents: [define-field-configure-v1]
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "configure"
+                op_version: "2"
+                field: "mode"
+                value_type: "int"
+                strategy: "lww"
+            expect: accept
+
+          - id: define-field-reset
+            parents: [define-field-configure-v2]
+            author: alice
+            timestamp: 2026-01-01T00:04:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "reset"
+                op_version: "1"
+                field: "value"
+                target: "mode"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/gadget
+    history:
+      - commits:
+          - id: configure-v1
+            author: alice
+            timestamp: 2026-01-01T00:05:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: configure
+              op_version: 1
+              body:
+                mode: "legacy-status"
+            expect: accept
+
+          - id: configure-v2
+            parents: [configure-v1]
+            author: alice
+            timestamp: 2026-01-01T00:06:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: configure
+              op_version: 2
+              body:
+                mode: 7
+            expect: accept
+
+          - id: reset-1
+            parents: [configure-v2]
+            author: alice
+            timestamp: 2026-01-01T00:07:00Z
+            op:
+              object_id: gadget-1
+              object_type: gadget
+              op_type: reset
+              op_version: 1
+              body:
+                value: "legacy-status"
+            expect: accept

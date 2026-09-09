@@ -706,7 +706,7 @@ var schemaFieldAttributeKeys = []string{"value_type", "enum", "max_length", "lat
 // sharing a target and disagreeing on `lattice` are order-dependent
 // (excluded from §8's "MAY freely change" bullet for exactly that
 // reason, the same reason a `strategy` change MUST declare a distinct
-// target — WRIT-206, spec/fieldrules.go's equalMergeAttrs); `target`
+// target — WRIT-206, spec/fieldrules.go's CheckTargetAgreement); `target`
 // itself, whose narrowing is by definition a target change; and `key`
 // and `key_types`, because ValidateFieldRule (spec/fieldrules.go)
 // requires both exactly when strategy is keyed-lww and forbids them
