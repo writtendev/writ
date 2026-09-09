@@ -714,29 +714,33 @@ var schemaFieldAttributeKeys = []string{"value_type", "enum", "max_length", "lat
 
 // schemaFieldTargetSensitive names the schemaFieldAttributeKeys entries a
 // version bump cannot narrow under the field's existing target:
-// `lattice` because the accumulator reads it at fold time (excluded from
-// §8's "MAY freely change" bullet for exactly that reason, the same
-// reason a `strategy` change MUST declare a distinct target); `target`
+// `lattice` because newLatticeAccumulator (engine/internal/fold/
+// strategy.go) builds its rank map once, from whichever matched rule
+// Fold instantiates the target's single accumulator from, so two rules
+// sharing a target and disagreeing on `lattice` are order-dependent
+// (excluded from §8's "MAY freely change" bullet for exactly that
+// reason, the same reason a `strategy` change MUST declare a distinct
+// target — WRIT-206, spec/fieldrules.go's equalMergeAttrs); `target`
 // itself, whose narrowing is by definition a target change; and `key`
 // and `key_types`, because ValidateFieldRule (spec/fieldrules.go)
 // requires both exactly when strategy is keyed-lww and forbids them
 // otherwise, so a redeclaration that stops carrying `key` (this
 // function only runs on an attribute schemaRemovals found entirely
 // absent — see there) has necessarily also stopped declaring
-// `strategy: keyed-lww`. That is the strategy-change case, not the
-// same-target case: the accumulator reads the matched rule's Key and
-// KeyTypes on every Apply (engine/internal/fold/strategy.go's
-// keyedLWWAccumulator.Apply), so two keyed-lww rules sharing a target
-// are exactly as order-dependent as two rules disagreeing on strategy.
-// §8's MAY bullet still lists key/key_types correctly: it covers a
-// version bump that keeps both present and only changes their value
-// (narrowing which columns compose the key while staying keyed-lww),
-// which never reaches schemaRemovals's removed-attribute check at all,
-// because the attribute is never absent from the body, only different.
-// Every remaining entry — value_type, enum, max_length — is
-// validation-only and unaffected by which rule the fold sees first at a
-// shared target, so §8 already lets a version bump narrow it under the
-// same target (spec/schema-ops.md §8.1).
+// `strategy: keyed-lww`. That entailed strategy change is the whole
+// reason key/key_types are here; they are not order-dependent in
+// themselves, since keyedLWWAccumulator.Apply reads Key and KeyTypes
+// off the matched rule on every op rather than capturing them at
+// construction, exactly as it reads ValueType. So §8's MAY bullet still
+// lists key/key_types correctly: it covers a version bump that keeps
+// both present and only changes their value (narrowing which columns
+// compose the key while staying keyed-lww), which never reaches
+// schemaRemovals's removed-attribute check at all, because the
+// attribute is never absent from the body, only different. Every
+// remaining entry — value_type, enum, max_length — is validation-only
+// and unaffected by which rule the fold sees first at a shared target,
+// so §8 already lets a version bump narrow it under the same target
+// (spec/schema-ops.md §8.1).
 var schemaFieldTargetSensitive = map[string]bool{"lattice": true, "target": true, "key": true, "key_types": true}
 
 // schemaAttributeNarrowingAdvice is the recipe schemaRemovals points a

@@ -389,7 +389,8 @@ type standup {
 // (spec/schema-ops.md §8.1, ARCHITECTURE.md §Schema layer, WRIT-200:
 // there deliberately is no op that clears a single attribute — narrowing
 // takes a new op_version instead, a distinct target only for the
-// attributes the fold itself consults).
+// attributes schemaFieldTargetSensitive names — see its comment for why
+// those four and not the ones the fold merely reads per op).
 // This is `schemaRemovals`'s attribute check treating that exactly like any
 // other removal: refuse, name the field and the attribute, append nothing.
 //

@@ -584,11 +584,14 @@ the same recipe: declare the field again under a **new `op_version`**.
 
 Whether that new declaration also needs a **distinct `target`** follows
 §8's own two bullets, applied to narrowing instead of to an ordinary
-redeclaration. `value_type`, `enum`, and `max_length` are not consulted
-by the fold at all, so narrowing one of them is a version bump under the
-*same* `target` — `string(200)` narrowed to `string` is `op create 2`
-declaring `title` unbounded again, reusing `target: title` (or omitting
-it, which defaults to the same place `op_version` 1 uses).
+redeclaration. `value_type`, `enum`, and `max_length` never make a shared
+`target` order-dependent: `enum` and `max_length` are validation-only and
+the fold never reads them, and `value_type` is read off the *matched* rule
+on every op rather than captured when the target's accumulator is built.
+Narrowing one of them is therefore a version bump under the *same*
+`target` — `string(200)` narrowed to `string` is `op create 2` declaring
+`title` unbounded again, reusing `target: title` (or omitting it, which
+defaults to the same place `op_version` 1 uses).
 
 `key` and `key_types` read like they belong in that group — §8's MAY
 bullet names both — but narrowing either, in the sense this section
@@ -600,23 +603,31 @@ when `strategy` is `keyed-lww` and forbidden otherwise
 drops `key` has, by construction, also stopped declaring `keyed-lww`.
 That is the `strategy`-change case §8's second bullet already governs,
 not the same-target case its first bullet grants for this section's
-narrowing scenario — and correctly so: the accumulator reads the
-matched rule's `Key` and `KeyTypes` on every `Apply` to build the
-register's composite key (`engine/internal/fold/strategy.go`'s
-`keyedLWWAccumulator.Apply`), so two keyed-lww rules sharing a target
-are exactly as order-dependent as two rules disagreeing on `strategy`.
-§8's MAY bullet is still correct as stated: it covers a version bump
-that keeps `key`/`key_types` present and changes their *value* —
-narrowing which columns compose the key while staying `keyed-lww` —
-which never reaches this section's clearing case, because the attribute
-is never absent from the body, only different.
+narrowing scenario. The entailed `strategy` change is the whole reason,
+and nothing about `key`/`key_types` themselves adds to it: exactly like
+`value_type`, they are read from the *matched* rule on every `Apply`
+(`engine/internal/fold/strategy.go`'s `keyedLWWAccumulator.Apply` builds
+the composite key from `rule.Key` and `rule.KeyTypes`) rather than being
+captured when the accumulator is instantiated, so two `keyed-lww` rules
+sharing a target and differing only in them are not order-dependent.
+§8's MAY bullet is correct as stated and stays correct: it covers a
+version bump that keeps `key`/`key_types` present and changes their
+*value* — narrowing which columns compose the key while staying
+`keyed-lww` — which never reaches this section's clearing case, because
+the attribute is never absent from the body, only different.
 
 `lattice` is the remaining attribute §8 excludes from its MAY bullet,
-because the accumulator reads it at fold time, so narrowing it needs a
-distinct target for the same reason: two rules sharing a target are
-indistinguishable to the accumulator regardless of which one `Fold`
-sees first. Narrowing `target` itself is the trivial case — reverting
-to the field-name default is already a target change.
+and its reason is the other one: `newLatticeAccumulator`
+(`engine/internal/fold/strategy.go`) builds its rank map once, when
+`Fold` instantiates one accumulator per target from whichever matched
+rule the slice lists first, so that rule's ordering governs every op at
+the target and two rules sharing it while disagreeing on `lattice` are
+exactly as order-dependent as two disagreeing on `strategy` — version
+bump or not (WRIT-206; `spec/fieldrules.go`'s `equalMergeAttrs`, which
+is why `lattice` alone is never skipped for a version bump). Narrowing
+`lattice` therefore needs a distinct target. Narrowing `target` itself
+is the trivial case — reverting to the field-name default is already a
+target change.
 
 `writ schema apply`'s refusal message follows the same split
 (`cmd/writ/schema.go`): it asks for a distinct target only when the
