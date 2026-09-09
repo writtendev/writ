@@ -1,0 +1,117 @@
+name: schema-driven-version-bump-lattice-collision
+description: >
+  WRIT-206's finding: CheckTargetCollision's version-bump carve-out used to
+  `continue` before equalMergeAttrs ran at all, so every attribute
+  equalMergeAttrs compares — including `lattice` — was in fact freely
+  changeable under the carve-out, defeating WRIT-198's fix
+  (schema-driven-cross-op-type-lattice-collision.yaml, which pins the
+  cross-op_type half of the same standard). Here op_version 2 of "promote"
+  redeclares field "level" with the same strategy (lattice) and the same
+  target (both default to "level", spec.FieldRule.TargetKey) as op_version
+  1, differing only in lattice ordering (["low","high"] vs
+  ["high","low"]). spec/schema-ops.md §8's "MAY freely change" list names
+  value_type, enum, max_length, key and key_types for a version bump —
+  lattice is deliberately absent, because the lattice accumulator
+  (engine/internal/fold/strategy.go) reads it to order its semilattice, so
+  it *is* consulted at fold time. RulesFromSchemas must therefore reject
+  op_version 2's rule as a collision even though it is a version bump of
+  op_version 1: the define-field-v2 op still folds cleanly into schema
+  state (schema's own fold performs no rule validation), but the rule it
+  declares is dropped as a SchemaConflict rather than installed, and a
+  "promote" op written under op_version 2 matches no installed rule and
+  becomes an UnknownOp — exactly the same shape
+  schema-driven-cross-op-type-lattice-collision.yaml pins for the
+  cross-op_type case. (pins: reader)
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: define-type
+            parents: [create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "widget"
+            expect: accept
+
+          - id: define-field-v1
+            parents: [define-type]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "promote"
+                op_version: "1"
+                field: "level"
+                strategy: "lattice"
+                lattice: ["low", "high"]
+            expect: accept
+
+          - id: define-field-v2
+            parents: [define-field-v1]
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "promote"
+                op_version: "2"
+                field: "level"
+                strategy: "lattice"
+                lattice: ["high", "low"]
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/widget
+    history:
+      - commits:
+          - id: promote-v1
+            author: alice
+            timestamp: 2026-01-01T00:04:00Z
+            op:
+              object_id: widget-1
+              object_type: widget
+              op_type: promote
+              op_version: 1
+              body:
+                level: "high"
+            expect: accept
+
+          - id: promote-v2
+            parents: [promote-v1]
+            author: alice
+            timestamp: 2026-01-01T00:05:00Z
+            op:
+              object_id: widget-1
+              object_type: widget
+              op_type: promote
+              op_version: 2
+              body:
+                level: "low"
+            expect: accept

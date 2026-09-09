@@ -1,0 +1,88 @@
+{
+  "refs": [
+    {
+      "name": "refs/writ/0123456789abcdef/schema",
+      "commit": "eafcdbc93f0cf6e8a50ff70b6f036f2a3e7abeb2"
+    },
+    {
+      "name": "refs/writ/0123456789abcdef/widget",
+      "commit": "74e9f1978be9853169efe5d9b0cf0fcac9eea37c"
+    }
+  ],
+  "generations": [
+    {
+      "ref": "refs/writ/0123456789abcdef/schema",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "a5d9b44532a36476cbc5bf9fd70842f8eff5c594",
+          "tree": "2601775727c841f53a2960e4169e9a4a216f66d2",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "message": "writ: create schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "d067ff91e4d42d8f0f912c2d4d0d7753b104e1ce",
+          "tree": "28a4ca0269db83c9aeae44f12626f410b2f92f0d",
+          "parents": [
+            "a5d9b44532a36476cbc5bf9fd70842f8eff5c594"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:01:00Z",
+          "message": "writ: define-type schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "7aeca81be462e0873809a98315d8c70c7a92fdb1",
+          "tree": "9535bdcda50e1cba51f3dbb28776a31e612fc18b",
+          "parents": [
+            "d067ff91e4d42d8f0f912c2d4d0d7753b104e1ce"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:02:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "eafcdbc93f0cf6e8a50ff70b6f036f2a3e7abeb2",
+          "tree": "b3745a5662eff73f9d88a57f32af0e7a8446aa1c",
+          "parents": [
+            "7aeca81be462e0873809a98315d8c70c7a92fdb1"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:03:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/widget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "6ce3d04bdb558fbf7d94108751f1c5c83e44046c",
+          "tree": "d7730fed7e689bf8f39103a785fb6ae83c051407",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:04:00Z",
+          "message": "writ: promote widget/widget-1\n",
+          "signed": true
+        },
+        {
+          "sha": "74e9f1978be9853169efe5d9b0cf0fcac9eea37c",
+          "tree": "edf3cf10b73ab22b848b916c5f58e994623fc026",
+          "parents": [
+            "6ce3d04bdb558fbf7d94108751f1c5c83e44046c"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:05:00Z",
+          "message": "writ: promote widget/widget-1\n",
+          "signed": true
+        }
+      ]
+    }
+  ]
+}
