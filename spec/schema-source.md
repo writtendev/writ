@@ -365,11 +365,11 @@ accumulator from whichever rule a caller's slice lists first — and
 column, rather than deferring to the resolver: `compileType` already
 holds the whole type when a field is compiled, so nothing about this
 check needs to wait until the type's rules are assembled elsewhere.
-Left unchecked here, the same collision is still caught later —
-`RulesFromSchemas` drops the colliding rule and records a
-`SchemaConflict` — but only after the ops are signed into the log and
-unremovable, which is what makes catching it at `Compile` time the one
-that matters:
+Left unchecked here, the same disagreement is still caught later —
+`RulesFromSchemas` withholds every rule bound to the target as a
+`SchemaConflict`, not only the rule that introduced the disagreement —
+but only after the ops are signed into the log and unremovable, which
+is what makes catching it at `Compile` time the one that matters:
 
 ```
 type ticket {

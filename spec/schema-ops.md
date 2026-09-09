@@ -667,9 +667,10 @@ and its reason is the other one: `newLatticeAccumulator`
 rule the slice lists first, so that rule's ordering governs every op at
 the target and two rules sharing it while disagreeing on `lattice` are
 exactly as order-dependent as two disagreeing on `strategy` — version
-bump or not (WRIT-206; `spec/fieldrules.go`'s `equalMergeAttrs`, which
-is why `lattice` alone is never skipped for a version bump). Narrowing
-`lattice` therefore needs a distinct target. Narrowing `target` itself
+bump or not (WRIT-206; `spec/fieldrules.go`'s `CheckTargetAgreement`,
+which is why `lattice` alone is never skipped for a version bump).
+Narrowing `lattice` therefore needs a distinct target. Narrowing
+`target` itself
 is the trivial case — reverting to the field-name default is already a
 target change.
 

@@ -1,8 +1,9 @@
 name: schema-driven-version-bump-lattice-collision
 description: >
-  WRIT-206's finding: the version-bump carve-out used to exempt every
-  attribute the agreement check compares — including `lattice` — was in
-  fact freely changeable under the carve-out, defeating WRIT-198's fix
+  WRIT-206's finding: the version-bump carve-out used to skip the
+  agreement check entirely for a version-bump pair, so every attribute
+  the check compares — including `lattice` — was in fact freely
+  changeable under the carve-out, defeating WRIT-198's fix
   (schema-driven-cross-op-type-lattice-collision.yaml, which pins the
   cross-op_type half of the same standard). Here op_version 2 of "promote"
   redeclares field "level" with the same strategy (lattice) and the same
