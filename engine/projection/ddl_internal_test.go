@@ -2,6 +2,8 @@ package projection
 
 import (
 	"math/rand"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -279,34 +281,41 @@ func TestIntraTypeCollisionWithholdsTables(t *testing.T) {
 	}
 }
 
-// TestAmbiguousAppendFieldWithholdsGroupNotType covers two append-strategy
+// TestAmbiguousAppendFieldWithholdsTargetNotGroup covers two append-strategy
 // rules binding the same target key to two different Fields under one exact
 // (op_type, op_version) envelope. WRIT-201 made that shape normative:
 // spec/fold.md §5 rules that every matching rule applies, in canonical rule
 // order, so one op writing both fields appends both entries to one list.
 // The append group's table — one row per op, one column per member target —
-// structurally cannot hold two entries for one target from one op, so the
-// group is withheld.
+// structurally cannot hold two entries for one target from one op, so that
+// target is withheld.
 //
-// What this pins is the scope of that withhold: the *group*, never the
-// type. WRIT-189 round 5 withheld the whole type here, on the premise that
-// state.Fold picked one of the two values deterministically and the
-// projection merely could not tell which. WRIT-201 falsified that premise
-// (fold picks neither — it takes both), and the whole-type withhold cost a
-// consumer every table and every row of the type, including ops that never
-// touch the target, over one unrepresentable target key. So the type table
-// and its unrelated targets are built as usual, the group's table is
-// absent, and the group's member targets are recorded in WithheldTargets
-// for materialize to route into unknown_fields. Order-independent, as
+// What this pins is the scope of the withhold: the one unrepresentable
+// target, never the type and never the group (§Targets a projection declines). Two earlier scopes
+// were both too wide. WRIT-189 round 5 withheld the whole type, on the
+// premise that state.Fold picked one of the two values deterministically and
+// the projection merely could not tell which; WRIT-201 falsified that
+// premise (fold picks neither — it takes both). WRIT-201 round 1 narrowed it
+// to the append group, which is still wider than the unrepresentable unit:
+// buildAppendGroups unions every target co-occurring in an envelope, so the
+// wholly representable "tags" here — one field, one envelope, exactly the
+// shape the group table has always held — lost its table and rows purely
+// because "note" shares the envelope (round 2 MEDIUM-1).
+//
+// So: the type table and its unrelated targets build as usual, "tags" keeps
+// a table of its own, only "note" lands in WithheldTargets for materialize
+// to route into unknown_fields, and the surviving group's name and envelope
+// set are derived from the members that survived. Order-independent, as
 // before.
-func TestAmbiguousAppendFieldWithholdsGroupNotType(t *testing.T) {
+func TestAmbiguousAppendFieldWithholdsTargetNotGroup(t *testing.T) {
 	titleRule := state.Rule{OpType: "create", Field: "title", Strategy: "lww", ValueType: "string", ObjectType: "widget"}
 	noteFieldA := state.Rule{OpType: "note", OpVersion: 1, Field: "a", Target: "note", Strategy: "append", ValueType: "string", ObjectType: "widget"}
 	noteFieldB := state.Rule{OpType: "note", OpVersion: 1, Field: "b", Target: "note", Strategy: "append", ValueType: "string", ObjectType: "widget"}
+	tagRule := state.Rule{OpType: "note", OpVersion: 1, Field: "tag", Target: "tags", Strategy: "append", ValueType: "string", ObjectType: "widget"}
 
 	orderings := map[string][]state.Rule{
-		"a-then-b": {titleRule, noteFieldA, noteFieldB},
-		"b-then-a": {titleRule, noteFieldB, noteFieldA},
+		"a-then-b": {titleRule, noteFieldA, noteFieldB, tagRule},
+		"b-then-a": {titleRule, tagRule, noteFieldB, noteFieldA},
 	}
 
 	for name, rules := range orderings {
@@ -317,20 +326,36 @@ func TestAmbiguousAppendFieldWithholdsGroupNotType(t *testing.T) {
 			}
 			td, ok := desc.types["widget"]
 			if !ok {
-				t.Fatalf("object type \"widget\" was withheld entirely; only the unrepresentable append group should be")
+				t.Fatalf("object type \"widget\" was withheld entirely; only the unrepresentable target should be")
 			}
 			if !td.WithheldTargets["note"] {
 				t.Fatalf("WithheldTargets = %v, want the \"note\" target recorded", td.WithheldTargets)
 			}
-			if len(td.AppendGroups) != 0 {
-				t.Fatalf("AppendGroups = %+v, want none: the only group is unrepresentable", td.AppendGroups)
+			if td.WithheldTargets["tags"] {
+				t.Fatalf("WithheldTargets = %v: \"tags\" is representable and must not be collateral (§Targets a projection declines)", td.WithheldTargets)
+			}
+			if len(td.AppendGroups) != 1 {
+				t.Fatalf("AppendGroups = %+v, want exactly one — \"tags\" alone", td.AppendGroups)
+			}
+			g := td.AppendGroups[0]
+			if g.Table != "o_widget__tags" {
+				t.Fatalf("group table = %q, want \"o_widget__tags\" (named for the retained members only)", g.Table)
+			}
+			if len(g.Members) != 1 || g.Members[0].Key != "tags" || g.Members[0].Column != "f_tags" {
+				t.Fatalf("group members = %+v, want just the \"tags\"/f_tags member", g.Members)
+			}
+			wantEnv := []appendGroupEnvelope{{OpType: "note", OpVersion: 1}}
+			if !reflect.DeepEqual(g.Envelopes, wantEnv) {
+				t.Fatalf("group envelopes = %+v, want %+v", g.Envelopes, wantEnv)
 			}
 			var names []string
 			for _, tbl := range desc.tables {
 				names = append(names, tbl.Name)
 			}
-			if len(names) != 1 || names[0] != "o_widget" {
-				t.Fatalf("generated tables = %v, want just [o_widget] (no o_widget__note)", names)
+			sort.Strings(names)
+			want := []string{"o_widget", "o_widget__tags"}
+			if !reflect.DeepEqual(names, want) {
+				t.Fatalf("generated tables = %v, want %v (no o_widget__note, no o_widget__note_tags)", names, want)
 			}
 			var hasTitle bool
 			for _, c := range td.Table.Columns {

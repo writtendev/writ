@@ -659,12 +659,25 @@ func positionOpID(orderedOps []codec.Op, objectType, targetKey string, rules []s
 // declared type instead of one type's hand-written case; that hand-written
 // case is gone, so this is now simply the one implementation.
 //
-// withheldTargets are target keys the descriptor declined to give a table
+// withheldTargets are target keys the descriptor declined to give a column
 // (ddl.go's append-group loop, WRIT-201): a rule bound to one of them still
 // matched, so the op is not quarantined, but its field has nowhere to land
-// in SQL. It counts as unknown here rather than being dropped — the field's
-// value stays reachable through the projection instead of existing only in
-// the log (spec/forward-compatibility.md §Targets a projection declines).
+// in SQL. It counts as unknown here rather than being dropped, which is what
+// spec/forward-compatibility.md §Targets a projection declines requires.
+//
+// That routing stops where this map does, and deliberately: a withheld append
+// target is an accumulator, but result is a per-key register, so a target
+// written by several ops keeps only the latest write per body field. The
+// entries the fold accumulated are complete only through the fold, never
+// through this column, and spec/forward-compatibility.md §Targets a
+// projection declines says exactly that rather than promising more.
+// Accumulating here instead would give one JSON blob two different
+// semantics — a register for a genuinely unknown field, a list for a
+// withheld target — that no consumer can tell apart without the schema, and
+// it still could not reproduce the fold's value, whose entries interleave
+// across the targets' fields in canonical rule order. The shape that does
+// hold them is the row-per-entry table redesign the append-group loop
+// defers, not a second meaning for this column.
 func computeUnknownFields(orderedOps []codec.Op, rules []state.Rule, unknownOps []state.UnknownOp, withheldTargets map[string]bool) string {
 	skip := make(map[string]bool, len(unknownOps))
 	for _, u := range unknownOps {

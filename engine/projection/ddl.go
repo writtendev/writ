@@ -164,10 +164,16 @@ type appendGroupEnvelope struct {
 // — the same non-determinism class as WRIT-186's map iteration and
 // WRIT-198's fieldRules[0] (WRIT-189 round 3 MAJOR-1). Envelopes is every
 // envelope any member target is declared under, not one.
+//
+// Members is the group's representable targets, which is not always all of
+// buildAppendGroups' component: a member the row shape cannot express is
+// declined individually (WRIT-201) and leaves the plan entirely — no column,
+// and no envelope it alone contributed. Table, Members and Envelopes are
+// therefore all derived from the surviving members.
 type appendGroupPlan struct {
 	Table     string
-	Envelopes []appendGroupEnvelope // every envelope any member is declared under, sorted
-	Members   []appendGroupMember   // sorted by Key — table column order
+	Envelopes []appendGroupEnvelope // every envelope a retained member is declared under, sorted
+	Members   []appendGroupMember   // the retained members, sorted by Key — table column order
 }
 
 // appendGroupInfo is buildAppendGroups' output: one connected component of
@@ -286,13 +292,16 @@ type typeDescriptor struct {
 	Children     []ddlTable
 	Targets      map[string]*targetPlan
 	AppendGroups []appendGroupPlan
-	// WithheldTargets are this type's target keys that got no table of
-	// their own because the projection's row shape cannot represent them
-	// (see buildTypeDescriptor's append-group loop). The type itself is
-	// still materialized; every body field bound to one of these targets
-	// lands in unknown_fields instead, preserved verbatim rather than
-	// silently dropped (spec/forward-compatibility.md §Targets a projection
-	// declines).
+	// WithheldTargets are this type's target keys that got no column
+	// because the projection's row shape cannot represent them (see
+	// buildTypeDescriptor's append-group loop). The unit is the single
+	// target and nothing wider: the type materializes normally, so do the
+	// targets that merely share a table or an envelope with a withheld
+	// one, and so do ops that never write it. Every body field
+	// bound to one of these targets lands in unknown_fields instead of
+	// being dropped — the latest write per field, which is what that
+	// column's per-key register can hold (spec/forward-compatibility.md
+	// §Targets a projection declines).
 	WithheldTargets map[string]bool
 }
 
@@ -798,17 +807,9 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 	var appendGroupPlans []appendGroupPlan
 	withheldTargets := make(map[string]bool)
 	for _, g := range buildAppendGroups(rules) {
-		table := tableName + "__" + strings.Join(g.members, "_")
-		cols := []ddlColumn{
-			{Name: "object_id", SQLType: "TEXT"},
-			{Name: "idx", SQLType: "INTEGER"},
-		}
-		unrepresentable := false
 		members := make([]appendGroupMember, 0, len(g.members))
 		for _, tk := range g.members {
 			r := reps[tk]
-			col := "f_" + tk
-			cols = append(cols, ddlColumn{Name: col, SQLType: sqlType(r.ValueType)})
 			// Every append rule bound to tk, not just reps[tk]'s one
 			// representative: a version bump or a second op_type agreeing
 			// on every merge attribute (spec/schema-ops.md §8) can declare
@@ -831,15 +832,23 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 			// value deterministically and the projection merely could not
 			// reproduce which, was wrong: fold picks neither, it takes both.)
 			//
-			// So the group is withheld — no table, no plan — and its member
-			// targets go into withheldTargets, whose fields land in
-			// unknown_fields (spec/forward-compatibility.md §Targets a
-			// projection declines) rather than in a column silently
-			// materializing as NULL. Representing the shape properly needs a
-			// row-per-entry table whose cross-target pairing is redefined,
-			// which is a materializer redesign, not a guess made here.
-			// Withholding the group, not the type, is what keeps an op that
-			// never touches tk out of unknown_ops.
+			// So tk is withheld — no column, and no rows anywhere — and goes
+			// into withheldTargets, whose fields land in unknown_fields
+			// (spec/forward-compatibility.md §Targets a projection declines)
+			// rather than in a column silently materializing as NULL.
+			// Representing the shape properly needs a row-per-entry table
+			// whose cross-target pairing is redefined, which is a materializer
+			// redesign, not a guess made here.
+			//
+			// The decline stops at tk. Its group-mates are unaffected: a
+			// sibling target reached by one field under each of its envelopes
+			// is representable exactly as it always was, and buildAppendGroups
+			// unioned it in only because it happens to co-occur in an envelope
+			// with tk — an implementation grouping, not a property of the
+			// sibling. Withholding it too would be the prohibited case one
+			// granularity down from the whole-type withhold this replaced
+			// (WRIT-201 round 2 MEDIUM-1), costing a consumer a queryable
+			// target for a reason that is not about that target.
 			//
 			// A target declared under two *different* envelopes with two
 			// different field names is not this shape — each envelope still
@@ -847,6 +856,7 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 			// unambiguous — and stays on the ordinary path (round 3 MAJOR-1,
 			// round 4 MAJOR-1).
 			var fields []appendGroupFieldSource
+			unrepresentable := false
 			envelopeField := make(map[appendGroupEnvelope]string)
 			for _, rr := range rules {
 				if rr.Strategy != "append" || rr.TargetKey() != tk {
@@ -860,17 +870,49 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 				}
 				fields = append(fields, appendGroupFieldSource{OpType: rr.OpType, OpVersion: rr.OpVersion, Field: rr.Field})
 			}
-			members = append(members, appendGroupMember{Key: tk, Column: col, ValueType: r.ValueType, Fields: fields})
-		}
-		if unrepresentable {
-			for _, tk := range g.members {
+			if unrepresentable {
 				withheldTargets[tk] = true
+				continue
 			}
+			members = append(members, appendGroupMember{Key: tk, Column: "f_" + tk, ValueType: r.ValueType, Fields: fields})
+		}
+		if len(members) == 0 {
 			continue
 		}
+
+		// Name, shape and envelope set all come from the members that
+		// survived, never from g.members: a withheld target contributes no
+		// column, and an envelope only it was declared under would otherwise
+		// admit ops that write nothing this table holds, one all-NULL row
+		// each.
+		keys := make([]string, 0, len(members))
+		cols := []ddlColumn{
+			{Name: "object_id", SQLType: "TEXT"},
+			{Name: "idx", SQLType: "INTEGER"},
+		}
+		envSet := make(map[appendGroupEnvelope]bool)
+		for _, m := range members {
+			keys = append(keys, m.Key)
+			cols = append(cols, ddlColumn{Name: m.Column, SQLType: sqlType(reps[m.Key].ValueType)})
+			for _, f := range m.Fields {
+				envSet[appendGroupEnvelope{OpType: f.OpType, OpVersion: f.OpVersion}] = true
+			}
+		}
+		envs := make([]appendGroupEnvelope, 0, len(envSet))
+		for ek := range envSet {
+			envs = append(envs, ek)
+		}
+		sort.Slice(envs, func(i, j int) bool {
+			if envs[i].OpType != envs[j].OpType {
+				return envs[i].OpType < envs[j].OpType
+			}
+			return envs[i].OpVersion < envs[j].OpVersion
+		})
+
+		table := tableName + "__" + strings.Join(keys, "_")
 		insertChild(table, ddlTable{Name: table, Columns: cols, PrimaryKey: []string{"object_id", "idx"}})
 		appendGroupPlans = append(appendGroupPlans, appendGroupPlan{
-			Table: table, Envelopes: g.envelopes, Members: members,
+			Table: table, Envelopes: envs, Members: members,
 		})
 	}
 
