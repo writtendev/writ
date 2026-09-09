@@ -737,10 +737,12 @@ var schemaFieldAttributeKeys = []string{"value_type", "enum", "max_length", "lat
 // compose the key while staying keyed-lww), which never reaches
 // schemaRemovals's removed-attribute check at all, because the
 // attribute is never absent from the body, only different. Every
-// remaining entry — value_type, enum, max_length — is validation-only
-// and unaffected by which rule the fold sees first at a shared target,
-// so §8 already lets a version bump narrow it under the same target
-// (spec/schema-ops.md §8.1).
+// remaining entry is likewise unaffected by which rule the fold sees
+// first at a shared target: enum and max_length are validation-only and
+// the fold never reads them, and value_type, though read on every op to
+// normalize a value, is read off the matched rule rather than captured
+// at construction. So §8 already lets a version bump narrow any of the
+// three under the same target (spec/schema-ops.md §8.1).
 var schemaFieldTargetSensitive = map[string]bool{"lattice": true, "target": true, "key": true, "key_types": true}
 
 // schemaAttributeNarrowingAdvice is the recipe schemaRemovals points a
