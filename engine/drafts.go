@@ -9,7 +9,7 @@ import (
 	"github.com/writtendev/writ/engine/resolve"
 )
 
-// Draft represents an unpublished local comment draft.
+// Draft represents an unpublished local draft.
 type Draft struct {
 	ID          string          `json:"id"`
 	SubjectType string          `json:"subject_type"`
@@ -27,12 +27,12 @@ type DraftFilter struct {
 	SubjectType string `json:"subject_type,omitempty"`
 }
 
-// Drafts provides operations on local-only comment drafts.
+// Drafts provides operations on local-only drafts.
 type Drafts struct {
 	store *Store
 }
 
-// Save creates or updates a comment draft. If draft.ID is empty, a new draft ID is minted.
+// Save creates or updates a draft. If draft.ID is empty, a new draft ID is minted.
 func (d *Drafts) Save(ctx context.Context, draft Draft) (string, error) {
 	if d == nil || d.store == nil {
 		return "", fmt.Errorf("writ: store is nil")
@@ -62,7 +62,7 @@ func (d *Drafts) Save(ctx context.Context, draft Draft) (string, error) {
 	return id, nil
 }
 
-// Get retrieves a comment draft by its draft ID.
+// Get retrieves a draft by its draft ID.
 func (d *Drafts) Get(ctx context.Context, id string) (Draft, error) {
 	if d == nil || d.store == nil {
 		return Draft{}, fmt.Errorf("writ: store is nil")
@@ -88,7 +88,7 @@ func (d *Drafts) Get(ctx context.Context, id string) (Draft, error) {
 	}, nil
 }
 
-// List returns all comment drafts matching the specified filter.
+// List returns all drafts matching the specified filter.
 func (d *Drafts) List(ctx context.Context, filter DraftFilter) ([]Draft, error) {
 	if d == nil || d.store == nil {
 		return nil, fmt.Errorf("writ: store is nil")
@@ -118,7 +118,7 @@ func (d *Drafts) List(ctx context.Context, filter DraftFilter) ([]Draft, error) 
 	return drafts, nil
 }
 
-// Discard deletes a comment draft by its draft ID.
+// Discard deletes a draft by its draft ID.
 func (d *Drafts) Discard(ctx context.Context, id string) error {
 	if d == nil || d.store == nil {
 		return fmt.Errorf("writ: store is nil")
@@ -133,10 +133,17 @@ func (d *Drafts) Discard(ctx context.Context, id string) error {
 	return nil
 }
 
-// Publish converts a local draft into a committed comment object referencing
-// its subject by a soft "subject" field (object_type, object_id) — the same
-// generic construction Objects.Create uses for every schema-declared type,
-// "comment" included — and deletes the draft upon success.
+// Publish converts a local draft into a committed object of the caller's
+// objectType, referencing its subject by a soft "subject" field
+// (object_type, object_id) — the same generic construction Objects.Create
+// uses for every schema-declared type — and deletes the draft upon success.
+//
+// objectType comes from the caller because writ declares no object types of
+// its own: the type a published draft lands under is whatever the schema in
+// the log calls it, and naming one in Go here would be the only hard-coded
+// object type outside `schema`. Objects.Create refuses a type no schema in
+// the log declares (spec/op-envelope.md §Producer validation), so the
+// repository must declare objectType with the fields Publish writes below.
 //
 // The subject's (and, when set, the reply's) existence is checked through
 // the generic Query.Object lookup rather than a per-type projection reader:
@@ -144,9 +151,9 @@ func (d *Drafts) Discard(ctx context.Context, id string) error {
 // real ObjectType for one that is, so Publish never has to guess or
 // hardcode which schema-declared types a draft may target.
 //
-// Unlike the type-specific comment writers this replaced, Publish no longer
-// threads the subject's (or reply's) frontier in as the new comment's
-// causal DAG parents: nothing folds, queries, or threads (all of which
+// Unlike the type-specific writers this replaced, Publish no longer threads
+// the subject's (or reply's) frontier in as the published object's causal
+// DAG parents: nothing folds, queries, or threads (all of which
 // group by the "subject"/"in_reply_to" fields, not DAG ancestry) depended
 // on that link, so fold determinism is genuinely unaffected (t* and the
 // total order are computed over the per-object_id restricted DAG,
@@ -159,16 +166,20 @@ func (d *Drafts) Discard(ctx context.Context, id string) error {
 // Objects.Apply still passes projection.Frontier(objectID) and ApplySchema
 // still passes schemaFrontier(...) as parents[1:] (see ApplySchema) — so
 // this loss is narrower than "no parents[1:] edge anywhere": what's gone is
-// specifically the cross-object edge from a comment to its subject. An
-// object commented on by another writer is no longer kept reachable by
-// that comment once its own ref rolls back or is only partially fetched.
+// specifically the cross-object edge from a published draft to its subject.
+// An object another writer published a draft against is no longer kept
+// reachable by the object that publish created, once the subject's own
+// ref rolls back or is only partially fetched.
 // Objects.Create has no parameter for observed causal parents, so
 // restoring this is out of scope here — recorded as a deliberate,
 // disclosed loss, not fixed (see CHANGELOG.md's "Known consequence, not
 // fixed here" note under ### Removed).
-func (d *Drafts) Publish(ctx context.Context, id string) (string, error) {
+func (d *Drafts) Publish(ctx context.Context, id, objectType string) (string, error) {
 	if d == nil || d.store == nil {
 		return "", fmt.Errorf("writ: store is nil")
+	}
+	if objectType == "" {
+		return "", fmt.Errorf("writ: publish draft: object type cannot be empty")
 	}
 
 	draft, err := d.Get(ctx, id)
@@ -198,13 +209,13 @@ func (d *Drafts) Publish(ctx context.Context, id string) (string, error) {
 		fields["anchor"] = draft.Anchor
 	}
 
-	commentID, err := d.store.Objects.Create(ctx, "comment", NewOp{Type: "create", Fields: fields})
+	publishedID, err := d.store.Objects.Create(ctx, objectType, NewOp{Type: "create", Fields: fields})
 	if err != nil {
 		return "", err
 	}
 
-	// Delete draft after successful comment operation
+	// Delete draft after the published object is committed.
 	_ = d.Discard(ctx, id)
 
-	return commentID, nil
+	return publishedID, nil
 }

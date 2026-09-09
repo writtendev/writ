@@ -12,7 +12,7 @@ import (
 	"github.com/writtendev/writ/engine/resolve"
 )
 
-// Draft represents an unpublished local comment draft.
+// Draft represents an unpublished local draft.
 type Draft struct {
 	DraftID     string          `json:"draft_id"`
 	SubjectType string          `json:"subject_type"`
@@ -61,7 +61,7 @@ func (d *DB) LocalDB() *sql.DB {
 	return d.localDB
 }
 
-// SaveDraft inserts or updates a comment draft. If draft.DraftID is empty, a unique draft ID is minted.
+// SaveDraft inserts or updates a draft. If draft.DraftID is empty, a unique draft ID is minted.
 func (d *DB) SaveDraft(draft Draft) (string, error) {
 	if d == nil || d.localDB == nil {
 		return "", fmt.Errorf("projection: local database is closed")
@@ -107,7 +107,7 @@ func (d *DB) SaveDraft(draft Draft) (string, error) {
 	return draft.DraftID, nil
 }
 
-// Draft retrieves a single comment draft by its draft ID.
+// Draft retrieves a single draft by its draft ID.
 func (d *DB) Draft(draftID string) (Draft, error) {
 	if d == nil || d.localDB == nil {
 		return Draft{}, fmt.Errorf("projection: local database is closed")
@@ -154,7 +154,7 @@ func (d *DB) Draft(draftID string) (Draft, error) {
 	return dr, nil
 }
 
-// ListDrafts queries comment drafts matching the provided filter.
+// ListDrafts queries drafts matching the provided filter.
 func (d *DB) ListDrafts(filter DraftFilter) ([]Draft, error) {
 	if d == nil || d.localDB == nil {
 		return nil, fmt.Errorf("projection: local database is closed")
@@ -220,7 +220,7 @@ func (d *DB) ListDrafts(filter DraftFilter) ([]Draft, error) {
 	return drafts, rows.Err()
 }
 
-// DeleteDraft removes a comment draft by its draft ID.
+// DeleteDraft removes a draft by its draft ID.
 func (d *DB) DeleteDraft(draftID string) error {
 	if d == nil || d.localDB == nil {
 		return fmt.Errorf("projection: local database is closed")

@@ -3,11 +3,11 @@
 Status: normative. Schema: [`schemas/identifiers.schema.json`](schemas/identifiers.schema.json).
 Vectors: [`testdata/references/`](testdata/references/).
 
-Writ connects code reviews, issues, projects, and cycles across multiple
-repositories into a unified software development lifecycle graph. Cross-repo
-linking — such as an issue in repository A resolved by a review in repository B —
-requires that object identities and cross-references be globally unique from
-day one (VISION.md §Scope architecture; ARCHITECTURE.md §Object types).
+Writ connects collaborative objects across multiple repositories into a single
+graph. Cross-repo linking — such as an object in repository A referencing an
+object in repository B — requires that object identities and cross-references
+be globally unique from day one (VISION.md §Scope architecture;
+ARCHITECTURE.md §Object types).
 
 The key words MUST, MUST NOT, SHOULD, and MAY are to be interpreted as
 described in RFC 2119.
@@ -18,7 +18,7 @@ This section defines:
 
 - **Object identifiers** — the canonical form minted by Writ producers.
 - **Person identifiers** — format, normalization, and byte-comparison rules for
-  collaborative actor identities (assignees, approval subjects).
+  collaborative actor identities (the `person-ref` value type).
 - **Repository designators** — the immutable identity of a git repository.
 - **Reference grammar** — the syntax for bare local and fully-qualified
   cross-repository references.
@@ -33,9 +33,8 @@ This section deliberately does not define:
 
 ## Object identifiers
 
-A collaborative object in Writ (a review, comment, issue, project, cycle)
-possesses an identifier that is globally unique across all repositories,
-writers, and devices.
+A collaborative object in Writ possesses an identifier that is globally unique
+across all repositories, writers, and devices.
 
 ```jsonc
 "0123456789abcdef0123456789abcdef"
@@ -93,7 +92,7 @@ Two alternative identification schemes were considered and rejected:
 
 ## Person identifiers (`person-id`)
 
-A collaborative actor in Writ (a human author, reviewer, assignee, or a
+A collaborative actor in Writ (a human author, approver, assignee, or a
 non-human writer such as CI) is identified in operation payloads using a
 **person identifier**.
 
@@ -102,11 +101,11 @@ non-human writer such as CI) is identified in operation payloads using a
 "user:alice"
 ```
 
-Person identifiers appear in op payloads across the SDLC vocabulary:
-- **Assignees** on reviews ([`spec/review-ops.md`](review-ops.md) §5 `assign`)
-- **Assignees** on issues ([`spec/issue-ops.md`](issue-ops.md) §4 `assign`)
-- **Approval and dismissal subjects** on reviews ([`spec/review-ops.md`](review-ops.md) §6 `approval`)
-- **Thread resolvers** (`resolved_by`) on comments ([`spec/comments.md`](comments.md) §5 `resolve`)
+A person identifier appears in an op payload wherever a schema declares a
+field whose value type is `person-ref` ([`spec/value-types.md`](value-types.md)),
+whether as a scalar register, as the elements of a set, or as a key component
+of a `keyed-lww` map. Normalization is intrinsic to that value type: a field
+declaring it normalizes by the rules below, automatically.
 
 This section supersedes the earlier bare-email person identifier format
 (WRIT-99): a conforming identifier now always carries a scheme.
@@ -117,9 +116,9 @@ A person identifier proves nothing and is not meant to. Attribution in Writ is
 established cryptographically, by the signature on the op commit
 ([`spec/op-envelope.md`](op-envelope.md)): who *wrote* an op is answered by the
 commit, not by anything inside the payload. A person identifier answers a
-different question — who an op *refers to*: who is assigned, whose approval
-this is, who resolved this thread. Any writer can name any person; the
-signature is what records who made that claim.
+different question — who an op *refers to*: whom a `person-ref` field of its
+body names. Any writer can name any person; the signature is what records who
+made that claim.
 
 That is why the format needs exactly one property, and only that one:
 
@@ -430,9 +429,10 @@ unretractable public record.
 Two properties make this worth stating plainly rather than burying:
 
 - **`delete` is a projection tombstone, not erasure.** Removing an assignee, or
-  deleting a comment, folds to state that hides the value; the op that carries
-  it stays in git history exactly as written and travels with every clone.
-  There is no operation in this format that removes data from the log.
+  deleting the object naming one, folds to state that hides the value; the op
+  that carries it stays in git history exactly as written and travels with
+  every clone. There is no operation in this format that removes data from the
+  log.
 - **The writer is not the subject.** The person whose address is published is
   usually not the person who decided to publish it, and cannot withdraw it.
 
@@ -464,10 +464,10 @@ the consequence of the one that does.
 - **Scalar registers (`lww`) retain normalized strings:** While rule 3 defines
   normalized person identifiers as containing at least one character, and set
   strategies (`spec/fold.md` §5.3, §5.4) drop elements that normalize to empty,
-  scalar registers governed by `lww` (`spec/fold.md` §5.1) — such as comment
-  `resolved_by` — retain normalized strings (including `""` when non-conforming
-  input normalizes to empty) in the normative generic fold map. See `spec/fold.md`
-  §5.1 for the scalar register rule and the unified empty-value contract.
+  scalar registers governed by `lww` (`spec/fold.md` §5.1) retain normalized
+  strings (including `""` when non-conforming input normalizes to empty) in the
+  normative generic fold map. See `spec/fold.md` §5.1 for the scalar register
+  rule and the unified empty-value contract.
 
 **What the schema can and cannot say.** The `person-id` definition in
 [`schemas/identifiers.schema.json`](schemas/identifiers.schema.json) enforces
@@ -495,7 +495,7 @@ over-long scheme.
 Fold-level behaviour is pinned separately, by
 [`fixtures/testdata/descriptions/fold-person-schemes.yaml`](fixtures/testdata/descriptions/fold-person-schemes.yaml)
 (schemes never unify; an unknown scheme folds like any other) and
-[`fold-person-normalization.yaml`](fixtures/testdata/descriptions/fold-person-normalization.yaml)
+[`fold-person-unicode-folding.yaml`](fixtures/testdata/descriptions/fold-person-unicode-folding.yaml)
 (denormalized identifiers fold to one member).
 
 ### Relationship to `writer-id`
@@ -506,7 +506,7 @@ identities:
 | Concept | Format | Scope | Purpose |
 | --- | --- | --- | --- |
 | **`writer-id`** | 16 lowercase hex characters (`^[0-9a-f]{16}$`) | Device-scoped `(user, device)` | Git ref namespace (`refs/writ/<writer-id>/`) for append-only concurrent writes without locking. |
-| **`person-id`** | `scheme ":" value`, normalized | Minted by a team or repository; stable across that actor's devices and repositories | Collaborative actor identity (assignee, reviewer, voter) across multiple devices and repositories. |
+| **`person-id`** | `scheme ":" value`, normalized | Minted by a team or repository; stable across that actor's devices and repositories | Collaborative actor identity across multiple devices and repositories. |
 
 A single person (e.g. `email:alice@example.com`) may author ops from multiple
 machines and devices, each with its own distinct `writer-id` (e.g. laptop
@@ -522,11 +522,10 @@ minted by a team or repository, names one collaborative actor across all of
 that actor's devices and repositories, while a `writer-id` names
 `(user, device)` — so the person above holds two of them. Substituting a
 `writer-id` therefore splits one human into two collaborative actors: two
-assignees, two voters, and — because
-approval fold is scoped by the key `[subject, revision]`
-([`spec/review-ops.md`](review-ops.md) §Fold Implications & Merge Strategies) —
-two approvers on the same revision, neither of whom is the person who
-approved it.
+assignees, two voters, and — because a `keyed-lww` register keyed on a
+`person-ref` component is keyed on the identifier itself
+([`spec/fold.md`](fold.md) §5.8) — two registers where the schema declared
+one, neither of them belonging to the person who wrote either.
 
 Writ clients derive the local person identifier from git configuration:
 `writ.personId` when set, otherwise `email:` followed by the normalized
@@ -590,22 +589,11 @@ several repositories would need something to replicate them between remotes,
 and there is deliberately no such thing (ARCHITECTURE.md §Object homing,
 WRIT-180; supersedes WRIT-113).
 
-Workflow states ([`spec/workflow-state-ops.md`](workflow-state-ops.md)),
-labels ([`spec/label-ops.md`](label-ops.md)), and settings
-([`spec/settings-ops.md`](settings-ops.md)) are repo-global: this
-specification defines no `team` object type and no team scoping field in v1.
-If team scoping is introduced later, it MUST arrive additively: a `team`
-object type plus an optional scoping field on affected objects, such that
-existing scopeless objects fold as belonging to a default team and older
-clients degrade to ignoring the unknown field per
-[`spec/forward-compatibility.md`](forward-compatibility.md) — never a
-breaking change to existing payloads.
-
 ## Reference grammar
 
 A reference points to a collaborative object. References appear in op bodies
-(for example, an issue linking to a fixing review, or a comment replying to a
-review).
+wherever a schema declares a field whose value type is `object-ref`
+([`spec/value-types.md`](value-types.md)).
 
 ### Syntax
 
@@ -623,10 +611,9 @@ reference = [ repo-id "#" ] object-id
 ### Rules
 
 1. **Same-repo scoping:** When an operation references an object in the same
-   repository (for example, a comment or approval referencing a review in the
-   same repo), producers SHOULD emit the **bare reference** form (`<object-id>`).
-   This keeps local references compact and independent of repository
-   designators.
+   repository, producers SHOULD emit the **bare reference** form
+   (`<object-id>`). This keeps local references compact and independent of
+   repository designators.
 2. **Cross-repo scoping:** When an operation references an object in a different
    repository, producers MUST emit the **fully-qualified reference** form
    (`<repo-id>#<object-id>`).
@@ -665,10 +652,12 @@ three units under [`testdata/references/`](testdata/references/), and
 unit from the corpus itself.
 
 Producers do not carry a second copy of this number. `codec.BuildCommit`, the
-only constructor of an op commit, validates every body against its vocabulary
-schema (WRIT-129), and the schemas `$ref` this definition — so a producer that
-tried to write an over-long `target` is refused before the commit exists, by
-the same 289 the fixtures enforce.
+only constructor of an op commit, validates every body against the schema
+governing its `object_type` ([`spec/op-envelope.md`](op-envelope.md) §Producer
+validation), and the `object-ref` value type `$ref`s this definition
+([`spec/value-types.md`](value-types.md)) — so a producer that tried to write
+an over-long reference is refused before the commit exists, by the same 289
+the fixtures enforce.
 
 ### Short forms and presentation
 
@@ -691,10 +680,9 @@ The following concerns are explicitly out of scope for this specification:
 - **Identity mapping:** Mapping cryptographic signing keys (SSH/GPG) to
   directory identities (LDAP, SSO, email) is tracked in ARCHITECTURE.md
   §Known-hard list.
-- **Backlink indexing:** References are strictly one-directional in op payloads
-  (e.g. issue → review). Bidirectional links ("find all reviews addressing this
-  issue") are computed dynamically by the local SQLite projection index, not
-  recorded in op graphs.
+- **Backlink indexing:** References are strictly one-directional in op payloads.
+  Bidirectional links ("find every object referencing this one") are computed
+  dynamically by the local SQLite projection index, not recorded in op graphs.
 - **Cross-repo transactional atomicity:** Git operations are per-repository.
   Cross-repository references are eventually consistent across repository syncs;
   no distributed 2-phase commit or transactional locking across distinct git

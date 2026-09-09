@@ -1,18 +1,137 @@
 name: fold-multi-device-alice
 description: >
   Single author (Alice) across two devices (writer IDs 0123456789abcdef and 550e8400e29b41d4)
-  with racing edits on review r-multi-device, reconciled via a cross-device causal parent edge.
+  with racing edits on widget w-multi-device, reconciled via a cross-device causal parent edge.
 
 refs:
-  - name: refs/writ/550e8400e29b41d4/review
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: schema-create
+            author: alice
+            timestamp: 2025-12-01T00:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: schema-define-type
+            parents: [schema-create]
+            author: alice
+            timestamp: 2025-12-01T00:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "widget"
+            expect: accept
+
+          - id: schema-define-create-title
+            parents: [schema-define-type]
+            author: alice
+            timestamp: 2025-12-01T00:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: schema-define-create-description
+            parents: [schema-define-create-title]
+            author: alice
+            timestamp: 2025-12-01T00:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "create"
+                op_version: "1"
+                field: "description"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: schema-define-update-title
+            parents: [schema-define-create-description]
+            author: alice
+            timestamp: 2025-12-01T00:04:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "update"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: schema-define-update-description
+            parents: [schema-define-update-title]
+            author: alice
+            timestamp: 2025-12-01T00:05:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "update"
+                op_version: "1"
+                field: "description"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: schema-define-status
+            parents: [schema-define-update-description]
+            author: alice
+            timestamp: 2025-12-01T00:06:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "set-status"
+                op_version: "1"
+                field: "status"
+                value_type: "enum"
+                enum: ["open", "closed"]
+                strategy: "lww"
+            expect: accept
+
+  - name: refs/writ/550e8400e29b41d4/widget
     history:
       - commits:
           - id: alice-init-create
             author: alice
             timestamp: 2026-01-01T00:00:00Z
             op:
-              object_id: r-multi-device
-              object_type: review
+              object_id: w-multi-device
+              object_type: widget
               op_type: create
               op_version: 1
               body:
@@ -25,15 +144,15 @@ refs:
             author: alice
             timestamp: 2026-01-01T00:01:00Z
             op:
-              object_id: r-multi-device
-              object_type: review
+              object_id: w-multi-device
+              object_type: widget
               op_type: update
               op_version: 1
               body:
                 title: "Desktop Updated Title"
             expect: accept
 
-  - name: refs/writ/0123456789abcdef/review
+  - name: refs/writ/0123456789abcdef/widget
     history:
       - commits:
           - id: alice-laptop-edit
@@ -41,8 +160,8 @@ refs:
             author: alice
             timestamp: 2026-01-01T00:01:30Z
             op:
-              object_id: r-multi-device
-              object_type: review
+              object_id: w-multi-device
+              object_type: widget
               op_type: update
               op_version: 1
               body:
@@ -54,8 +173,8 @@ refs:
             author: alice
             timestamp: 2026-01-01T00:02:00Z
             op:
-              object_id: r-multi-device
-              object_type: review
+              object_id: w-multi-device
+              object_type: widget
               op_type: set-status
               op_version: 1
               body:

@@ -38,47 +38,8 @@ Fixture YAML descriptions under `testdata/descriptions/` support the following c
 - **`manifest`:** Pinned repository manifest outputs (`testdata/golden/*.json`) covering all generated refs, commits, SHAs, and trees.
 - **`envelope`:** Golden envelope outputs (`testdata/golden/envelope/*.json`) verifying byte-for-byte canonicalization, schema conformance, tree structure, pure-Go SSH signature verification (`codec.Verify`), and declared vs observed disposition equality.
 - **`forward-compat`:** Golden forward-compatibility outputs (`testdata/golden/forward-compat/*.json`) verifying that unknown op types, future op versions, and unknown fields are preserved byte-for-byte, classified according to the reader profile, and surfaced as opaque records without perturbing known state.
-- **`fold`:** Golden folded state outputs (`testdata/golden/fold/*.json`) verifying that concurrent field edits, multi-device writer races, LWW and tiebreak rules, per-field merge strategies, and ancestry truncation reduce deterministically to byte-identical folded states across writers and DAG permutations.
+- **`fold`:** Golden folded state outputs (`testdata/golden/fold/*.json`) verifying that concurrent field edits, multi-device writer races, LWW and tiebreak rules, per-field merge strategies, `tombstone` delete/undelete/edit interleavings (`fold-tombstone-threads`, the corpus's carrier for `op_type: delete` — deletion wins over a concurrent edit and over a later undelete, which a plain `lww` bool cannot reproduce), and ancestry truncation reduce deterministically to byte-identical folded states across writers and DAG permutations. Every rule these folds run under comes from the fixture's own log: each repo declares a `schema` object, `writ.FoldSchema` materializes it and `writ.RulesFromSchemas` resolves it into per-`object_type` rules, exactly as the `schema-driven` family does — `schema` objects are the rule source here rather than golden output, since their own materialization is the `schema` family's subject, and a fixture declaring no schema still folds, with no rules and every op reported through `unknown_ops`. The family also runs the `forward-compat-*` descriptions, whose goldens pin that an unknown object type, an unknown op type and a future op version reach `unknown_ops` while the ops the schema does declare fold normally.
 - **`orphan-anchors`:** Golden resolution outputs (`testdata/golden/orphan-anchors/*.json`) verifying pure anchor resolution (`resolve.Resolve`) across real git history rewrites (rebase, rename, file and line deletion, hunk drift, force-push), checking matching ladder rungs, orphan degradation reasons, overall status derivation, schema validity, and byte-identical orphan preservation.
-- **`settings`, `issue`, `review`, `label`, `workflow-state`, `document`,
-  `project`/`cycle`:** **Orphaned by WRIT-195.** These families' descriptions
-  and golden files are still in `testdata/descriptions/` and
-  `testdata/golden/`, and `TestCorpusMatchesGolden` still generates and
-  manifest-pins every one of them, but the Go test files that folded and
-  compared them (`settings_test.go`, `issue_test.go`, `review_test.go`,
-  `label_test.go`, `workflow_state_test.go`, `document_test.go`,
-  `project_cycle_test.go`) called the typed `writ.FoldSettings`/`FoldIssue`/
-  `FoldReview`/`FoldLabel`/`FoldWorkflowState`/`FoldProject`/`FoldCycle`
-  reducers WRIT-195 deleted along with the per-type engine services, and were
-  deleted with them. No fixture family currently folds or golden-checks any
-  of these descriptions: `issue-concurrent-triage`, `issue-cross-repo-links`,
-  `issue-empty-set-items`, `issue-fields-and-rank`,
-  `issue-label-concurrent-apply-remove`, `issue-lifecycle`,
-  `issue-unknown-label-reference`, `issue-unknown-state`,
-  `issue-workflow-transitions`, `label-concurrent-rename`,
-  `label-forward-compat`, `settings-concurrent-edits`, `settings-defaults`,
-  `settings-unknown-keys`, `workflow-state-concurrent-edits`,
-  `workflow-state-ordering`, `project-membership-races`,
-  `cycle-dates-and-membership`, `document-sections-concurrent`, and
-  `review-mixed-signals`. Two of those pull weight beyond the deleted
-  vocabulary: `label-forward-compat` and `settings-unknown-keys` were the
-  only per-type exercises of the "unknown fields preserved and ignored"
-  invariant against these now-orphaned typed families — the `forward-compat`
-  family above already covers that same invariant at corpus level
-  generically (`forward-compat-unknown-ops`, `forward-compat-future-versions`,
-  `forward-compat-mixed-dag`, untouched by this PR), so orphaning these two
-  narrows type-specific coverage rather than opening a corpus-level hole in
-  the invariant itself. `document-sections-concurrent` is the only
-  corpus-level `multi-value` history — strategy-level coverage for it
-  survives via the abstract merge vectors in `spec/testdata/fold/merge/`
-  (`multi-value-*.json`, `uninterpretable-*.json`, run by `spec/fold_test.go`
-  and `engine/fold_test.go`), so this is a narrowing of corpus-level coverage,
-  not a hole, but a real one. These families await WRIT-194 (which removes
-  the built-in review/issue/etc. vocabulary these descriptions were written
-  against): either that ticket re-wires them onto the generic schema-driven
-  fold path, or it deletes the now-dead descriptions and golden files
-  outright. Until then this is dead data in the tree, not a passing
-  guarantee.
 - **`schema`:** Golden `writ.FoldSchema` outputs (`testdata/golden/schema/*.json`) driving the one object type writ hard-codes directly, cross-checked asymmetrically against `writ.Fold(ops, writ.SchemaRules())` (spec/schema-ops.md §3.1: the typed reducer's non-canonical `op_version` quarantine has no equivalent in the generic driver). Covers bootstrap, the §3.1 quarantine, multi-writer concurrent declarations, deprecate/redeclare, and schema-level forward compatibility.
 - **`schema-driven`:** Golden outputs (`testdata/golden/schema-driven/*.json`) for every schema object in a fixture folded with `writ.FoldSchema`, resolved into per-`object_type` rules with `writ.RulesFromSchemas`, and every other object folded against the rules resolved for its own `object_type` — with no new engine code, exactly the schema-driven fold path ARCHITECTURE.md §The six machines describes. Covers absent-schema and uninterpretable-op forward compatibility, `spec.ValidateFieldRule` rejection at the §9 boundary, namespace/object-type/redefine-schema collisions and how `RulesFromSchemas` reports them, `person-ref` normalization across every strategy position that applies it, version-bump target resolution (Correction 3), and reader-side body-vocabulary tolerance under a schema resolved from the log.
 
@@ -175,8 +136,9 @@ this corpus to verify compatibility:
 
 1. Run `go run ./spec/fixtures/gen -out /path/to/repos` to build the fixture
    git repositories.
-2. For each repository, load its refs under `refs/writ/` and fold all
-   operations into materialized state.
+2. For each repository, load its refs under `refs/writ/`, fold its `schema`
+   objects to resolve the per-`object_type` merge rules the repo declares, and
+   fold all other operations into materialized state under those rules.
 3. Serialize the folded state to canonical JSON.
 4. Compare byte-for-byte against the golden files in
    `spec/fixtures/testdata/golden/`.

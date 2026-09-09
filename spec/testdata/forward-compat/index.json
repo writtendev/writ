@@ -6,7 +6,7 @@
       "FC-7",
       "FC-10"
     ],
-    "reason": "op_version 2 for review/create exceeds the reader profile version 1"
+    "reason": "op_version 2 for widget/create exceeds the reader profile version 1"
   },
   "future-version-bump.json": {
     "disposition": "opaque",
@@ -14,7 +14,7 @@
       "FC-7",
       "FC-10"
     ],
-    "reason": "comment/post op_version 3 is beyond reader profile supported versions [1, 2]"
+    "reason": "gadget/post op_version 3 is beyond reader profile supported versions [1, 2]"
   },
   "interpretable-control.json": {
     "disposition": "interpretable",
@@ -34,7 +34,7 @@
       "FC-8",
       "FC-9"
     ],
-    "reason": "comment/post op_version 2 is implemented in reader profile and folds normally"
+    "reason": "gadget/post op_version 2 is implemented in reader profile and folds normally"
   },
   "nested-unknown-body-structure.json": {
     "disposition": "interpretable",
@@ -53,7 +53,7 @@
       "FC-12",
       "FC-15"
     ],
-    "reason": "review/create op_version 1 is implemented by the reader profile and the envelope is valid, but 'title' carries a declared lww rule and holds null, which no strategy can consume (spec/fold.md 7.1); the op is uninterpretable, not malformed, and the whole op is rejected rather than the one field"
+    "reason": "widget/create op_version 1 is implemented by the reader profile and the envelope is valid, but 'title' carries a declared lww rule and holds null, which no strategy can consume (spec/fold.md 7.1); the op is uninterpretable, not malformed, and the whole op is rejected rather than the one field"
   },
   "unknown-body-field.json": {
     "disposition": "interpretable",
@@ -62,7 +62,7 @@
       "FC-6",
       "FC-11"
     ],
-    "reason": "unknown field 'reviewer_draft_note' inside body is ignored; op remains interpretable"
+    "reason": "unknown field 'unrecognized_note' inside body is ignored; op remains interpretable"
   },
   "unknown-object-type.json": {
     "disposition": "opaque",
@@ -81,7 +81,7 @@
       "FC-12",
       "FC-15"
     ],
-    "reason": "op_type 'archive' under known object_type 'review' is not in reader profile"
+    "reason": "op_type 'archive' under known object_type 'widget' is not in reader profile"
   },
   "unknown-top-level-field.json": {
     "disposition": "interpretable",

@@ -60,6 +60,24 @@ func TestStoreSyncLifecycle(t *testing.T) {
 	}
 	defer sA.Close()
 
+	// 2. Open Store B (Bob)
+	sB, err := writ.Open(bobDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Open Bob failed: %v", err)
+	}
+	defer sB.Close()
+
+	// The vocabulary is itself an object, and syncs like one. Alice writes
+	// it and both sides sync it up front, so every op count below is about
+	// the objects the test writes, not about the schema arriving.
+	applyCoreSchema(t, ctx, sA)
+	if _, err := sA.Sync(ctx, "origin"); err != nil {
+		t.Fatalf("Alice Sync of the schema failed: %v", err)
+	}
+	if _, err := sB.Sync(ctx, "origin"); err != nil {
+		t.Fatalf("Bob Sync of the schema failed: %v", err)
+	}
+
 	// Initial status
 	statusA, err := sA.SyncStatus(ctx, "origin")
 	if err != nil {
@@ -69,13 +87,13 @@ func TestStoreSyncLifecycle(t *testing.T) {
 		t.Errorf("Alice expected 0 unsynced before write, got %d", statusA.Unsynced)
 	}
 
-	// Alice creates a review
-	reviewID, err := sA.Objects.Create(ctx, "review", writ.NewOp{
+	// Alice creates a widget
+	widgetID, err := sA.Objects.Create(ctx, "widget", writ.NewOp{
 		Type:   "create",
-		Fields: map[string]any{"title": "Sync Feature Review"},
+		Fields: map[string]any{"title": "Sync Feature Widget"},
 	})
 	if err != nil {
-		t.Fatalf("Alice create review: %v", err)
+		t.Fatalf("Alice create widget: %v", err)
 	}
 
 	// Status now shows 1 unsynced op
@@ -99,14 +117,7 @@ func TestStoreSyncLifecycle(t *testing.T) {
 		t.Errorf("Alice expected 0 unsynced after sync, got %d", syncResA.Unsynced)
 	}
 
-	// 2. Open Store B (Bob)
-	sB, err := writ.Open(bobDir, writ.WithSigner(dummySigner()))
-	if err != nil {
-		t.Fatalf("Open Bob failed: %v", err)
-	}
-	defer sB.Close()
-
-	// Bob syncs with origin and receives Alice's review
+	// Bob syncs with origin and receives Alice's widget
 	syncResB, err := sB.Sync(ctx, "origin")
 	if err != nil {
 		t.Fatalf("Bob Sync failed: %v", err)
@@ -118,12 +129,12 @@ func TestStoreSyncLifecycle(t *testing.T) {
 		t.Errorf("Bob expected 1 object touched, got %d", syncResB.ObjectsTouched)
 	}
 
-	// Bob queries and approves Alice's review
-	objB, err := sB.Objects.Get(ctx, reviewID)
+	// Bob queries and approves Alice's widget
+	objB, err := sB.Objects.Get(ctx, widgetID)
 	if err != nil {
 		t.Fatalf("Bob Objects.Get failed: %v", err)
 	}
-	if objB.Fields["title"] != "Sync Feature Review" {
+	if objB.Fields["title"] != "Sync Feature Widget" {
 		t.Errorf("Bob got title %q", objB.Fields["title"])
 	}
 
@@ -133,23 +144,23 @@ func TestStoreSyncLifecycle(t *testing.T) {
 	// filter, served from the projection's generated type-table columns,
 	// does (round 1 minor finding: post-fetch state had come to be checked
 	// only through Objects.Get across this file).
-	byText, err := sB.Query.Objects(writ.ObjectFilter{Text: "Sync Feature Review"})
+	byText, err := sB.Query.Objects(writ.ObjectFilter{Text: "Sync Feature Widget"})
 	if err != nil {
 		t.Fatalf("Bob Query.Objects(Text) failed: %v", err)
 	}
-	if len(byText) != 1 || byText[0].ObjectID != reviewID {
-		t.Fatalf("Bob Query.Objects(Text=%q) = %+v, want exactly [%s]", "Sync Feature Review", byText, reviewID)
+	if len(byText) != 1 || byText[0].ObjectID != widgetID {
+		t.Fatalf("Bob Query.Objects(Text=%q) = %+v, want exactly [%s]", "Sync Feature Widget", byText, widgetID)
 	}
 
 	// Push a revision and approve
 	headHash := runGitCmd(t, bobDir, "rev-parse", "HEAD")[:40]
-	if err := sB.Objects.Apply(ctx, reviewID, writ.NewOp{
+	if err := sB.Objects.Apply(ctx, widgetID, writ.NewOp{
 		Type:   "revision",
 		Fields: map[string]any{"base": headHash, "head": headHash},
 	}); err != nil {
 		t.Fatalf("Bob revision apply failed: %v", err)
 	}
-	if err := sB.Objects.Apply(ctx, reviewID, writ.NewOp{
+	if err := sB.Objects.Apply(ctx, widgetID, writ.NewOp{
 		Type: "approval",
 		Fields: map[string]any{
 			"revision": headHash,
@@ -181,10 +192,9 @@ func TestStoreSyncLifecycle(t *testing.T) {
 	// approval's fields declare no target (spec/schema-ops.md), so each one
 	// folds under its own field name as a keyed-lww register — a []any of
 	// {"key": [...], "value": ...} entries keyed by (subject, revision) —
-	// not a struct-shaped "approvals" collection (that aggregation was
-	// FoldReview's own typed-reducer construction, not a generic fold
-	// property).
-	objA2, err := sA.Objects.Get(ctx, reviewID)
+	// not a struct-shaped collection. Aggregating those entries into one
+	// was a typed reducer's own construction, not a generic fold property.
+	objA2, err := sA.Objects.Get(ctx, widgetID)
 	if err != nil {
 		t.Fatalf("Alice Objects.Get after fetch failed: %v", err)
 	}
@@ -202,16 +212,14 @@ func TestStoreSync_PreReceiveHookFailureAndRetry(t *testing.T) {
 	bareDir, aliceDir, bobDir := setupSyncHarness(t)
 	ctx := context.Background()
 
-	// Install a failing pre-receive hook on bare remote
+	// The failing pre-receive hook, written below once the schema is
+	// already on the remote
 	hooksDir := filepath.Join(bareDir, "hooks")
 	if err := os.MkdirAll(hooksDir, 0755); err != nil {
 		t.Fatalf("mkdir hooks: %v", err)
 	}
 	hookPath := filepath.Join(hooksDir, "pre-receive")
 	hookScript := "#!/bin/sh\necho \"pre-receive hook declined update\" >&2\nexit 1\n"
-	if err := os.WriteFile(hookPath, []byte(hookScript), 0755); err != nil {
-		t.Fatalf("write hook: %v", err)
-	}
 
 	sA, err := writ.Open(aliceDir, writ.WithSigner(dummySigner()))
 	if err != nil {
@@ -219,13 +227,34 @@ func TestStoreSync_PreReceiveHookFailureAndRetry(t *testing.T) {
 	}
 	defer sA.Close()
 
-	// Alice creates a review
-	reviewID, err := sA.Objects.Create(ctx, "review", writ.NewOp{
+	sB, err := writ.Open(bobDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Open Bob failed: %v", err)
+	}
+	defer sB.Close()
+
+	// The vocabulary is pushed and fetched before the hook goes in, so the
+	// op counts below are about the one widget op, not about the schema.
+	applyCoreSchema(t, ctx, sA)
+	if _, err := sA.Sync(ctx, "origin"); err != nil {
+		t.Fatalf("Alice Sync of the schema failed: %v", err)
+	}
+	if _, err := sB.Sync(ctx, "origin"); err != nil {
+		t.Fatalf("Bob Sync of the schema failed: %v", err)
+	}
+
+	// Install a failing pre-receive hook on the bare remote
+	if err := os.WriteFile(hookPath, []byte(hookScript), 0755); err != nil {
+		t.Fatalf("write hook: %v", err)
+	}
+
+	// Alice creates a widget
+	widgetID, err := sA.Objects.Create(ctx, "widget", writ.NewOp{
 		Type:   "create",
-		Fields: map[string]any{"title": "Hook Failure Review"},
+		Fields: map[string]any{"title": "Hook Failure Widget"},
 	})
 	if err != nil {
-		t.Fatalf("Alice create review: %v", err)
+		t.Fatalf("Alice create widget: %v", err)
 	}
 
 	// Initial status shows 1 unsynced op
@@ -286,13 +315,7 @@ func TestStoreSync_PreReceiveHookFailureAndRetry(t *testing.T) {
 		t.Errorf("retry Unsynced = %d, want 0", retryRes.Unsynced)
 	}
 
-	// Bob syncs and verifies review landed intact
-	sB, err := writ.Open(bobDir, writ.WithSigner(dummySigner()))
-	if err != nil {
-		t.Fatalf("Open Bob failed: %v", err)
-	}
-	defer sB.Close()
-
+	// Bob syncs and verifies the widget landed intact
 	syncResB, err := sB.Sync(ctx, "origin")
 	if err != nil {
 		t.Fatalf("Bob sync failed: %v", err)
@@ -301,12 +324,12 @@ func TestStoreSync_PreReceiveHookFailureAndRetry(t *testing.T) {
 		t.Errorf("Bob OpsFetched = %d, want 1", syncResB.OpsFetched)
 	}
 
-	objB, err := sB.Objects.Get(ctx, reviewID)
+	objB, err := sB.Objects.Get(ctx, widgetID)
 	if err != nil {
 		t.Fatalf("Bob Objects.Get failed: %v", err)
 	}
-	if objB.Fields["title"] != "Hook Failure Review" {
-		t.Errorf("Bob Fields[title] = %v, want 'Hook Failure Review'", objB.Fields["title"])
+	if objB.Fields["title"] != "Hook Failure Widget" {
+		t.Errorf("Bob Fields[title] = %v, want 'Hook Failure Widget'", objB.Fields["title"])
 	}
 }
 

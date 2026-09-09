@@ -28,16 +28,7 @@ func TestFieldRulesSchemaValidation(t *testing.T) {
 	}
 
 	files := []string{
-		"testdata/comments/field-rules.json",
-		"testdata/cycle/field-rules.json",
-		"testdata/document/field-rules.json",
-		"testdata/issue-ops/field-rules.json",
-		"testdata/label/field-rules.json",
-		"testdata/project/field-rules.json",
-		"testdata/review-ops/field-rules.json",
-		"testdata/section/field-rules.json",
-		"testdata/settings/field-rules.json",
-		"testdata/workflow-state/field-rules.json",
+		"testdata/schema-ops/field-rules.json",
 	}
 
 	for _, file := range files {
@@ -370,16 +361,14 @@ func TestFieldRulesNoUndeclaredTargetCollisions(t *testing.T) {
 // TestFieldRulesDeriveNonEmptyObjectType asserts that every rule
 // spec.FieldRules() loads from the shipped testdata/**/field-rules.json
 // corpus carries a non-empty ObjectType. FieldRules derives ObjectType from
-// vocabularyObjectTypes (spec/vocabulary.go) keyed by directory, and fails
+// bootstrapObjectTypes (spec/fieldrules.go) keyed by directory, and fails
 // closed — returning an error rather than an empty string — when a
 // directory has no entry there; this test pins that every shipped directory
 // does have one, so a directory added without updating the map fails here
 // by name instead of silently matching every object type in fold's rule
-// matching (spec/fold.md §5). It does not apply to the hand-written Go rule
-// tables (engine/state/{review,issue}.go and friends), which deliberately
-// leave ObjectType empty (Plan §C3), or to the abstract merge vectors under
-// testdata/fold/merge/, which declare no object type at all — neither goes
-// through FieldRules.
+// matching (spec/fold.md §5). It does not apply to the abstract merge vectors
+// under testdata/fold/merge/, which declare no object type at all and do not
+// go through FieldRules.
 func TestFieldRulesDeriveNonEmptyObjectType(t *testing.T) {
 	rules, err := spec.FieldRules()
 	if err != nil {
@@ -387,30 +376,7 @@ func TestFieldRulesDeriveNonEmptyObjectType(t *testing.T) {
 	}
 	for _, r := range rules {
 		if r.ObjectType == "" {
-			t.Errorf("rule (%s, %d, %s) from directory %q has empty ObjectType; add an entry to vocabularyObjectTypes for that directory", r.OpType, r.OpVersion, r.Field, r.Vocabulary)
+			t.Errorf("rule (%s, %d, %s) from directory %q has empty ObjectType; add an entry to bootstrapObjectTypes for that directory", r.OpType, r.OpVersion, r.Field, r.Vocabulary)
 		}
-	}
-}
-
-// TestVocabularyObjectTypesIsInjective asserts that spec.VocabularyObjectTypes
-// maps at most one directory to each object type. Fold's rule matching
-// (spec/fold.md §5) scopes rules by ObjectType, and spec.FieldRules() only
-// checks for a target collision within one field-rules.json directory's own
-// rules (its targetBindings map is fresh per file — see FieldRules's
-// comment) on the assumption that a directory is the sole source of rules
-// for its object type. Two directories mapped to the same object type would
-// break that assumption silently: their rules would share an ObjectType and
-// so share a fold rule-matching universe, but a genuine target collision
-// between them would go unchecked. FieldRules() itself now rejects this at
-// load time; this test pins the invariant directly against the map, so a
-// future hand-edit reusing an object type fails here by name.
-func TestVocabularyObjectTypesIsInjective(t *testing.T) {
-	seenBy := make(map[string]string)
-	for dir, objectType := range spec.VocabularyObjectTypes() {
-		if priorDir, ok := seenBy[objectType]; ok {
-			t.Errorf("directories %q and %q both map to object type %q in vocabularyObjectTypes; each object type must have exactly one field-rules.json directory", priorDir, dir, objectType)
-			continue
-		}
-		seenBy[objectType] = dir
 	}
 }

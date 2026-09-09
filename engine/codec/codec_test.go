@@ -15,14 +15,14 @@ import (
 
 func TestMessage(t *testing.T) {
 	env := codec.Envelope{
-		ObjectID:   "rev-123",
-		ObjectType: "review",
+		ObjectID:   "w-123",
+		ObjectType: "widget",
 		OpType:     "create",
 		OpVersion:  1,
 	}
 
 	got := codec.Message(env)
-	want := "writ: create review/rev-123\n"
+	want := "writ: create widget/w-123\n"
 	if got != want {
 		t.Errorf("Message() = %q, want %q", got, want)
 	}
@@ -37,15 +37,15 @@ func TestBuildCommit(t *testing.T) {
 	}
 
 	env := codec.Envelope{
-		ObjectID:   "rev-1",
-		ObjectType: "review",
+		ObjectID:   "w-1",
+		ObjectType: "widget",
 		OpType:     "create",
 		OpVersion:  1,
 		Body:       json.RawMessage(`{"title":"Initial"}`),
 	}
 
 	parents := []string{"parent1", "parent2"}
-	commit, err := codec.BuildCommit(env, author, parents, nil)
+	commit, err := codec.BuildCommit(env, author, parents, widgetVocabulary())
 	if err != nil {
 		t.Fatalf("BuildCommit failed: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestBuildCommit(t *testing.T) {
 		t.Errorf("author time location is not UTC: %v", commit.Author.When.Location())
 	}
 
-	if commit.Message != "writ: create review/rev-1\n" {
+	if commit.Message != "writ: create widget/w-1\n" {
 		t.Errorf("unexpected message: %q", commit.Message)
 	}
 
@@ -83,13 +83,13 @@ func TestBuildCommit(t *testing.T) {
 		t.Fatalf("DecodeCommit failed on built commit: %v", err)
 	}
 
-	if op.ObjectID != "rev-1" || op.ObjectType != "review" || op.OpType != "create" {
+	if op.ObjectID != "w-1" || op.ObjectType != "widget" || op.OpType != "create" {
 		t.Errorf("unexpected op fields: %+v", op)
 	}
 }
 
 func TestDecodeCommitRejections(t *testing.T) {
-	validRaw := []byte(`{"body":{},"object_id":"r1","object_type":"review","op_type":"create","op_version":1}`)
+	validRaw := []byte(`{"body":{},"object_id":"w1","object_type":"widget","op_type":"create","op_version":1}`)
 	now := time.Now().UTC()
 	alice := codec.Identity{Name: "Alice", Email: "alice@example.com", When: now}
 	bob := codec.Identity{Name: "Bob", Email: "bob@example.com", When: now}
@@ -194,74 +194,109 @@ func TestDecodeCommitRejections(t *testing.T) {
 	})
 }
 
+// TestValidateBody walks the tiers of spec/op-envelope.md §Producer
+// validation from the outside: the bootstrap vocabulary writ embeds for
+// `schema` (tier 1), a log-declared one (tier 2, where rules 3 and 4 are
+// checked against the declaration rather than a JSON Schema), and the
+// absence of both (tier 4, a refusal naming object_type).
 func TestValidateBody(t *testing.T) {
-	t.Run("valid review op body", func(t *testing.T) {
+	t.Run("valid schema op body", func(t *testing.T) {
 		env := codec.Envelope{
-			ObjectID:   "rev-1",
-			ObjectType: "review",
+			ObjectID:   "sch-1",
+			ObjectType: "schema",
+			OpType:     "create",
+			OpVersion:  1,
+			Body:       json.RawMessage(`{"namespace":"acme"}`),
+		}
+		if err := codec.ValidateBody(env, nil); err != nil {
+			t.Errorf("ValidateBody failed on valid schema op: %v", err)
+		}
+	})
+
+	t.Run("invalid schema op body", func(t *testing.T) {
+		env := codec.Envelope{
+			ObjectID:   "sch-1",
+			ObjectType: "schema",
+			OpType:     "create",
+			OpVersion:  1,
+			Body:       json.RawMessage(`{"description":"Missing namespace"}`),
+		}
+		if err := codec.ValidateBody(env, nil); err == nil {
+			t.Errorf("ValidateBody accepted a schema create body missing namespace")
+		}
+	})
+
+	t.Run("valid log-declared op body", func(t *testing.T) {
+		env := codec.Envelope{
+			ObjectID:   "w-1",
+			ObjectType: "widget",
 			OpType:     "create",
 			OpVersion:  1,
 			Body:       json.RawMessage(`{"title":"Add feature"}`),
 		}
-		if err := codec.ValidateBody(env, nil); err != nil {
-			t.Errorf("ValidateBody failed on valid review op: %v", err)
+		if err := codec.ValidateBody(env, widgetVocabulary()); err != nil {
+			t.Errorf("ValidateBody failed on an op the log's schema declares: %v", err)
 		}
 	})
 
-	t.Run("invalid review op body", func(t *testing.T) {
+	// Rule 3 at tier 2: the declared rules are the only thing bounding
+	// which fields are known, so a field none of them names is refused.
+	t.Run("undeclared field is refused", func(t *testing.T) {
 		env := codec.Envelope{
-			ObjectID:   "rev-1",
-			ObjectType: "review",
+			ObjectID:   "w-1",
+			ObjectType: "widget",
 			OpType:     "create",
 			OpVersion:  1,
-			Body:       json.RawMessage(`{"description":"Missing title"}`),
+			Body:       json.RawMessage(`{"headline":"no rule declares this"}`),
 		}
-		if err := codec.ValidateBody(env, nil); err == nil {
-			t.Errorf("ValidateBody accepted invalid review op body missing title")
+		if err := codec.ValidateBody(env, widgetVocabulary()); err == nil {
+			t.Errorf("ValidateBody accepted a body field the log's schema does not declare")
 		}
 	})
 
-	t.Run("valid comment op body", func(t *testing.T) {
+	// Rule 4 at tier 2: the op_type and op_version have to be ones the
+	// declaring schema object names.
+	t.Run("undeclared op type is refused", func(t *testing.T) {
 		env := codec.Envelope{
-			ObjectID:   "c-1",
-			ObjectType: "comment",
-			OpType:     "create",
+			ObjectID:   "w-1",
+			ObjectType: "widget",
+			OpType:     "annotate",
 			OpVersion:  1,
-			Body:       json.RawMessage(`{"subject":{"object_type":"review","object_id":"r-1"},"text":"Looks good"}`),
+			Body:       json.RawMessage(`{"title":"Add feature"}`),
 		}
-		if err := codec.ValidateBody(env, nil); err != nil {
-			t.Errorf("ValidateBody failed on valid comment op: %v", err)
+		if err := codec.ValidateBody(env, widgetVocabulary()); err == nil {
+			t.Errorf("ValidateBody accepted an op_type the log's schema does not declare")
 		}
 	})
 
-	t.Run("invalid comment op body", func(t *testing.T) {
+	t.Run("undeclared op version is refused", func(t *testing.T) {
 		env := codec.Envelope{
-			ObjectID:   "c-1",
-			ObjectType: "comment",
+			ObjectID:   "w-1",
+			ObjectType: "widget",
 			OpType:     "create",
-			OpVersion:  1,
-			Body:       json.RawMessage(`{"text":"Missing subject"}`),
+			OpVersion:  2,
+			Body:       json.RawMessage(`{"title":"Add feature"}`),
 		}
-		if err := codec.ValidateBody(env, nil); err == nil {
-			t.Errorf("ValidateBody accepted invalid comment op body missing subject")
+		if err := codec.ValidateBody(env, widgetVocabulary()); err == nil {
+			t.Errorf("ValidateBody accepted an op_version the log's schema does not declare")
 		}
 	})
 
-	// Tier 5 (spec/op-envelope.md §Producer validation): with nil
-	// vocabularies (the log declares nothing) and no embedded vocabulary
-	// for this object type, ValidateBody now refuses rather than passing
-	// it through — the inversion TestBuildCommitRefusesUndeclaredObjectTypes
-	// pins for BuildCommit.
+	// Tier 4 (spec/op-envelope.md §Producer validation): with nil
+	// vocabularies the log declares nothing, and `schema` aside there is no
+	// embedded vocabulary to fall back on, so ValidateBody refuses rather
+	// than passing it through — the inversion
+	// TestBuildCommitRefusesUndeclaredObjectTypes pins for BuildCommit.
 	t.Run("undeclared object type is refused", func(t *testing.T) {
 		env := codec.Envelope{
 			ObjectID:   "unknown-1",
-			ObjectType: "custom_type",
-			OpType:     "custom_action",
+			ObjectType: "custom-type",
+			OpType:     "custom-action",
 			OpVersion:  1,
 			Body:       json.RawMessage(`{"any":"field"}`),
 		}
 		if err := codec.ValidateBody(env, nil); err == nil {
-			t.Errorf("ValidateBody accepted an object_type declared by no schema and embedded by no vocabulary")
+			t.Errorf("ValidateBody accepted an object_type no schema in the log declares")
 		}
 	})
 }
@@ -283,14 +318,14 @@ func TestWriteCommitRoundTrip(t *testing.T) {
 	}
 
 	env := codec.Envelope{
-		ObjectID:   "rev-1",
-		ObjectType: "review",
+		ObjectID:   "w-1",
+		ObjectType: "widget",
 		OpType:     "create",
 		OpVersion:  1,
 		Body:       json.RawMessage(`{"title":"Initial"}`),
 	}
 
-	c, err := codec.BuildCommit(env, author, []string{}, nil)
+	c, err := codec.BuildCommit(env, author, []string{}, widgetVocabulary())
 	if err != nil {
 		t.Fatalf("BuildCommit failed: %v", err)
 	}

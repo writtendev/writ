@@ -1,7 +1,6 @@
 package writ_test
 
 import (
-	"context"
 	"sort"
 	"testing"
 	"time"
@@ -10,77 +9,77 @@ import (
 )
 
 func TestReadStateLifecycle(t *testing.T) {
-	dir, _ := setupConfiguredRepo(t)
-	ctx := context.Background()
+	store, ctx, _ := openStoreWithCoreSchema(t)
 
-	store, err := writ.Open(dir, writ.WithSigner(dummySigner()))
-	if err != nil {
-		t.Fatalf("Open failed: %v", err)
+	// The schema object installing the vocabulary is an object like any
+	// other, and starts out unread. Mark it read so every assertion below
+	// is about the two widgets alone.
+	if err := store.ReadState.Mark(ctx, coreSchemaObjectID); err != nil {
+		t.Fatalf("Mark schema object failed: %v", err)
 	}
-	defer store.Close()
 
-	// 1. Create two reviews
-	rev1, err := store.Objects.Create(ctx, "review", writ.NewOp{
+	// 1. Create two widgets
+	w1, err := store.Objects.Create(ctx, "widget", writ.NewOp{
 		Type:   "create",
-		Fields: map[string]any{"title": "Review One"},
+		Fields: map[string]any{"title": "Widget One"},
 	})
 	if err != nil {
-		t.Fatalf("Create rev1 failed: %v", err)
+		t.Fatalf("Create w1 failed: %v", err)
 	}
-	rev2, err := store.Objects.Create(ctx, "review", writ.NewOp{
+	w2, err := store.Objects.Create(ctx, "widget", writ.NewOp{
 		Type:   "create",
-		Fields: map[string]any{"title": "Review Two"},
+		Fields: map[string]any{"title": "Widget Two"},
 	})
 	if err != nil {
-		t.Fatalf("Create rev2 failed: %v", err)
+		t.Fatalf("Create w2 failed: %v", err)
 	}
 
-	// 2. Both reviews should initially be unread
+	// 2. Both widgets should initially be unread
 	unread, err := store.ReadState.Unread(ctx)
 	if err != nil {
 		t.Fatalf("Unread all failed: %v", err)
 	}
 	sort.Strings(unread)
-	expectedUnread := []string{rev1, rev2}
+	expectedUnread := []string{w1, w2}
 	sort.Strings(expectedUnread)
 	if len(unread) != 2 || unread[0] != expectedUnread[0] || unread[1] != expectedUnread[1] {
-		t.Fatalf("expected unread [%s, %s], got %+v", rev1, rev2, unread)
+		t.Fatalf("expected unread [%s, %s], got %+v", w1, w2, unread)
 	}
 
-	// 3. Mark rev1 as read
-	if err := store.ReadState.Mark(ctx, rev1); err != nil {
-		t.Fatalf("Mark rev1 failed: %v", err)
+	// 3. Mark w1 as read
+	if err := store.ReadState.Mark(ctx, w1); err != nil {
+		t.Fatalf("Mark w1 failed: %v", err)
 	}
 
-	// Unread should now return only rev2
+	// Unread should now return only w2
 	unreadAfterMark, err := store.ReadState.Unread(ctx)
 	if err != nil {
 		t.Fatalf("Unread after mark failed: %v", err)
 	}
-	if len(unreadAfterMark) != 1 || unreadAfterMark[0] != rev2 {
-		t.Fatalf("expected unread [%s], got %+v", rev2, unreadAfterMark)
+	if len(unreadAfterMark) != 1 || unreadAfterMark[0] != w2 {
+		t.Fatalf("expected unread [%s], got %+v", w2, unreadAfterMark)
 	}
 
 	// Querying specific IDs
-	unreadSpecific, err := store.ReadState.Unread(ctx, rev1, rev2)
+	unreadSpecific, err := store.ReadState.Unread(ctx, w1, w2)
 	if err != nil {
 		t.Fatalf("Unread specific failed: %v", err)
 	}
-	if len(unreadSpecific) != 1 || unreadSpecific[0] != rev2 {
-		t.Fatalf("expected unread [%s], got %+v", rev2, unreadSpecific)
+	if len(unreadSpecific) != 1 || unreadSpecific[0] != w2 {
+		t.Fatalf("expected unread [%s], got %+v", w2, unreadSpecific)
 	}
 
-	// 4. Update rev1 (advancing its updated_at timestamp)
+	// 4. Update w1 (advancing its updated_at timestamp)
 	time.Sleep(1100 * time.Millisecond) // Ensure Unix timestamp increments
-	newTitle := "Review One (Updated)"
-	if err := store.Objects.Apply(ctx, rev1, writ.NewOp{
+	newTitle := "Widget One (Updated)"
+	if err := store.Objects.Apply(ctx, w1, writ.NewOp{
 		Type:   "update",
 		Fields: map[string]any{"title": newTitle},
 	}); err != nil {
-		t.Fatalf("Update rev1 failed: %v", err)
+		t.Fatalf("Update w1 failed: %v", err)
 	}
 
-	// Now rev1 should be unread again because updated_at > last_read_at
+	// Now w1 should be unread again because updated_at > last_read_at
 	unreadAfterUpdate, err := store.ReadState.Unread(ctx)
 	if err != nil {
 		t.Fatalf("Unread after update failed: %v", err)
@@ -91,11 +90,11 @@ func TestReadStateLifecycle(t *testing.T) {
 	}
 
 	// 5. Mark both as read
-	if err := store.ReadState.Mark(ctx, rev1); err != nil {
-		t.Fatalf("Mark rev1 failed: %v", err)
+	if err := store.ReadState.Mark(ctx, w1); err != nil {
+		t.Fatalf("Mark w1 failed: %v", err)
 	}
-	if err := store.ReadState.Mark(ctx, rev2); err != nil {
-		t.Fatalf("Mark rev2 failed: %v", err)
+	if err := store.ReadState.Mark(ctx, w2); err != nil {
+		t.Fatalf("Mark w2 failed: %v", err)
 	}
 
 	unreadClean, err := store.ReadState.Unread(ctx)
@@ -106,16 +105,16 @@ func TestReadStateLifecycle(t *testing.T) {
 		t.Fatalf("expected 0 unread, got %+v", unreadClean)
 	}
 
-	// 6. Clear read mark on rev1
-	if err := store.ReadState.Clear(ctx, rev1); err != nil {
-		t.Fatalf("Clear rev1 failed: %v", err)
+	// 6. Clear read mark on w1
+	if err := store.ReadState.Clear(ctx, w1); err != nil {
+		t.Fatalf("Clear w1 failed: %v", err)
 	}
 
 	unreadAfterClear, err := store.ReadState.Unread(ctx)
 	if err != nil {
 		t.Fatalf("Unread after clear failed: %v", err)
 	}
-	if len(unreadAfterClear) != 1 || unreadAfterClear[0] != rev1 {
-		t.Fatalf("expected unread [%s] after clear, got %+v", rev1, unreadAfterClear)
+	if len(unreadAfterClear) != 1 || unreadAfterClear[0] != w1 {
+		t.Fatalf("expected unread [%s] after clear, got %+v", w1, unreadAfterClear)
 	}
 }

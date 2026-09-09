@@ -50,14 +50,14 @@ func TestVerify_Outcomes(t *testing.T) {
 	}
 
 	env := codec.Envelope{
-		ObjectID:   "review-01",
-		ObjectType: "review",
+		ObjectID:   "w-01",
+		ObjectType: "widget",
 		OpType:     "create",
 		OpVersion:  1,
 		Body:       json.RawMessage(`{"title":"Initial"}`),
 	}
 
-	commit, err := codec.BuildCommit(env, author, nil, nil)
+	commit, err := codec.BuildCommit(env, author, nil, widgetVocabulary())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,78 +6,78 @@ description: >
   object_type, and body as an array).
 
 refs:
-  - name: refs/writ/alice/review
+  - name: refs/writ/alice/widget
     history:
       - commits:
           - id: payload-pretty-printed
             author: alice
             timestamp: 2026-01-01T00:00:00Z
-            message: "writ: create review/r1\n"
+            message: "writ: create widget/r1\n"
             files:
-              op.json: "{\n  \"body\": {},\n  \"object_id\": \"r1\",\n  \"object_type\": \"review\",\n  \"op_type\": \"create\",\n  \"op_version\": 1\n}"
+              op.json: "{\n  \"body\": {},\n  \"object_id\": \"r1\",\n  \"object_type\": \"widget\",\n  \"op_type\": \"create\",\n  \"op_version\": 1\n}"
             expect:
               reject: non-canonical-payload
           - id: payload-unsorted-keys
             author: alice
             timestamp: 2026-01-01T00:01:00Z
-            message: "writ: create review/r1\n"
+            message: "writ: create widget/r1\n"
             files:
-              op.json: '{"op_version":1,"op_type":"create","object_type":"review","object_id":"r1","body":{}}'
+              op.json: '{"op_version":1,"op_type":"create","object_type":"widget","object_id":"r1","body":{}}'
             expect:
               reject: non-canonical-payload
           - id: payload-trailing-newline
             author: alice
             timestamp: 2026-01-01T00:02:00Z
-            message: "writ: create review/r1\n"
+            message: "writ: create widget/r1\n"
             files:
-              op.json: "{\"body\":{},\"object_id\":\"r1\",\"object_type\":\"review\",\"op_type\":\"create\",\"op_version\":1}\n"
+              op.json: "{\"body\":{},\"object_id\":\"r1\",\"object_type\":\"widget\",\"op_type\":\"create\",\"op_version\":1}\n"
             expect:
               reject: non-canonical-payload
           - id: payload-duplicate-key
             author: alice
             timestamp: 2026-01-01T00:03:00Z
-            message: "writ: create review/r1\n"
+            message: "writ: create widget/r1\n"
             files:
-              op.json: '{"body":{},"object_id":"r1","object_id":"r2","object_type":"review","op_type":"create","op_version":1}'
+              op.json: '{"body":{},"object_id":"r1","object_id":"r2","object_type":"widget","op_type":"create","op_version":1}'
             expect:
               reject: duplicate-key
           - id: payload-lone-surrogate
             author: alice
             timestamp: 2026-01-01T00:04:00Z
-            message: "writ: create review/r1\n"
+            message: "writ: create widget/r1\n"
             files:
-              op.json: '{"body":{"text":"\ud800"},"object_id":"r1","object_type":"review","op_type":"create","op_version":1}'
+              op.json: '{"body":{"text":"\ud800"},"object_id":"r1","object_type":"widget","op_type":"create","op_version":1}'
             expect:
               reject: lone-surrogate
           - id: payload-missing-field
             author: alice
             timestamp: 2026-01-01T00:05:00Z
-            message: "writ: create review/r1\n"
+            message: "writ: create widget/r1\n"
             files:
-              op.json: '{"body":{},"object_id":"r1","object_type":"review","op_type":"create"}'
+              op.json: '{"body":{},"object_id":"r1","object_type":"widget","op_type":"create"}'
             expect:
               reject: schema-violation
           - id: payload-op-version-zero
             author: alice
             timestamp: 2026-01-01T00:06:00Z
-            message: "writ: create review/r1\n"
+            message: "writ: create widget/r1\n"
             files:
-              op.json: '{"body":{},"object_id":"r1","object_type":"review","op_type":"create","op_version":0}'
+              op.json: '{"body":{},"object_id":"r1","object_type":"widget","op_type":"create","op_version":0}'
             expect:
               reject: schema-violation
           - id: payload-uppercase-type
             author: alice
             timestamp: 2026-01-01T00:07:00Z
-            message: "writ: create Review/r1\n"
+            message: "writ: create Widget/r1\n"
             files:
-              op.json: '{"body":{},"object_id":"r1","object_type":"Review","op_type":"create","op_version":1}'
+              op.json: '{"body":{},"object_id":"r1","object_type":"Widget","op_type":"create","op_version":1}'
             expect:
               reject: schema-violation
           - id: payload-body-array
             author: alice
             timestamp: 2026-01-01T00:08:00Z
-            message: "writ: create review/r1\n"
+            message: "writ: create widget/r1\n"
             files:
-              op.json: '{"body":[],"object_id":"r1","object_type":"review","op_type":"create","op_version":1}'
+              op.json: '{"body":[],"object_id":"r1","object_type":"widget","op_type":"create","op_version":1}'
             expect:
               reject: schema-violation

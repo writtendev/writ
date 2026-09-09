@@ -3,7 +3,26 @@ package projection
 import (
 	"strings"
 	"testing"
+
+	"github.com/writtendev/writ/engine/state"
 )
+
+// tombstoneRules is loadTestRules with one tombstone-strategy target added
+// to each of its two declared types. objectsNotDeletedClause builds a clause
+// only for a type that has such a target, and the counterpart test below
+// needs two of them to observe restrictTypes dropping one; nothing else in
+// this file's subject depends on the shape, so this extends loadTestRules
+// rather than restating it.
+func tombstoneRules(t *testing.T) map[string][]state.Rule {
+	t.Helper()
+	rules := loadTestRules(t)
+	for _, objectType := range []string{"widget", "gadget"} {
+		rules[objectType] = append(rules[objectType], state.Rule{
+			OpType: "archive", OpVersion: 1, Field: "archived", Strategy: "tombstone", ValueType: "bool", ObjectType: objectType,
+		})
+	}
+	return rules
+}
 
 // TestObjectsTextClauseRestrictTypes pins round 1's restrictTypes addition
 // to objectsTextClause: restricting to a single declared type must drop
@@ -15,7 +34,9 @@ import (
 // clause from an unrestricted one. This calls objectsTextClause directly
 // and inspects the generated SQL fragment and param count, the only way to
 // observe the restriction itself rather than its (already-redundant)
-// runtime effect.
+// runtime effect. The tables it names are the ones loadTestRules' own
+// declared types generate: writ hard-codes no object type but `schema`, so
+// there is no table name here that did not come from a declaration.
 func TestObjectsTextClauseRestrictTypes(t *testing.T) {
 	rules := loadTestRules(t)
 	desc, err := buildDescriptor(rules)
@@ -24,50 +45,50 @@ func TestObjectsTextClauseRestrictTypes(t *testing.T) {
 	}
 
 	allClause, allParams := objectsTextClause(desc, nil)
-	if !strings.Contains(allClause, "o_review") {
-		t.Fatalf("unrestricted text clause does not mention o_review: %s", allClause)
+	if !strings.Contains(allClause, "o_widget") {
+		t.Fatalf("unrestricted text clause does not mention o_widget: %s", allClause)
 	}
-	if !strings.Contains(allClause, "o_comment") {
-		t.Fatalf("unrestricted text clause does not mention o_comment: %s", allClause)
+	if !strings.Contains(allClause, "o_gadget") {
+		t.Fatalf("unrestricted text clause does not mention o_gadget: %s", allClause)
 	}
 
-	reviewOnlyClause, reviewOnlyParams := objectsTextClause(desc, []string{"review"})
-	if !strings.Contains(reviewOnlyClause, "o_review") {
-		t.Fatalf("restricted (review) text clause does not mention o_review: %s", reviewOnlyClause)
+	widgetOnlyClause, widgetOnlyParams := objectsTextClause(desc, []string{"widget"})
+	if !strings.Contains(widgetOnlyClause, "o_widget") {
+		t.Fatalf("restricted (widget) text clause does not mention o_widget: %s", widgetOnlyClause)
 	}
-	if strings.Contains(reviewOnlyClause, "o_comment") {
-		t.Fatalf("restricted (review) text clause still mentions o_comment, restrictTypes had no effect: %s", reviewOnlyClause)
+	if strings.Contains(widgetOnlyClause, "o_gadget") {
+		t.Fatalf("restricted (widget) text clause still mentions o_gadget, restrictTypes had no effect: %s", widgetOnlyClause)
 	}
-	if reviewOnlyParams >= allParams {
-		t.Fatalf("restricted (review) text clause params = %d, want fewer than the unrestricted count %d", reviewOnlyParams, allParams)
+	if widgetOnlyParams >= allParams {
+		t.Fatalf("restricted (widget) text clause params = %d, want fewer than the unrestricted count %d", widgetOnlyParams, allParams)
 	}
 }
 
 // TestObjectsNotDeletedClauseRestrictTypes is
 // TestObjectsTextClauseRestrictTypes's counterpart for
-// objectsNotDeletedClause, over the two built-in tombstone-strategy types
-// (comment, section): restricting to one must drop the other's EXISTS
-// clause entirely, not just make it a harmless no-op at runtime.
+// objectsNotDeletedClause, over tombstoneRules' two tombstone-strategy
+// types: restricting to one must drop the other's EXISTS clause entirely,
+// not just make it a harmless no-op at runtime.
 func TestObjectsNotDeletedClauseRestrictTypes(t *testing.T) {
-	rules := loadTestRules(t)
+	rules := tombstoneRules(t)
 	desc, err := buildDescriptor(rules)
 	if err != nil {
 		t.Fatalf("buildDescriptor: %v", err)
 	}
 
 	allClause := objectsNotDeletedClause(desc, nil)
-	if !strings.Contains(allClause, "o_comment") {
-		t.Fatalf("unrestricted not-deleted clause does not mention o_comment: %s", allClause)
+	if !strings.Contains(allClause, "o_widget") {
+		t.Fatalf("unrestricted not-deleted clause does not mention o_widget: %s", allClause)
 	}
-	if !strings.Contains(allClause, "o_section") {
-		t.Fatalf("unrestricted not-deleted clause does not mention o_section: %s", allClause)
+	if !strings.Contains(allClause, "o_gadget") {
+		t.Fatalf("unrestricted not-deleted clause does not mention o_gadget: %s", allClause)
 	}
 
-	commentOnlyClause := objectsNotDeletedClause(desc, []string{"comment"})
-	if !strings.Contains(commentOnlyClause, "o_comment") {
-		t.Fatalf("restricted (comment) not-deleted clause does not mention o_comment: %s", commentOnlyClause)
+	widgetOnlyClause := objectsNotDeletedClause(desc, []string{"widget"})
+	if !strings.Contains(widgetOnlyClause, "o_widget") {
+		t.Fatalf("restricted (widget) not-deleted clause does not mention o_widget: %s", widgetOnlyClause)
 	}
-	if strings.Contains(commentOnlyClause, "o_section") {
-		t.Fatalf("restricted (comment) not-deleted clause still mentions o_section, restrictTypes had no effect: %s", commentOnlyClause)
+	if strings.Contains(widgetOnlyClause, "o_gadget") {
+		t.Fatalf("restricted (widget) not-deleted clause still mentions o_gadget, restrictTypes had no effect: %s", widgetOnlyClause)
 	}
 }

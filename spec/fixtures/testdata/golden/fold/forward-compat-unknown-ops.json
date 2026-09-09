@@ -1,63 +1,11 @@
 {
   "objects": [
     {
-      "object_id": "review-01",
-      "object_type": "review",
-      "total_order": [
-        {
-          "commit": "30b3bdb6b8c3f3dceeb7e96e45ea9f2408d5c623",
-          "label": "alice-known-with-top-level",
-          "t_star": 1767225600
-        },
-        {
-          "commit": "a23e174bb43ce3a520727918eed325dd11ad4c5a",
-          "label": "bob-unknown-op-type",
-          "t_star": 1767225630
-        },
-        {
-          "commit": "637142a214438e299cd8b145809fc2ec28a5c315",
-          "label": "alice-nested-body",
-          "t_star": 1767225720
-        },
-        {
-          "commit": "5fc45d99af1ec746b9f684b96bd18b4af431ad0a",
-          "label": "bob-unknown-body-field",
-          "t_star": 1767225780
-        }
-      ],
-      "state": {
-        "title": "Initial review"
-      },
-      "unknown_ops": [
-        {
-          "commit": "a23e174bb43ce3a520727918eed325dd11ad4c5a",
-          "label": "bob-unknown-op-type",
-          "object_type": "review",
-          "op_type": "archive",
-          "op_version": 1
-        },
-        {
-          "commit": "637142a214438e299cd8b145809fc2ec28a5c315",
-          "label": "alice-nested-body",
-          "object_type": "comment",
-          "op_type": "post",
-          "op_version": 1
-        },
-        {
-          "commit": "5fc45d99af1ec746b9f684b96bd18b4af431ad0a",
-          "label": "bob-unknown-body-field",
-          "object_type": "review",
-          "op_type": "close",
-          "op_version": 1
-        }
-      ]
-    },
-    {
       "object_id": "telem-01",
       "object_type": "telemetry",
       "total_order": [
         {
-          "commit": "c82adc77f0882af189ed84b86a09208375a785c1",
+          "commit": "7bd4ead5674f3c1921d8cf57484e8ec27c6aa954",
           "label": "alice-unknown-object",
           "t_star": 1767225660
         }
@@ -65,10 +13,62 @@
       "state": {},
       "unknown_ops": [
         {
-          "commit": "c82adc77f0882af189ed84b86a09208375a785c1",
+          "commit": "7bd4ead5674f3c1921d8cf57484e8ec27c6aa954",
           "label": "alice-unknown-object",
           "object_type": "telemetry",
           "op_type": "emit",
+          "op_version": 1
+        }
+      ]
+    },
+    {
+      "object_id": "widget-01",
+      "object_type": "widget",
+      "total_order": [
+        {
+          "commit": "fc0d914c07cc5cc1842017027a110290d600a064",
+          "label": "alice-known-with-top-level",
+          "t_star": 1767225600
+        },
+        {
+          "commit": "6b442b15ffdc0f597d54fce402a061f8b8d2b287",
+          "label": "bob-unknown-op-type",
+          "t_star": 1767225630
+        },
+        {
+          "commit": "e2fbf190e0f19ed662d466a54fd2e9e593c5d87c",
+          "label": "alice-nested-body",
+          "t_star": 1767225720
+        },
+        {
+          "commit": "837b7ff08c851b04338041c0e611afde401af56f",
+          "label": "bob-unknown-body-field",
+          "t_star": 1767225780
+        }
+      ],
+      "state": {
+        "title": "Initial widget"
+      },
+      "unknown_ops": [
+        {
+          "commit": "6b442b15ffdc0f597d54fce402a061f8b8d2b287",
+          "label": "bob-unknown-op-type",
+          "object_type": "widget",
+          "op_type": "archive",
+          "op_version": 1
+        },
+        {
+          "commit": "e2fbf190e0f19ed662d466a54fd2e9e593c5d87c",
+          "label": "alice-nested-body",
+          "object_type": "gadget",
+          "op_type": "post",
+          "op_version": 1
+        },
+        {
+          "commit": "837b7ff08c851b04338041c0e611afde401af56f",
+          "label": "bob-unknown-body-field",
+          "object_type": "widget",
+          "op_type": "close",
           "op_version": 1
         }
       ]

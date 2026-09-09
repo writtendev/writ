@@ -84,17 +84,17 @@ func TestParseChainRef_RemoteTracking(t *testing.T) {
 		wantErr        bool
 	}{
 		{
-			ref:            "refs/remotes/origin/writ/0123456789abcdef/review",
+			ref:            "refs/remotes/origin/writ/0123456789abcdef/widget",
 			wantRemote:     "origin",
 			wantWriterID:   "0123456789abcdef",
-			wantObjectType: "review",
+			wantObjectType: "widget",
 			wantErr:        false,
 		},
 		{
-			ref:            "refs/remotes/upstream/writ/fedcba9876543210/comment",
+			ref:            "refs/remotes/upstream/writ/fedcba9876543210/waypoint",
 			wantRemote:     "upstream",
 			wantWriterID:   "fedcba9876543210",
-			wantObjectType: "comment",
+			wantObjectType: "waypoint",
 			wantErr:        false,
 		},
 		{
@@ -102,11 +102,11 @@ func TestParseChainRef_RemoteTracking(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			ref:     "refs/remotes//writ/0123456789abcdef/review",
+			ref:     "refs/remotes//writ/0123456789abcdef/widget",
 			wantErr: true,
 		},
 		{
-			ref:     "refs/remotes/origin/writ/invalid-id/review",
+			ref:     "refs/remotes/origin/writ/invalid-id/widget",
 			wantErr: true,
 		},
 	}
@@ -143,8 +143,8 @@ func TestChains(t *testing.T) {
 	h3 := plumbing.NewHash("3333333333333333333333333333333333333333")
 
 	// Set writ refs and unrelated refs
-	_ = s.SetReference(plumbing.NewHashReference(plumbing.ReferenceName("refs/writ/0123456789abcdef/review"), h1))
-	_ = s.SetReference(plumbing.NewHashReference(plumbing.ReferenceName("refs/remotes/origin/writ/fedcba9876543210/comment"), h2))
+	_ = s.SetReference(plumbing.NewHashReference(plumbing.ReferenceName("refs/writ/0123456789abcdef/widget"), h1))
+	_ = s.SetReference(plumbing.NewHashReference(plumbing.ReferenceName("refs/remotes/origin/writ/fedcba9876543210/waypoint"), h2))
 	_ = s.SetReference(plumbing.NewHashReference(plumbing.ReferenceName("refs/heads/main"), h3))
 	_ = s.SetReference(plumbing.NewHashReference(plumbing.ReferenceName("refs/tags/v1.0.0"), h3))
 
@@ -157,26 +157,26 @@ func TestChains(t *testing.T) {
 		t.Fatalf("len(chains) = %d, want 2", len(chains))
 	}
 
-	c1, ok := chains["refs/writ/0123456789abcdef/review"]
-	if !ok || c1.Tip != h1 || c1.Ref.ObjectType != "review" || c1.Ref.Remote != "" {
+	c1, ok := chains["refs/writ/0123456789abcdef/widget"]
+	if !ok || c1.Tip != h1 || c1.Ref.ObjectType != "widget" || c1.Ref.Remote != "" {
 		t.Errorf("unexpected chain c1: %+v", c1)
 	}
 
-	c2, ok := chains["refs/remotes/origin/writ/fedcba9876543210/comment"]
-	if !ok || c2.Tip != h2 || c2.Ref.ObjectType != "comment" || c2.Ref.Remote != "origin" {
+	c2, ok := chains["refs/remotes/origin/writ/fedcba9876543210/waypoint"]
+	if !ok || c2.Tip != h2 || c2.Ref.ObjectType != "waypoint" || c2.Ref.Remote != "origin" {
 		t.Errorf("unexpected chain c2: %+v", c2)
 	}
 }
 
 func TestRefConstructors(t *testing.T) {
 	wID := identity.WriterID("0123456789abcdef")
-	local := dag.LocalRefName(wID, "review")
-	if local != "refs/writ/0123456789abcdef/review" {
+	local := dag.LocalRefName(wID, "widget")
+	if local != "refs/writ/0123456789abcdef/widget" {
 		t.Errorf("LocalRefName = %q", local)
 	}
 
-	remote := dag.RemoteRefName("origin", wID, "comment")
-	if remote != "refs/remotes/origin/writ/0123456789abcdef/comment" {
+	remote := dag.RemoteRefName("origin", wID, "waypoint")
+	if remote != "refs/remotes/origin/writ/0123456789abcdef/waypoint" {
 		t.Errorf("RemoteRefName = %q", remote)
 	}
 }

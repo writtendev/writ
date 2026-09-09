@@ -1,39 +1,39 @@
 name: multi-writer-chains
 description: >
-  Two writer chains carrying interleaved ops for two object_ids (review-01 and
-  review-02), one cross-chain causal DAG parent edge, one remote-tracking chain
+  Two writer chains carrying interleaved ops for two object_ids (widget-01 and
+  widget-02), one cross-chain causal DAG parent edge, one remote-tracking chain
   under refs/remotes/origin/writ/*, and one malformed commit missing op.json.
 
 refs:
-  - name: refs/writ/0123456789abcdef/review
+  - name: refs/writ/0123456789abcdef/widget
     history:
       - commits:
           - id: alice-1
             author: alice
             timestamp: 2026-01-01T00:00:00Z
             op:
-              object_id: review-01
-              object_type: review
+              object_id: widget-01
+              object_type: widget
               op_type: create
               op_version: 1
               body:
-                title: "Alice review 1"
+                title: "Alice widget 1"
             expect: accept
           - id: alice-2
             author: alice
             timestamp: 2026-01-01T00:01:00Z
             op:
-              object_id: review-02
-              object_type: review
+              object_id: widget-02
+              object_type: widget
               op_type: create
               op_version: 1
               body:
-                title: "Alice review 2"
+                title: "Alice widget 2"
             expect: accept
           - id: alice-malformed
             author: alice
             timestamp: 2026-01-01T00:02:00Z
-            message: "writ: create review/r-bad\n"
+            message: "writ: create widget/w-bad\n"
             files:
               README.md: "no op.json in this commit"
             expect:
@@ -42,52 +42,52 @@ refs:
             author: alice
             timestamp: 2026-01-01T00:03:00Z
             op:
-              object_id: review-01
-              object_type: review
+              object_id: widget-01
+              object_type: widget
               op_type: update
               op_version: 1
               body:
-                title: "Alice review 1 update"
+                title: "Alice widget 1 update"
             expect: accept
 
-  - name: refs/writ/fedcba9876543210/review
+  - name: refs/writ/fedcba9876543210/widget
     history:
       - commits:
           - id: bob-1
             author: bob
             timestamp: 2026-01-01T00:00:30Z
             op:
-              object_id: review-02
-              object_type: review
-              op_type: comment
+              object_id: widget-02
+              object_type: widget
+              op_type: note
               op_version: 1
               body:
-                text: "Bob comment on review 2"
+                text: "Bob note on widget 2"
             expect: accept
           - id: bob-2
             parents: [bob-1, alice-1]
             author: bob
             timestamp: 2026-01-01T00:02:30Z
             op:
-              object_id: review-01
-              object_type: review
-              op_type: comment
+              object_id: widget-01
+              object_type: widget
+              op_type: note
               op_version: 1
               body:
-                text: "Bob comment referencing alice 1"
+                text: "Bob note referencing alice 1"
             expect: accept
 
-  - name: refs/remotes/origin/writ/550e8400e29b41d4/review
+  - name: refs/remotes/origin/writ/550e8400e29b41d4/widget
     history:
       - commits:
           - id: remote-1
             author: alice
             timestamp: 2026-01-01T00:00:45Z
             op:
-              object_id: review-01
-              object_type: review
-              op_type: approve
+              object_id: widget-01
+              object_type: widget
+              op_type: endorse
               op_version: 1
               body:
-                status: "approved"
+                status: "endorsed"
             expect: accept

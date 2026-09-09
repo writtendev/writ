@@ -53,7 +53,8 @@ type SideAnchor struct {
 	Unknown map[string]json.RawMessage `json:"-"`
 }
 
-// Anchor is a content-based comment position object (v1).
+// Anchor is a content-based position in code (v1), a value type any
+// schema-declared object can carry (spec/anchors.md).
 type Anchor struct {
 	Version int                        `json:"version"`
 	Old     *SideAnchor                `json:"old,omitempty"`

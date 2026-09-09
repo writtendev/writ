@@ -2,63 +2,197 @@
   "reader_profile": "synthetic-conforming-reader-v1",
   "ops": [
     {
-      "ref": "refs/writ/0123456789abcdef/review",
-      "commit": "290ce1cb31c68170262856dc1fe93a0ac940e62a",
+      "ref": "refs/writ/0123456789abcdef/schema",
+      "commit": "7e7b98e49daea722263a972a87eb6425554eec85",
       "parents": [],
-      "blob_sha": "60a25f85e60a9ef7915e9fa508f965977fff4b50",
-      "canonical_payload": "{\"body\":{\"title\":\"Baseline v1 review\"},\"object_id\":\"review-01\",\"object_type\":\"review\",\"op_type\":\"create\",\"op_version\":1}",
-      "declared_disposition": "interpretable",
-      "observed_disposition": "interpretable"
-    },
-    {
-      "ref": "refs/writ/0123456789abcdef/review",
-      "commit": "031ccbad9958a3002d7804e396c211d74fc85987",
-      "parents": [
-        "290ce1cb31c68170262856dc1fe93a0ac940e62a"
-      ],
-      "blob_sha": "7704d5151113e6138439013d7b238d3ff943e970",
-      "canonical_payload": "{\"body\":{\"structured_requirements\":{\"min_approvals\":2},\"title\":\"V2 review schema\"},\"object_id\":\"review-02\",\"object_type\":\"review\",\"op_type\":\"create\",\"op_version\":2}",
+      "blob_sha": "81b9c3ec973cb4bc15875a3c04ef000cd6437f83",
+      "canonical_payload": "{\"body\":{\"namespace\":\"acme\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"create\",\"op_version\":1}",
       "declared_disposition": "opaque",
       "observed_disposition": "opaque"
     },
     {
-      "ref": "refs/writ/fedcba9876543210/review",
-      "commit": "eafb2d5323ec8ed03657b2e9776e68970e567bcf",
+      "ref": "refs/writ/0123456789abcdef/schema",
+      "commit": "4becfd27f09972baaed6aebbac25e5edf0c1815d",
+      "parents": [
+        "7e7b98e49daea722263a972a87eb6425554eec85"
+      ],
+      "blob_sha": "a82f9db21965e11081ba3aa04a3195fe40a91d92",
+      "canonical_payload": "{\"body\":{\"type\":\"widget\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-type\",\"op_version\":1}",
+      "declared_disposition": "opaque",
+      "observed_disposition": "opaque"
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/schema",
+      "commit": "9e8378a415645030a39320d5301c6592e2c1cd52",
+      "parents": [
+        "4becfd27f09972baaed6aebbac25e5edf0c1815d"
+      ],
+      "blob_sha": "ddb80fba3bd3c6b9b3dcca6db123d75872a073f8",
+      "canonical_payload": "{\"body\":{\"type\":\"gadget\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-type\",\"op_version\":1}",
+      "declared_disposition": "opaque",
+      "observed_disposition": "opaque"
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/schema",
+      "commit": "861c3d439943408eadddcf6fa45981b0dbd8a270",
+      "parents": [
+        "9e8378a415645030a39320d5301c6592e2c1cd52"
+      ],
+      "blob_sha": "e2f0a5d3f553cd5abbf46290691a9dc75f571a77",
+      "canonical_payload": "{\"body\":{\"field\":\"title\",\"op_type\":\"create\",\"op_version\":\"1\",\"strategy\":\"lww\",\"type\":\"widget\",\"value_type\":\"string\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
+      "declared_disposition": "opaque",
+      "observed_disposition": "opaque"
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/schema",
+      "commit": "b81fc61c973ca2ef20efd1d076ffaf85038353d2",
+      "parents": [
+        "861c3d439943408eadddcf6fa45981b0dbd8a270"
+      ],
+      "blob_sha": "7ccfb59651898bb5b73583e00d4b567747b809b5",
+      "canonical_payload": "{\"body\":{\"field\":\"description\",\"op_type\":\"create\",\"op_version\":\"1\",\"strategy\":\"lww\",\"type\":\"widget\",\"value_type\":\"string\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
+      "declared_disposition": "opaque",
+      "observed_disposition": "opaque"
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/schema",
+      "commit": "06129865d682f02fa08a38998cfef686771a5115",
+      "parents": [
+        "b81fc61c973ca2ef20efd1d076ffaf85038353d2"
+      ],
+      "blob_sha": "987757272ae78abd993e40e9650d0ad3f2e2fc0c",
+      "canonical_payload": "{\"body\":{\"op_type\":\"close\",\"op_version\":\"1\",\"type\":\"widget\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-op\",\"op_version\":1}",
+      "declared_disposition": "opaque",
+      "observed_disposition": "opaque"
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/schema",
+      "commit": "4c0dc13d28976c2e7c7096a3241e4c032a3b67ec",
+      "parents": [
+        "06129865d682f02fa08a38998cfef686771a5115"
+      ],
+      "blob_sha": "f40f8c3aa3baabc9459e4acb3a91c5e9b5b27dc7",
+      "canonical_payload": "{\"body\":{\"op_type\":\"post\",\"op_version\":\"1\",\"type\":\"gadget\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-op\",\"op_version\":1}",
+      "declared_disposition": "opaque",
+      "observed_disposition": "opaque"
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/schema",
+      "commit": "09fec038d216acce9a9f7715f9736be7b5567638",
+      "parents": [
+        "4c0dc13d28976c2e7c7096a3241e4c032a3b67ec"
+      ],
+      "blob_sha": "704e149757b347116b3de5235bad1cae0adc7fbd",
+      "canonical_payload": "{\"body\":{\"op_type\":\"post\",\"op_version\":\"2\",\"type\":\"gadget\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-op\",\"op_version\":1}",
+      "declared_disposition": "opaque",
+      "observed_disposition": "opaque"
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/widget",
+      "commit": "ba1020d5d6bad36b912e14964bd449043599b173",
       "parents": [],
-      "blob_sha": "620de4d0f79b78e8fc3d20a209731196cec46721",
-      "canonical_payload": "{\"body\":{\"rich_text\":{\"markdown\":true},\"text\":\"Comment at v2 format\"},\"object_id\":\"review-01\",\"object_type\":\"comment\",\"op_type\":\"post\",\"op_version\":2}",
+      "blob_sha": "672f23bac7fe872c1c5caf0e18ac4e4d27ecf1b1",
+      "canonical_payload": "{\"body\":{\"title\":\"Baseline v1 widget\"},\"object_id\":\"widget-01\",\"object_type\":\"widget\",\"op_type\":\"create\",\"op_version\":1}",
       "declared_disposition": "interpretable",
       "observed_disposition": "interpretable"
     },
     {
-      "ref": "refs/writ/fedcba9876543210/review",
-      "commit": "96b61359722a6af55cb69ae70727e74ef1da0da7",
+      "ref": "refs/writ/0123456789abcdef/widget",
+      "commit": "e8c08f675d08941abf82972e13d5477bb928a675",
       "parents": [
-        "eafb2d5323ec8ed03657b2e9776e68970e567bcf",
-        "031ccbad9958a3002d7804e396c211d74fc85987"
+        "ba1020d5d6bad36b912e14964bd449043599b173"
       ],
-      "blob_sha": "11b5b74729ee3940b36ed98ecd9085e45e0bec10",
-      "canonical_payload": "{\"body\":{\"reactions\":{\"thumbs_up\":5},\"text\":\"Comment at v3 format\"},\"object_id\":\"review-01\",\"object_type\":\"comment\",\"op_type\":\"post\",\"op_version\":3}",
+      "blob_sha": "909a1ed4ba12817478b92ec98570bbef12855222",
+      "canonical_payload": "{\"body\":{\"structured_requirements\":{\"min_confirmations\":2},\"title\":\"V2 widget shape\"},\"object_id\":\"widget-02\",\"object_type\":\"widget\",\"op_type\":\"create\",\"op_version\":2}",
+      "declared_disposition": "opaque",
+      "observed_disposition": "opaque"
+    },
+    {
+      "ref": "refs/writ/fedcba9876543210/widget",
+      "commit": "8fb1667c50da1438f4bdca42dc6f497a0972eaf1",
+      "parents": [],
+      "blob_sha": "3165bf543db97b3a9418075a2f4b9f4143d6322d",
+      "canonical_payload": "{\"body\":{\"rich_text\":{\"markdown\":true},\"text\":\"Post at v2 format\"},\"object_id\":\"widget-01\",\"object_type\":\"gadget\",\"op_type\":\"post\",\"op_version\":2}",
+      "declared_disposition": "interpretable",
+      "observed_disposition": "interpretable"
+    },
+    {
+      "ref": "refs/writ/fedcba9876543210/widget",
+      "commit": "3015114735cbe29b87297cf977ae5c1da3b43366",
+      "parents": [
+        "8fb1667c50da1438f4bdca42dc6f497a0972eaf1",
+        "e8c08f675d08941abf82972e13d5477bb928a675"
+      ],
+      "blob_sha": "3e2a7f4dd950dd153a0cb81bbaa04162589fce51",
+      "canonical_payload": "{\"body\":{\"reactions\":{\"thumbs_up\":5},\"text\":\"Post at v3 format\"},\"object_id\":\"widget-01\",\"object_type\":\"gadget\",\"op_type\":\"post\",\"op_version\":3}",
       "declared_disposition": "opaque",
       "observed_disposition": "opaque"
     }
   ],
   "opaque_records": [
     {
-      "op_id": "031ccbad9958a3002d7804e396c211d74fc85987",
-      "object_type": "review",
+      "op_id": "7e7b98e49daea722263a972a87eb6425554eec85",
+      "object_type": "schema",
+      "op_type": "create",
+      "op_version": 1
+    },
+    {
+      "op_id": "4becfd27f09972baaed6aebbac25e5edf0c1815d",
+      "object_type": "schema",
+      "op_type": "define-type",
+      "op_version": 1
+    },
+    {
+      "op_id": "9e8378a415645030a39320d5301c6592e2c1cd52",
+      "object_type": "schema",
+      "op_type": "define-type",
+      "op_version": 1
+    },
+    {
+      "op_id": "861c3d439943408eadddcf6fa45981b0dbd8a270",
+      "object_type": "schema",
+      "op_type": "define-field",
+      "op_version": 1
+    },
+    {
+      "op_id": "b81fc61c973ca2ef20efd1d076ffaf85038353d2",
+      "object_type": "schema",
+      "op_type": "define-field",
+      "op_version": 1
+    },
+    {
+      "op_id": "06129865d682f02fa08a38998cfef686771a5115",
+      "object_type": "schema",
+      "op_type": "define-op",
+      "op_version": 1
+    },
+    {
+      "op_id": "4c0dc13d28976c2e7c7096a3241e4c032a3b67ec",
+      "object_type": "schema",
+      "op_type": "define-op",
+      "op_version": 1
+    },
+    {
+      "op_id": "09fec038d216acce9a9f7715f9736be7b5567638",
+      "object_type": "schema",
+      "op_type": "define-op",
+      "op_version": 1
+    },
+    {
+      "op_id": "e8c08f675d08941abf82972e13d5477bb928a675",
+      "object_type": "widget",
       "op_type": "create",
       "op_version": 2
     },
     {
-      "op_id": "96b61359722a6af55cb69ae70727e74ef1da0da7",
-      "object_type": "comment",
+      "op_id": "3015114735cbe29b87297cf977ae5c1da3b43366",
+      "object_type": "gadget",
       "op_type": "post",
       "op_version": 3
     }
   ],
   "interpretable_payloads": [
-    "{\"body\":{\"rich_text\":{\"markdown\":true},\"text\":\"Comment at v2 format\"},\"object_id\":\"review-01\",\"object_type\":\"comment\",\"op_type\":\"post\",\"op_version\":2}",
-    "{\"body\":{\"title\":\"Baseline v1 review\"},\"object_id\":\"review-01\",\"object_type\":\"review\",\"op_type\":\"create\",\"op_version\":1}"
+    "{\"body\":{\"rich_text\":{\"markdown\":true},\"text\":\"Post at v2 format\"},\"object_id\":\"widget-01\",\"object_type\":\"gadget\",\"op_type\":\"post\",\"op_version\":2}",
+    "{\"body\":{\"title\":\"Baseline v1 widget\"},\"object_id\":\"widget-01\",\"object_type\":\"widget\",\"op_type\":\"create\",\"op_version\":1}"
   ]
 }

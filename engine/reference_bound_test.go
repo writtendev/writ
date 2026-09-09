@@ -10,11 +10,13 @@ import (
 	"github.com/writtendev/writ/engine/codec"
 )
 
-// referenceBoundSchemaSrc declares a neutral "ticket" type with one
+// referenceBoundSchemaSrc declares a "ticket" type with one
 // object-ref-valued field, "targets" — the same value type
 // spec/identifiers.md's reference bound governs for any schema-declared
-// field that uses it, not something special-cased for a per-type "review"
-// or "issue" op body. ("target" itself is a reserved word in writ.schema.)
+// field that uses it. Nothing here is special-cased for a particular op
+// body; there is no such thing as a per-type op body any more.
+// ("target" is reserved in the modifier position in writ.schema, so the
+// field is named "targets".)
 const referenceBoundSchemaSrc = `namespace acme
 description "Reference bound test vocabulary"
 
@@ -90,7 +92,7 @@ func TestLinkTargetLengthBoundIsEnforcedOnTheProducerPath(t *testing.T) {
 		Type: "link",
 		Fields: map[string]any{
 			"targets":     atLimit,
-			"target_type": "issue",
+			"target_type": "gadget",
 			"relation":    "fixes",
 		},
 	}); err != nil {
@@ -103,7 +105,7 @@ func TestLinkTargetLengthBoundIsEnforcedOnTheProducerPath(t *testing.T) {
 		Type: "link",
 		Fields: map[string]any{
 			"targets":     overLimit,
-			"target_type": "issue",
+			"target_type": "gadget",
 			"relation":    "fixes",
 		},
 	})

@@ -5,7 +5,136 @@ description: >
   interpretable operations with opaque operations omitted (FC-4, FC-15).
 
 refs:
-  - name: refs/writ/0123456789abcdef/review
+  # The schema half of testdata/forward-compat/reader-profile.json, declared
+  # in the repository's own log: widget's create v1 carries title and
+  # description, widget's close v1 and gadget's post v1 and v2 carry no field
+  # rules at all. The synthetic reader profile knows nothing about `schema`
+  # itself, so these ops are opaque to it — writ's one hard-coded object type
+  # is exactly the one a reader capability profile never has to declare.
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: schema-create
+            author: alice
+            timestamp: 2025-12-01T00:00:00Z
+            disposition: opaque
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+          - id: schema-define-widget
+            parents: [schema-create]
+            author: alice
+            timestamp: 2025-12-01T00:01:00Z
+            disposition: opaque
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "widget"
+            expect: accept
+          - id: schema-define-gadget
+            parents: [schema-define-widget]
+            author: alice
+            timestamp: 2025-12-01T00:02:00Z
+            disposition: opaque
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "gadget"
+            expect: accept
+          - id: schema-define-title
+            parents: [schema-define-gadget]
+            author: alice
+            timestamp: 2025-12-01T00:03:00Z
+            disposition: opaque
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+          - id: schema-define-description
+            parents: [schema-define-title]
+            author: alice
+            timestamp: 2025-12-01T00:04:00Z
+            disposition: opaque
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "create"
+                op_version: "1"
+                field: "description"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+          - id: schema-define-close
+            parents: [schema-define-description]
+            author: alice
+            timestamp: 2025-12-01T00:05:00Z
+            disposition: opaque
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-op
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "close"
+                op_version: "1"
+            expect: accept
+          - id: schema-define-post-v1
+            parents: [schema-define-close]
+            author: alice
+            timestamp: 2025-12-01T00:06:00Z
+            disposition: opaque
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-op
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "post"
+                op_version: "1"
+            expect: accept
+          - id: schema-define-post-v2
+            parents: [schema-define-post-v1]
+            author: alice
+            timestamp: 2025-12-01T00:07:00Z
+            disposition: opaque
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-op
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "post"
+                op_version: "2"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/widget
     history:
       - commits:
           - id: alice-mix-create
@@ -13,19 +142,19 @@ refs:
             timestamp: 2026-01-01T00:00:00Z
             disposition: interpretable
             op:
-              object_id: review-mixed-01
-              object_type: review
+              object_id: widget-mixed-01
+              object_type: widget
               op_type: create
               op_version: 1
               body:
-                title: "Mixed DAG review"
+                title: "Mixed DAG widget"
             expect: accept
           - id: alice-mix-opaque-telemetry
             author: alice
             timestamp: 2026-01-01T00:01:00Z
             disposition: opaque
             op:
-              object_id: review-mixed-01
+              object_id: widget-mixed-01
               object_type: telemetry
               op_type: emit
               op_version: 1
@@ -33,20 +162,20 @@ refs:
                 metric: "session_start"
                 value: 100
             expect: accept
-          - id: alice-mix-comment
+          - id: alice-mix-post
             author: alice
             timestamp: 2026-01-01T00:02:00Z
             disposition: interpretable
             op:
-              object_id: review-mixed-01
-              object_type: comment
+              object_id: widget-mixed-01
+              object_type: gadget
               op_type: post
               op_version: 1
               body:
-                text: "Alice comment on mixed review"
+                text: "Alice post on mixed widget"
             expect: accept
 
-  - name: refs/writ/fedcba9876543210/review
+  - name: refs/writ/fedcba9876543210/widget
     history:
       - commits:
           - id: bob-mix-opaque-v2
@@ -54,28 +183,28 @@ refs:
             timestamp: 2026-01-01T00:00:30Z
             disposition: opaque
             op:
-              object_id: review-mixed-01
-              object_type: review
+              object_id: widget-mixed-01
+              object_type: widget
               op_type: create
               op_version: 2
               body:
-                title: "Future review format"
+                title: "Future widget format"
             expect: accept
           - id: bob-mix-close
-            parents: [bob-mix-opaque-v2, alice-mix-comment]
+            parents: [bob-mix-opaque-v2, alice-mix-post]
             author: bob
             timestamp: 2026-01-01T00:03:00Z
             disposition: interpretable
             op:
-              object_id: review-mixed-01
-              object_type: review
+              object_id: widget-mixed-01
+              object_type: widget
               op_type: close
               op_version: 1
               body:
-                reason: "approved"
+                reason: "confirmed"
             expect: accept
 
-  - name: refs/writ/0123456789abcdef/review-control
+  - name: refs/writ/0123456789abcdef/widget-control
     history:
       - commits:
           - id: alice-ctrl-create
@@ -83,39 +212,39 @@ refs:
             timestamp: 2026-01-01T00:00:00Z
             disposition: interpretable
             op:
-              object_id: review-mixed-01
-              object_type: review
+              object_id: widget-mixed-01
+              object_type: widget
               op_type: create
               op_version: 1
               body:
-                title: "Mixed DAG review"
+                title: "Mixed DAG widget"
             expect: accept
-          - id: alice-ctrl-comment
+          - id: alice-ctrl-post
             author: alice
             timestamp: 2026-01-01T00:02:00Z
             disposition: interpretable
             op:
-              object_id: review-mixed-01
-              object_type: comment
+              object_id: widget-mixed-01
+              object_type: gadget
               op_type: post
               op_version: 1
               body:
-                text: "Alice comment on mixed review"
+                text: "Alice post on mixed widget"
             expect: accept
 
-  - name: refs/writ/fedcba9876543210/review-control
+  - name: refs/writ/fedcba9876543210/widget-control
     history:
       - commits:
           - id: bob-ctrl-close
-            parents: [alice-ctrl-comment]
+            parents: [alice-ctrl-post]
             author: bob
             timestamp: 2026-01-01T00:03:00Z
             disposition: interpretable
             op:
-              object_id: review-mixed-01
-              object_type: review
+              object_id: widget-mixed-01
+              object_type: widget
               op_type: close
               op_version: 1
               body:
-                reason: "approved"
+                reason: "confirmed"
             expect: accept

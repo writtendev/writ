@@ -1,0 +1,43 @@
+{
+  "name": "lattice-status-progression",
+  "description": "Status progression along a join-semilattice where later phases subsume earlier ones",
+  "object_id": "obj-1",
+  "fields": {
+    "status": {
+      "strategy": "lattice",
+      "lattice": ["pending", "running", "passed"]
+    }
+  },
+  "ops": [
+    {
+      "id": "op-root",
+      "parents": [],
+      "time": 100,
+      "object_id": "obj-1",
+      "body": {
+        "status": "pending"
+      }
+    },
+    {
+      "id": "op-a",
+      "parents": ["op-root"],
+      "time": 200,
+      "object_id": "obj-1",
+      "body": {
+        "status": "running"
+      }
+    },
+    {
+      "id": "op-b",
+      "parents": ["op-root"],
+      "time": 150,
+      "object_id": "obj-1",
+      "body": {
+        "status": "passed"
+      }
+    }
+  ],
+  "expected_state": {
+    "status": "passed"
+  }
+}

@@ -5,18 +5,12 @@ schema-backed object type, creating and updating an object of that type, and
 syncing operations to a collaborator across a remote repository.
 
 Writ's engine knows merge types and value types, not SDLC types (see
-`AGENTS.md`) — no built-in idea of what a "review" or an "issue" *means*.
+`AGENTS.md`) — no built-in idea of what any of your object types *mean*.
 What you call your objects and what fields they carry is something *you*
 declare, in a `writ.schema` file, the same way a git repository knows
 nothing about GitHub's issues until GitHub tells it what an issue looks
 like. This walkthrough is therefore a schema-authoring tutorial first, and
 an object tutorial second.
-
-(This repository still ships a few built-in types — `review`, `issue`, and
-the rest that `writ schema show` lists alongside whatever you declare below
-— left over from before the engine's per-type code was deleted. They are
-on their way out; treat their continued presence as an implementation
-detail, not a promise.)
 
 ## 1. Set Up Your Repository & SSH Signing Key
 

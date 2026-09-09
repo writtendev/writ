@@ -1,7 +1,7 @@
 package dag
 
-// CursorSet maps a chain ref name (e.g. "refs/writ/0123456789abcdef/review" or
-// "refs/remotes/origin/writ/0123456789abcdef/review") to its last observed tip commit SHA.
+// CursorSet maps a chain ref name (e.g. "refs/writ/0123456789abcdef/widget" or
+// "refs/remotes/origin/writ/0123456789abcdef/widget") to its last observed tip commit SHA.
 type CursorSet map[string]string
 
 // NewCursorSet returns an initialized empty CursorSet.

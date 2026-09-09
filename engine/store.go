@@ -41,7 +41,7 @@ type Store struct {
 	// collaborative objects of any schema-declared type.
 	Objects *Objects
 
-	// Drafts provides local comment draft creation, updates, listing, discarding, and publishing.
+	// Drafts provides local draft creation, updates, listing, discarding, and publishing.
 	Drafts *Drafts
 
 	// ReadState provides local read/unread tracking across collaborative objects.

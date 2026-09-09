@@ -1,32 +1,32 @@
 {
   "objects": [
     {
-      "object_id": "r-empty-items",
-      "object_type": "review",
+      "object_id": "w-empty-items",
+      "object_type": "widget",
       "total_order": [
         {
-          "commit": "3c2cccfcd116407693f6a8b8190f00250ab65ff3",
+          "commit": "129d8bfb0d68d61ae967da44d1210e1eb00d8e63",
           "label": "alice-create",
           "t_star": 1769904000
         },
         {
-          "commit": "bd5325691f8ff8501d31f47532eb6273d1301535",
-          "label": "alice-label-with-empty",
+          "commit": "ebf48b13b3771ca47bebb0cf318eb7f9fa5d4bdb",
+          "label": "alice-tag-with-empty",
           "t_star": 1769904060
         },
         {
-          "commit": "305a46010f13ed2d9f777e909c44fe9bd083ae41",
+          "commit": "bcbc0e3fd3bc8a8df5bf8f6c8d559378ad68fb21",
           "label": "alice-assign-with-empty",
           "t_star": 1769904120
         },
         {
-          "commit": "e884c53eb92da543f5d732e46539613046de65c8",
-          "label": "bob-concurrent-label",
+          "commit": "ab7dd8b148cea179459fe8785a862900dfaee074",
+          "label": "bob-concurrent-tag",
           "t_star": 1769904150
         },
         {
-          "commit": "d139292b2c8d146028a3da6e12d258fad0670294",
-          "label": "alice-unlabel-with-empty",
+          "commit": "65780e4159c6b0f86c2f153be754f9370b506958",
+          "label": "alice-untag-with-empty",
           "t_star": 1769904180
         }
       ],
@@ -35,7 +35,7 @@
           "email:alice@example.test"
         ],
         "description": "Empty elements must not enter set-valued folds",
-        "labels": [
+        "tags": [
           "  ",
           "area/fold",
           "priority/high"
@@ -44,23 +44,23 @@
       }
     },
     {
-      "object_id": "r-empty-only",
-      "object_type": "review",
+      "object_id": "w-empty-only",
+      "object_type": "widget",
       "total_order": [
         {
-          "commit": "3fdb13be00209578f772e3175e108b43b0a6bbd6",
+          "commit": "f073b76f971d69f85847252c52bdeb254562c269",
           "label": "alice-create-empty-only",
           "t_star": 1769904240
         },
         {
-          "commit": "607c6392536d1ebea603dee861971ed30b256d48",
-          "label": "alice-label-empty-only",
+          "commit": "60d6f37869c20999c7222ce7fb6b3c2e5cb5d43a",
+          "label": "alice-tag-empty-only",
           "t_star": 1769904300
         }
       ],
       "state": {
         "description": "Every set element is empty and every one is dropped",
-        "labels": [],
+        "tags": [],
         "title": "Empty Items Only"
       }
     }

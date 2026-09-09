@@ -5,7 +5,7 @@
 // show` lives here too, alongside the vocabulary lookups `object` itself
 // needs.
 //
-// Writ no longer knows what an issue or a review is, so it cannot offer a
+// Writ hard-codes no object type but `schema` itself, so it cannot offer a
 // good per-type verb for one: `writ object create ticket create -field
 // title=...` is worse to type than a hand-written `writ ticket create
 // -title ...` would be. That is expected -- nice per-type porcelain is a
@@ -279,10 +279,11 @@ type fieldEntry struct {
 // field convertFieldValue cannot express -- an object-shaped field (only
 // "anchor" gets object parsing from convertFieldValue; the closed value-type
 // catalogue, spec/value-types.md, has no other object-shaped entry) or a
-// field with no declared value type at all, such as comment.create's
-// subject (spec/value-types.md's "untyped" exception: a two-field record
-// folded whole under create-once, so there is no value_type to key
-// type-directed parsing off of). See WRIT-209.
+// field with no declared value type at all, such as an
+// {object_type, object_id} record naming another object
+// (spec/value-types.md's "untyped" exception: a two-field record folded
+// whole under create-once, so there is no value_type to key type-directed
+// parsing off of). See WRIT-209.
 func parseFieldFlags(fieldRaw, fieldJSONRaw []string, objectType, opType string, opVersion int64, types []writ.SchemaType) (map[string]any, error) {
 	var order []string
 	grouped := make(map[string][]fieldEntry)
@@ -371,7 +372,7 @@ func newObjectCreateFlagSet(defaultDir string) (*flag.FlagSet, *objectCreateOpts
 	opts := &objectCreateOpts{}
 	fs.StringVar(&opts.dir, "C", defaultDir, "Run as if writ was started in `<dir>`")
 	fs.Var(&opts.fields, "field", "Field `<k>=<v>` to set on the creating op (repeatable; repeat the same key for a set)")
-	fs.Var(&opts.fieldJSON, "field-json", "Field `<k>=<v>` to set from raw JSON, skipping type-directed conversion (repeatable; the escape hatch for an object-shaped or untyped field, such as comment.create's subject)")
+	fs.Var(&opts.fieldJSON, "field-json", "Field `<k>=<v>` to set from raw JSON, skipping type-directed conversion (repeatable; the escape hatch for an object-shaped or untyped field, such as an {object_type, object_id} record naming another object)")
 	fs.Int64Var(&opts.opVer, "op-version", 0, "Explicit op `version` (default: resolved from the installed vocabulary)")
 	fs.BoolVar(&opts.jsonMode, "json", false, "Output result as JSON")
 	fs.Usage = func() {
@@ -462,7 +463,7 @@ func newObjectApplyFlagSet(defaultDir string) (*flag.FlagSet, *objectApplyOpts) 
 	opts := &objectApplyOpts{}
 	fs.StringVar(&opts.dir, "C", defaultDir, "Run as if writ was started in `<dir>`")
 	fs.Var(&opts.fields, "field", "Field `<k>=<v>` to set on the op (repeatable; repeat the same key for a set)")
-	fs.Var(&opts.fieldJSON, "field-json", "Field `<k>=<v>` to set from raw JSON, skipping type-directed conversion (repeatable; the escape hatch for an object-shaped or untyped field, such as comment.create's subject)")
+	fs.Var(&opts.fieldJSON, "field-json", "Field `<k>=<v>` to set from raw JSON, skipping type-directed conversion (repeatable; the escape hatch for an object-shaped or untyped field, such as an {object_type, object_id} record naming another object)")
 	fs.Int64Var(&opts.opVer, "op-version", 0, "Explicit op `version` (default: resolved from the installed vocabulary)")
 	fs.BoolVar(&opts.jsonMode, "json", false, "Output result as JSON")
 	fs.Usage = func() {
@@ -819,7 +820,8 @@ func newSchemaShowFlagSet(defaultDir string) (*flag.FlagSet, *schemaShowOpts) {
 }
 
 // runSchemaShow reports the vocabulary actually installed and folding right
-// now (Store.Types): built-in types overlaid by whatever the log declares.
+// now (Store.Types): exactly what the schema objects in the log declare, and
+// nothing at all on a repository that declares nothing.
 // This is deliberately not what `writ schema plan`/`apply` answer
 // (Store.Schema, the working-tree writ.schema file's own view) -- see
 // schemaShowCmd's Long text.

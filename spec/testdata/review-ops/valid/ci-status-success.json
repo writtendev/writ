@@ -1,1 +1,0 @@
-{"body":{"completed_at":"2026-08-30T18:05:00Z","description":"Build and tests passed","external_id":"123456","name":"ci/build","revision":"2222222222222222222222222222222222222222","started_at":"2026-08-30T18:00:00Z","state":"success","url":"https://ci.example.com/builds/123456"},"object_id":"r-1234","object_type":"review","op_type":"ci-status","op_version":1}

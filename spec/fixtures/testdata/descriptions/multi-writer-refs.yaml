@@ -3,13 +3,13 @@ description: >
   Two independent refs, each written by a different identity under the
   per-writer chain layout (refs/writ/<writer-id>/<object-type>), using
   obviously-synthetic valid 16-hex writer IDs (0123456789abcdef for alice,
-  fedcba9876543210 for bob) and the review object type: concurrent writers
+  fedcba9876543210 for bob) and the widget object type: concurrent writers
   never share a ref, so there is nothing here for a fold to reconcile at
   the git level — this fixture illustrates multi-ref repo generation with
   distinct signers across valid chain ref paths.
 
 refs:
-  - name: refs/writ/0123456789abcdef/review
+  - name: refs/writ/0123456789abcdef/widget
     history:
       - commits:
           - author: alice
@@ -22,7 +22,7 @@ refs:
             message: "alice's second commit"
             files:
               writer.json: '{"writer":"alice","seq":2}'
-  - name: refs/writ/fedcba9876543210/review
+  - name: refs/writ/fedcba9876543210/widget
     history:
       - commits:
           - author: bob

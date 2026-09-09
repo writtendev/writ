@@ -1,110 +1,110 @@
 {
   "refs": [
     {
-      "name": "refs/writ/alice/review",
-      "commit": "d61d4af58b5ade2ebfff548e25766ebd2923414c"
+      "name": "refs/writ/alice/widget",
+      "commit": "08c2629cb350846511bd748991cafd620c4d3e9b"
     }
   ],
   "generations": [
     {
-      "ref": "refs/writ/alice/review",
+      "ref": "refs/writ/alice/widget",
       "index": 0,
       "commits": [
         {
-          "sha": "d601d54be9dd395fd4ba11dd58a6a455694558bc",
-          "tree": "d7ebe5318dde6a682e3d286a074ddb1b9dffe758",
+          "sha": "8416a2312be014390be681b969eb11b12f297869",
+          "tree": "9176100796b7d7f5d327a2adca9e1ca65ddd64de",
           "parents": [],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:00:00Z",
-          "message": "writ: create review/r1\n",
+          "message": "writ: create widget/r1\n",
           "signed": true
         },
         {
-          "sha": "172ae2232919945f187eafd870847a2f49fa4be6",
-          "tree": "fac3f39b8018745d2599414383268e6594766966",
+          "sha": "0ccf7f1dd85695edb67a8dfc58889fbedcf7a015",
+          "tree": "c7abf57e62e6a8bf26c8e469ef0fa173f1ac80aa",
           "parents": [
-            "d601d54be9dd395fd4ba11dd58a6a455694558bc"
+            "8416a2312be014390be681b969eb11b12f297869"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:01:00Z",
-          "message": "writ: create review/r1\n",
+          "message": "writ: create widget/r1\n",
           "signed": true
         },
         {
-          "sha": "6bfbd16280a4affe4a124f3176bedc60d11e78a1",
-          "tree": "d3a1c35df25ecf2d3868292588f68cee98b18c97",
+          "sha": "363250291679e4a5971fee0df105d0b485422cdb",
+          "tree": "dfdf55d56c2e0fe74c72ed76bb08972a6b7c2d7c",
           "parents": [
-            "172ae2232919945f187eafd870847a2f49fa4be6"
+            "0ccf7f1dd85695edb67a8dfc58889fbedcf7a015"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:02:00Z",
-          "message": "writ: create review/r1\n",
+          "message": "writ: create widget/r1\n",
           "signed": true
         },
         {
-          "sha": "33c765da2150801be196d6ccfb6333537b0510d6",
-          "tree": "d82e1fc8bb7687976bbfe31ae8fac9097760c495",
+          "sha": "4221d7d2046a07437e145846cd37f163e7072ab0",
+          "tree": "b2641218f27f36fc0b436b9684c9c8cd5199e607",
           "parents": [
-            "6bfbd16280a4affe4a124f3176bedc60d11e78a1"
+            "363250291679e4a5971fee0df105d0b485422cdb"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:03:00Z",
-          "message": "writ: create review/r1\n",
+          "message": "writ: create widget/r1\n",
           "signed": true
         },
         {
-          "sha": "8051acda57c84008d9448883c74b654117b8a96b",
-          "tree": "e4fba00995f12b3a94585e0182803cf15b65e7ae",
+          "sha": "2c39dc18d478e588a622aec0a3be6a9e3dba8b5f",
+          "tree": "728dbabfb6904e8cef39d68adc85e8a4e32457ac",
           "parents": [
-            "33c765da2150801be196d6ccfb6333537b0510d6"
+            "4221d7d2046a07437e145846cd37f163e7072ab0"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:04:00Z",
-          "message": "writ: create review/r1\n",
+          "message": "writ: create widget/r1\n",
           "signed": true
         },
         {
-          "sha": "f89e8d3b9dcf4446dae418fbefd8c0526469d6ce",
-          "tree": "a444b8d14b38d67810d068971022d7bb8d69c5cd",
+          "sha": "e40cb757b2fb0f2e8f7bc643047fdd2d60b66a09",
+          "tree": "4a11bef7f16a8b33f7ab1aa4577fb04a2880ad52",
           "parents": [
-            "8051acda57c84008d9448883c74b654117b8a96b"
+            "2c39dc18d478e588a622aec0a3be6a9e3dba8b5f"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:05:00Z",
-          "message": "writ: create review/r1\n",
+          "message": "writ: create widget/r1\n",
           "signed": true
         },
         {
-          "sha": "34a31838e1e8b96ab7b73d9b4ac03bf019922f4a",
-          "tree": "9bcd0a9c5fc72f61644c2d1ba2e890e65b09ed80",
+          "sha": "d4d472f367fb7beae39cb70e8ec87ee0ec2973b6",
+          "tree": "b144d319452b9a6cdbbb3d489aa89e9cf32f6c8b",
           "parents": [
-            "f89e8d3b9dcf4446dae418fbefd8c0526469d6ce"
+            "e40cb757b2fb0f2e8f7bc643047fdd2d60b66a09"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:06:00Z",
-          "message": "writ: create review/r1\n",
+          "message": "writ: create widget/r1\n",
           "signed": true
         },
         {
-          "sha": "25c7d389184d56fb84fbc8854c9a0c9fbee2f589",
-          "tree": "2d69243cb4924615ed1d66558c2eae5a1ab1589b",
+          "sha": "8119fca13c3521b42c0d940cdc0306571aef459f",
+          "tree": "f55b7b11861f7d993fcd7805a2ce2f250834c0d0",
           "parents": [
-            "34a31838e1e8b96ab7b73d9b4ac03bf019922f4a"
+            "d4d472f367fb7beae39cb70e8ec87ee0ec2973b6"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:07:00Z",
-          "message": "writ: create Review/r1\n",
+          "message": "writ: create Widget/r1\n",
           "signed": true
         },
         {
-          "sha": "d61d4af58b5ade2ebfff548e25766ebd2923414c",
-          "tree": "1bfbdf9e1f90bfa242723d5ef4ac1b9602b14399",
+          "sha": "08c2629cb350846511bd748991cafd620c4d3e9b",
+          "tree": "63e527132a606287aec62ae3bfebe758f82180f0",
           "parents": [
-            "25c7d389184d56fb84fbc8854c9a0c9fbee2f589"
+            "8119fca13c3521b42c0d940cdc0306571aef459f"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:08:00Z",
-          "message": "writ: create review/r1\n",
+          "message": "writ: create widget/r1\n",
           "signed": true
         }
       ]

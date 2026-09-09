@@ -9,9 +9,8 @@ semantics, and bootstrap order for schema objects in Writ
 (ARCHITECTURE.md §Object types, §Schema layer, WRIT-184 decision 4): a
 schema has to exist before anything else can be typed, so it is the single
 permitted exception to "every collaborative object type is declared by a
-schema." Every other type — `review`, `comment`, `issue`, and the rest of
-the shipped SDLC vocabulary today, and any consumer-declared type tomorrow
-— is data a `schema` object writes into the log.
+schema." Every other type — whatever a consumer's schema declares, for
+whatever domain — is data a `schema` object writes into the log.
 
 The key words MUST, MUST NOT, SHOULD, and MAY are to be interpreted as
 described in RFC 2119.
@@ -48,8 +47,7 @@ carries its own namespace. Namespace is a property of the schema object
   vocabulary and its fold; `writ.schema` (the working-tree source form) and
   its parser, `writ schema plan`/`writ schema apply`, and any CLI surface
   are separate work. Tests and fixtures construct `codec.Op` values
-  directly, exactly as `engine/state`'s own tests do for every other
-  vocabulary.
+  directly, exactly as `engine/state`'s own tests do.
 - **No projection tables.** Schema ops land in the projection's existing
   `unknown_ops` bucket, exactly like any object type the resolved rule
   index does not declare a table for. `Store.Schema` (below) folds from
@@ -91,11 +89,10 @@ conforms to `spec/schemas/op-envelope.schema.json` and
 - `object_type` MUST be `"schema"`.
 - `op_version` MUST be an integer ≥ 1. This document specifies version `1`.
 - `object_id` MUST be a non-empty printable-ASCII string identifier
-  (1–256 characters, `^[\x21-\x7e]+$`), per `spec/op-envelope.md`. Unlike
-  `settings` (`spec/settings-ops.md` §1.2), there is no well-known
-  canonical object ID: a repository MAY have any number of schema objects,
-  each authored independently, so any envelope-legal `object_id` is
-  conforming.
+  (1–256 characters, `^[\x21-\x7e]+$`), per `spec/op-envelope.md`. There is
+  no well-known canonical object ID: a repository MAY have any number of
+  schema objects, each authored independently, so any envelope-legal
+  `object_id` is conforming.
 - `op_type` MUST be one of the operation types defined below (§4), or an
   unknown string tolerated under forward-compatibility rules.
 - `body` MUST be a JSON object conforming to the schema for the declared
@@ -146,9 +143,8 @@ opaque strings — cannot exercise a check that depends on interpreting one
 key component's *numeric* value, and this rule has no representation in
 that corpus. That gap is about this specific corpus, not about fixtures
 generally: `spec/fixtures/`'s signed-fixture golden families drive typed
-reducers directly — `spec/fixtures/settings_test.go`'s family drives
-`writ.FoldSettings` and golden-pins its output byte-for-byte — and the
-`schema` family (`spec/fixtures/schema_test.go`) is built the same way and
+reducers directly and golden-pin their output byte-for-byte, and the
+`schema` family (`spec/fixtures/schema_test.go`) is built that way and
 pins this exactly: `schema-op-version-non-canonical.yaml` carries a
 non-canonical `op_version` at all three affected op types, and its golden
 (`spec/fixtures/testdata/golden/schema/schema-op-version-non-canonical.json`)
@@ -200,7 +196,7 @@ Initializes a schema object and sets its namespace.
   "op_version": 1,
   "body": {
     "namespace": "acme",
-    "description": "Acme's SDLC vocabulary"
+    "description": "Acme's vocabulary"
   }
 }
 ```
@@ -291,8 +287,8 @@ Declares one field on one op's body for one type.
   under (`spec/fold.md` §5, §7 below).
 
 These cross-field consistency rules mirror `spec.ValidateFieldRule`
-exactly (`spec/fieldrules.go`) — the same function that validates every
-other vocabulary's `field-rules.json` — because a `define-field` op *is* a
+exactly (`spec/fieldrules.go`) — the same function that validates the
+bootstrap `field-rules.json` — because a `define-field` op *is* a
 `FieldRule` in waiting (§7).
 
 ### 4.4. `define-op`
@@ -532,11 +528,11 @@ different `field`s, that happen to reuse the same target — MUST agree on
 not only on `strategy` (`spec/fold.md` §5). Two OR-set halves that merely
 happen to share a body field name (`add`, `remove`) but mean different
 logical state — one op type's assignee set and an unrelated op type's
-label set, say — are exactly the shape this catches: both would agree on
+tag set, say — are exactly the shape this catches: both would agree on
 `strategy` (`set-observed-remove`) while disagreeing on `value_type`, so a
 table that lets them collide on an undeclared shared target is
-non-conforming and MUST target each one explicitly instead
-(`spec/review-ops.md`'s `assignees`/`labels` split is the worked example).
+non-conforming and MUST target each one explicitly instead (an
+`assignees`/`tags` split is the worked example, `spec/fold.md` §5).
 The resolver enforces this alongside the strategy-only case above, and so
 does `engine/schemasrc`'s compiler for a `writ.schema` source file before it
 ever reaches the log.
@@ -659,8 +655,8 @@ uninterpretable-operation contract (`spec/fold.md` §7.1) for the
 *consuming* object, not the schema object itself.
 
 `engine/schema.go`'s resolver closes this: every candidate rule is
-validated through `spec.ValidateFieldRule` — the same function every other
-vocabulary's `field-rules.json` is validated through on load — before it
+validated through `spec.ValidateFieldRule` — the same function the
+bootstrap `field-rules.json` is validated through on load — before it
 can be installed. A rule that fails is dropped and reported as a conflict
 (§6) rather than reaching `Fold`. This is why the resolver lives in package
 `writ` (`engine/schema.go`, which already imports `spec`) and not in
@@ -684,7 +680,7 @@ can be installed. A rule that fails is dropped and reported as a conflict
 ## 11. Producer Validation
 
 `spec/op-envelope.md` §Producer validation's rules 3 and 4 resolve
-"the schema object governing `object_type`" through a five-tier
+"the schema object governing `object_type`" through a four-tier
 precedence; this section states what that means for the resolver this
 document already specifies (§7's bootstrap, §6's collision pass) rather
 than restating the precedence itself (WRIT-188).
@@ -694,19 +690,15 @@ than restating the precedence itself (WRIT-188).
   reading; the producer path (`spec/op-envelope.md` rule 3/4) is driven
   from the same resolution — not a second, independently derived one —
   so the two can never disagree about what a repository's schema
-  declares. A repository whose log narrowly declares a type this engine
-  also embeds a vocabulary for (`issue`, say) has that narrower
-  declaration bind its own producer exclusively (`spec/op-envelope.md`
-  tier 2 outranks tier 3): a field the embedded vocabulary would accept
-  but the log schema does not declare is refused, loudly, naming the
-  schema object responsible. That is intended, not a bug to route around
-  — a caller-visible shape sourced from an engine-embedded table rather
-  than the schema actually in the log is exactly what this project's own
-  house rules call a finding.
+  declares. A field the log schema does not declare is refused, loudly,
+  naming the schema object responsible. That is intended, not a bug to
+  route around — a caller-visible shape sourced from a table writ ships
+  rather than the schema actually in the log is exactly what this
+  project's own house rules call a finding.
 - **A contested `object_type` withholds reads but not writes.** §6
   withholds fold rules for a contested type; nothing about that requires
   withholding the write. The producer permits an op of a contested type
-  unvalidated (`spec/op-envelope.md`'s tier 4) precisely because refusing
+  unvalidated (`spec/op-envelope.md`'s tier 3) precisely because refusing
   it would be a *permanent* write outage — a contested `object_type` is
   contested forever, since nothing is ever removed from the log — while a
   reader degrading to `UnknownOp` is not: it is exactly the same
@@ -747,8 +739,7 @@ than restating the precedence itself (WRIT-188).
   interpreting a key component's numeric value, one layer above what the
   generic `keyed-lww` strategy's own uninterpretability rule requires); see
   §3.1 for why. The signed-fixture golden family under `spec/fixtures/`
-  (below) drives the typed `writ.FoldSchema` reducer the way
-  `spec/fixtures/settings_test.go` drives `writ.FoldSettings`, and pins it
+  (below) drives the typed `writ.FoldSchema` reducer directly, and pins it
   exactly.
 - `spec/fixtures/testdata/golden/schema/` — the signed-fixture golden
   family (`spec/fixtures/schema_test.go`, `TestSchemaFamily`) driving

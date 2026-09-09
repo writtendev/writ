@@ -69,8 +69,8 @@ var objectCmd = &command{
 	UsageLine: "Usage: writ object [-C <dir>] <subcommand> [arguments]",
 	Long: "Create, apply ops to, show, and list collaborative objects of any type the installed\n" +
 		"vocabulary declares (see `writ schema show`). This is plumbing, not porcelain: writ\n" +
-		"knows no per-type verbs (no `title`, no `assignee`) because it does not know what an\n" +
-		"issue or a review is -- only the schema in the log does. Prefer --json here for scripts\n" +
+		"knows no per-type verbs (no `title`, no `assignee`) because it hard-codes no object\n" +
+		"type at all -- only the schema in the log declares one. Prefer --json here for scripts\n" +
 		"and agents; a nicer per-type CLI is a job for whatever layer owns the schema.",
 	Flags: []flagSpec{
 		{
@@ -94,8 +94,8 @@ var objectCreateCmd = &command{
 	Long: "Append the op that starts a new object of <type>, using <op-type>'s field rules\n" +
 		"from the installed vocabulary (`writ schema show <type>`) to parse each -field value.\n" +
 		"-field-json sets a field from raw JSON instead, for a field -field cannot express: one\n" +
-		"that is object-shaped, or that declares no value type at all (such as comment.create's\n" +
-		"subject).",
+		"that is object-shaped, or that declares no value type at all (such as an\n" +
+		"{object_type, object_id} record naming another object).",
 	Flags: []flagSpec{
 		{Name: "C"},
 		{Name: "field", Repeatable: true},
@@ -106,7 +106,7 @@ var objectCreateCmd = &command{
 	Examples: []string{
 		"writ object create ticket create -field title=\"Fix the thing\"",
 		"writ object create ticket create -field title=\"Fix the thing\" --json",
-		"writ object create comment create -field-json subject='{\"object_type\":\"review\",\"object_id\":\"<id>\"}' -field text=\"this allocates in the hot path\"",
+		"writ object create gadget create -field-json subject='{\"object_type\":\"ticket\",\"object_id\":\"<id>\"}' -field text=\"needs a second look\"",
 	},
 }
 

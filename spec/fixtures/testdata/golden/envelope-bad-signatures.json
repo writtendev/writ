@@ -1,55 +1,55 @@
 {
   "refs": [
     {
-      "name": "refs/writ/alice/review",
-      "commit": "ea2337ebf81dfd463fcff45967aecbd8d76b08ce"
+      "name": "refs/writ/alice/widget",
+      "commit": "f2d23cab46c9b1d345be9f0c75259c3c108f0830"
     }
   ],
   "generations": [
     {
-      "ref": "refs/writ/alice/review",
+      "ref": "refs/writ/alice/widget",
       "index": 0,
       "commits": [
         {
-          "sha": "03d8a5475427965857083d7560d447c87e38fc87",
-          "tree": "db7b17e6360f99a193676042b881dd982ce63311",
+          "sha": "dc30df091c7bc280b1bdb83cd09e011bf92d15d9",
+          "tree": "b8d45ce43b11dd8ac4a2ac6649a446a955ffcb27",
           "parents": [],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:00:00Z",
-          "message": "writ: create review/review-01\n",
+          "message": "writ: create widget/widget-01\n",
           "signed": true
         },
         {
-          "sha": "3719c01328cfc060198c89252845cd299ecb73f9",
-          "tree": "49adbbd9a34d0edfca3931c2dd53db578c1f28f7",
+          "sha": "b18ab5146fb570a9c8aa8188cdd9e99b4e910547",
+          "tree": "c0c8f478b6cc48576c77088675a7a2c132acb245",
           "parents": [
-            "03d8a5475427965857083d7560d447c87e38fc87"
+            "dc30df091c7bc280b1bdb83cd09e011bf92d15d9"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:01:00Z",
-          "message": "writ: update review/review-01\n",
+          "message": "writ: update widget/widget-01\n",
           "signed": true
         },
         {
-          "sha": "54fc97b3f2149c868f32a071f68ecc47277ed7be",
-          "tree": "ad40a329c2e52d7804f9be2b7eac5661f33c6c62",
+          "sha": "2654ccf32e7b3f6ac431741abb88472aae55e335",
+          "tree": "2efe432ba4fcaaa125dca93e4b90d4dd44ade2f6",
           "parents": [
-            "3719c01328cfc060198c89252845cd299ecb73f9"
+            "b18ab5146fb570a9c8aa8188cdd9e99b4e910547"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:02:00Z",
-          "message": "writ: update review/review-01\n",
+          "message": "writ: update widget/widget-01\n",
           "signed": true
         },
         {
-          "sha": "ea2337ebf81dfd463fcff45967aecbd8d76b08ce",
-          "tree": "5ab4b333e3dd963bc880aa2a04a234439a12df9c",
+          "sha": "f2d23cab46c9b1d345be9f0c75259c3c108f0830",
+          "tree": "ce0cb8c66355320f759a022e37bad9f9d09e8935",
           "parents": [
-            "54fc97b3f2149c868f32a071f68ecc47277ed7be"
+            "2654ccf32e7b3f6ac431741abb88472aae55e335"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:03:00Z",
-          "message": "writ: update review/review-01\n",
+          "message": "writ: update widget/widget-01\n",
           "signed": false
         }
       ]

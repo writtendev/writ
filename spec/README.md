@@ -33,15 +33,11 @@ producer would have refused. A blank cell means the split does not apply
 | `ref-layout.md` | Normative | | Chain ref layout, writer-id convention, edge rules, and init refspecs |
 | `canonicalization.md` | Normative | | Byte-stable canonical JSON encoding: ordering, escaping, number formatting, rejection rules |
 | `forward-compatibility.md` | Normative | | Unknown-op handling, forward compatibility, version-bump semantics, and round-trip preservation rules |
-| `anchors.md` | Normative | | Content-based comment anchors (v1): the dual-sided anchor object, context capture, re-anchoring and orphaning |
+| `anchors.md` | Normative | | Content-based anchors (v1): the dual-sided anchor object, context capture, re-anchoring and orphaning |
 | `fold.md` | Normative | | Fold semantics: the input model, causality-monotone effective time `t*`, the deterministic total order, concurrency rules, the closed per-field merge strategy catalogue, tombstones, and state serialization |
 | `identifiers.md` | Normative | | Globally unique object IDs, repo designators, cross-repo references, and person identifiers |
 | `ordering.md` | Normative | | Fractional indexing & shared ordering primitive: byte-comparable base-62 strings, canonical form, boundary generation, and op-id tiebreak |
 | `value-types.md` | Normative | | The closed value-type catalogue (v1): a schema's second, orthogonal axis alongside `fold.md`'s merge strategies — encoding, validation, and normalization per type |
-| `review-ops.md` | Normative | | The review family operation vocabulary (v1): review creation, revisions, status transitions, assignments, approvals, and CI statuses |
-| `comments.md` | Normative | | Comment op vocabulary (v1): object model, create/edit/delete ops, threading, anchor reference, GitHub shapes |
-| `issue-ops.md` | Normative | | The issue family operation vocabulary (v1): issue creation, metadata updates, state transitions, assignments, labels, and cross-references (Appendix B: Linear schema mapping) |
-| `project-cycle.md` | Normative | | Project and cycle operation vocabularies (v1): repo-scoped grouping types, creation, status transitions, cycle dates, and issue membership |
 | `resolution.md` | Normative | | Re-anchoring & orphan degradation (v1): the `resolve(anchor, tree)` ladder, tiebreaks, thresholds, and orphan semantics |
 | `schema-ops.md` | Normative | | The `schema` object type (v1): writ's one hard-coded vocabulary — namespace/`object_type` binding, envelope binding, `create`/`define-type`/`define-field`/`define-op`/`deprecate-type`/`deprecate-field`, bootstrap order, conflicts, evolution, and rule validation |
 | `schema-source.md` | Informative | | The `writ.schema` source form (v1): grammar, the op sequence each production compiles to, and canonical rendering. The normative artefact is `schema-ops.md`'s op vocabulary; an independent implementation must agree on the ops and need not parse this file |
@@ -50,11 +46,6 @@ producer would have refused. A blank cell means the split does not apply
 | `schemas/identifiers.schema.json` | Normative | | JSON Schema (draft 2020-12) for identifiers and references |
 | `schemas/ordering.schema.json` | Normative | | JSON Schema (draft 2020-12) for the fractional index position key |
 | `schemas/value-types.schema.json` | Normative | | JSON Schema (draft 2020-12) for the closed value-type catalogue, one `$defs` entry per type |
-| `schemas/review-ops.schema.json` | Normative | | JSON Schema (draft 2020-12) for the review operations family |
-| `schemas/comment.schema.json` | Normative | | JSON Schema (draft 2020-12) for comment op payloads |
-| `schemas/issue-ops.schema.json` | Normative | | JSON Schema (draft 2020-12) for the issue operations family |
-| `schemas/project-ops.schema.json` | Normative | | JSON Schema (draft 2020-12) for project operation payloads |
-| `schemas/cycle-ops.schema.json` | Normative | | JSON Schema (draft 2020-12) for cycle operation payloads |
 | `schemas/resolution.schema.json` | Normative | | JSON Schema (draft 2020-12) for the resolution outcome object |
 | `schemas/field-rules.schema.json` | Normative | | JSON Schema (draft 2020-12) for field merge rule declarations (`field-rules.json`) |
 | `schemas/schema-ops.schema.json` | Normative | | JSON Schema (draft 2020-12) for the schema operations family |
@@ -68,18 +59,6 @@ producer would have refused. A blank cell means the split does not apply
 | `testdata/fold/order/`, `testdata/fold/merge/` | Normative | reader | Fold test vectors: deterministic total order test vectors and merge strategy vectors |
 | `testdata/value-types/valid/`, `testdata/value-types/invalid/` | Normative | producer | A valid and invalid instance per catalogue value type; `invalid/index.json` records each expected rejection |
 | `testdata/references/valid/`, `testdata/references/invalid/` | Normative | producer | Reference instances; `invalid/index.json` records each expected rejection |
-| `testdata/review-ops/valid/`, `testdata/review-ops/invalid/` | Normative | producer | Review operation payload instances; `invalid/index.json` records each expected rejection |
-| `testdata/review-ops/field-rules.json` | Normative | reader | Field-by-field fold merge strategy declarations for the review op vocabulary |
-| `testdata/review-ops/github/` | Informative | | GitHub PR, review, status, and check-run conversion vectors |
-| `testdata/comments/valid/`, `testdata/comments/invalid/` | Normative | producer | Comment op payload instances; `invalid/index.json` records each expected rejection |
-| `testdata/comments/github/` | Informative | | GitHub comment conversion vectors (top-level, inline, reply) |
-| `testdata/issue-ops/valid/`, `testdata/issue-ops/invalid/` | Normative | producer | Issue operation payload instances; `invalid/index.json` records each expected rejection |
-| `testdata/issue-ops/field-rules.json` | Normative | reader | Field-by-field fold merge strategy declarations for the issue op vocabulary |
-| `testdata/issue-ops/github/` | Informative | | GitHub issue conversion vectors (opened, labeled/assigned, closed-as-not-planned) |
-| `testdata/project/valid/`, `testdata/project/invalid/` | Normative | producer | Project operation payload instances; `invalid/index.json` records each expected rejection |
-| `testdata/project/field-rules.json` | Normative | reader | Field-by-field fold merge strategy declarations for the project op vocabulary |
-| `testdata/cycle/valid/`, `testdata/cycle/invalid/` | Normative | producer | Cycle operation payload instances; `invalid/index.json` records each expected rejection |
-| `testdata/cycle/field-rules.json` | Normative | reader | Field-by-field fold merge strategy declarations for the cycle op vocabulary |
 | `testdata/schema-ops/valid/`, `testdata/schema-ops/invalid/` | Normative | producer | Schema operation payload instances; `invalid/index.json` records each expected rejection (schema, invariant, or canonicalization) |
 | `testdata/schema-ops/field-rules.json` | Normative | reader | The bootstrap field merge rules for the schema vocabulary itself — the one rule table that never comes from the log |
 | `testdata/schema-rules/matrix.json` | Normative | reader | The rule-validation matrix (axis D of the schema-parametric corpus): every (strategy, value type) cell, including untyped, asserted against `spec.ValidateFieldRule` — the gate `engine/schema.go`'s `RulesFromSchemas` applies to every rule sourced from the log, since a reader has no producer step to lean on |
@@ -106,15 +85,11 @@ spec/
 ├── ref-layout.md           — normative: chain ref layout, writer-id convention, and refspecs
 ├── canonicalization.md     — normative: canonical JSON encoding rules
 ├── forward-compatibility.md — normative: unknown-op and forward-compatibility rules
-├── anchors.md              — normative: content-based comment anchors (v1)
+├── anchors.md              — normative: content-based anchors (v1)
 ├── fold.md                 — normative: fold semantics, total order, and merge strategy catalogue
 ├── identifiers.md          — normative: globally unique object IDs, references & person identifiers
 ├── ordering.md             — normative: fractional indexing & shared ordering primitive
 ├── value-types.md          — normative: the closed value-type catalogue (v1)
-├── review-ops.md           — normative: review family operation vocabulary (v1)
-├── comments.md             — normative: comment op vocabulary (v1)
-├── issue-ops.md            — normative: issue family operation vocabulary (v1), Linear mapping (Appendix B)
-├── project-cycle.md        — normative: project & cycle grouping op vocabularies (v1)
 ├── resolution.md           — normative: re-anchoring & orphan degradation (v1)
 ├── schema-ops.md           — normative: the `schema` object type (v1), writ's one hard-coded vocabulary
 ├── schema-source.md        — informative: the `writ.schema` source form (v1), grammar and compile/render rules
@@ -127,11 +102,6 @@ spec/
 │   ├── identifiers.schema.json — draft 2020-12 schema for identifiers & references
 │   ├── ordering.schema.json — draft 2020-12 schema for the fractional index position key
 │   ├── value-types.schema.json — draft 2020-12 schema for the closed value-type catalogue
-│   ├── review-ops.schema.json  — draft 2020-12 schema for review operations
-│   ├── comment.schema.json — draft 2020-12 schema for comment op payloads
-│   ├── issue-ops.schema.json — draft 2020-12 schema for issue operations
-│   ├── project-ops.schema.json — draft 2020-12 schema for project operation payloads
-│   ├── cycle-ops.schema.json — draft 2020-12 schema for cycle operation payloads
 │   ├── resolution.schema.json — draft 2020-12 schema for the resolution outcome object
 │   ├── field-rules.schema.json — draft 2020-12 schema for field merge rule declarations
 │   └── schema-ops.schema.json — draft 2020-12 schema for schema operations
@@ -157,28 +127,6 @@ spec/
 │   ├── persons/
 │   │   ├── valid/          — person identifiers with their split, normalization and equality
 │   │   └── invalid/        — person identifiers the grammar or bounds reject (+ index.json)
-│   ├── review-ops/
-│   │   ├── valid/          — review op instances that must validate
-│   │   ├── invalid/        — review op instances that must be rejected (+ index.json)
-│   │   ├── field-rules.json — fold merge strategies per field
-│   │   └── github/         — informative GitHub PR/review/status conversion vectors
-│   ├── comments/
-│   │   ├── valid/          — comment payloads that must validate
-│   │   ├── invalid/        — comment payloads that must be rejected (+ index.json of reasons)
-│   │   └── github/         — informative GitHub comment conversion vectors
-│   ├── issue-ops/
-│   │   ├── valid/          — issue op instances that must validate
-│   │   ├── invalid/        — issue op instances that must be rejected (+ index.json)
-│   │   ├── field-rules.json — fold merge strategies per field
-│   │   └── github/         — informative GitHub issue conversion vectors
-│   ├── project/
-│   │   ├── valid/          — project op instances that must validate
-│   │   ├── invalid/        — project op instances that must be rejected (+ index.json)
-│   │   └── field-rules.json — fold merge strategies per field
-│   ├── cycle/
-│   │   ├── valid/          — cycle op instances that must validate
-│   │   ├── invalid/        — cycle op instances that must be rejected (+ index.json)
-│   │   └── field-rules.json — fold merge strategies per field
 │   ├── schema-ops/
 │   │   ├── valid/          — schema op instances that must validate
 │   │   ├── invalid/        — schema op instances that must be rejected (+ index.json)
@@ -317,8 +265,9 @@ reproduce repository generation directly:
 Two different questions, and this corpus answers both, deliberately kept
 apart (see the **Pins** column in the file table above):
 
-- **Producer-side** (`testdata/*/valid/`, `testdata/*/invalid/` across every
-  vocabulary, including `testdata/value-types/` and `testdata/schema-ops/`):
+- **Producer-side** (`testdata/*/valid/`, `testdata/*/invalid/` —
+  `testdata/envelopes/`, `testdata/anchors/`, `testdata/references/`,
+  `testdata/persons/`, `testdata/value-types/` and `testdata/schema-ops/`):
   what a conforming producer MUST NOT emit. These are payload instances
   checked against JSON Schema and the invariant checks `invalid/index.json`
   names; no fold ever runs over them.

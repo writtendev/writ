@@ -21,11 +21,11 @@ func TestPush_LocalWriterOnly(t *testing.T) {
 	aliceIdent := testIdentity(aliceID, "Alice", "alice@example.com")
 	aliceStore := mustOpenStore(t, localDir, aliceIdent)
 
-	// Append an op on Alice's review chain
-	aliceOpID := appendTestOp(t, aliceStore, "review", "rev-1", "create", map[string]any{"title": "Alice Review"})
+	// Append an op on Alice's widget chain
+	aliceOpID := appendTestOp(t, aliceStore, "widget", "w-1", "create", map[string]any{"title": "Alice Widget"})
 
-	// Also manually seed a foreign ref under refs/writ/<bobID>/review in local repo
-	foreignRefName := plumbing.ReferenceName("refs/writ/" + bobID + "/review")
+	// Also manually seed a foreign ref under refs/writ/<bobID>/widget in local repo
+	foreignRefName := plumbing.ReferenceName("refs/writ/" + bobID + "/widget")
 	dummyCommit := plumbing.NewHash(aliceOpID)
 	if err := localRepo.Storer.SetReference(plumbing.NewHashReference(foreignRefName, dummyCommit)); err != nil {
 		t.Fatalf("set foreign ref: %v", err)
@@ -54,8 +54,8 @@ func TestPush_LocalWriterOnly(t *testing.T) {
 
 	// Verify on bare remote: Alice's ref is present, Bob's foreign ref is absent
 	bareRefs := snapshotAllRefs(t, bareRepo)
-	expectedAliceRef := "refs/writ/" + aliceID + "/review"
-	expectedBobRef := "refs/writ/" + bobID + "/review"
+	expectedAliceRef := "refs/writ/" + aliceID + "/widget"
+	expectedBobRef := "refs/writ/" + bobID + "/widget"
 
 	if _, ok := bareRefs[expectedAliceRef]; !ok {
 		t.Fatalf("expected alice ref %s to exist on bare remote, refs: %v", expectedAliceRef, bareRefs)
@@ -110,13 +110,13 @@ func TestFetch_BringsAllWritersAndPreservesUnpushed(t *testing.T) {
 	}
 
 	// 2. Alice creates an op and pushes it
-	aliceOpID := appendTestOp(t, aliceStore, "review", "rev-alice", "create", map[string]any{"title": "Alice's Review"})
+	aliceOpID := appendTestOp(t, aliceStore, "widget", "w-alice", "create", map[string]any{"title": "Alice's Widget"})
 	if _, err := aliceSync.Push(ctx, "origin"); err != nil {
 		t.Fatalf("alice Push: %v", err)
 	}
 
 	// 3. Bob creates a local unpushed op
-	bobOpID := appendTestOp(t, bobStore, "review", "rev-bob", "create", map[string]any{"title": "Bob's Review"})
+	bobOpID := appendTestOp(t, bobStore, "widget", "w-bob", "create", map[string]any{"title": "Bob's Widget"})
 
 	// 4. Bob fetches from origin
 	fetchRes, err := bobSync.Fetch(ctx, "origin")
@@ -130,13 +130,13 @@ func TestFetch_BringsAllWritersAndPreservesUnpushed(t *testing.T) {
 
 	// 5. Assert Bob's remote tracking ref for Alice was created/updated
 	bobRefs := snapshotAllRefs(t, bobRepo)
-	aliceTrackingRef := "refs/remotes/origin/writ/" + aliceID + "/review"
+	aliceTrackingRef := "refs/remotes/origin/writ/" + aliceID + "/widget"
 	if tip, ok := bobRefs[aliceTrackingRef]; !ok || tip != aliceOpID {
 		t.Fatalf("expected %s = %s, got %s (refs: %v)", aliceTrackingRef, aliceOpID, tip, bobRefs)
 	}
 
 	// 6. Assert Bob's local unpushed chain is untouched
-	bobLocalRef := "refs/writ/" + bobID + "/review"
+	bobLocalRef := "refs/writ/" + bobID + "/widget"
 	if tip, ok := bobRefs[bobLocalRef]; !ok || tip != bobOpID {
 		t.Fatalf("expected %s = %s, got %s", bobLocalRef, bobOpID, tip)
 	}
@@ -147,11 +147,11 @@ func TestFetch_BringsAllWritersAndPreservesUnpushed(t *testing.T) {
 		t.Fatalf("bobStore.Enumerate: %v", err)
 	}
 
-	if len(enumRes.Ops["rev-alice"]) != 1 {
-		t.Fatalf("expected rev-alice op in Bob's enumeration: %v", enumRes.Ops)
+	if len(enumRes.Ops["w-alice"]) != 1 {
+		t.Fatalf("expected w-alice op in Bob's enumeration: %v", enumRes.Ops)
 	}
-	if len(enumRes.Ops["rev-bob"]) != 1 {
-		t.Fatalf("expected rev-bob op in Bob's enumeration: %v", enumRes.Ops)
+	if len(enumRes.Ops["w-bob"]) != 1 {
+		t.Fatalf("expected w-bob op in Bob's enumeration: %v", enumRes.Ops)
 	}
 }
 
@@ -180,8 +180,8 @@ func TestFetch_RollbackRejected(t *testing.T) {
 	}
 
 	// Alice creates op1 and op2 and pushes both
-	op1 := appendTestOp(t, aliceStore, "review", "rev-1", "create", map[string]any{"title": "Op 1"})
-	op2 := appendTestOp(t, aliceStore, "review", "rev-1", "update", map[string]any{"title": "Op 2"})
+	op1 := appendTestOp(t, aliceStore, "widget", "w-1", "create", map[string]any{"title": "Op 1"})
+	op2 := appendTestOp(t, aliceStore, "widget", "w-1", "update", map[string]any{"title": "Op 2"})
 
 	if _, err := client.Push(ctx, "origin"); err != nil {
 		t.Fatalf("Push op1 & op2: %v", err)
@@ -192,14 +192,14 @@ func TestFetch_RollbackRejected(t *testing.T) {
 		t.Fatalf("Initial Fetch: %v", err)
 	}
 
-	trackingRef := "refs/remotes/origin/writ/" + aliceID + "/review"
+	trackingRef := "refs/remotes/origin/writ/" + aliceID + "/widget"
 	refsBefore := snapshotAllRefs(t, localRepo)
 	if refsBefore[trackingRef] != op2 {
 		t.Fatalf("expected tracking ref %s = %s, got %s", trackingRef, op2, refsBefore[trackingRef])
 	}
 
 	// Force bare remote ref backwards to op1
-	cmd = exec.Command("git", "update-ref", "refs/writ/"+aliceID+"/review", op1)
+	cmd = exec.Command("git", "update-ref", "refs/writ/"+aliceID+"/widget", op1)
 	cmd.Dir = bareDir
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("force update-ref on bare: %v", err)
@@ -244,15 +244,15 @@ func TestPush_NonFastForwardRejected(t *testing.T) {
 	ctx := context.Background()
 
 	// Append op1 and op2, push both
-	op1 := appendTestOp(t, aliceStore, "review", "rev-1", "create", map[string]any{"title": "Op 1"})
-	_ = appendTestOp(t, aliceStore, "review", "rev-1", "update", map[string]any{"title": "Op 2"})
+	op1 := appendTestOp(t, aliceStore, "widget", "w-1", "create", map[string]any{"title": "Op 1"})
+	_ = appendTestOp(t, aliceStore, "widget", "w-1", "update", map[string]any{"title": "Op 2"})
 
 	if _, err := client.Push(ctx, "origin"); err != nil {
 		t.Fatalf("Push op1 & op2: %v", err)
 	}
 
 	// Force local ref backwards to op1
-	localRefName := plumbing.ReferenceName("refs/writ/" + aliceID + "/review")
+	localRefName := plumbing.ReferenceName("refs/writ/" + aliceID + "/widget")
 	if err := localRepo.Storer.SetReference(plumbing.NewHashReference(localRefName, plumbing.NewHash(op1))); err != nil {
 		t.Fatalf("set local ref: %v", err)
 	}
@@ -273,7 +273,7 @@ func TestTransport_UnknownRemote(t *testing.T) {
 	aliceID := "0123456789abcdef"
 	aliceIdent := testIdentity(aliceID, "Alice", "alice@example.com")
 	aliceStore := mustOpenStore(t, localDir, aliceIdent)
-	_ = appendTestOp(t, aliceStore, "review", "rev-1", "create", map[string]any{"title": "Op 1"})
+	_ = appendTestOp(t, aliceStore, "widget", "w-1", "create", map[string]any{"title": "Op 1"})
 
 	client, err := writsync.Open(localDir, aliceIdent)
 	if err != nil {
@@ -356,9 +356,9 @@ func TestPush_MultipleObjectTypes(t *testing.T) {
 		t.Fatalf("writsync.Open: %v", err)
 	}
 
-	// Create ops on two distinct object types: review and issue
-	appendTestOp(t, aliceStore, "review", "rev-1", "create", map[string]any{"title": "Review 1"})
-	appendTestOp(t, aliceStore, "issue", "iss-1", "create", map[string]any{"title": "Issue 1"})
+	// Create ops on two distinct object types: widget and gadget
+	appendTestOp(t, aliceStore, "widget", "w-1", "create", map[string]any{"title": "Widget 1"})
+	appendTestOp(t, aliceStore, "gadget", "g-1", "create", map[string]any{"title": "Gadget 1"})
 
 	pushRes, err := client.Push(context.Background(), "origin")
 	if err != nil {
@@ -370,13 +370,13 @@ func TestPush_MultipleObjectTypes(t *testing.T) {
 	}
 
 	bareRefs := snapshotAllRefs(t, bareRepo)
-	reviewRef := "refs/writ/" + aliceID + "/review"
-	issueRef := "refs/writ/" + aliceID + "/issue"
+	widgetRef := "refs/writ/" + aliceID + "/widget"
+	gadgetRef := "refs/writ/" + aliceID + "/gadget"
 
-	if _, ok := bareRefs[reviewRef]; !ok {
-		t.Fatalf("expected bare to have %s, got refs: %v", reviewRef, bareRefs)
+	if _, ok := bareRefs[widgetRef]; !ok {
+		t.Fatalf("expected bare to have %s, got refs: %v", widgetRef, bareRefs)
 	}
-	if _, ok := bareRefs[issueRef]; !ok {
-		t.Fatalf("expected bare to have %s, got refs: %v", issueRef, bareRefs)
+	if _, ok := bareRefs[gadgetRef]; !ok {
+		t.Fatalf("expected bare to have %s, got refs: %v", gadgetRef, bareRefs)
 	}
 }

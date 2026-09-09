@@ -5,39 +5,39 @@
   },
   "valid": [
     {
-      "ref": "refs/writ/0123456789abcdef/review",
+      "ref": "refs/writ/0123456789abcdef/widget",
       "writer_id": "0123456789abcdef",
-      "object_type": "review"
+      "object_type": "widget"
     },
     {
-      "ref": "refs/writ/0123456789abcdef/comment",
+      "ref": "refs/writ/0123456789abcdef/gadget",
       "writer_id": "0123456789abcdef",
-      "object_type": "comment"
+      "object_type": "gadget"
     },
     {
-      "ref": "refs/writ/0123456789abcdef/approval",
+      "ref": "refs/writ/0123456789abcdef/sprocket",
       "writer_id": "0123456789abcdef",
-      "object_type": "approval"
+      "object_type": "sprocket"
     },
     {
-      "ref": "refs/writ/0123456789abcdef/ci-status",
+      "ref": "refs/writ/0123456789abcdef/wid-get",
       "writer_id": "0123456789abcdef",
-      "object_type": "ci-status"
+      "object_type": "wid-get"
     },
     {
-      "ref": "refs/writ/0123456789abcdef/issue",
+      "ref": "refs/writ/0123456789abcdef/telemetry",
       "writer_id": "0123456789abcdef",
-      "object_type": "issue"
+      "object_type": "telemetry"
     },
     {
-      "ref": "refs/writ/0123456789abcdef/project",
+      "ref": "refs/writ/0123456789abcdef/beacon",
       "writer_id": "0123456789abcdef",
-      "object_type": "project"
+      "object_type": "beacon"
     },
     {
-      "ref": "refs/writ/0123456789abcdef/cycle",
+      "ref": "refs/writ/0123456789abcdef/gizmo",
       "writer_id": "0123456789abcdef",
-      "object_type": "cycle"
+      "object_type": "gizmo"
     },
     {
       "ref": "refs/writ/0000000000000000/a",
@@ -92,67 +92,67 @@
       "reason": "empty object-type segment"
     },
     {
-      "ref": "refs/writ//review",
+      "ref": "refs/writ//widget",
       "reason": "empty writer-id segment"
     },
     {
-      "ref": "refs/writ/0123456789abcdef/review/extra",
+      "ref": "refs/writ/0123456789abcdef/widget/extra",
       "reason": "too many path segments"
     },
     {
-      "ref": "refs/writ/0123456789abcdef/cobs/review/123",
+      "ref": "refs/writ/0123456789abcdef/cobs/widget/123",
       "reason": "too many path segments (legacy per-object format)"
     },
     {
-      "ref": "refs/writ/0123456789abcde/review",
+      "ref": "refs/writ/0123456789abcde/widget",
       "reason": "writer-id too short (15 chars, want 16)"
     },
     {
-      "ref": "refs/writ/0123456789abcdef0/review",
+      "ref": "refs/writ/0123456789abcdef0/widget",
       "reason": "writer-id too long (17 chars, want 16)"
     },
     {
-      "ref": "refs/writ/0123456789ABCDEF/review",
+      "ref": "refs/writ/0123456789ABCDEF/widget",
       "reason": "writer-id contains uppercase hex"
     },
     {
-      "ref": "refs/writ/0123456789Abcdef/review",
+      "ref": "refs/writ/0123456789Abcdef/widget",
       "reason": "writer-id contains mixed-case hex"
     },
     {
-      "ref": "refs/writ/0123456789abcdeg/review",
+      "ref": "refs/writ/0123456789abcdeg/widget",
       "reason": "writer-id contains non-hex character"
     },
     {
-      "ref": "refs/writ/0123456789abc-ef/review",
+      "ref": "refs/writ/0123456789abc-ef/widget",
       "reason": "writer-id contains hyphen"
     },
     {
-      "ref": "refs/writ/alice-workstation/review",
+      "ref": "refs/writ/alice-workstation/widget",
       "reason": "writer-id is not 16 hex characters"
     },
     {
-      "ref": "refs/writ/0123456789abcdef/1review",
+      "ref": "refs/writ/0123456789abcdef/1widget",
       "reason": "object-type must start with lowercase letter"
     },
     {
-      "ref": "refs/writ/0123456789abcdef/-review",
+      "ref": "refs/writ/0123456789abcdef/-widget",
       "reason": "object-type must start with lowercase letter"
     },
     {
-      "ref": "refs/writ/0123456789abcdef/Review",
+      "ref": "refs/writ/0123456789abcdef/Widget",
       "reason": "object-type contains uppercase letters"
     },
     {
-      "ref": "refs/writ/0123456789abcdef/ci_status",
+      "ref": "refs/writ/0123456789abcdef/wid_get",
       "reason": "object-type contains underscore"
     },
     {
-      "ref": "refs/writ/0123456789abcdef/review.lock",
+      "ref": "refs/writ/0123456789abcdef/widget.lock",
       "reason": "object-type contains dot and ends in .lock"
     },
     {
-      "ref": "refs/writ/0123456789abcdef/review/sub",
+      "ref": "refs/writ/0123456789abcdef/widget/sub",
       "reason": "object-type contains slash (extra segment)"
     },
     {
@@ -164,43 +164,43 @@
       "reason": "object-type contains dot-dot"
     },
     {
-      "ref": "refs/writ/../0123456789abcdef/review",
+      "ref": "refs/writ/../0123456789abcdef/widget",
       "reason": "path contains dot-dot segment"
     },
     {
-      "ref": "refs/writ/0123456789abcdef/review@{1}",
+      "ref": "refs/writ/0123456789abcdef/widget@{1}",
       "reason": "object-type contains invalid ref character @"
     },
     {
-      "ref": "refs/writ/0123456789abcdef/review~1",
+      "ref": "refs/writ/0123456789abcdef/widget~1",
       "reason": "object-type contains invalid ref character ~"
     },
     {
-      "ref": "refs/writ/0123456789abcdef/review^2",
+      "ref": "refs/writ/0123456789abcdef/widget^2",
       "reason": "object-type contains invalid ref character ^"
     },
     {
-      "ref": "refs/writ/0123456789abcdef/review:test",
+      "ref": "refs/writ/0123456789abcdef/widget:test",
       "reason": "object-type contains invalid ref character :"
     },
     {
-      "ref": "refs/writ/0123456789abcdef/review?test",
+      "ref": "refs/writ/0123456789abcdef/widget?test",
       "reason": "object-type contains invalid ref character ?"
     },
     {
-      "ref": "refs/writ/0123456789abcdef/review*test",
+      "ref": "refs/writ/0123456789abcdef/widget*test",
       "reason": "object-type contains invalid ref character *"
     },
     {
-      "ref": "refs/writ/0123456789abcdef/review[test]",
+      "ref": "refs/writ/0123456789abcdef/widget[test]",
       "reason": "object-type contains invalid ref character ["
     },
     {
-      "ref": "refs/writ/0123456789abcdef/review\\test",
+      "ref": "refs/writ/0123456789abcdef/widget\\test",
       "reason": "object-type contains invalid ref character \\"
     },
     {
-      "ref": "refs/writ/0123456789abcdef/review test",
+      "ref": "refs/writ/0123456789abcdef/widget test",
       "reason": "object-type contains space"
     }
   ]

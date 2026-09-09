@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://writ.dev/spec/anchor.schema.json",
   "title": "Writ anchor (v1)",
-  "description": "Content-based comment position: dual-sided (old/new), anchored to blob identity plus captured hunk context. Normative text: spec/anchors.md. The $id is an identifier, not a network location. Cross-field invariants the schema cannot express (end >= start, context lines vs range size, the omitted head/tail arithmetic, path segment rules, uniform OID length) are defined in the spec text and enforced by validators alongside this schema; the schema does pin the 64-entry ceiling on context.lines. additionalProperties is deliberately never false: unknown fields are preserved and ignored.",
+  "description": "Content-based position in code: dual-sided (old/new), anchored to blob identity plus captured hunk context. Normative text: spec/anchors.md. The $id is an identifier, not a network location. Cross-field invariants the schema cannot express (end >= start, context lines vs range size, the omitted head/tail arithmetic, path segment rules, uniform OID length) are defined in the spec text and enforced by validators alongside this schema; the schema does pin the 64-entry ceiling on context.lines. additionalProperties is deliberately never false: unknown fields are preserved and ignored.",
   "type": "object",
   "properties": {
     "version": { "const": 1 },

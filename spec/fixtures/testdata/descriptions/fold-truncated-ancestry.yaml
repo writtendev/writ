@@ -5,33 +5,148 @@ description: >
   without error.
 
 refs:
-  - name: refs/writ/fedcba9876543210/comment
+  - name: refs/writ/0123456789abcdef/schema
     history:
       - commits:
-          - id: bob-comment-other-obj
+          - id: schema-create
+            author: alice
+            timestamp: 2025-12-01T00:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: schema-define-widget
+            parents: [schema-create]
+            author: alice
+            timestamp: 2025-12-01T00:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "widget"
+            expect: accept
+
+          - id: schema-define-gadget
+            parents: [schema-define-widget]
+            author: alice
+            timestamp: 2025-12-01T00:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "gadget"
+            expect: accept
+
+          - id: schema-define-widget-create-title
+            parents: [schema-define-gadget]
+            author: alice
+            timestamp: 2025-12-01T00:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: schema-define-widget-update-title
+            parents: [schema-define-widget-create-title]
+            author: alice
+            timestamp: 2025-12-01T00:04:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "update"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          # subject is untyped on purpose: it carries a structured reference
+          # to another object, which fold treats as opaque data
+          # (spec/fold.md §6), and create-once holds the first write.
+          - id: schema-define-gadget-subject
+            parents: [schema-define-widget-update-title]
+            author: alice
+            timestamp: 2025-12-01T00:05:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "create"
+                op_version: "1"
+                field: "subject"
+                strategy: "create-once"
+            expect: accept
+
+          - id: schema-define-gadget-text
+            parents: [schema-define-gadget-subject]
+            author: alice
+            timestamp: 2025-12-01T00:06:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "create"
+                op_version: "1"
+                field: "text"
+                value_type: "text"
+                strategy: "lww"
+            expect: accept
+
+  - name: refs/writ/fedcba9876543210/gadget
+    history:
+      - commits:
+          - id: bob-gadget-other-obj
             author: bob
             timestamp: 2026-01-01T00:01:00Z
             op:
-              object_id: c-other
-              object_type: comment
+              object_id: g-other
+              object_type: gadget
               op_type: create
               op_version: 1
               body:
                 subject:
-                  object_type: review
-                  object_id: r-truncated
-                text: "Comment on truncated review"
+                  object_type: widget
+                  object_id: w-truncated
+                text: "Gadget attached to the truncated widget"
             expect: accept
 
-  - name: refs/writ/0123456789abcdef/review
+  - name: refs/writ/0123456789abcdef/widget
     history:
       - commits:
           - id: alice-create
             author: alice
             timestamp: 2026-01-01T00:00:00Z
             op:
-              object_id: r-truncated
-              object_type: review
+              object_id: w-truncated
+              object_type: widget
               op_type: create
               op_version: 1
               body:
@@ -39,12 +154,12 @@ refs:
             expect: accept
 
           - id: alice-update
-            parents: [alice-create, bob-comment-other-obj]
+            parents: [alice-create, bob-gadget-other-obj]
             author: alice
             timestamp: 2026-01-01T00:02:00Z
             op:
-              object_id: r-truncated
-              object_type: review
+              object_id: w-truncated
+              object_type: widget
               op_type: update
               op_version: 1
               body:

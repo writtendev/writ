@@ -632,8 +632,8 @@ type FoldResult struct {
 // op types keep preserve-and-ignore untouched. The check reads the value at
 // the declared field and, where the strategy consumes a collection, its
 // immediate elements. It never recurses — fold treats structured payloads such
-// as comment anchors as opaque data (spec/fold.md §6), so an anchor whose
-// context collar is null is well formed.
+// as anchors as opaque data (spec/fold.md §6), so an anchor whose context
+// collar is null is well formed.
 func uninterpretable(op MergeOp, rules []FieldRule) bool {
 	for _, r := range rules {
 		if !opMatchesRule(op, r) {
@@ -906,8 +906,6 @@ func Fold(ops []MergeOp, rules []FieldRule) (FoldResult, error) {
 					} else if r.Field == "remove" && op.Body["add"] != nil {
 						hasWrite = true
 					}
-				} else if r.Field == "subject" && op.OpType == "approval" && op.Author.Email != "" {
-					hasWrite = true
 				}
 				if hasWrite {
 					targetKey := r.TargetKey()
@@ -1258,18 +1256,11 @@ func Fold(ops []MergeOp, rules []FieldRule) (FoldResult, error) {
 					if opMatchesRule(op, rule) {
 						val, present := op.Body[rule.Field]
 						if !present {
-							if rule.Field == "subject" && op.OpType == "approval" && op.Author.Email != "" {
-								val = normalizePerson("email:" + op.Author.Email)
-							} else {
-								continue
-							}
-						} else if rule.NormalizesValue() {
+							continue
+						}
+						if rule.NormalizesValue() {
 							if s, isStr := val.(string); isStr {
-								norm := normalizePerson(s)
-								if norm == "" && rule.Field == "subject" && op.OpType == "approval" && op.Author.Email != "" {
-									norm = normalizePerson("email:" + op.Author.Email)
-								}
-								val = norm
+								val = normalizePerson(s)
 							}
 						}
 						hasKeyed = true
@@ -1277,14 +1268,10 @@ func Fold(ops []MergeOp, rules []FieldRule) (FoldResult, error) {
 						for _, kf := range rule.Key {
 							// Every present key component is a string; see the
 							// set-union arm. An absent one contributes the
-							// empty component, except for approval subject which
-							// falls back to the commit author's email.
+							// empty component.
 							vStr, _ := op.Body[kf].(string)
 							if rule.NormalizesKey(kf) {
 								vStr = normalizePerson(vStr)
-							}
-							if vStr == "" && kf == "subject" && op.OpType == "approval" && op.Author.Email != "" {
-								vStr = normalizePerson("email:" + op.Author.Email)
 							}
 							key = append(key, vStr)
 						}

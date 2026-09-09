@@ -53,7 +53,7 @@ func TestFoldObjectTypeInference(t *testing.T) {
 					ID: "op-create",
 					Envelope: codec.Envelope{
 						ObjectID:   "obj-1",
-						ObjectType: "issue",
+						ObjectType: "gadget",
 						OpType:     "create",
 						OpVersion:  1,
 						Body:       []byte(`{"title":"Initial Title"}`),
@@ -61,7 +61,7 @@ func TestFoldObjectTypeInference(t *testing.T) {
 					Author: codec.Identity{When: baseTime},
 				},
 			},
-			wantType: "issue",
+			wantType: "gadget",
 		},
 		{
 			name: "ops[0] empty ObjectType, subsequent update op has ObjectType",
@@ -81,7 +81,7 @@ func TestFoldObjectTypeInference(t *testing.T) {
 					ID: "op-2",
 					Envelope: codec.Envelope{
 						ObjectID:   "obj-1",
-						ObjectType: "review",
+						ObjectType: "widget",
 						OpType:     "update",
 						OpVersion:  1,
 						Body:       []byte(`{"title":"Title 2"}`),
@@ -90,7 +90,7 @@ func TestFoldObjectTypeInference(t *testing.T) {
 					Author:  codec.Identity{When: baseTime.Add(time.Minute)},
 				},
 			},
-			wantType: "review",
+			wantType: "widget",
 		},
 		{
 			name: "subsequent create op takes precedence over first non-empty op",
@@ -111,7 +111,7 @@ func TestFoldObjectTypeInference(t *testing.T) {
 					ID: "op-create",
 					Envelope: codec.Envelope{
 						ObjectID:   "obj-1",
-						ObjectType: "issue",
+						ObjectType: "gadget",
 						OpType:     "create",
 						OpVersion:  1,
 						Body:       []byte(`{"title":"Title"}`),
@@ -119,7 +119,7 @@ func TestFoldObjectTypeInference(t *testing.T) {
 					Author: codec.Identity{When: baseTime},
 				},
 			},
-			wantType: "issue",
+			wantType: "gadget",
 		},
 		{
 			name: "all ops have empty ObjectType",
@@ -164,7 +164,7 @@ func TestFoldKeyedLWWMultiRuleField(t *testing.T) {
 
 	rules := []fold.Rule{
 		{
-			OpType:    "approval",
+			OpType:    "endorse",
 			OpVersion: 1,
 			Field:     "revision",
 			Strategy:  "keyed-lww",
@@ -172,7 +172,7 @@ func TestFoldKeyedLWWMultiRuleField(t *testing.T) {
 			KeyTypes:  map[string]string{"subject": "person-ref", "revision": "git-oid"},
 		},
 		{
-			OpType:    "approval",
+			OpType:    "endorse",
 			OpVersion: 1,
 			Field:     "verdict",
 			Strategy:  "keyed-lww",
@@ -180,14 +180,14 @@ func TestFoldKeyedLWWMultiRuleField(t *testing.T) {
 			KeyTypes:  map[string]string{"subject": "person-ref", "revision": "git-oid"},
 		},
 		{
-			OpType:    "ci-status",
+			OpType:    "probe",
 			OpVersion: 1,
 			Field:     "revision",
 			Strategy:  "keyed-lww",
 			Key:       []string{"revision", "name"},
 		},
 		{
-			OpType:    "ci-status",
+			OpType:    "probe",
 			OpVersion: 1,
 			Field:     "state",
 			Strategy:  "keyed-lww",
@@ -198,8 +198,8 @@ func TestFoldKeyedLWWMultiRuleField(t *testing.T) {
 	opApp := codec.Op{
 		Envelope: codec.Envelope{
 			ObjectID:   "r-1",
-			ObjectType: "review",
-			OpType:     "approval",
+			ObjectType: "widget",
+			OpType:     "endorse",
 			OpVersion:  1,
 			Body:       json.RawMessage(`{"revision":"` + rev + `","verdict":"approve","subject":"user:alice"}`),
 		},
@@ -213,8 +213,8 @@ func TestFoldKeyedLWWMultiRuleField(t *testing.T) {
 	opCI := codec.Op{
 		Envelope: codec.Envelope{
 			ObjectID:   "r-1",
-			ObjectType: "review",
-			OpType:     "ci-status",
+			ObjectType: "widget",
+			OpType:     "probe",
 			OpVersion:  1,
 			Body:       json.RawMessage(`{"revision":"` + rev + `","name":"lint","state":"success"}`),
 		},

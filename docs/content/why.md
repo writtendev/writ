@@ -27,19 +27,29 @@ Writ specifies where else it should go.
 
 ## What it actually is
 
-Every review, issue, comment and approval is a **collaborative object**: a DAG
-of small, signed, immutable **operations**, each stored as an ordinary git
-commit under `refs/writ/*`. Current state is never stored authoritatively. It
-is derived, by deterministically folding an object's operations in causal
-order.
+Writ declares no types of its own. Every type your team works in — a ticket, a
+review, a comment — is declared as data, in a `writ.schema` file you own, and
+each object of one is a **collaborative object**: a DAG of small, signed,
+immutable **operations**, each stored as an ordinary git commit under
+`refs/writ/*`. Current state is never stored authoritatively. It is derived, by
+deterministically folding an object's operations in causal order.
 
 ```console
-$ writ init                        # writes fetch refspecs into .git/config
-$ writ schema apply                 # appends the schema op; review/issue/comment ship as engine built-ins, not from this file
-$ writ object create review create -field title="Add rate limiting"
+$ writ init                        # fetch refspecs, plus a starter writ.schema
+$ cat > writ.schema <<'EOF'         # replace the starter: your vocabulary, as data
+namespace acme
+type ticket {
+  op create 1   { title string(200) lww }
+  op revision 1 { base git-oid lww  head git-oid lww }
+}
+type gadget {
+  op create 1 { subject untyped lww  text text multi-value }
+}
+EOF
+$ writ schema apply                # signs and appends the ops declaring them
+$ writ object create ticket create -field title="Add rate limiting"
 $ writ object apply <id> revision -field base=<base-sha> -field head=<head-sha>
-$ writ object create comment create -field-json subject='{"object_type":"review","object_id":"<id>"}' -field text="this allocates in the hot path"
-$ writ object apply <id> approval -field revision=<head-sha> -field verdict=approve
+$ writ object create gadget create -field-json subject='{"object_type":"ticket","object_id":"<id>"}' -field text="this allocates in the hot path"
 $ writ sync                        # git push, to your own ref namespace
 ```
 
@@ -235,10 +245,11 @@ lives; it rides along inside it as one more git client.
 No peer-to-peer networking — Radicle is doing that mission properly and we
 have nothing to add.
 
-No project-management feature parity. The spec covers issues, projects and
-cycles from day one because the object IDs have to be globally unique from
-day one, but the near-term focus is review with issues as the natural
-companion.
+No project-management feature parity, and no project-management vocabulary
+either: issues, projects and cycles are types a consumer declares, not types
+writ ships. What the spec owes them from day one is the substrate they need —
+globally unique object ids, merge strategies, forward compatibility — and
+nothing above it.
 
 No binary storage format for canonical data. Binary means no diff, no merge,
 no delta compression — and git *is* the append-only log already. Commits are

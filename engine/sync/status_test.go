@@ -37,8 +37,8 @@ func TestStatus_ReachabilityComputation(t *testing.T) {
 		ident := testIdentity(aliceID, "Alice", "alice@example.com")
 		store := mustOpenStore(t, dir, ident)
 
-		appendTestOp(t, store, "review", "rev-1", "create", map[string]any{"title": "Rev 1"})
-		appendTestOp(t, store, "review", "rev-1", "update", map[string]any{"description": "Description 1"})
+		appendTestOp(t, store, "widget", "w-1", "create", map[string]any{"title": "Widget 1"})
+		appendTestOp(t, store, "widget", "w-1", "update", map[string]any{"description": "Description 1"})
 
 		status, err := sync.ComputeStatus(repo.Storer, ident.WriterID, "origin")
 		if err != nil {
@@ -50,8 +50,8 @@ func TestStatus_ReachabilityComputation(t *testing.T) {
 		if status.Diverged {
 			t.Errorf("Diverged = true, want false")
 		}
-		if len(status.ByType) != 1 || status.ByType[0].ObjectType != "review" || status.ByType[0].Unsynced != 2 {
-			t.Errorf("ByType = %+v, want [{ObjectType: review, Unsynced: 2}]", status.ByType)
+		if len(status.ByType) != 1 || status.ByType[0].ObjectType != "widget" || status.ByType[0].Unsynced != 2 {
+			t.Errorf("ByType = %+v, want [{ObjectType: widget, Unsynced: 2}]", status.ByType)
 		}
 	})
 
@@ -60,12 +60,12 @@ func TestStatus_ReachabilityComputation(t *testing.T) {
 		ident := testIdentity(aliceID, "Alice", "alice@example.com")
 		store := mustOpenStore(t, dir, ident)
 
-		revOp1 := appendTestOp(t, store, "review", "rev-1", "create", map[string]any{"title": "Rev 1"})
-		_ = appendTestOp(t, store, "issue", "iss-1", "create", map[string]any{"title": "Issue 1"})
+		widgetOp1 := appendTestOp(t, store, "widget", "w-1", "create", map[string]any{"title": "Widget 1"})
+		_ = appendTestOp(t, store, "gadget", "g-1", "create", map[string]any{"title": "Gadget 1"})
 
-		// Simulate that review chain was pushed to origin, but issue was not pushed
-		reviewRef := dag.RemoteRefName("origin", ident.WriterID, "review")
-		err := repo.Storer.SetReference(plumbing.NewReferenceFromStrings(reviewRef.String(), revOp1))
+		// Simulate that widget chain was pushed to origin, but gadget was not pushed
+		widgetRef := dag.RemoteRefName("origin", ident.WriterID, "widget")
+		err := repo.Storer.SetReference(plumbing.NewReferenceFromStrings(widgetRef.String(), widgetOp1))
 		if err != nil {
 			t.Fatalf("SetReference failed: %v", err)
 		}
@@ -83,12 +83,12 @@ func TestStatus_ReachabilityComputation(t *testing.T) {
 		if len(status.ByType) != 2 {
 			t.Fatalf("ByType len = %d, want 2", len(status.ByType))
 		}
-		// Expect sorted ByType: [issue: 1, review: 0]
-		if status.ByType[0].ObjectType != "issue" || status.ByType[0].Unsynced != 1 {
-			t.Errorf("ByType[0] = %+v, want {issue, 1}", status.ByType[0])
+		// Expect sorted ByType: [gadget: 1, widget: 0]
+		if status.ByType[0].ObjectType != "gadget" || status.ByType[0].Unsynced != 1 {
+			t.Errorf("ByType[0] = %+v, want {gadget, 1}", status.ByType[0])
 		}
-		if status.ByType[1].ObjectType != "review" || status.ByType[1].Unsynced != 0 {
-			t.Errorf("ByType[1] = %+v, want {review, 0}", status.ByType[1])
+		if status.ByType[1].ObjectType != "widget" || status.ByType[1].Unsynced != 0 {
+			t.Errorf("ByType[1] = %+v, want {widget, 0}", status.ByType[1])
 		}
 	})
 
@@ -97,18 +97,18 @@ func TestStatus_ReachabilityComputation(t *testing.T) {
 		bobIdent := testIdentity(bobID, "Bob", "bob@example.com")
 		bobStore := mustOpenStore(t, dir, bobIdent)
 
-		bobOp1 := appendTestOp(t, bobStore, "review", "rev-1", "create", map[string]any{"title": "Bob Rev"})
+		bobOp1 := appendTestOp(t, bobStore, "widget", "w-1", "create", map[string]any{"title": "Bob Widget"})
 
 		// Simulate Bob's op is already on remote
-		bobRemoteRef := dag.RemoteRefName("origin", bobIdent.WriterID, "review")
+		bobRemoteRef := dag.RemoteRefName("origin", bobIdent.WriterID, "widget")
 		_ = repo.Storer.SetReference(plumbing.NewReferenceFromStrings(bobRemoteRef.String(), bobOp1))
 
 		// Alice creates a new chain whose causal parent includes Bob's op
 		aliceIdent := testIdentity(aliceID, "Alice", "alice@example.com")
 		aliceStore := mustOpenStore(t, dir, aliceIdent)
-		appendTestOp(t, aliceStore, "review", "rev-1", "approval", map[string]any{
+		appendTestOp(t, aliceStore, "widget", "w-1", "endorse", map[string]any{
 			"revision": strings.Repeat("a", 40),
-			"verdict":  "approve",
+			"verdict":  "yes",
 		})
 
 		// Status for Alice must report only Alice's 1 unsynced op, not Bob's op
@@ -129,10 +129,10 @@ func TestStatus_ReachabilityComputation(t *testing.T) {
 		ident := testIdentity(aliceID, "Alice", "alice@example.com")
 		store := mustOpenStore(t, dir, ident)
 
-		op1 := appendTestOp(t, store, "review", "rev-1", "create", map[string]any{"title": "Rev 1"})
+		op1 := appendTestOp(t, store, "widget", "w-1", "create", map[string]any{"title": "Widget 1"})
 
 		// Remote "origin" has op1 pushed
-		originRef := dag.RemoteRefName("origin", ident.WriterID, "review")
+		originRef := dag.RemoteRefName("origin", ident.WriterID, "widget")
 		_ = repo.Storer.SetReference(plumbing.NewReferenceFromStrings(originRef.String(), op1))
 
 		// Remote "upstream" has nothing pushed
@@ -159,18 +159,18 @@ func TestStatus_ReachabilityComputation(t *testing.T) {
 		store := mustOpenStore(t, dir, ident)
 
 		// Create commit R1 (simulating rolled back tip on remote)
-		opR1 := appendTestOp(t, store, "review", "rev-old", "create", map[string]any{"title": "Old Rev"})
-		remoteRef := dag.RemoteRefName("origin", ident.WriterID, "review")
+		opR1 := appendTestOp(t, store, "widget", "w-old", "create", map[string]any{"title": "Old Widget"})
+		remoteRef := dag.RemoteRefName("origin", ident.WriterID, "widget")
 		_ = repo.Storer.SetReference(plumbing.NewReferenceFromStrings(remoteRef.String(), opR1))
 
 		// Now reset local chain to a new branch / commit L1 that does not have R1 as ancestor
 		// By resetting local ref:
-		localRef := dag.LocalRefName(ident.WriterID, "review")
+		localRef := dag.LocalRefName(ident.WriterID, "widget")
 		_ = repo.Storer.RemoveReference(localRef)
 
 		// Append new op on local (creates fresh root L1)
 		store2 := mustOpenStore(t, dir, ident)
-		appendTestOp(t, store2, "review", "rev-new", "create", map[string]any{"title": "New Rev"})
+		appendTestOp(t, store2, "widget", "w-new", "create", map[string]any{"title": "New Widget"})
 
 		status, err := sync.ComputeStatus(repo.Storer, ident.WriterID, "origin")
 		if err != nil {
@@ -195,8 +195,8 @@ func TestStatus_ReachabilityComputation(t *testing.T) {
 		store1 := mustOpenStore(t, dir, ident1)
 		store2 := mustOpenStore(t, dir, ident2)
 
-		appendTestOp(t, store1, "review", "rev-1", "create", map[string]any{"title": "Device 1 Rev"})
-		appendTestOp(t, store2, "review", "rev-2", "create", map[string]any{"title": "Device 2 Rev"})
+		appendTestOp(t, store1, "widget", "w-1", "create", map[string]any{"title": "Device 1 Widget"})
+		appendTestOp(t, store2, "widget", "w-2", "create", map[string]any{"title": "Device 2 Widget"})
 
 		status1, err := sync.ComputeStatus(repo.Storer, ident1.WriterID, "origin")
 		if err != nil {

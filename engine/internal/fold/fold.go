@@ -238,8 +238,6 @@ func Fold(ops []codec.Op, rules []Rule) (ObjectState, error) {
 					} else if r.Field == "remove" && bm["add"] != nil {
 						hasWrite = true
 					}
-				} else if r.Field == "subject" && o.Op.OpType == "approval" && o.Op.Author.Email != "" {
-					hasWrite = true
 				}
 				if hasWrite {
 					targetKey := r.TargetKey()

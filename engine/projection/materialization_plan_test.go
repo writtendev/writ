@@ -34,7 +34,7 @@ func TestRefreshWithoutSchemaOnReopenedCacheErrors(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "projection.db")
 	_, store := createTestStore(t, "0123456789abcdef")
 
-	env := makeReviewEnv("rev-1", "create", 1, map[string]any{"title": "T"})
+	env := makeWidgetEnv("w-1", "create", map[string]any{"title": "T"})
 	if _, err := store.Append(ctx, env, nil); err != nil {
 		t.Fatalf("store.Append failed: %v", err)
 	}
@@ -47,11 +47,11 @@ func TestRefreshWithoutSchemaOnReopenedCacheErrors(t *testing.T) {
 		t.Fatalf("initial Refresh (with schema) failed: %v", err)
 	}
 	var title string
-	if err := db1.DB().QueryRow("SELECT f_title FROM o_review WHERE object_id = 'rev-1'").Scan(&title); err != nil {
-		t.Fatalf("query o_review before reopen failed: %v", err)
+	if err := db1.DB().QueryRow("SELECT f_title FROM o_widget WHERE object_id = 'w-1'").Scan(&title); err != nil {
+		t.Fatalf("query o_widget before reopen failed: %v", err)
 	}
 	if title != "T" {
-		t.Fatalf("o_review.f_title before reopen = %q, want %q", title, "T")
+		t.Fatalf("o_widget.f_title before reopen = %q, want %q", title, "T")
 	}
 	if err := db1.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
@@ -75,14 +75,14 @@ func TestRefreshWithoutSchemaOnReopenedCacheErrors(t *testing.T) {
 
 	// The prior materialization must be untouched by the refused call — no
 	// stale-vs-unknown_ops divergence, because nothing was written.
-	if err := db2.DB().QueryRow("SELECT f_title FROM o_review WHERE object_id = 'rev-1'").Scan(&title); err != nil {
-		t.Fatalf("query o_review after refused Refresh failed: %v", err)
+	if err := db2.DB().QueryRow("SELECT f_title FROM o_widget WHERE object_id = 'w-1'").Scan(&title); err != nil {
+		t.Fatalf("query o_widget after refused Refresh failed: %v", err)
 	}
 	if title != "T" {
-		t.Fatalf("o_review.f_title after refused Refresh = %q, want %q (unchanged)", title, "T")
+		t.Fatalf("o_widget.f_title after refused Refresh = %q, want %q (unchanged)", title, "T")
 	}
 	var unknownCount int
-	if err := db2.DB().QueryRow("SELECT COUNT(*) FROM unknown_ops WHERE object_id = 'rev-1'").Scan(&unknownCount); err != nil {
+	if err := db2.DB().QueryRow("SELECT COUNT(*) FROM unknown_ops WHERE object_id = 'w-1'").Scan(&unknownCount); err != nil {
 		t.Fatalf("query unknown_ops after refused Refresh failed: %v", err)
 	}
 	if unknownCount != 0 {

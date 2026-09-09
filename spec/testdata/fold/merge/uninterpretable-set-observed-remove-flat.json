@@ -1,6 +1,6 @@
 {
   "name": "uninterpretable-set-observed-remove-flat",
-  "description": "The same rule on the flat body shape (§5.4), where `add` and `remove` are themselves the declared fields rather than members of an object under one. This is the shape review and issue `assign` and `label` operations actually use. A side holds a string or an array of strings: a bare string is one item, and a side that is present and holds null is a write claimed with no value in it and is rejected. Remove-only operations apply removals to additions carried by causally preceding operations",
+  "description": "The same rule on the flat body shape (§5.4), where `add` and `remove` are themselves the declared fields rather than members of an object under one. A side holds a string or an array of strings: a bare string is one item, and a side that is present and holds null is a write claimed with no value in it and is rejected. Remove-only operations apply removals to additions carried by causally preceding operations",
   "object_id": "obj-1",
   "fields": {
     "add": { "strategy": "set-observed-remove" }

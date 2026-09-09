@@ -287,7 +287,7 @@ produces the canonical decimal string `schema-ops.md` §3.1 requires
 non-canonical encoding (`"01"`) has no path to the wire regardless of how
 a human wrote the version number in source. Every emitted `define-field`
 is additionally validated through `spec.ValidateFieldRule` — the same
-function every vocabulary's `field-rules.json` is validated through —
+function the bootstrap `field-rules.json` is validated through —
 before `Compile` returns, so a file that would produce a rule
 `RulesFromSchemas` later drops (a lattice element outside its enum, a
 `key_types` mismatch, and so on) is rejected at compile time, with a line

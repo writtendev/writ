@@ -3,7 +3,7 @@ description: >
   refs/heads/main is pushed once, then force-pushed to unrelated history.
   The first generation is kept reachable under
   refs/fixture-history/main/gen-0 so a fixture consumer can still resolve
-  the pre-rewrite blob a comment might have anchored to — the "orphaned
+  the pre-rewrite blob an anchor might point at — the "orphaned
   but preserved" case ARCHITECTURE.md's anchoring section calls for.
   Without keep_as, gen-0's commits would still be written (and covered by
   determinism) but unreachable from any ref, matching a real force-push

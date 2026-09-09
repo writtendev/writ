@@ -6,7 +6,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/go-git/go-git/v5/plumbing"
@@ -132,8 +131,7 @@ func (s *Store) vocabularies(ctx context.Context) (codec.Vocabularies, error) {
 		return nil, fmt.Errorf("writ: resolve vocabularies: %w", err)
 	}
 	vocabularies, _ := VocabulariesFromSchemas(schemas)
-	logRules, _ := RulesFromSchemas(schemas)
-	rules := mergeRules(builtinRules(), logRules)
+	rules, _ := RulesFromSchemas(schemas)
 	res := resolveSchemaTypes(schemas)
 
 	s.vocabMu.Lock()
@@ -148,18 +146,11 @@ func (s *Store) vocabularies(ctx context.Context) (codec.Vocabularies, error) {
 }
 
 // rules resolves the fold-rule index a projection ApplySchema/Refresh/Rebuild
-// call consumes: the built-in vocabulary overlaid by whatever the log
-// declares for the same object_type, log wins per type. It is memoised
-// alongside vocabularies (same cache-miss branch, same dag.Chains
+// call consumes: whatever the log declares, per object_type, and nothing
+// else — writ ships no vocabulary of its own to overlay it on. It is
+// memoised alongside vocabularies (same cache-miss branch, same dag.Chains
 // fingerprint, same invalidation via noteAppend), so calling this on every
 // Refresh costs one Chains pass and a fingerprint comparison, not a fold.
-//
-// Installing the log's declaration wherever it exists, rather than treating
-// a log-vs-built-in name collision as a conflict that installs neither,
-// mirrors WRIT-188's own tier-2-over-tier-3 producer-validation precedence:
-// the alternative would blank a repo's projection the moment someone runs
-// `writ schema apply`, since nothing declares the built-in types in the log
-// yet.
 func (s *Store) rules(ctx context.Context) (map[string][]Rule, error) {
 	if _, err := s.vocabularies(ctx); err != nil {
 		return nil, err
@@ -184,44 +175,6 @@ func (s *Store) declaredTypes(ctx context.Context) (resolvedSchemaTypes, error) 
 	cached := s.typesCache
 	s.vocabMu.Unlock()
 	return cached, nil
-}
-
-// mergeRules overlays log onto base, replacing base's entire rule list for
-// any object_type the log declares — not merging field-by-field — because
-// RulesFromSchemas already returns, per object_type, the complete installed
-// rule set for that type (every non-contested field across every schema
-// object binding it), and a partial merge would let a stale built-in rule
-// for a field the log's schema silently omits keep firing.
-func mergeRules(base, log map[string][]Rule) map[string][]Rule {
-	out := make(map[string][]Rule, len(base)+len(log))
-	for t, rs := range base {
-		out[t] = rs
-	}
-	for t, rs := range log {
-		out[t] = rs
-	}
-	return out
-}
-
-// builtinRulesOnce computes the still-shipping built-in vocabulary's fold
-// rules exactly once per process, delegating to state.BuiltinRules() — the
-// one shared construction production and every test package needing "a
-// rule index declaring the current built-in types" builds from
-// (WRIT-189 round 2 MINOR-4: this used to be a fourth, separately drifting
-// copy of what three test packages already built via
-// spec/fixtures.BuiltinRules(), so the tests validated an index production
-// never actually built). Rule is a type alias for state.Rule (engine/fold.go),
-// so state.BuiltinRules()'s map[string][]state.Rule needs no conversion.
-var builtinRulesOnce = sync.OnceValue(func() map[string][]Rule {
-	out, err := state.BuiltinRules()
-	if err != nil {
-		panic(fmt.Errorf("writ: loading built-in field rules: %w", err))
-	}
-	return out
-})
-
-func builtinRules() map[string][]Rule {
-	return builtinRulesOnce()
 }
 
 // noteAppend rolls the cached producer-vocabularies fingerprint forward
@@ -322,33 +275,26 @@ func (s *Store) checkBeforeAppend(ctx context.Context, envs ...codec.Envelope) e
 	return nil
 }
 
-// Types returns the vocabulary actually in effect right now: every declared
-// object type, its fields, and its ops — the built-in vocabulary overlaid by
-// whatever the log declares for the same object_type, log wins per type,
-// exactly the precedence Store.rules already applies to build the fold-rule
-// index (mergeRules). Types is memoised behind the same dag.Chains
-// fingerprint Store.rules already is, by reusing Store.declaredTypes: a
-// call here costs whatever a cache hit already costs there, never a second
-// Schema/Enumerate fold.
+// Types returns the vocabulary actually in effect right now: every object
+// type the log declares, its fields, and its ops. Writ hard-codes no
+// vocabulary of its own beyond `schema` itself, so there is nothing to
+// overlay — what the log says is what is installed. Types is memoised
+// behind the same dag.Chains fingerprint Store.rules already is, by reusing
+// Store.declaredTypes: a call here costs whatever a cache hit already costs
+// there, never a second Schema/Enumerate fold.
 //
-// Types differs from Store.Schema in what it answers: Schema returns only
-// the `schema` objects present in the log (what `writ schema plan`/`apply`
-// reason about), which is empty on a repository that has never run `writ
-// schema apply` even though the built-in vocabulary is installed and
-// folding right now. Types answers "what is installed and folding this
-// moment" — on that same fresh repository, it still returns every built-in
-// type.
+// Types differs from Store.Schema in what it answers: Schema returns the
+// `schema` objects present in the log (what `writ schema plan`/`apply`
+// reason about), while Types answers "what is installed and folding this
+// moment" — the resolved, non-contested types those objects declare.
 //
-// A log-declared type's Fields, Ops, Description, and Deprecated come
-// straight from resolveSchemaTypes's own resolved shape — descriptions and
-// Deprecated included, and Ops the union of every explicit define-op
-// declaration with the (op_type, op_version) pairs its Fields imply, so a
-// type declared with define-op and no fields at all
+// A type's Fields, Ops, Description, and Deprecated come straight from
+// resolveSchemaTypes's own resolved shape — descriptions and Deprecated
+// included, and Ops the union of every explicit define-op declaration with
+// the (op_type, op_version) pairs its Fields imply, so a type declared with
+// define-op and no fields at all
 // (TestDeclaredTypeWithNoFieldsIsWritable) is not invisible here the way it
-// would be from field rules alone. A built-in type has no state.Schema
-// object in the log to carry a description from, so it stays synthesised
-// from its Go rule table exactly as before, with Description and
-// Deprecated left zero.
+// would be from field rules alone.
 func (s *Store) Types(ctx context.Context) ([]SchemaType, error) {
 	if s == nil {
 		return nil, fmt.Errorf("writ: store is nil")
@@ -358,32 +304,19 @@ func (s *Store) Types(ctx context.Context) ([]SchemaType, error) {
 	if err != nil {
 		return nil, fmt.Errorf("writ: resolve types: %w", err)
 	}
-	builtin := builtinRules()
 
-	names := make(map[string]bool, len(builtin)+len(res.declared))
-	for name := range builtin {
-		names[name] = true
-	}
+	sortedNames := make([]string, 0, len(res.declared))
 	for name := range res.declared {
 		if name == "schema" || res.contested[name] {
 			continue
 		}
-		names[name] = true
-	}
-
-	sortedNames := make([]string, 0, len(names))
-	for name := range names {
 		sortedNames = append(sortedNames, name)
 	}
 	sort.Strings(sortedNames)
 
 	types := make([]SchemaType, 0, len(sortedNames))
 	for _, name := range sortedNames {
-		if res.declared[name] && !res.contested[name] {
-			types = append(types, schemaTypeFromResolved(name, res))
-			continue
-		}
-		types = append(types, schemaTypeFromRules(name, builtin[name]))
+		types = append(types, schemaTypeFromResolved(name, res))
 	}
 	return types, nil
 }
@@ -448,53 +381,6 @@ func schemaTypeFromResolved(name string, res resolvedSchemaTypes) SchemaType {
 		Fields:      fields,
 		Ops:         ops,
 	}
-}
-
-// schemaTypeFromRules converts one object type's resolved rule list (a
-// Store.rules(ctx) entry) into the SchemaType shape Store.Types returns:
-// one SchemaField per rule, and an Ops list derived from the distinct
-// (op_type, op_version) pairs those rules declare, sorted for a
-// deterministic, order-independent result regardless of the input rule
-// slice's own order.
-func schemaTypeFromRules(name string, rules []Rule) SchemaType {
-	fields := make([]SchemaField, len(rules))
-	for i, r := range rules {
-		fields[i] = SchemaField{
-			Name:       r.Field,
-			OpType:     r.OpType,
-			OpVersion:  r.OpVersion,
-			ValueType:  r.ValueType,
-			Enum:       r.Enum,
-			MaxLength:  r.MaxLength,
-			Strategy:   r.Strategy,
-			Key:        r.Key,
-			KeyTypes:   r.KeyTypes,
-			Lattice:    r.Lattice,
-			Target:     r.Target,
-			Deprecated: r.Deprecated,
-		}
-	}
-	sort.Slice(fields, func(i, j int) bool {
-		if fields[i].OpType != fields[j].OpType {
-			return fields[i].OpType < fields[j].OpType
-		}
-		if fields[i].OpVersion != fields[j].OpVersion {
-			return fields[i].OpVersion < fields[j].OpVersion
-		}
-		return fields[i].Name < fields[j].Name
-	})
-
-	seen := make(map[SchemaOp]bool)
-	var ops []SchemaOp
-	for _, f := range fields {
-		op := SchemaOp{OpType: f.OpType, OpVersion: f.OpVersion}
-		if !seen[op] {
-			seen[op] = true
-			ops = append(ops, op)
-		}
-	}
-
-	return SchemaType{Name: name, Fields: fields, Ops: ops}
 }
 
 // ApplySchema appends a compiled `schema` op sequence (schemasrc.Compile's
@@ -1045,7 +931,7 @@ func RulesFromSchemas(schemas []state.Schema) (map[string][]Rule, []SchemaConfli
 // VocabulariesFromSchemas resolves every folded schema object present in a
 // repo into the codec.Vocabularies shape the generic producer validator
 // (engine/codec's BuildCommit/ValidateBody) checks tier 2 of
-// spec/op-envelope.md's five-tier precedence against — the log-sourced
+// spec/op-envelope.md's four-tier precedence against — the log-sourced
 // counterpart to RulesFromSchemas's fold-rule shape, built from the exact
 // same collision/validation pass (resolveSchemaTypes) so the two can never
 // disagree about what is contested or declared.

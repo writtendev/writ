@@ -74,7 +74,7 @@ type Drafts struct {
 func (*Drafts) Discard(ctx context.Context, id string) error
 func (*Drafts) Get(ctx context.Context, id string) (Draft, error)
 func (*Drafts) List(ctx context.Context, filter DraftFilter) ([]Draft, error)
-func (*Drafts) Publish(ctx context.Context, id string) (string, error)
+func (*Drafts) Publish(ctx context.Context, id, objectType string) (string, error)
 func (*Drafts) Save(ctx context.Context, draft Draft) (string, error)
 
 type Event struct {
@@ -757,7 +757,7 @@ func MakeAnchor(commitSHA, path, content string, startLine, endLine int) resolve
 func Run(t TestReporter, s Scenario)
 
 type AnchorCheck struct {
-	CommentID string
+	ObjectID string
 	Branch string
 }
 
@@ -831,7 +831,7 @@ type ResetLocalChain struct {
 }
 
 type ResolutionRecord struct {
-	CommentID string `json:"comment_id"`
+	ObjectID string `json:"object_id"`
 	Anchor resolve.Anchor `json:"anchor"`
 	Resolution resolve.Resolution `json:"resolution"`
 	Status string `json:"status"`
@@ -967,7 +967,6 @@ var ErrDuplicateOpID = fold.ErrDuplicateOpID
 var ErrInvalidReference = errors.New("writ: invalid reference format")
 var ErrMixedObjects = fold.ErrMixedObjects
 
-func BuiltinRules() (map[string][]Rule, error)
 func Fold(ops []codec.Op, rules []Rule) (ObjectState, error)
 func FoldSchema(ops []codec.Op) (Schema, error)
 func NormalizePerson(s string) string

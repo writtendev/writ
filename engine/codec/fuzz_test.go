@@ -30,22 +30,11 @@ func FuzzPayloadRoundTrip(f *testing.F) {
 		}
 	}
 
-	// Seed with valid review ops
-	if entries, err := spec.FS.ReadDir("testdata/review-ops/valid"); err == nil {
+	// Seed with valid schema ops, the one vocabulary writ ships
+	if entries, err := spec.FS.ReadDir("testdata/schema-ops/valid"); err == nil {
 		for _, e := range entries {
 			if strings.HasSuffix(e.Name(), ".json") {
-				if raw, err := spec.FS.ReadFile("testdata/review-ops/valid/" + e.Name()); err == nil {
-					f.Add(raw)
-				}
-			}
-		}
-	}
-
-	// Seed with valid comments
-	if entries, err := spec.FS.ReadDir("testdata/comments/valid"); err == nil {
-		for _, e := range entries {
-			if strings.HasSuffix(e.Name(), ".json") {
-				if raw, err := spec.FS.ReadFile("testdata/comments/valid/" + e.Name()); err == nil {
+				if raw, err := spec.FS.ReadFile("testdata/schema-ops/valid/" + e.Name()); err == nil {
 					f.Add(raw)
 				}
 			}

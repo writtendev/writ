@@ -1,17 +1,17 @@
 {
   "refs": [
     {
-      "name": "refs/writ/0123456789abcdef/review",
+      "name": "refs/writ/0123456789abcdef/widget",
       "commit": "ece287012f481d19a0a576c36b792de70cdc37e5"
     },
     {
-      "name": "refs/writ/fedcba9876543210/review",
+      "name": "refs/writ/fedcba9876543210/widget",
       "commit": "3f851624c39cbd033b2ddd1300adbcaf03e32810"
     }
   ],
   "generations": [
     {
-      "ref": "refs/writ/0123456789abcdef/review",
+      "ref": "refs/writ/0123456789abcdef/widget",
       "index": 0,
       "commits": [
         {
@@ -37,7 +37,7 @@
       ]
     },
     {
-      "ref": "refs/writ/fedcba9876543210/review",
+      "ref": "refs/writ/fedcba9876543210/widget",
       "index": 0,
       "commits": [
         {

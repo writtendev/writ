@@ -55,14 +55,15 @@ func BenchmarkVocabulariesCache(b *testing.B) {
 	defer store.Close()
 	ctx := context.Background()
 	dagStore := writ.StoreDAGStore(store)
+	applyCoreSchema(b, ctx, store)
 
 	// A moderately sized log of ordinary, non-"schema" ops: what Miss's
 	// full re-fold has to walk, and what Hit must stay flat despite.
 	const logSize = 200
 	for i := 0; i < logSize; i++ {
 		env := codec.Envelope{
-			ObjectID:   fmt.Sprintf("rev-%d", i),
-			ObjectType: "review",
+			ObjectID:   fmt.Sprintf("w-%d", i),
+			ObjectType: "widget",
 			OpType:     "create",
 			OpVersion:  1,
 			Body:       json.RawMessage(`{"title":"T"}`),
@@ -139,6 +140,7 @@ func BenchmarkAppendByRefCount(b *testing.B) {
 			defer store.Close()
 			ctx := context.Background()
 			dagStore := writ.StoreDAGStore(store)
+			applyCoreSchema(b, ctx, store)
 
 			// Ordinary loose refs a real repository accumulates as
 			// branches, tags, and remote-tracking refs — none of them
@@ -157,7 +159,7 @@ func BenchmarkAppendByRefCount(b *testing.B) {
 			// timing begins, so every timed Append is a cache hit — the
 			// dimension finding 1 measured.
 			warmup := codec.Envelope{
-				ObjectID: "warm", ObjectType: "review", OpType: "create",
+				ObjectID: "warm", ObjectType: "widget", OpType: "create",
 				OpVersion: 1, Body: json.RawMessage(`{"title":"T"}`),
 			}
 			if _, err := dagStore.Append(ctx, warmup, nil); err != nil {
@@ -167,8 +169,8 @@ func BenchmarkAppendByRefCount(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				env := codec.Envelope{
-					ObjectID:   fmt.Sprintf("rev-%d", i),
-					ObjectType: "review",
+					ObjectID:   fmt.Sprintf("w-%d", i),
+					ObjectType: "widget",
 					OpType:     "create",
 					OpVersion:  1,
 					Body:       json.RawMessage(`{"title":"T"}`),

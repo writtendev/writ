@@ -1,13 +1,14 @@
-# Anchors — content-based comment positions (v1)
+# Anchors — content-based positions in code (v1)
 
 Status: normative. Schema: [`schemas/anchor.schema.json`](schemas/anchor.schema.json).
 Vectors: [`testdata/anchors/`](testdata/anchors/).
 
-An **anchor** records *where in the code* a comment points. Writ anchors to
-**content** — blob identity plus captured hunk context — never to bare line
-numbers, so a comment's position survives force-pushes, rebases, and renames
-as well as possible, and degrades to "orphaned but preserved" when it cannot
-(ARCHITECTURE.md §Anchoring).
+An **anchor** records *where in the code* an object points — a value type
+([`spec/value-types.md`](value-types.md)) any schema-declared object can
+carry. Writ anchors to **content** — blob identity plus captured hunk
+context — never to bare line numbers, so an anchored position survives
+force-pushes, rebases, and renames as well as possible, and degrades to
+"orphaned but preserved" when it cannot (ARCHITECTURE.md §Anchoring).
 
 The key words MUST, MUST NOT, SHOULD, and MAY are to be interpreted as
 described in RFC 2119.
@@ -25,8 +26,9 @@ deliberately does not define:
   vectors and the orphaned-anchors fixture family (WRIT-19). This section only
   guarantees the format *carries enough signal* for resolution — see
   [Resolution affordances](#resolution-affordances-non-normative).
-- **The comment op** that embeds an anchor — threading, edits, deletion
-  (WRIT-9). An anchor is a value object inside op bodies, not an op itself.
+- **The op types that embed an anchor.** Which fields of which object types
+  carry one is declared by a schema ([`spec/schema-ops.md`](schema-ops.md)).
+  An anchor is a value object inside op bodies, not an op itself.
 - **Cross-repo references.** Anchors are repo-local: every OID in an anchor
   refers to an object in the repository whose ref namespace carries the
   containing op. Workspace-global identity is specified in
@@ -50,31 +52,31 @@ not understand, and MUST NOT drop them on rewrite.
 | Field     | Type    | Required | Meaning |
 | --------- | ------- | -------- | ------- |
 | `version` | integer | yes      | Anchor format version. This section defines version `1`. |
-| `old`     | object  | see below | Position in the **old** content — the base side of the change the comment was made against. Comments on deleted lines live here. |
-| `new`     | object  | see below | Position in the **new** content — the side whose then-current form the comment addresses. |
+| `old`     | object  | see below | Position in the **old** content — the base side of the change the anchor was made against. Anchors on deleted lines live here. |
+| `new`     | object  | see below | Position in the **new** content — the side whose then-current form the anchor addresses. |
 
-At least one of `old` and `new` MUST be present. A comment made outside any
-diff view (on a file "at commit X") uses `new` alone. A comment on content
+At least one of `old` and `new` MUST be present. An anchor made outside any
+diff view (on a file "at commit X") uses `new` alone. An anchor on content
 that the change removes (a deleted line, a deleted file) uses `old` alone.
 Both sides are present when the producer can state the position in both the
-old and new content — a comment on an unchanged line of a modified or
+old and new content — an anchor on an unchanged line of a modified or
 renamed file, or a range that spans deleted and added lines
 ([cross-side ranges](#cross-side-ranges)).
 
 Why two sides rather than a side *marker*: a single (blob, range) cannot
 represent a range that starts in deleted content and ends in added content,
-which real review platforms permit (GitHub `start_side: "LEFT"` +
-`side: "RIGHT"`); and losing the old-side position of a deleted-line
-comment would make base-side rendering unreconstructible. The dual-sided
-shape follows Radicle's `CodeLocation` (old/new ranges), a design this
-project credits in ARCHITECTURE.md.
+which real diff-viewing platforms permit (GitHub `start_side: "LEFT"` +
+`side: "RIGHT"`); and losing the old-side position of an anchor on a
+deleted line would make base-side rendering unreconstructible. The
+dual-sided shape follows Radicle's `CodeLocation` (old/new ranges), a design
+this project credits in ARCHITECTURE.md.
 
 ### The side anchor
 
 ```jsonc
 {
   "commit": "2ae787a3e353251a99120a6935bfd6b807e60d5a",
-  "path": "engine/fold/review.go",
+  "path": "engine/fold/fold.go",
   "blob": "b7e23ec29af22b0b4e41da31e868d57226121c84",
   "range": { "start": 41, "end": 43 },
   "context": {
@@ -87,7 +89,7 @@ project credits in ARCHITECTURE.md.
 
 | Field     | Type   | Required | Meaning |
 | --------- | ------ | -------- | ------- |
-| `commit`  | string | yes      | OID of the commit in whose tree this side was observed — for `new`, typically the review revision's head; for `old`, its base. Provenance, and the entry point for diff- and rename-based resolution. |
+| `commit`  | string | yes      | OID of the commit in whose tree this side was observed — for `new`, typically the head of the change being annotated; for `old`, its base. Provenance, and the entry point for diff- and rename-based resolution. |
 | `path`    | string | yes      | Repo-relative slash-separated path of the file within `commit`'s tree. |
 | `blob`    | string | yes      | OID of the file's blob at `path` in `commit`'s tree — the content identity the anchor is anchored *to*. |
 | `range`   | object | no       | The anchored line range within the blob. **Absent means the anchor addresses the file as a whole** ([whole-file anchors](#whole-file-anchors)). |
@@ -185,7 +187,7 @@ enforce it alongside the schema, and the invalid vectors pin it.
 
 The collar width (3) matches unified-diff default context: enough signal
 for fuzzy re-anchoring to distinguish the range from similar code
-elsewhere, small enough to keep every comment op cheap.
+elsewhere, small enough to keep every op carrying an anchor cheap.
 
 ## Case representations
 
@@ -195,15 +197,15 @@ produces. These shapes are pinned by the valid vectors named below.
 ### Whole-file anchors
 
 A side with no `range` (and therefore no `context`) addresses the file as
-a whole — a file-level review comment, a comment on a binary or empty
+a whole — a file-level annotation, an anchor on a binary or empty
 file. Vector: `whole-file-new.json`.
 
 ### Deleted lines and deleted files
 
 Content the change removes exists only on the old side, so the anchor
 carries `old` alone: the base commit, the path and blob there, and for
-line comments the range and context in the *base* blob. A comment on a
-file's deletion is `old` alone with no range. When later history restores
+line-level anchors the range and context in the *base* blob. An anchor on
+a file's deletion is `old` alone with no range. When later history restores
 the content, the preserved old-side blob and context are what re-anchoring
 works from. Vectors: `deleted-line-old.json`, `whole-file-deletion-old.json`.
 
@@ -220,7 +222,7 @@ move also edited the file. Vector: `rename-both-sides.json`.
 
 ### Cross-side ranges
 
-A comment can select a contiguous span of *diff rows* — each row a
+An anchor can select a contiguous span of *diff rows* — each row a
 context line (present in both files), a deletion (old only), or an
 addition (new only) — and such a span need not live in one file's
 content. The representation is the span's **projection onto each file**:
@@ -251,8 +253,8 @@ versioning and forward-compatibility rules: `spec/forward-compatibility.md`):
 - A reader encountering a `version` it does not implement MUST treat the
   anchor as **opaque but preserved**: the containing op remains valid, the
   anchor's bytes are retained and re-emitted untouched, and clients present
-  the comment as position-unresolved. Rejecting the op would let an old
-  client destroy a new client's data, which the envelope rules forbid.
+  the carrying object as position-unresolved. Rejecting the op would let an
+  old client destroy a new client's data, which the envelope rules forbid.
 
 The v1 schema validates version-1 anchors exactly (`"version": {"const": 1}`);
 it is not the instrument for the opaque-preservation rule, which operates
@@ -304,7 +306,7 @@ A GitHub review comment's position fields, and where each lands:
 | `diff_hunk` | Informative excerpt, redundant for capture: the bridge holds the repository, so `context` is captured from the blob at the recorded commit per the [capture rules](#context-capture), never parsed out of the hunk. |
 | `position`, `original_position` | Legacy hunk offsets, derivable from `diff_hunk` + line numbers; carried by nothing, reconstructible by the bridge on the write path from the diff itself. |
 | `subject_type` | `"line"` produces ranged sides; `"file"` produces a [whole-file anchor](#whole-file-anchors). |
-| `commit_id`, `in_reply_to_id`, `body`, reactions, author, timestamps | Not position data — they map to the comment op and envelope (WRIT-9), not the anchor. |
+| `commit_id`, `in_reply_to_id`, `body`, reactions, author, timestamps | Not position data — they map to the body and envelope of the op carrying the anchor, not to the anchor. |
 
 Every position field is thus either carried structurally, carried as
 content, or derived state recomputable from what is carried — which is the

@@ -23,7 +23,7 @@ type FieldRule struct {
 	MaxLength  int64             `json:"max_length,omitempty"`
 	KeyTypes   map[string]string `json:"key_types,omitempty"`
 	Vocabulary string            `json:"-"`
-	// ObjectType is derived from Vocabulary via vocabularyObjectTypes, not
+	// ObjectType is derived from Vocabulary via bootstrapObjectTypes, not
 	// serialized: the log's define-field already carries a `type` field, and
 	// this is that same association, made reachable for the fold matching
 	// layer to scope rule matching by object type (spec/fold.md §5) without
@@ -195,6 +195,17 @@ func ValidateFieldRule(r FieldRule) error {
 	return nil
 }
 
+// bootstrapObjectTypes maps a field-rules.json directory (FieldRule.Vocabulary,
+// the testdata/ basename) to the object type whose ops it declares rules for.
+// The corpus ships exactly one such table — `schema` is writ's one hard-coded
+// vocabulary, and its rule table is the only one that does not come from the
+// log (spec/schema-ops.md §Bootstrap) — but the association is still a map,
+// because the directory name and the object type it covers are not the same
+// string and nothing else records which is which.
+var bootstrapObjectTypes = map[string]string{
+	"schema-ops": "schema",
+}
+
 // keyGroupKey identifies the set of sibling rules that share one keyed-lww
 // key tuple, for the cross-rule key_types consistency check in FieldRules:
 // every rule keyed on the same (op_type, op_version, key) must declare the
@@ -212,7 +223,7 @@ func FieldRules() ([]FieldRule, error) {
 	var allRules []FieldRule
 	seen := make(map[ruleKey]bool)
 	keyTypesByGroup := make(map[keyGroupKey]map[string]string)
-	// objectTypeDirs asserts vocabularyObjectTypes is injective: it records
+	// objectTypeDirs asserts bootstrapObjectTypes is injective: it records
 	// the first directory seen claiming each object type, so a second
 	// directory mapped to that same object type is caught here rather than
 	// silently sharing a target-collision universe with the first one
@@ -238,30 +249,30 @@ func FieldRules() ([]FieldRule, error) {
 		}
 
 		vocab := path.Base(path.Dir(filePath))
-		// A field-rules.json directory with no vocabularyObjectTypes entry
+		// A field-rules.json directory with no bootstrapObjectTypes entry
 		// fails closed here rather than deriving ObjectType "" — which would
 		// match every object type in fold's rule matching (spec/fold.md §5)
 		// and silently disable scoping for this vocabulary's rules.
-		objectType, ok := vocabularyObjectTypes[vocab]
+		objectType, ok := bootstrapObjectTypes[vocab]
 		if !ok {
-			return fmt.Errorf("spec: %s: directory %q has no entry in vocabularyObjectTypes; add one mapping %q to the object type its ops declare rules for", filePath, vocab, vocab)
+			return fmt.Errorf("spec: %s: directory %q has no entry in bootstrapObjectTypes; add one mapping %q to the object type its ops declare rules for", filePath, vocab, vocab)
 		}
 		// Two directories claiming the same object type would let their
 		// rules collide across the file boundary that targetBindings (below)
 		// assumes separates distinct object types — assert the map stays
 		// one directory per object type.
 		if priorDir, ok := objectTypeDirs[objectType]; ok && priorDir != vocab {
-			return fmt.Errorf("spec: vocabularyObjectTypes maps both %q and %q to object type %q; each object type must have exactly one field-rules.json directory", priorDir, vocab, objectType)
+			return fmt.Errorf("spec: bootstrapObjectTypes maps both %q and %q to object type %q; each object type must have exactly one field-rules.json directory", priorDir, vocab, objectType)
 		}
 		objectTypeDirs[objectType] = vocab
 		// targetBindings is fresh per file: each field-rules.json directory
 		// declares the rule table for exactly one object type, so a target
 		// collision is only ever checked within one file's rules, never
-		// across directories — where, e.g., review-ops's and issue-ops's
-		// both declaring a "title" target is unrelated and fine. The
-		// injectivity check above is what keeps that assumption true: it
-		// rejects a second directory sharing review's or issue's object
-		// type before any of its rules could bypass this check unseen.
+		// across directories — where two object types both declaring a
+		// "title" target is unrelated and fine. The injectivity check above
+		// is what keeps that assumption true: it rejects a second directory
+		// sharing an object type before any of its rules could bypass this
+		// check unseen.
 		targetBindings := make(map[string][]FieldRule)
 		for _, r := range rules {
 			if err := ValidateFieldRule(r); err != nil {

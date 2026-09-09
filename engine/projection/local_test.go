@@ -55,11 +55,11 @@ func TestLocalStoreCRUD(t *testing.T) {
 		},
 	}
 	d1 := projection.Draft{
-		SubjectType: "review",
-		SubjectID:   "rev-123",
-		InReplyTo:   "comm-456",
+		SubjectType: "widget",
+		SubjectID:   "w-123",
+		InReplyTo:   "n-456",
 		Anchor:      &anc,
-		Text:        "Draft comment text",
+		Text:        "Draft note text",
 	}
 
 	id1, err := db.SaveDraft(d1)
@@ -74,7 +74,7 @@ func TestLocalStoreCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Draft %s failed: %v", id1, err)
 	}
-	if gotD1.DraftID != id1 || gotD1.SubjectID != "rev-123" || gotD1.Text != "Draft comment text" || gotD1.Anchor == nil || gotD1.Anchor.Old.Path != "main.go" {
+	if gotD1.DraftID != id1 || gotD1.SubjectID != "w-123" || gotD1.Text != "Draft note text" || gotD1.Anchor == nil || gotD1.Anchor.Old.Path != "main.go" {
 		t.Fatalf("unexpected draft read: %+v", gotD1)
 	}
 
@@ -98,9 +98,9 @@ func TestLocalStoreCRUD(t *testing.T) {
 
 	// List drafts
 	d2 := projection.Draft{
-		SubjectType: "issue",
-		SubjectID:   "iss-789",
-		Text:        "Issue draft text",
+		SubjectType: "gadget",
+		SubjectID:   "g-789",
+		Text:        "Gadget draft text",
 	}
 	id2, err := db.SaveDraft(d2)
 	if err != nil {
@@ -115,12 +115,12 @@ func TestLocalStoreCRUD(t *testing.T) {
 		t.Fatalf("expected 2 drafts, got %d", len(allDrafts))
 	}
 
-	reviewDrafts, err := db.ListDrafts(projection.DraftFilter{SubjectType: "review"})
+	widgetDrafts, err := db.ListDrafts(projection.DraftFilter{SubjectType: "widget"})
 	if err != nil {
-		t.Fatalf("ListDrafts review failed: %v", err)
+		t.Fatalf("ListDrafts widget failed: %v", err)
 	}
-	if len(reviewDrafts) != 1 || reviewDrafts[0].DraftID != id1 {
-		t.Fatalf("expected 1 review draft, got %+v", reviewDrafts)
+	if len(widgetDrafts) != 1 || widgetDrafts[0].DraftID != id1 {
+		t.Fatalf("expected 1 widget draft, got %+v", widgetDrafts)
 	}
 
 	// Delete draft
@@ -169,13 +169,13 @@ func TestLocalStoreCRUD(t *testing.T) {
 
 	// 3. Sync cursor CRUD
 	syncTime := time.Now().UTC().Truncate(time.Second)
-	if err := db.SetSyncCursor("origin", "refs/writ/writer1/review", "0123456789abcdef", syncTime); err != nil {
+	if err := db.SetSyncCursor("origin", "refs/writ/writer1/widget", "0123456789abcdef", syncTime); err != nil {
 		t.Fatalf("SetSyncCursor failed: %v", err)
 	}
-	if err := db.SetSyncCursor("origin", "refs/writ/writer1/comment", "fedcba9876543210", syncTime); err != nil {
+	if err := db.SetSyncCursor("origin", "refs/writ/writer1/note", "fedcba9876543210", syncTime); err != nil {
 		t.Fatalf("SetSyncCursor 2 failed: %v", err)
 	}
-	if err := db.SetSyncCursor("upstream", "refs/writ/writer1/review", "1111222233334444", syncTime); err != nil {
+	if err := db.SetSyncCursor("upstream", "refs/writ/writer1/widget", "1111222233334444", syncTime); err != nil {
 		t.Fatalf("SetSyncCursor 3 failed: %v", err)
 	}
 
@@ -210,7 +210,7 @@ func TestLocalStateSurvivesRebuild(t *testing.T) {
 	}
 
 	// Append op to DAG and refresh projection
-	env := makeReviewEnv("rev-survive", "create", 1, map[string]any{"title": "Review 1"})
+	env := makeWidgetEnv("w-survive", "create", map[string]any{"title": "Widget 1"})
 	if _, err := store.Append(ctx, env, nil); err != nil {
 		t.Fatalf("Append failed: %v", err)
 	}
@@ -220,8 +220,8 @@ func TestLocalStateSurvivesRebuild(t *testing.T) {
 
 	// Write local state
 	draftID, err := db.SaveDraft(projection.Draft{
-		SubjectType: "review",
-		SubjectID:   "rev-survive",
+		SubjectType: "widget",
+		SubjectID:   "w-survive",
 		Text:        "Secret draft text",
 	})
 	if err != nil {
@@ -229,10 +229,10 @@ func TestLocalStateSurvivesRebuild(t *testing.T) {
 	}
 
 	now := time.Now().UTC().Truncate(time.Second)
-	if err := db.MarkRead("rev-survive", "op-initial", now); err != nil {
+	if err := db.MarkRead("w-survive", "op-initial", now); err != nil {
 		t.Fatalf("MarkRead failed: %v", err)
 	}
-	if err := db.SetSyncCursor("origin", "refs/writ/0123456789abcdef/review", "tip-sha", now); err != nil {
+	if err := db.SetSyncCursor("origin", "refs/writ/0123456789abcdef/widget", "tip-sha", now); err != nil {
 		t.Fatalf("SetSyncCursor failed: %v", err)
 	}
 
@@ -331,8 +331,8 @@ func TestDropAndRebuildReproducesFoldedState(t *testing.T) {
 	}
 
 	// Build state incrementally
-	env1 := makeReviewEnv("rev-drop", "create", 1, map[string]any{
-		"title":       "Drop Rebuild Review",
+	env1 := makeWidgetEnv("w-drop", "create", map[string]any{
+		"title":       "Drop Rebuild Widget",
 		"description": "Initial description",
 	})
 	if _, err := store.Append(ctx, env1, nil); err != nil {
@@ -342,8 +342,8 @@ func TestDropAndRebuildReproducesFoldedState(t *testing.T) {
 		t.Fatalf("Refresh 1 failed: %v", err)
 	}
 
-	env2 := makeReviewEnv("rev-drop", "update", 1, map[string]any{
-		"title": "Updated Drop Rebuild Review",
+	env2 := makeWidgetEnv("w-drop", "update", map[string]any{
+		"title": "Updated Drop Rebuild Widget",
 	})
 	if _, err := store.Append(ctx, env2, nil); err != nil {
 		t.Fatalf("Append 2 failed: %v", err)

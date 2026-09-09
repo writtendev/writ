@@ -136,23 +136,33 @@ func FuzzReffoldNormalizePersonMatchesEngine(f *testing.F) {
 	})
 }
 
+// emptyScalarRules is a synthetic rule table for the two tests below, which
+// pin how the reference fold treats an empty scalar — an empty string under
+// lww, and a person-ref that normalizes to nothing. Writ ships no vocabulary
+// to borrow a table from (spec/schema-ops.md §Bootstrap), so the rules a
+// consumer's schema would declare are stated here instead.
+var emptyScalarRules = []spec.FieldRule{
+	{OpType: "create", OpVersion: 1, Field: "subject", Strategy: "create-once", ValueType: "object-ref"},
+	{OpType: "create", OpVersion: 1, Field: "text", Strategy: "lww", ValueType: "text"},
+	{OpType: "edit", OpVersion: 1, Field: "text", Strategy: "lww", ValueType: "text"},
+	{OpType: "resolve", OpVersion: 1, Field: "resolved", Strategy: "lww", ValueType: "bool"},
+	{OpType: "resolve", OpVersion: 1, Field: "resolved_by", Strategy: "lww", ValueType: "person-ref"},
+}
+
 func TestReffoldEmptyScalars(t *testing.T) {
-	rules, err := spec.FieldRules()
-	if err != nil {
-		t.Fatalf("spec.FieldRules: %v", err)
-	}
+	rules := emptyScalarRules
 
 	ops := []spec.MergeOp{
 		{
 			ID:        "c-create",
 			Time:      1767225600,
-			ObjectID:  "c-spec-scalar",
+			ObjectID:  "n-spec-scalar",
 			OpType:    "create",
 			OpVersion: 1,
 			Body: map[string]any{
 				"subject": map[string]any{
-					"object_type": "review",
-					"object_id":   "r-1",
+					"object_type": "widget",
+					"object_id":   "w-1",
 				},
 				"text": "Initial text",
 			},
@@ -161,7 +171,7 @@ func TestReffoldEmptyScalars(t *testing.T) {
 			ID:        "c-edit",
 			Parents:   []string{"c-create"},
 			Time:      1767225660,
-			ObjectID:  "c-spec-scalar",
+			ObjectID:  "n-spec-scalar",
 			OpType:    "edit",
 			OpVersion: 1,
 			Body: map[string]any{
@@ -172,7 +182,7 @@ func TestReffoldEmptyScalars(t *testing.T) {
 			ID:        "c-resolve",
 			Parents:   []string{"c-edit"},
 			Time:      1767225720,
-			ObjectID:  "c-spec-scalar",
+			ObjectID:  "n-spec-scalar",
 			OpType:    "resolve",
 			OpVersion: 1,
 			Body: map[string]any{
@@ -201,22 +211,19 @@ func TestReffoldEmptyScalars(t *testing.T) {
 }
 
 func TestReffoldResolveWithoutResolvedBy(t *testing.T) {
-	rules, err := spec.FieldRules()
-	if err != nil {
-		t.Fatalf("spec.FieldRules: %v", err)
-	}
+	rules := emptyScalarRules
 
 	ops := []spec.MergeOp{
 		{
 			ID:        "c-create",
 			Time:      1767225600,
-			ObjectID:  "c-reffold-no-resolved-by",
+			ObjectID:  "n-reffold-no-resolved-by",
 			OpType:    "create",
 			OpVersion: 1,
 			Body: map[string]any{
 				"subject": map[string]any{
-					"object_type": "review",
-					"object_id":   "r-1",
+					"object_type": "widget",
+					"object_id":   "w-1",
 				},
 				"text": "Initial text",
 			},
@@ -225,7 +232,7 @@ func TestReffoldResolveWithoutResolvedBy(t *testing.T) {
 			ID:        "c-resolve-no-resolved-by",
 			Parents:   []string{"c-create"},
 			Time:      1767225660,
-			ObjectID:  "c-reffold-no-resolved-by",
+			ObjectID:  "n-reffold-no-resolved-by",
 			OpType:    "resolve",
 			OpVersion: 1,
 			Body: map[string]any{
@@ -249,4 +256,3 @@ func TestReffoldResolveWithoutResolvedBy(t *testing.T) {
 		t.Errorf("expected 'resolved_by' to be empty or unset, got %v", val)
 	}
 }
-

@@ -6,10 +6,9 @@ Reference engine implementation: `engine/order`.
 
 This specification defines the shared ordering primitive for user-controlled
 sequences that survive concurrent edits in Writ. It establishes a single,
-shared fractional indexing mechanism referenced by workflow-state columns
-(WRIT-104), document sections (WRIT-105), and issue manual rank within a
-state (WRIT-106), ensuring compatible keys and preventing drift across consuming
-specifications.
+shared fractional indexing mechanism, referenced by every schema-declared
+field whose value type is `position` ([`spec/value-types.md`](value-types.md)),
+ensuring compatible keys and preventing drift across consuming schemas.
 
 The key words MUST, MUST NOT, SHOULD, and MAY are to be interpreted as
 described in RFC 2119.
@@ -18,11 +17,10 @@ described in RFC 2119.
 
 ## 1. Scope & Purpose
 
-In collaborative SDLC environments, users frequently define and modify the
-relative order of entities:
-- Columns on a workflow board (e.g., "Backlog" before "In Progress" before "Done").
-- Sections within a structured document (e.g., "Summary" before "Design" before "Rollout").
-- Priority or triage rank of issues within a specific workflow column.
+In collaborative environments, users frequently define and modify the
+relative order of entities — the `widget`s a `gadget` holds, the manual rank
+of one item among its siblings, any sequence a person arranges by hand rather
+than by a computed key.
 
 In an append-only, distributed event log, integer positions (`0, 1, 2, ...`)
 are unsuitable for user-controlled ordering:
@@ -256,8 +254,8 @@ explicit, client-initiated bulk update operation, never an automatic fold behavi
 A fractional position key is stored as an ordinary scalar register governed by
 the standard **Last-Writer-Wins (`lww`)** merge strategy ([`spec/fold.md`](fold.md) §5.1).
 
-- Reordering an object (such as moving an issue column or document section) is
-  simply an operation updating that object's `position` field.
+- Reordering an object is simply an operation updating that object's
+  `position` field.
 - No sequence CRDTs, fractional-index-specific merge strategies, or custom conflict
   resolution logic are added to the fold engine.
 - Concurrently written positions are reconciled by ordinary LWW based on the
@@ -267,8 +265,7 @@ the standard **Last-Writer-Wins (`lww`)** merge strategy ([`spec/fold.md`](fold.
 
 ## 9. Deterministic Collection Ordering
 
-When presenting or querying an ordered collection of objects (e.g., workflow
-columns, document sections, or ranked issues):
+When presenting or querying an ordered collection of objects:
 
 1. **Primary Sort Key:** `position` ascending (standard ASCII byte comparison).
 2. **Secondary Sort Key (Tiebreak):** `op_id` (git commit SHA of the winning

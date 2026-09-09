@@ -10,197 +10,192 @@ import (
 )
 
 func TestQueryFullSuite(t *testing.T) {
-	repoDir, _ := setupConfiguredRepo(t)
-	s, err := writ.Open(repoDir, writ.WithSigner(dummySigner()))
-	if err != nil {
-		t.Fatalf("Open failed: %v", err)
-	}
-	defer s.Close()
+	s, ctx, _ := openStoreWithCoreSchema(t)
 
-	ctx := context.Background()
-
-	// 1. Create multiple reviews
-	r1, err := s.Objects.Create(ctx, "review", writ.NewOp{
+	// 1. Create multiple widgets
+	w1, err := s.Objects.Create(ctx, "widget", writ.NewOp{
 		Type:   "create",
-		Fields: map[string]any{"title": "First Feature Review", "description": "Alpha feature"},
+		Fields: map[string]any{"title": "First Feature Widget", "description": "Alpha feature"},
 	})
 	if err != nil {
-		t.Fatalf("Create r1: %v", err)
+		t.Fatalf("Create w1: %v", err)
 	}
 
-	r2, err := s.Objects.Create(ctx, "review", writ.NewOp{
+	w2, err := s.Objects.Create(ctx, "widget", writ.NewOp{
 		Type:   "create",
-		Fields: map[string]any{"title": "Second Bugfix Review", "description": "Beta bugfix"},
+		Fields: map[string]any{"title": "Second Bugfix Widget", "description": "Beta bugfix"},
 	})
 	if err != nil {
-		t.Fatalf("Create r2: %v", err)
+		t.Fatalf("Create w2: %v", err)
 	}
 
-	if err := s.Objects.Apply(ctx, r2, writ.NewOp{
+	if err := s.Objects.Apply(ctx, w2, writ.NewOp{
 		Type:   "set-status",
 		Fields: map[string]any{"status": "closed", "reason": "superseded"},
 	}); err != nil {
-		t.Fatalf("SetStatus r2: %v", err)
+		t.Fatalf("SetStatus w2: %v", err)
 	}
 
-	// 2. Create multiple issues
-	i1, err := s.Objects.Create(ctx, "issue", writ.NewOp{
+	// 2. Create multiple gadgets
+	g1, err := s.Objects.Create(ctx, "gadget", writ.NewOp{
 		Type:   "create",
-		Fields: map[string]any{"title": "Issue One", "description": "Important issue"},
+		Fields: map[string]any{"title": "Gadget One", "description": "Important gadget"},
 	})
 	if err != nil {
-		t.Fatalf("Create i1: %v", err)
+		t.Fatalf("Create g1: %v", err)
 	}
-	if err := s.Objects.Apply(ctx, i1, writ.NewOp{
+	if err := s.Objects.Apply(ctx, g1, writ.NewOp{
 		Type:   "assign",
 		Fields: map[string]any{"add": []string{"user:alice"}},
 	}); err != nil {
-		t.Fatalf("Assign i1: %v", err)
+		t.Fatalf("Assign g1: %v", err)
 	}
-	if err := s.Objects.Apply(ctx, i1, writ.NewOp{
-		Type:   "label",
+	if err := s.Objects.Apply(ctx, g1, writ.NewOp{
+		Type:   "tag",
 		Fields: map[string]any{"add": []string{"frontend"}},
 	}); err != nil {
-		t.Fatalf("Label i1: %v", err)
+		t.Fatalf("Tag g1: %v", err)
 	}
 
-	i2, err := s.Objects.Create(ctx, "issue", writ.NewOp{
+	g2, err := s.Objects.Create(ctx, "gadget", writ.NewOp{
 		Type:   "create",
-		Fields: map[string]any{"title": "Issue Two", "description": "Backend issue"},
+		Fields: map[string]any{"title": "Gadget Two", "description": "Backend gadget"},
 	})
 	if err != nil {
-		t.Fatalf("Create i2: %v", err)
+		t.Fatalf("Create g2: %v", err)
 	}
-	if err := s.Objects.Apply(ctx, i2, writ.NewOp{
+	if err := s.Objects.Apply(ctx, g2, writ.NewOp{
 		Type:   "set-state",
 		Fields: map[string]any{"state": "closed", "reason": "fixed"},
 	}); err != nil {
-		t.Fatalf("SetState i2: %v", err)
+		t.Fatalf("SetState g2: %v", err)
 	}
-	if err := s.Objects.Apply(ctx, i2, writ.NewOp{
+	if err := s.Objects.Apply(ctx, g2, writ.NewOp{
 		Type:   "assign",
 		Fields: map[string]any{"add": []string{"user:bob"}},
 	}); err != nil {
-		t.Fatalf("Assign i2: %v", err)
+		t.Fatalf("Assign g2: %v", err)
 	}
 
-	// 3. Comments on r1
-	c1, err := s.Objects.Create(ctx, "comment", writ.NewOp{
+	// 3. Notes on w1
+	n1, err := s.Objects.Create(ctx, "note", writ.NewOp{
 		Type: "create",
 		Fields: map[string]any{
-			"text":    "Comment 1 on r1",
-			"subject": map[string]string{"object_type": "review", "object_id": r1},
+			"text":    "Note 1 on w1",
+			"subject": map[string]string{"object_type": "widget", "object_id": w1},
 		},
 	})
 	if err != nil {
-		t.Fatalf("Comment r1: %v", err)
+		t.Fatalf("Note w1: %v", err)
 	}
-	c2, err := s.Objects.Create(ctx, "comment", writ.NewOp{
+	n2, err := s.Objects.Create(ctx, "note", writ.NewOp{
 		Type: "create",
 		Fields: map[string]any{
-			"text":        "Reply to comment 1",
-			"subject":     map[string]string{"object_type": "review", "object_id": r1},
-			"in_reply_to": c1,
+			"text":        "Reply to note 1",
+			"subject":     map[string]string{"object_type": "widget", "object_id": w1},
+			"in_reply_to": n1,
 		},
 	})
 	if err != nil {
-		t.Fatalf("Reply r1: %v", err)
+		t.Fatalf("Reply w1: %v", err)
 	}
 
-	// Edit c1
-	if err := s.Objects.Apply(ctx, c1, writ.NewOp{
+	// Edit n1
+	if err := s.Objects.Apply(ctx, n1, writ.NewOp{
 		Type:   "edit",
-		Fields: map[string]any{"text": "Edited Comment 1 on r1"},
+		Fields: map[string]any{"text": "Edited Note 1 on w1"},
 	}); err != nil {
-		t.Fatalf("Edit c1: %v", err)
+		t.Fatalf("Edit n1: %v", err)
 	}
 
 	// Test Query.Objects, filtered by type
-	allReviews, err := s.Query.Objects(writ.ObjectFilter{Type: []string{"review"}, OrderBy: writ.OrderByCreatedAtAsc})
+	allWidgets, err := s.Query.Objects(writ.ObjectFilter{Type: []string{"widget"}, OrderBy: writ.OrderByCreatedAtAsc})
 	if err != nil {
-		t.Fatalf("Query.Objects(review): %v", err)
+		t.Fatalf("Query.Objects(widget): %v", err)
 	}
-	if len(allReviews) != 2 {
-		t.Errorf("expected 2 reviews, got %d", len(allReviews))
+	if len(allWidgets) != 2 {
+		t.Errorf("expected 2 widgets, got %d", len(allWidgets))
 	}
 
 	// Test Objects.Get point lookup and folded field values
-	objR1, err := s.Objects.Get(ctx, r1)
+	objW1, err := s.Objects.Get(ctx, w1)
 	if err != nil {
-		t.Fatalf("Objects.Get(r1): %v", err)
+		t.Fatalf("Objects.Get(w1): %v", err)
 	}
-	if objR1.Fields["title"] != "First Feature Review" {
-		t.Errorf("got title %q", objR1.Fields["title"])
+	if objW1.Fields["title"] != "First Feature Widget" {
+		t.Errorf("got title %q", objW1.Fields["title"])
 	}
 
-	objR2, err := s.Objects.Get(ctx, r2)
+	objW2, err := s.Objects.Get(ctx, w2)
 	if err != nil {
-		t.Fatalf("Objects.Get(r2): %v", err)
+		t.Fatalf("Objects.Get(w2): %v", err)
 	}
-	if objR2.Fields["status"] != "closed" {
-		t.Errorf("expected r2 status closed, got %v", objR2.Fields["status"])
+	if objW2.Fields["status"] != "closed" {
+		t.Errorf("expected w2 status closed, got %v", objW2.Fields["status"])
 	}
 
 	// Test Objects.Get not found
 	_, err = s.Objects.Get(ctx, "non-existent-id")
 	if !errors.Is(err, writ.ErrNotFound) {
-		t.Errorf("expected ErrNotFound for missing review, got: %v", err)
+		t.Errorf("expected ErrNotFound for missing object, got: %v", err)
 	}
 
-	// Test Objects.Get: i1 never had a set-state op, so it folds with the
-	// empty default state (no legacy "open" blessing).
-	objI1, err := s.Objects.Get(ctx, i1)
+	// Test Objects.Get: g1 never had a set-state op, so it folds with the
+	// empty default state — the schema declares no default, and nothing
+	// invents one.
+	objG1, err := s.Objects.Get(ctx, g1)
 	if err != nil {
-		t.Fatalf("Objects.Get(i1): %v", err)
+		t.Fatalf("Objects.Get(g1): %v", err)
 	}
-	if objI1.Fields["state"] != nil && objI1.Fields["state"] != "" {
-		t.Errorf("expected i1 to have no state, got %v", objI1.Fields["state"])
+	if objG1.Fields["state"] != nil && objG1.Fields["state"] != "" {
+		t.Errorf("expected g1 to have no state, got %v", objG1.Fields["state"])
 	}
-	assignees, _ := objI1.Fields["assignees"].([]string)
+	assignees, _ := objG1.Fields["assignees"].([]string)
 	if len(assignees) != 1 || assignees[0] != "user:alice" {
-		t.Errorf("expected i1 assignees [user:alice], got %v", objI1.Fields["assignees"])
+		t.Errorf("expected g1 assignees [user:alice], got %v", objG1.Fields["assignees"])
 	}
 
-	objI2, err := s.Objects.Get(ctx, i2)
+	objG2, err := s.Objects.Get(ctx, g2)
 	if err != nil {
-		t.Fatalf("Objects.Get(i2): %v", err)
+		t.Fatalf("Objects.Get(g2): %v", err)
 	}
-	if objI2.Fields["state"] != "closed" {
-		t.Errorf("got state %q, want 'closed'", objI2.Fields["state"])
+	if objG2.Fields["state"] != "closed" {
+		t.Errorf("got state %q, want 'closed'", objG2.Fields["state"])
 	}
 
-	// Test Query.Objects cross-type
+	// Test Query.Objects cross-type. The schema object declaring all three
+	// types is itself an object, and is counted here like any other.
 	objects, err := s.Query.Objects(writ.ObjectFilter{})
 	if err != nil {
 		t.Fatalf("Query.Objects: %v", err)
 	}
-	if len(objects) != 6 { // 2 reviews + 2 issues + 2 comments
-		t.Errorf("expected 6 objects total, got %d", len(objects))
+	if len(objects) != 7 { // 2 widgets + 2 gadgets + 2 notes + 1 schema
+		t.Errorf("expected 7 objects total, got %d", len(objects))
 	}
 
-	// Test comment content and threading via Fields, since Query.Threads
-	// (a per-type reader) no longer exists.
-	objC1, err := s.Objects.Get(ctx, c1)
+	// Test note content and threading via Fields, since the per-type
+	// thread reader no longer exists.
+	objN1, err := s.Objects.Get(ctx, n1)
 	if err != nil {
-		t.Fatalf("Objects.Get(c1): %v", err)
+		t.Fatalf("Objects.Get(n1): %v", err)
 	}
-	if objC1.Fields["text"] != "Edited Comment 1 on r1" {
-		t.Errorf("expected edited text, got %v", objC1.Fields["text"])
+	if objN1.Fields["text"] != "Edited Note 1 on w1" {
+		t.Errorf("expected edited text, got %v", objN1.Fields["text"])
 	}
-	objC2, err := s.Objects.Get(ctx, c2)
+	objN2, err := s.Objects.Get(ctx, n2)
 	if err != nil {
-		t.Fatalf("Objects.Get(c2): %v", err)
+		t.Fatalf("Objects.Get(n2): %v", err)
 	}
 	// in_reply_to declares no normalizing value type, so create-once's
 	// byte-exact-preservation rule (spec/fold.md §5.2) returns it as raw
 	// JSON bytes rather than a decoded string.
-	inReplyToRaw, _ := objC2.Fields["in_reply_to"].(json.RawMessage)
+	inReplyToRaw, _ := objN2.Fields["in_reply_to"].(json.RawMessage)
 	var inReplyTo string
 	if err := json.Unmarshal(inReplyToRaw, &inReplyTo); err != nil {
 		t.Fatalf("unmarshal in_reply_to: %v", err)
 	}
-	if inReplyTo != c1 {
-		t.Errorf("expected c2.in_reply_to = %s, got %v", c1, inReplyTo)
+	if inReplyTo != n1 {
+		t.Errorf("expected n2.in_reply_to = %s, got %v", n1, inReplyTo)
 	}
 }
 
@@ -218,16 +213,24 @@ func TestWithoutAutoRefresh(t *testing.T) {
 
 	ctx := context.Background()
 
+	// The vocabulary goes in, and is projected, before the measurement
+	// below: the schema object is an object too, so folding it now is what
+	// leaves the explicit Refresh with exactly one object to touch.
+	applyCoreSchema(t, ctx, s)
+	if _, err := s.Refresh(ctx); err != nil {
+		t.Fatalf("Refresh after ApplySchema failed: %v", err)
+	}
+
 	// Write without auto-refresh
-	id, err := s.Objects.Create(ctx, "review", writ.NewOp{
+	id, err := s.Objects.Create(ctx, "widget", writ.NewOp{
 		Type:   "create",
-		Fields: map[string]any{"title": "Manual Refresh Review"},
+		Fields: map[string]any{"title": "Manual Refresh Widget"},
 	})
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
 
-	// Without refresh, the projection has not folded the new review yet —
+	// Without refresh, the projection has not folded the new widget yet —
 	// Query.Object is served from the projection, unlike Objects.Get.
 	_, err = s.Query.Object(id)
 	if !errors.Is(err, writ.ErrNotFound) {
@@ -253,18 +256,18 @@ func TestWithoutAutoRefresh(t *testing.T) {
 	}
 
 	// Query.Objects' text filter is served from the projection's generated
-	// type-table columns (o_review.f_title here), not from ObjectResult's
+	// type-table columns (o_widget.f_title here), not from ObjectResult's
 	// own objects-table-only metadata — so, unlike res above, this actually
 	// asserts a folded field value made it into the cache (round 1 minor
 	// finding: no engine-level test asserted a folded field value out of
 	// the projection any more once title assertions moved onto Objects.Get,
 	// which deliberately bypasses it).
-	byText, err := s.Query.Objects(writ.ObjectFilter{Text: "Manual Refresh Review"})
+	byText, err := s.Query.Objects(writ.ObjectFilter{Text: "Manual Refresh Widget"})
 	if err != nil {
 		t.Fatalf("Query.Objects(Text) after manual refresh failed: %v", err)
 	}
 	if len(byText) != 1 || byText[0].ObjectID != id {
-		t.Errorf("Query.Objects(Text=%q) = %+v, want exactly [%s] — the projection's materialized title must match", "Manual Refresh Review", byText, id)
+		t.Errorf("Query.Objects(Text=%q) = %+v, want exactly [%s] — the projection's materialized title must match", "Manual Refresh Widget", byText, id)
 	}
 
 	// Objects.Get, which folds from the DAG directly, finds it regardless.
@@ -272,7 +275,7 @@ func TestWithoutAutoRefresh(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Objects.Get failed: %v", err)
 	}
-	if obj.Fields["title"] != "Manual Refresh Review" {
+	if obj.Fields["title"] != "Manual Refresh Widget" {
 		t.Errorf("got title %q", obj.Fields["title"])
 	}
 }
@@ -300,26 +303,28 @@ func TestQueryObjects_WarmReopenWithoutAutoRefresh(t *testing.T) {
 		t.Fatalf("Open failed: %v", err)
 	}
 
-	r1, err := s.Objects.Create(ctx, "review", writ.NewOp{
+	applyCoreSchema(t, ctx, s)
+
+	w1, err := s.Objects.Create(ctx, "widget", writ.NewOp{
 		Type:   "create",
-		Fields: map[string]any{"title": "Zebra Crossing Review"},
+		Fields: map[string]any{"title": "Zebra Crossing Widget"},
 	})
 	if err != nil {
-		t.Fatalf("Create review failed: %v", err)
+		t.Fatalf("Create widget failed: %v", err)
 	}
-	c1, err := s.Objects.Create(ctx, "comment", writ.NewOp{
+	n1, err := s.Objects.Create(ctx, "note", writ.NewOp{
 		Type: "create",
 		Fields: map[string]any{
-			"text":    "first comment",
-			"subject": map[string]string{"object_type": "review", "object_id": r1},
+			"text":    "first note",
+			"subject": map[string]string{"object_type": "widget", "object_id": w1},
 		},
 	})
 	if err != nil {
-		t.Fatalf("Comment failed: %v", err)
+		t.Fatalf("Note failed: %v", err)
 	}
-	// The delete op body carries no content (spec/comments.md): tombstone
-	// semantics come from the op type itself, not a field in its body.
-	if err := s.Objects.Apply(ctx, c1, writ.NewOp{
+	// The delete op body carries no content: tombstone semantics come from
+	// the op type itself (spec/fold.md §5.8), not a field in its body.
+	if err := s.Objects.Apply(ctx, n1, writ.NewOp{
 		Type: "delete",
 	}); err != nil {
 		t.Fatalf("Objects.Apply(delete) failed: %v", err)
@@ -347,24 +352,24 @@ func TestQueryObjects_WarmReopenWithoutAutoRefresh(t *testing.T) {
 	defer s2.Close()
 
 	// Default listing (!IncludeDeleted) must exclude the soft-deleted
-	// comment, exactly as it does on a freshly built descriptor.
+	// note, exactly as it does on a freshly built descriptor.
 	objects, err := s2.Query.Objects(writ.ObjectFilter{})
 	if err != nil {
 		t.Fatalf("Query.Objects (default) failed: %v", err)
 	}
 	for _, o := range objects {
-		if o.ObjectID == c1 {
-			t.Errorf("Query.Objects (default) on a warm reopen included the soft-deleted comment %s: %+v", c1, objects)
+		if o.ObjectID == n1 {
+			t.Errorf("Query.Objects (default) on a warm reopen included the soft-deleted note %s: %+v", n1, objects)
 		}
 	}
-	foundReview := false
+	foundWidget := false
 	for _, o := range objects {
-		if o.ObjectID == r1 {
-			foundReview = true
+		if o.ObjectID == w1 {
+			foundWidget = true
 		}
 	}
-	if !foundReview {
-		t.Errorf("Query.Objects (default) on a warm reopen did not include the review %s: %+v", r1, objects)
+	if !foundWidget {
+		t.Errorf("Query.Objects (default) on a warm reopen did not include the widget %s: %+v", w1, objects)
 	}
 
 	// IncludeDeleted: true must still surface it.
@@ -374,12 +379,12 @@ func TestQueryObjects_WarmReopenWithoutAutoRefresh(t *testing.T) {
 	}
 	foundDeleted := false
 	for _, o := range withDeleted {
-		if o.ObjectID == c1 {
+		if o.ObjectID == n1 {
 			foundDeleted = true
 		}
 	}
 	if !foundDeleted {
-		t.Errorf("Query.Objects (IncludeDeleted: true) on a warm reopen did not include the soft-deleted comment %s: %+v", c1, withDeleted)
+		t.Errorf("Query.Objects (IncludeDeleted: true) on a warm reopen did not include the soft-deleted note %s: %+v", n1, withDeleted)
 	}
 
 	// Text search over the descriptor-driven clause must still match.
@@ -387,7 +392,7 @@ func TestQueryObjects_WarmReopenWithoutAutoRefresh(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Query.Objects (Text) failed: %v", err)
 	}
-	if len(textResults) != 1 || textResults[0].ObjectID != r1 {
-		t.Errorf("Query.Objects (Text: Zebra) on a warm reopen = %+v, want [%s]", textResults, r1)
+	if len(textResults) != 1 || textResults[0].ObjectID != w1 {
+		t.Errorf("Query.Objects (Text: Zebra) on a warm reopen = %+v, want [%s]", textResults, w1)
 	}
 }

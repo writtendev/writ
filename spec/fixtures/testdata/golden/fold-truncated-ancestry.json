@@ -1,53 +1,138 @@
 {
   "refs": [
     {
-      "name": "refs/writ/fedcba9876543210/comment",
-      "commit": "c3b8d26a07b828925b8ca7f2b4567d8fb322456c"
+      "name": "refs/writ/0123456789abcdef/schema",
+      "commit": "feea11623151d939cc9be4981109b2cc009a01cd"
     },
     {
-      "name": "refs/writ/0123456789abcdef/review",
-      "commit": "ea7b05e84a21e27fad16c418cd9d9e09078788f7"
+      "name": "refs/writ/fedcba9876543210/gadget",
+      "commit": "b68ef10a3c5db6afa863b4fd490a0a8072ed5d00"
+    },
+    {
+      "name": "refs/writ/0123456789abcdef/widget",
+      "commit": "e0dae71f4a99b7b1055f6842a676d184bf5c978d"
     }
   ],
   "generations": [
     {
-      "ref": "refs/writ/fedcba9876543210/comment",
+      "ref": "refs/writ/0123456789abcdef/schema",
       "index": 0,
       "commits": [
         {
-          "sha": "c3b8d26a07b828925b8ca7f2b4567d8fb322456c",
-          "tree": "1876a7386cab9acd660bc13c0ae38f880babee4d",
+          "sha": "7e7b98e49daea722263a972a87eb6425554eec85",
+          "tree": "2601775727c841f53a2960e4169e9a4a216f66d2",
           "parents": [],
-          "author": "Bob Example \u003cbob@example.test\u003e",
-          "timestamp": "2026-01-01T00:01:00Z",
-          "message": "writ: create comment/c-other\n",
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:00:00Z",
+          "message": "writ: create schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "4becfd27f09972baaed6aebbac25e5edf0c1815d",
+          "tree": "28a4ca0269db83c9aeae44f12626f410b2f92f0d",
+          "parents": [
+            "7e7b98e49daea722263a972a87eb6425554eec85"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:01:00Z",
+          "message": "writ: define-type schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "9e8378a415645030a39320d5301c6592e2c1cd52",
+          "tree": "89cd7911ba9638a945ed61dd9519e0a2ef45f2eb",
+          "parents": [
+            "4becfd27f09972baaed6aebbac25e5edf0c1815d"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:02:00Z",
+          "message": "writ: define-type schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "861c3d439943408eadddcf6fa45981b0dbd8a270",
+          "tree": "0214859faf2e21c1f122efc6992f7ce7fbc68b50",
+          "parents": [
+            "9e8378a415645030a39320d5301c6592e2c1cd52"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:03:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "f5a76d46ff72d83a0b7706f318021f2307621d44",
+          "tree": "703cbbeebc25cabddf8636b313edb4f714d1972e",
+          "parents": [
+            "861c3d439943408eadddcf6fa45981b0dbd8a270"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:04:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "500ab7f570d8f60125e662f5e6db8be71de111d6",
+          "tree": "b0155ddc7f7e8fb1b649635061e099d00a049d19",
+          "parents": [
+            "f5a76d46ff72d83a0b7706f318021f2307621d44"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:05:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "feea11623151d939cc9be4981109b2cc009a01cd",
+          "tree": "b2c1294c5101f8d0390c58d280df24f351cc42cd",
+          "parents": [
+            "500ab7f570d8f60125e662f5e6db8be71de111d6"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:06:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
           "signed": true
         }
       ]
     },
     {
-      "ref": "refs/writ/0123456789abcdef/review",
+      "ref": "refs/writ/fedcba9876543210/gadget",
       "index": 0,
       "commits": [
         {
-          "sha": "38cc46f5e92c76495267be720bec14abd1014ac9",
-          "tree": "1a78af19ca2023df4c0cfb3d7ac181dc3eaf47d3",
+          "sha": "b68ef10a3c5db6afa863b4fd490a0a8072ed5d00",
+          "tree": "f7eb3d138716424fbfd407750fb9c397b5f99787",
+          "parents": [],
+          "author": "Bob Example \u003cbob@example.test\u003e",
+          "timestamp": "2026-01-01T00:01:00Z",
+          "message": "writ: create gadget/g-other\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/widget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "6b40fc783affe53c8e341cc348ec5699dcbb64a8",
+          "tree": "e59b7df60c0c7fd9dae77da23cfe001b935ff2c6",
           "parents": [],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:00:00Z",
-          "message": "writ: create review/r-truncated\n",
+          "message": "writ: create widget/w-truncated\n",
           "signed": true
         },
         {
-          "sha": "ea7b05e84a21e27fad16c418cd9d9e09078788f7",
-          "tree": "569ceb227df12ea7809549814b667c67dd3f93d6",
+          "sha": "e0dae71f4a99b7b1055f6842a676d184bf5c978d",
+          "tree": "c3e2a2213fbcf343b50364011090da0636390698",
           "parents": [
-            "38cc46f5e92c76495267be720bec14abd1014ac9",
-            "c3b8d26a07b828925b8ca7f2b4567d8fb322456c"
+            "6b40fc783affe53c8e341cc348ec5699dcbb64a8",
+            "b68ef10a3c5db6afa863b4fd490a0a8072ed5d00"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:02:00Z",
-          "message": "writ: update review/r-truncated\n",
+          "message": "writ: update widget/w-truncated\n",
           "signed": true
         }
       ]

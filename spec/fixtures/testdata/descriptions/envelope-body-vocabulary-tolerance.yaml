@@ -1,99 +1,306 @@
 name: envelope-body-vocabulary-tolerance
 description: >
-  Ops whose bodies violate their own vocabulary schema while satisfying the
-  envelope schema, all of which a conforming reader MUST accept. Producer
-  validation (spec/op-envelope.md §Producer validation) refuses to author every
-  one of these; reader validation is envelope-level and does not, and the two
-  must not be conflated. Without this family a later "consistency" change could
-  tighten the reader to match the producer and silently break forward
-  compatibility, because every existing schema-violation fixture is
-  envelope-level. Covers an out-of-enum verdict, an over-long person
-  identifier, an empty person identifier, a ref name where the revision body
-  requires a commit OID, and a comment anchor whose context collar is null
-  rather than an array.
+  Ops whose bodies violate the vocabulary a schema object in this same
+  repository declares, while satisfying the envelope schema, all of which a
+  conforming reader MUST accept. Producer validation
+  (spec/op-envelope.md §Producer validation, tier 2: the log-sourced
+  declaration) refuses to author every one of these; reader validation is
+  envelope-level and does not, and the two must not be conflated. Without this
+  family a later "consistency" change could tighten the reader to match the
+  producer and silently break forward compatibility, because every existing
+  schema-violation fixture is envelope-level. Covers an out-of-enum choice, an
+  over-long person identifier, an empty person identifier, a ref name where the
+  declared git-oid requires a commit OID, a body field the schema declares no
+  rule for at all (which the log-sourced tier refuses strictly, since nothing
+  else bounds which fields are known), and an anchor whose context collar is
+  null rather than an array.
 
 refs:
-  - name: refs/writ/alice/review
+  - name: refs/writ/alice/schema
     history:
       - commits:
-          - id: verdict-outside-enum
+          - id: schema-create
+            author: alice
+            timestamp: 2025-12-01T00:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+          - id: schema-define-widget
+            parents: [schema-create]
+            author: alice
+            timestamp: 2025-12-01T00:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "widget"
+            expect: accept
+          - id: schema-define-gadget
+            parents: [schema-define-widget]
+            author: alice
+            timestamp: 2025-12-01T00:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "gadget"
+            expect: accept
+          - id: schema-define-title
+            parents: [schema-define-gadget]
+            author: alice
+            timestamp: 2025-12-01T00:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+          - id: schema-define-log-base
+            parents: [schema-define-title]
+            author: alice
+            timestamp: 2025-12-01T00:04:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "log"
+                op_version: "1"
+                field: "base"
+                value_type: "git-oid"
+                strategy: "append"
+            expect: accept
+          - id: schema-define-log-head
+            parents: [schema-define-log-base]
+            author: alice
+            timestamp: 2025-12-01T00:05:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "log"
+                op_version: "1"
+                field: "head"
+                value_type: "git-oid"
+                strategy: "append"
+            expect: accept
+          - id: schema-define-vote-revision
+            parents: [schema-define-log-head]
+            author: alice
+            timestamp: 2025-12-01T00:06:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "vote"
+                op_version: "1"
+                field: "revision"
+                value_type: "git-oid"
+                strategy: "keyed-lww"
+                key: ["subject", "revision"]
+                key_types:
+                  subject: "person-ref"
+                  revision: "git-oid"
+            expect: accept
+          - id: schema-define-vote-choice
+            parents: [schema-define-vote-revision]
+            author: alice
+            timestamp: 2025-12-01T00:07:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "vote"
+                op_version: "1"
+                field: "choice"
+                value_type: "enum"
+                enum: ["yes", "no", "none"]
+                strategy: "keyed-lww"
+                key: ["subject", "revision"]
+                key_types:
+                  subject: "person-ref"
+                  revision: "git-oid"
+            expect: accept
+          - id: schema-define-vote-subject
+            parents: [schema-define-vote-choice]
+            author: alice
+            timestamp: 2025-12-01T00:08:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "vote"
+                op_version: "1"
+                field: "subject"
+                value_type: "person-ref"
+                strategy: "keyed-lww"
+                key: ["subject", "revision"]
+                key_types:
+                  subject: "person-ref"
+                  revision: "git-oid"
+            expect: accept
+          - id: schema-define-gadget-subject
+            parents: [schema-define-vote-subject]
+            author: alice
+            timestamp: 2025-12-01T00:09:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "create"
+                op_version: "1"
+                field: "subject"
+                strategy: "create-once"
+            expect: accept
+          - id: schema-define-gadget-text
+            parents: [schema-define-gadget-subject]
+            author: alice
+            timestamp: 2025-12-01T00:10:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "create"
+                op_version: "1"
+                field: "text"
+                value_type: "text"
+                strategy: "lww"
+            expect: accept
+          - id: schema-define-gadget-anchor
+            parents: [schema-define-gadget-text]
+            author: alice
+            timestamp: 2025-12-01T00:11:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "create"
+                op_version: "1"
+                field: "anchor"
+                value_type: "anchor"
+                strategy: "create-once"
+            expect: accept
+
+  - name: refs/writ/alice/widget
+    history:
+      - commits:
+          - id: choice-outside-enum
             author: alice
             timestamp: 2026-01-01T00:00:00Z
             op:
-              object_id: review-01
-              object_type: review
-              op_type: approval
+              object_id: widget-01
+              object_type: widget
+              op_type: vote
               op_version: 1
               body:
                 revision: "0000000000000000000000000000000000000000"
-                verdict: "bogus"
+                choice: "bogus"
             expect: accept
           - id: over-long-person-id
             author: alice
             timestamp: 2026-01-01T00:01:00Z
             op:
-              object_id: review-01
-              object_type: review
-              op_type: approval
+              object_id: widget-01
+              object_type: widget
+              op_type: vote
               op_version: 1
               body:
                 revision: "0000000000000000000000000000000000000000"
-                verdict: "approve"
+                choice: "yes"
                 subject: "email:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
             expect: accept
           - id: empty-person-id
             author: alice
             timestamp: 2026-01-01T00:02:00Z
             op:
-              object_id: review-01
-              object_type: review
-              op_type: approval
+              object_id: widget-01
+              object_type: widget
+              op_type: vote
               op_version: 1
               body:
                 revision: "0000000000000000000000000000000000000000"
-                verdict: "approve"
+                choice: "yes"
                 subject: ""
             expect: accept
-          - id: revision-ref-name-not-oid
+          - id: git-oid-is-a-ref-name
             author: alice
             timestamp: 2026-01-01T00:03:00Z
             op:
-              object_id: review-01
-              object_type: review
-              op_type: revision
+              object_id: widget-01
+              object_type: widget
+              op_type: log
               op_version: 1
               body:
                 base: "main"
                 head: "feature/oauth2"
             expect: accept
-          - id: create-missing-required-title
+          - id: create-undeclared-field
             author: alice
             timestamp: 2026-01-01T00:04:00Z
             op:
-              object_id: review-02
-              object_type: review
+              object_id: widget-02
+              object_type: widget
               op_type: create
               op_version: 1
               body:
-                description: "no title, which review-ops requires"
+                summary: "a field the schema declares no rule for"
             expect: accept
 
-  - name: refs/writ/alice/comment
+  - name: refs/writ/alice/gadget
     history:
       - commits:
           - id: anchor-null-context-collar
             author: alice
             timestamp: 2026-01-01T00:05:00Z
             op:
-              object_id: comment-01
-              object_type: comment
+              object_id: gadget-01
+              object_type: gadget
               op_type: create
               op_version: 1
               body:
                 subject:
-                  object_type: review
-                  object_id: review-01
-                text: "a comment on the first line of a file"
+                  object_type: widget
+                  object_id: widget-01
+                text: "a note on the first line of a file"
                 anchor:
                   version: 1
                   new:

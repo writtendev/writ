@@ -415,8 +415,8 @@ func TestRulesFromSchemas_VersionBumpNewStrategyDistinctTargetOK(t *testing.T) {
 // pins WRIT-198's widened collision check: two fields sharing a target (here
 // the default, the field name) across different op_types must agree on
 // value_type too, not just strategy. Before the widening this was accepted
-// silently — the exact shape of WRIT-198's five colliding review/issue
-// targets, all of which agreed on strategy and disagreed on value_type.
+// silently — the exact shape of the five colliding targets WRIT-198 found,
+// all of which agreed on strategy and disagreed on value_type.
 func TestRulesFromSchemas_CrossOpTypeTargetReuseWithDifferentValueTypeRejected(t *testing.T) {
 	v1 := mkField("widget", "create", 1, "owner", "lww")
 	v1.ValueType = "person-ref"
@@ -530,7 +530,7 @@ func TestStoreSchemaFoldsEveryLoggedSchemaObject(t *testing.T) {
 
 // compileTestSchema parses and compiles a small writ.schema source into an
 // envelope sequence under objectID, failing the test on any error.
-func compileTestSchema(t *testing.T, objectID, src string) []codec.Envelope {
+func compileTestSchema(t testing.TB, objectID, src string) []codec.Envelope {
 	t.Helper()
 	f, err := schemasrc.Parse("writ.schema", []byte(src))
 	if err != nil {
@@ -563,7 +563,7 @@ func TestApplySchema_RejectsNonSchemaObjectType(t *testing.T) {
 	}
 	defer store.Close()
 
-	env := codec.Envelope{ObjectID: "sch-a", ObjectType: "review", OpType: "create", OpVersion: 1, Body: []byte(`{}`)}
+	env := codec.Envelope{ObjectID: "sch-a", ObjectType: "widget", OpType: "create", OpVersion: 1, Body: []byte(`{}`)}
 	if err := store.ApplySchema(context.Background(), []codec.Envelope{env}); err == nil {
 		t.Fatal("expected error for non-schema object_type, got nil")
 	}
@@ -1128,7 +1128,7 @@ func openWritableStore(t *testing.T) (*writ.Store, context.Context) {
 // (no define-field at all) is still Declared in
 // writ.VocabulariesFromSchemas, so tier 2 of spec/op-envelope.md's
 // producer precedence must accept an op of that declared op type with an
-// empty body — not fall through to tier 5's refusal because rules[t]
+// empty body — not fall through to tier 4's refusal because rules[t]
 // happens to be empty.
 func TestDeclaredTypeWithNoFieldsIsWritable(t *testing.T) {
 	store, ctx := openWritableStore(t)
@@ -1156,7 +1156,7 @@ func TestDeclaredTypeWithNoFieldsIsWritable(t *testing.T) {
 }
 
 // TestContestedObjectTypeStaysWritable is the ruling's carve-out
-// (spec/op-envelope.md §Producer validation, tier 4), pinned at the
+// (spec/op-envelope.md §Producer validation, tier 3), pinned at the
 // engine/dag.Store.Append level: two schema objects binding the same bare
 // object_type install no rules (spec/schema-ops.md §6) and the type is
 // Contested in writ.VocabulariesFromSchemas, but the write must still
@@ -1183,7 +1183,7 @@ func TestContestedObjectTypeStaysWritable(t *testing.T) {
 	}
 
 	// Confirm the type really is contested before relying on that to test
-	// tier 4: RulesFromSchemas installs no rules for it.
+	// tier 3: RulesFromSchemas installs no rules for it.
 	schemas, err := store.Schema(ctx)
 	if err != nil {
 		t.Fatalf("Store.Schema failed: %v", err)
@@ -1209,10 +1209,10 @@ func TestContestedObjectTypeStaysWritable(t *testing.T) {
 	}
 }
 
-// TestUndeclaredObjectTypeIsRefused is the genuine-absence tier (5): an
-// object_type no schema in the log declares, and this build embeds no
-// vocabulary for, is refused — distinct from TestContestedObjectTypeStaysWritable's
-// tier 4, so the two cannot be collapsed by accident.
+// TestUndeclaredObjectTypeIsRefused is the genuine-absence tier (4): an
+// object_type no schema in the log declares is refused — distinct from
+// TestContestedObjectTypeStaysWritable's tier 3, so the two cannot be
+// collapsed by accident.
 func TestUndeclaredObjectTypeIsRefused(t *testing.T) {
 	store, ctx := openWritableStore(t)
 
@@ -1225,26 +1225,25 @@ func TestUndeclaredObjectTypeIsRefused(t *testing.T) {
 		Body:       json.RawMessage(`{"anything":[1,2,3]}`),
 	}
 	if _, err := dagStore.Append(ctx, env, nil); err == nil {
-		t.Fatal("Append accepted an object_type declared by no schema and embedded by no vocabulary")
+		t.Fatal("Append accepted an object_type declared by no schema in the log")
 	}
 }
 
-// TestLogSchemaSupersedesEmbeddedVocabulary pins the precedence's tier 2
-// winning outright over tier 3: "issue" is one of the ten still-embedded
-// SDLC types, but a repo whose log narrowly declares "issue" (title only,
-// no description) must have that declaration govern exclusively — a body
-// the embedded issue-ops.schema.json would happily accept (an extra
-// "description" field) is refused, and the error names the schema object
-// responsible.
-func TestLogSchemaSupersedesEmbeddedVocabulary(t *testing.T) {
+// TestLogSchemaGovernsDeclaredTypeExclusively pins tier 2: a repo whose
+// log narrowly declares "gadget" (title only, no description) has that
+// declaration govern the type outright. There is no second, wider source
+// for a producer to fall back on — writ embeds a vocabulary for `schema`
+// alone — so a body carrying a field the log does not declare is refused,
+// and the error names the schema object responsible.
+func TestLogSchemaGovernsDeclaredTypeExclusively(t *testing.T) {
 	store, ctx := openWritableStore(t)
 
 	if err := store.ApplySchema(ctx, []codec.Envelope{
-		schemaEnv(t, "sch-issue", "create", map[string]any{"namespace": "acme"}),
-		schemaEnv(t, "sch-issue", "define-type", map[string]any{"type": "issue"}),
-		schemaEnv(t, "sch-issue", "define-op", map[string]any{"type": "issue", "op_type": "create", "op_version": "1"}),
-		schemaEnv(t, "sch-issue", "define-field", map[string]any{
-			"type": "issue", "op_type": "create", "op_version": "1",
+		schemaEnv(t, "sch-gadget", "create", map[string]any{"namespace": "acme"}),
+		schemaEnv(t, "sch-gadget", "define-type", map[string]any{"type": "gadget"}),
+		schemaEnv(t, "sch-gadget", "define-op", map[string]any{"type": "gadget", "op_type": "create", "op_version": "1"}),
+		schemaEnv(t, "sch-gadget", "define-field", map[string]any{
+			"type": "gadget", "op_type": "create", "op_version": "1",
 			"field": "title", "value_type": "string", "strategy": "lww",
 		}),
 	}); err != nil {
@@ -1255,8 +1254,8 @@ func TestLogSchemaSupersedesEmbeddedVocabulary(t *testing.T) {
 
 	// A body the narrow log schema fully covers: accepted.
 	if _, err := dagStore.Append(ctx, codec.Envelope{
-		ObjectID:   "iss-1",
-		ObjectType: "issue",
+		ObjectID:   "g-1",
+		ObjectType: "gadget",
 		OpType:     "create",
 		OpVersion:  1,
 		Body:       json.RawMessage(`{"title":"Initial"}`),
@@ -1264,21 +1263,20 @@ func TestLogSchemaSupersedesEmbeddedVocabulary(t *testing.T) {
 		t.Fatalf("Append refused a body the log schema fully declares: %v", err)
 	}
 
-	// A body the embedded issue-ops.schema.json accepts (description is a
-	// valid create field there) but the narrow log schema does not declare
-	// at all: refused, naming the schema object.
+	// A body carrying a field the log schema does not declare at all:
+	// refused, naming the schema object.
 	_, err := dagStore.Append(ctx, codec.Envelope{
-		ObjectID:   "iss-2",
-		ObjectType: "issue",
+		ObjectID:   "g-2",
+		ObjectType: "gadget",
 		OpType:     "create",
 		OpVersion:  1,
 		Body:       json.RawMessage(`{"title":"Initial","description":"extra"}`),
 	}, nil)
 	if err == nil {
-		t.Fatal("Append accepted a field the log schema does not declare, using the embedded vocabulary instead")
+		t.Fatal("Append accepted a field the log schema does not declare")
 	}
-	if !strings.Contains(err.Error(), "sch-issue") {
-		t.Errorf("error does not name the responsible schema object (sch-issue): %v", err)
+	if !strings.Contains(err.Error(), "sch-gadget") {
+		t.Errorf("error does not name the responsible schema object (sch-gadget): %v", err)
 	}
 }
 
@@ -1341,7 +1339,7 @@ func TestSchemaObjectAlwaysValidatesAgainstBootstrapTable(t *testing.T) {
 // itself against, so the very next Append always looked like an
 // invalidating change and re-ran a full Schema/Enumerate fold —
 // 0.8ms/append flat on main versus 6.3ms growing to 34.2ms/append on this
-// branch over 400 ops, in a repo with zero schema objects.
+// branch over 400 ops.
 // BenchmarkVocabulariesCache demonstrates the wall-clock fix, but
 // wall-clock timing is not something this suite should gate on; this test
 // asserts the underlying invariant directly and deterministically instead.
@@ -1356,6 +1354,11 @@ func TestVocabulariesCacheStaysWarmAcrossNonSchemaAppends(t *testing.T) {
 	store, ctx := openWritableStore(t)
 	dagStore := writ.StoreDAGStore(store)
 
+	// The ops below are ordinary, non-"schema" ops, which means they need
+	// an object type some schema in the log declares before the producer
+	// will accept them at all.
+	applyCoreSchema(t, ctx, store)
+
 	firstVocab, err := writ.StoreVocabularies(store, ctx)
 	if err != nil {
 		t.Fatalf("StoreVocabularies failed: %v", err)
@@ -1364,8 +1367,8 @@ func TestVocabulariesCacheStaysWarmAcrossNonSchemaAppends(t *testing.T) {
 
 	for i := 0; i < 20; i++ {
 		env := codec.Envelope{
-			ObjectID:   fmt.Sprintf("rev-%d", i),
-			ObjectType: "review",
+			ObjectID:   fmt.Sprintf("w-%d", i),
+			ObjectType: "widget",
 			OpType:     "create",
 			OpVersion:  1,
 			Body:       json.RawMessage(`{"title":"T"}`),
@@ -1410,25 +1413,21 @@ func findSchemaType(types []writ.SchemaType, name string) (writ.SchemaType, bool
 	return writ.SchemaType{}, false
 }
 
-// TestStoreTypes_IncludesBuiltinsAndLogDeclaredTypes pins Store.Types'
-// basic contract: on a repository that has never run `writ schema apply`,
-// it still returns every built-in type (Store.Schema, by contrast, would
-// return nothing at all here — that is the difference between the two
-// documented on Types' doc comment). Once a log schema declares a type
-// writ has never heard of, Types reflects it too, with the declared field
-// and op — the same data Objects.Create's zero-Version resolution consumes.
-func TestStoreTypes_IncludesBuiltinsAndLogDeclaredTypes(t *testing.T) {
+// TestStoreTypes_ReturnsExactlyWhatTheLogDeclares pins Store.Types' basic
+// contract: on a repository that has never run `writ schema apply` it
+// returns nothing at all, because `schema` aside writ declares no object
+// type of its own. Once a log schema declares a type, Types reflects it,
+// with the declared field and op — the same data Objects.Create's
+// zero-Version resolution consumes.
+func TestStoreTypes_ReturnsExactlyWhatTheLogDeclares(t *testing.T) {
 	store, ctx := openWritableStore(t)
 
 	before, err := store.Types(ctx)
 	if err != nil {
 		t.Fatalf("Store.Types failed: %v", err)
 	}
-	if _, ok := findSchemaType(before, "review"); !ok {
-		t.Fatalf("Store.Types on a repository with no schema objects at all: built-in type %q missing from %+v", "review", before)
-	}
-	if _, ok := findSchemaType(before, "gizmo"); ok {
-		t.Fatalf("Store.Types found undeclared type %q before any schema was applied", "gizmo")
+	if len(before) != 0 {
+		t.Fatalf("Store.Types on a repository with no schema objects at all = %+v, want nothing", before)
 	}
 
 	if err := store.ApplySchema(ctx, []codec.Envelope{
@@ -1447,8 +1446,8 @@ func TestStoreTypes_IncludesBuiltinsAndLogDeclaredTypes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Store.Types after ApplySchema failed: %v", err)
 	}
-	if _, ok := findSchemaType(after, "review"); !ok {
-		t.Fatalf("Store.Types after ApplySchema: built-in type %q missing from %+v", "review", after)
+	if len(after) != 1 {
+		t.Fatalf("Store.Types after ApplySchema = %+v, want exactly the one declared type", after)
 	}
 	gizmo, ok := findSchemaType(after, "gizmo")
 	if !ok {
@@ -1462,50 +1461,16 @@ func TestStoreTypes_IncludesBuiltinsAndLogDeclaredTypes(t *testing.T) {
 	}
 }
 
-// TestStoreTypes_LogWinsPerType pins the "log wins per type" precedence
-// Store.Types shares with Store.rules (mergeRules): a log schema
-// redeclaring a built-in type's name replaces its field list entirely,
-// never merges with the embedded one.
-func TestStoreTypes_LogWinsPerType(t *testing.T) {
-	store, ctx := openWritableStore(t)
-
-	if err := store.ApplySchema(ctx, []codec.Envelope{
-		schemaEnv(t, "sch-issue", "create", map[string]any{"namespace": "acme"}),
-		schemaEnv(t, "sch-issue", "define-type", map[string]any{"type": "issue"}),
-		schemaEnv(t, "sch-issue", "define-op", map[string]any{"type": "issue", "op_type": "create", "op_version": "1"}),
-		schemaEnv(t, "sch-issue", "define-field", map[string]any{
-			"type": "issue", "op_type": "create", "op_version": "1",
-			"field": "title", "value_type": "string", "strategy": "lww",
-		}),
-	}); err != nil {
-		t.Fatalf("ApplySchema failed: %v", err)
-	}
-
-	types, err := store.Types(ctx)
-	if err != nil {
-		t.Fatalf("Store.Types failed: %v", err)
-	}
-	issue, ok := findSchemaType(types, "issue")
-	if !ok {
-		t.Fatal("Store.Types: redeclared type \"issue\" missing")
-	}
-	if len(issue.Fields) != 1 || issue.Fields[0].Name != "title" {
-		t.Fatalf("issue.Fields = %+v, want exactly the log's one declared field (title) — log must replace the built-in list, not merge with it", issue.Fields)
-	}
-}
-
 // TestStoreTypes_DescriptionAndDeprecated pins round 1 MEDIUM-2's fix
 // (schemaTypeFromResolved carrying Description/Deprecated through from
 // resolveSchemaTypes, rather than leaving them structurally zero): the
 // entire point of that fix had no test of its own until round 2's MEDIUM-1
 // finding, and deleting the two lines that set them left the whole suite
 // green. Covers a type description, an op description, and deprecate-type
-// together on an ordinary log-declared type; a define-op-only type
+// together on an ordinary log-declared type, and a define-op-only type
 // (schema_test.go's own TestDeclaredTypeWithNoFieldsIsWritable /
 // objects_test.go's TestObjectsCreate_DeclaredTypeWithNoFieldsIsCreatable
-// shape) to confirm the fieldless path carries them too; and a built-in
-// type, which must stay zero on both since built-ins are synthesized from
-// Go rule tables that carry neither.
+// shape) to confirm the fieldless path carries them too.
 func TestStoreTypes_DescriptionAndDeprecated(t *testing.T) {
 	store, ctx := openWritableStore(t)
 
@@ -1557,13 +1522,5 @@ func TestStoreTypes_DescriptionAndDeprecated(t *testing.T) {
 	}
 	if beacon.Deprecated {
 		t.Errorf("beacon.Deprecated = true, want false (never deprecated)")
-	}
-
-	review, ok := findSchemaType(types, "review")
-	if !ok {
-		t.Fatal("Store.Types: built-in type \"review\" missing")
-	}
-	if review.Description != "" || review.Deprecated {
-		t.Errorf("built-in review: Description=%q Deprecated=%v, want \"\"/false — built-ins are synthesized from Go rule tables, which carry neither", review.Description, review.Deprecated)
 	}
 }

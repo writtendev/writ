@@ -23,7 +23,7 @@ import "github.com/writtendev/writ/engine/codec"
 //     anchors and other structured payloads as opaque data (spec/fold.md §6),
 //     so the check reads the value at the declared field and, where the
 //     strategy consumes a collection, its immediate elements. It never
-//     recurses: a comment anchor whose context collar is null is well formed.
+//     recurses: an anchor whose context collar is null is well formed.
 //   - Whether a value the strategy stores verbatim matches the type its
 //     vocabulary schema declares. The fold catalogue knows strategies, not
 //     schemas, and teaching it types would make the rules a second source of
@@ -120,14 +120,14 @@ func appendAccepts(v any) bool {
 }
 
 // orSetAccepts reports whether v carries OR-set items. Three body shapes reach
-// this, and every vocabulary in the spec uses one of them (spec/fold.md §5.4):
+// this, and a conforming reader MUST accept all three (spec/fold.md §5.4's
+// set-observed-remove body-shapes bullet):
 //
 //   - nested, where the declared field holds an object with `add` and `remove`
 //     members;
-//   - flat, where `add` and `remove` are themselves the declared fields
-//     (review and issue assignees and labels);
+//   - flat, where `add` and `remove` are themselves the declared fields;
 //   - scalar, where the declared field holds one item and the op type carries
-//     which side it lands on (project and cycle `issue`).
+//     which side it lands on.
 //
 // A side holds a string or an array of strings, exactly as a set-union field
 // does. An absent side is not a write and is accepted; a side that is present

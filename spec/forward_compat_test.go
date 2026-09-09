@@ -28,13 +28,15 @@ type knownOpCapacity struct {
 	ObjectType string  `json:"object_type"`
 	OpType     string  `json:"op_type"`
 	Versions   []int64 `json:"versions"`
-	// Vocabulary names the directory under spec/testdata/ whose
-	// field-rules.json publishes the merge rules this reader implements for
-	// the op type. The profile is synthetic — `comment/post` is not a shipped
-	// Writ op type — so the triple it implements and the rules that govern
-	// that triple have to be stated separately, and this is where the second
-	// one is stated.
-	Vocabulary string `json:"vocabulary"`
+	// Rules are the merge rules this synthetic reader implements for the
+	// op type. They are stated inline rather than pointing at a
+	// field-rules.json directory because writ ships no vocabulary to point
+	// at: `schema` aside, every object type is declared by a schema object
+	// in a repository's own log, and this profile describes a reader whose
+	// log declared `widget` and `gadget`. The triple the reader implements
+	// and the rules that govern that triple are separate facts, and this is
+	// where the second one is stated.
+	Rules []spec.FieldRule `json:"rules"`
 }
 
 type forwardCompatEntry struct {
@@ -66,19 +68,14 @@ func loadReaderProfile(t *testing.T) readerProfile {
 	if len(p.KnownOps) == 0 {
 		t.Fatal("reader profile declares no known ops")
 	}
-	rules, err := spec.FieldRules()
-	if err != nil {
-		t.Fatalf("loading field rules: %v", err)
-	}
-	published := make(map[string]bool)
-	for _, r := range rules {
-		published[r.Vocabulary] = true
-	}
+	// Every rule the profile states must be a legal one, so a typo in the
+	// synthetic table shows up as a broken profile rather than as a
+	// silently unmatched rule deriving the wrong disposition.
 	for _, k := range p.KnownOps {
-		if !published[k.Vocabulary] {
-			t.Fatalf("reader profile names vocabulary %q for %s/%s, which publishes no field rules; "+
-				"a vocabulary directory has been renamed and the profile is now deriving dispositions "+
-				"against an empty rule table", k.Vocabulary, k.ObjectType, k.OpType)
+		for _, r := range k.Rules {
+			if err := spec.ValidateFieldRule(r); err != nil {
+				t.Fatalf("reader profile rule for %s/%s is invalid: %v", k.ObjectType, k.OpType, err)
+			}
 		}
 	}
 	return p
@@ -102,32 +99,27 @@ func implementsTriple(profile readerProfile, objectType, opType string, opVersio
 	return false
 }
 
-// governingRules returns the published merge rules that govern one op: the
-// rules of the vocabulary the profile names for its (object_type, op_type),
-// narrowed to its op_version.
+// governingRules returns the merge rules that govern one op: the rules the
+// profile states for its (object_type, op_type), narrowed to its op_version.
 //
-// Narrowing here is a filter over the published table, not a second opinion
+// Narrowing here is a filter over the stated table, not a second opinion
 // about the op. Which rules govern an op is what a rule table means; whether
 // the op's body survives them is decided in deriveDisposition by running the
 // reference fold and reading what it quarantined.
-func governingRules(profile readerProfile, rules []spec.FieldRule, objectType, opType string, opVersion int64) []spec.FieldRule {
-	var vocab string
+func governingRules(profile readerProfile, objectType, opType string, opVersion int64) []spec.FieldRule {
 	for _, k := range profile.KnownOps {
-		if k.ObjectType == objectType && k.OpType == opType {
-			vocab = k.Vocabulary
-			break
+		if k.ObjectType != objectType || k.OpType != opType {
+			continue
 		}
-	}
-	if vocab == "" {
-		return nil
-	}
-	var out []spec.FieldRule
-	for _, r := range rules {
-		if r.Vocabulary == vocab && r.OpType == opType && r.OpVersion == opVersion {
-			out = append(out, r)
+		var out []spec.FieldRule
+		for _, r := range k.Rules {
+			if r.OpType == opType && r.OpVersion == opVersion {
+				out = append(out, r)
+			}
 		}
+		return out
 	}
-	return out
+	return nil
 }
 
 func loadForwardCompatIndex(t *testing.T) map[string]forwardCompatEntry {
@@ -168,7 +160,7 @@ func loadForwardCompatIndex(t *testing.T) map[string]forwardCompatEntry {
 // most — it could not express a fixture for the newly-covered half, so `FC-1`
 // went on claiming coverage it did not have. `uninterpretable-body.json` is
 // that fixture, and it fails against a re-derived disposition.
-func deriveDisposition(profile readerProfile, allRules []spec.FieldRule, name string, rawOp []byte) (string, error) {
+func deriveDisposition(profile readerProfile, name string, rawOp []byte) (string, error) {
 	var env struct {
 		ObjectID   string         `json:"object_id"`
 		ObjectType string         `json:"object_type"`
@@ -186,9 +178,9 @@ func deriveDisposition(profile readerProfile, allRules []spec.FieldRule, name st
 	}
 
 	// Leg 2: the body. §7.1 reaches only fields with a declared merge rule, so
-	// a triple no published rule governs has nothing for it to reject — which
-	// is the case for the profile's synthetic `comment/post`.
-	rules := governingRules(profile, allRules, env.ObjectType, env.OpType, env.OpVersion)
+	// a triple the profile states no rule for has nothing for it to reject —
+	// which is the case for the profile's `gadget/post`.
+	rules := governingRules(profile, env.ObjectType, env.OpType, env.OpVersion)
 	if len(rules) == 0 {
 		return "interpretable", nil
 	}
@@ -221,10 +213,6 @@ func TestForwardCompatConformances(t *testing.T) {
 	sch, _ := envelopeSchema(t)
 	profile := loadReaderProfile(t)
 	index := loadForwardCompatIndex(t)
-	allRules, err := spec.FieldRules()
-	if err != nil {
-		t.Fatalf("loading field rules: %v", err)
-	}
 
 	entries, err := spec.FS.ReadDir("testdata/forward-compat/ops")
 	if err != nil {
@@ -308,7 +296,7 @@ func TestForwardCompatConformances(t *testing.T) {
 			}
 
 			// Disposition derivation check
-			derived, err := deriveDisposition(profile, allRules, name, raw)
+			derived, err := deriveDisposition(profile, name, raw)
 			if err != nil {
 				t.Fatalf("deriving disposition: %v", err)
 			}
@@ -400,10 +388,6 @@ func TestForwardCompatRuleCoverage(t *testing.T) {
 // correctly while being blind to the second.
 func TestNegativeDispositionDerivation(t *testing.T) {
 	profile := loadReaderProfile(t)
-	allRules, err := spec.FieldRules()
-	if err != nil {
-		t.Fatalf("loading field rules: %v", err)
-	}
 
 	cases := []struct {
 		name string
@@ -416,7 +400,7 @@ func TestNegativeDispositionDerivation(t *testing.T) {
 			leg:  "type",
 		},
 		{
-			// review/create v1 is in the reader profile and its envelope is
+			// widget/create v1 is in the reader profile and its envelope is
 			// beyond reproach. Only `body` makes it opaque: `title` carries a
 			// declared `lww` rule and holds null, which §7.1 rejects.
 			name: "body a strategy cannot consume",
@@ -431,7 +415,7 @@ func TestNegativeDispositionDerivation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			derived, err := deriveDisposition(profile, allRules, tc.file, raw)
+			derived, err := deriveDisposition(profile, tc.file, raw)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -447,10 +431,7 @@ func TestNegativeDispositionDerivation(t *testing.T) {
 // each uninterpretable op as an opaque record containing op_id (spelled commit),
 // object_type, op_type, and op_version.
 func TestForwardCompatFC5(t *testing.T) {
-	allRules, err := spec.FieldRules()
-	if err != nil {
-		t.Fatalf("loading field rules: %v", err)
-	}
+	profile := loadReaderProfile(t)
 
 	cases := []struct {
 		name string
@@ -479,12 +460,7 @@ func TestForwardCompatFC5(t *testing.T) {
 				t.Fatalf("decoding envelope: %v", err)
 			}
 
-			var rules []spec.FieldRule
-			for _, r := range allRules {
-				if r.OpType == env.OpType && r.OpVersion == env.OpVersion {
-					rules = append(rules, r)
-				}
-			}
+			rules := governingRules(profile, env.ObjectType, env.OpType, env.OpVersion)
 
 			// 1. Reference fold assertion
 			folded, err := spec.Fold([]spec.MergeOp{{

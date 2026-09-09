@@ -75,7 +75,7 @@ func generateRandomDAG(rng *rand.Rand) []codec.Op {
 			},
 			Envelope: codec.Envelope{
 				ObjectID:   "obj-property-test",
-				ObjectType: "review",
+				ObjectType: "widget",
 				OpType:     "update",
 				OpVersion:  1,
 			},

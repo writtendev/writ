@@ -22,17 +22,22 @@ func TestWatchLocalWritesEmit(t *testing.T) {
 	}
 	defer store.Close()
 
+	// The vocabulary goes in before the subscription: installing it writes
+	// a schema object, and that object's own event is not what this test
+	// is about.
+	applyCoreSchema(t, ctx, store)
+
 	events := store.Watch(ctx)
 
-	// 1. Create review, then push a revision (appends create + revision)
-	reviewID, err := store.Objects.Create(ctx, "review", writ.NewOp{
+	// 1. Create widget, then push a revision (appends create + revision)
+	widgetID, err := store.Objects.Create(ctx, "widget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Add Authentication"},
 	})
 	if err != nil {
-		t.Fatalf("Objects.Create(review) failed: %v", err)
+		t.Fatalf("Objects.Create(widget) failed: %v", err)
 	}
-	if err := store.Objects.Apply(ctx, reviewID, writ.NewOp{
+	if err := store.Objects.Apply(ctx, widgetID, writ.NewOp{
 		Type: "revision",
 		Fields: map[string]any{
 			"base": "0000000000000000000000000000000000000001",
@@ -47,18 +52,18 @@ func TestWatchLocalWritesEmit(t *testing.T) {
 		if ev.Kind != writ.EventCreated {
 			t.Errorf("expected EventCreated, got %q", ev.Kind)
 		}
-		if ev.ObjectType != "review" {
-			t.Errorf("expected ObjectType 'review', got %q", ev.ObjectType)
+		if ev.ObjectType != "widget" {
+			t.Errorf("expected ObjectType 'widget', got %q", ev.ObjectType)
 		}
-		if ev.ObjectID != reviewID {
-			t.Errorf("expected ObjectID %q, got %q", reviewID, ev.ObjectID)
+		if ev.ObjectID != widgetID {
+			t.Errorf("expected ObjectID %q, got %q", widgetID, ev.ObjectID)
 		}
 		expectedOpTypes := []string{"create"}
 		if !reflect.DeepEqual(ev.OpTypes, expectedOpTypes) {
 			t.Errorf("expected OpTypes %v, got %v", expectedOpTypes, ev.OpTypes)
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for review create event")
+		t.Fatal("timed out waiting for widget create event")
 	}
 
 	// 1b. The revision push is its own change event.
@@ -67,27 +72,27 @@ func TestWatchLocalWritesEmit(t *testing.T) {
 		if ev.Kind != writ.EventChanged {
 			t.Errorf("expected EventChanged, got %q", ev.Kind)
 		}
-		if ev.ObjectID != reviewID {
-			t.Errorf("expected ObjectID %q, got %q", reviewID, ev.ObjectID)
+		if ev.ObjectID != widgetID {
+			t.Errorf("expected ObjectID %q, got %q", widgetID, ev.ObjectID)
 		}
 		expectedOpTypes := []string{"revision"}
 		if !reflect.DeepEqual(ev.OpTypes, expectedOpTypes) {
 			t.Errorf("expected OpTypes %v, got %v", expectedOpTypes, ev.OpTypes)
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for review revision event")
+		t.Fatal("timed out waiting for widget revision event")
 	}
 
-	// 2. Add comment to review (appends create op for comment object)
-	commentID, err := store.Objects.Create(ctx, "comment", writ.NewOp{
+	// 2. Add a note against the widget (appends a create op for the note)
+	noteID, err := store.Objects.Create(ctx, "note", writ.NewOp{
 		Type: "create",
 		Fields: map[string]any{
 			"text":    "Please check auth header format",
-			"subject": map[string]string{"object_type": "review", "object_id": reviewID},
+			"subject": map[string]string{"object_type": "widget", "object_id": widgetID},
 		},
 	})
 	if err != nil {
-		t.Fatalf("Objects.Create(comment) failed: %v", err)
+		t.Fatalf("Objects.Create(note) failed: %v", err)
 	}
 
 	select {
@@ -95,22 +100,22 @@ func TestWatchLocalWritesEmit(t *testing.T) {
 		if ev.Kind != writ.EventCreated {
 			t.Errorf("expected EventCreated, got %q", ev.Kind)
 		}
-		if ev.ObjectType != "comment" {
-			t.Errorf("expected ObjectType 'comment', got %q", ev.ObjectType)
+		if ev.ObjectType != "note" {
+			t.Errorf("expected ObjectType 'note', got %q", ev.ObjectType)
 		}
-		if ev.ObjectID != commentID {
-			t.Errorf("expected ObjectID %q, got %q", commentID, ev.ObjectID)
+		if ev.ObjectID != noteID {
+			t.Errorf("expected ObjectID %q, got %q", noteID, ev.ObjectID)
 		}
 		expectedOpTypes := []string{"create"}
 		if !reflect.DeepEqual(ev.OpTypes, expectedOpTypes) {
 			t.Errorf("expected OpTypes %v, got %v", expectedOpTypes, ev.OpTypes)
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for comment create event")
+		t.Fatal("timed out waiting for note create event")
 	}
 
-	// 3. Update review title (appends update op for review object)
-	err = store.Objects.Apply(ctx, reviewID, writ.NewOp{
+	// 3. Update the widget title (appends an update op for the widget)
+	err = store.Objects.Apply(ctx, widgetID, writ.NewOp{
 		Type:   "update",
 		Fields: map[string]any{"title": "Add Authentication Provider"},
 	})
@@ -123,18 +128,18 @@ func TestWatchLocalWritesEmit(t *testing.T) {
 		if ev.Kind != writ.EventChanged {
 			t.Errorf("expected EventChanged, got %q", ev.Kind)
 		}
-		if ev.ObjectType != "review" {
-			t.Errorf("expected ObjectType 'review', got %q", ev.ObjectType)
+		if ev.ObjectType != "widget" {
+			t.Errorf("expected ObjectType 'widget', got %q", ev.ObjectType)
 		}
-		if ev.ObjectID != reviewID {
-			t.Errorf("expected ObjectID %q, got %q", reviewID, ev.ObjectID)
+		if ev.ObjectID != widgetID {
+			t.Errorf("expected ObjectID %q, got %q", widgetID, ev.ObjectID)
 		}
 		expectedOpTypes := []string{"update"}
 		if !reflect.DeepEqual(ev.OpTypes, expectedOpTypes) {
 			t.Errorf("expected OpTypes %v, got %v", expectedOpTypes, ev.OpTypes)
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for review update event")
+		t.Fatal("timed out waiting for widget update event")
 	}
 }
 
@@ -154,13 +159,21 @@ func TestWatchPostFetchRefoldsEmit(t *testing.T) {
 	}
 	defer sB.Close()
 
-	// Alice creates review and syncs to origin
-	reviewID, err := sA.Objects.Create(ctx, "review", writ.NewOp{
+	applyCoreSchema(t, ctx, sA)
+	if _, err := sA.Sync(ctx, "origin"); err != nil {
+		t.Fatalf("Alice Sync of the schema failed: %v", err)
+	}
+	if _, err := sB.Sync(ctx, "origin"); err != nil {
+		t.Fatalf("Bob Sync of the schema failed: %v", err)
+	}
+
+	// Alice creates a widget and syncs to origin
+	widgetID, err := sA.Objects.Create(ctx, "widget", writ.NewOp{
 		Type:   "create",
-		Fields: map[string]any{"title": "Alice's Review"},
+		Fields: map[string]any{"title": "Alice's Widget"},
 	})
 	if err != nil {
-		t.Fatalf("Alice Objects.Create(review) failed: %v", err)
+		t.Fatalf("Alice Objects.Create(widget) failed: %v", err)
 	}
 
 	if _, err := sA.Sync(ctx, "origin"); err != nil {
@@ -175,17 +188,17 @@ func TestWatchPostFetchRefoldsEmit(t *testing.T) {
 		t.Fatalf("Bob Sync failed: %v", err)
 	}
 
-	// Bob should receive event for the review fetched
+	// Bob should receive an event for the widget fetched
 	select {
 	case ev := <-events:
 		if ev.Kind != writ.EventCreated {
 			t.Errorf("expected EventCreated on Bob, got %q", ev.Kind)
 		}
-		if ev.ObjectID != reviewID {
-			t.Errorf("expected ObjectID %q, got %q", reviewID, ev.ObjectID)
+		if ev.ObjectID != widgetID {
+			t.Errorf("expected ObjectID %q, got %q", widgetID, ev.ObjectID)
 		}
-		if ev.ObjectType != "review" {
-			t.Errorf("expected ObjectType 'review', got %q", ev.ObjectType)
+		if ev.ObjectType != "widget" {
+			t.Errorf("expected ObjectType 'widget', got %q", ev.ObjectType)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for Bob sync event")
@@ -202,17 +215,19 @@ func TestWatchNothingMissedAfterSubscribe(t *testing.T) {
 	}
 	defer store.Close()
 
+	applyCoreSchema(t, ctx, store)
+
 	events := store.Watch(ctx)
 
 	const n = 10
 	var createdIDs []string
 	for i := 0; i < n; i++ {
-		id, err := store.Objects.Create(ctx, "issue", writ.NewOp{
+		id, err := store.Objects.Create(ctx, "gadget", writ.NewOp{
 			Type:   "create",
-			Fields: map[string]any{"title": fmt.Sprintf("Issue %d", i)},
+			Fields: map[string]any{"title": fmt.Sprintf("Gadget %d", i)},
 		})
 		if err != nil {
-			t.Fatalf("Objects.Create(issue) %d failed: %v", i, err)
+			t.Fatalf("Objects.Create(gadget) %d failed: %v", i, err)
 		}
 		createdIDs = append(createdIDs, id)
 	}
@@ -242,6 +257,8 @@ func TestWatchConcurrentSubscribeAndRefreshRace(t *testing.T) {
 	}
 	defer store.Close()
 
+	applyCoreSchema(t, ctx, store)
+
 	var wg sync.WaitGroup
 	const readers = 5
 	channels := make([]<-chan writ.Event, readers)
@@ -267,12 +284,12 @@ func TestWatchConcurrentSubscribeAndRefreshRace(t *testing.T) {
 	wg.Wait()
 
 	// Subsequent write must be delivered to all subscribers
-	id, err := store.Objects.Create(ctx, "issue", writ.NewOp{
+	id, err := store.Objects.Create(ctx, "gadget", writ.NewOp{
 		Type:   "create",
-		Fields: map[string]any{"title": "Raced Issue"},
+		Fields: map[string]any{"title": "Raced Gadget"},
 	})
 	if err != nil {
-		t.Fatalf("Objects.Create(issue) failed: %v", err)
+		t.Fatalf("Objects.Create(gadget) failed: %v", err)
 	}
 
 	for i, ch := range channels {
@@ -297,14 +314,16 @@ func TestWatchEventPrecedesVisibility(t *testing.T) {
 	}
 	defer store.Close()
 
+	applyCoreSchema(t, ctx, store)
+
 	events := store.Watch(ctx)
 
-	id, err := store.Objects.Create(ctx, "review", writ.NewOp{
+	id, err := store.Objects.Create(ctx, "widget", writ.NewOp{
 		Type:   "create",
-		Fields: map[string]any{"title": "Visibility Test Review"},
+		Fields: map[string]any{"title": "Visibility Test Widget"},
 	})
 	if err != nil {
-		t.Fatalf("Objects.Create(review) failed: %v", err)
+		t.Fatalf("Objects.Create(widget) failed: %v", err)
 	}
 
 	select {
@@ -326,12 +345,12 @@ func TestWatchEventPrecedesVisibility(t *testing.T) {
 		// (round 1 minor finding: this assertion had been downgraded to
 		// "an id comes back", which a projection that materialized only
 		// the objects row and no type-table columns would still pass).
-		byText, err := store.Query.Objects(writ.ObjectFilter{Text: "Visibility Test Review"})
+		byText, err := store.Query.Objects(writ.ObjectFilter{Text: "Visibility Test Widget"})
 		if err != nil {
 			t.Fatalf("Query.Objects(Text) immediately on event failed: %v", err)
 		}
 		if len(byText) != 1 || byText[0].ObjectID != id {
-			t.Fatalf("Query.Objects(Text=%q) = %+v, want exactly [%s] immediately on event", "Visibility Test Review", byText, id)
+			t.Fatalf("Query.Objects(Text=%q) = %+v, want exactly [%s] immediately on event", "Visibility Test Widget", byText, id)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for event")
@@ -348,15 +367,17 @@ func TestWatchSlowConsumerOverflowAndReset(t *testing.T) {
 	}
 	defer store.Close()
 
+	applyCoreSchema(t, ctx, store)
+
 	// Subscriber that does not read
 	events := store.Watch(ctx)
 
-	// Write 128 + 50 = 178 issues
+	// Write 128 + 50 = 178 gadgets
 	const totalWrites = 178
 	for i := 0; i < totalWrites; i++ {
-		_, err := store.Objects.Create(ctx, "issue", writ.NewOp{
+		_, err := store.Objects.Create(ctx, "gadget", writ.NewOp{
 			Type:   "create",
-			Fields: map[string]any{"title": fmt.Sprintf("Overflow Issue %d", i)},
+			Fields: map[string]any{"title": fmt.Sprintf("Overflow Gadget %d", i)},
 		})
 		if err != nil {
 			t.Fatalf("write %d failed: %v", i, err)
@@ -364,12 +385,12 @@ func TestWatchSlowConsumerOverflowAndReset(t *testing.T) {
 	}
 
 	// Projection is intact and query succeeds
-	issues, err := store.Query.Objects(writ.ObjectFilter{Type: []string{"issue"}})
+	gadgets, err := store.Query.Objects(writ.ObjectFilter{Type: []string{"gadget"}})
 	if err != nil {
-		t.Fatalf("Query.Objects(issue) failed: %v", err)
+		t.Fatalf("Query.Objects(gadget) failed: %v", err)
 	}
-	if len(issues) != totalWrites {
-		t.Fatalf("expected %d issues in projection, got %d", totalWrites, len(issues))
+	if len(gadgets) != totalWrites {
+		t.Fatalf("expected %d gadgets in projection, got %d", totalWrites, len(gadgets))
 	}
 
 	// Drain 1 item from the channel to create room
@@ -380,9 +401,9 @@ func TestWatchSlowConsumerOverflowAndReset(t *testing.T) {
 	}
 
 	// Perform another write so emit sees available buffer capacity and delivers reset
-	_, err = store.Objects.Create(ctx, "issue", writ.NewOp{
+	_, err = store.Objects.Create(ctx, "gadget", writ.NewOp{
 		Type:   "create",
-		Fields: map[string]any{"title": "Post-overflow Issue"},
+		Fields: map[string]any{"title": "Post-overflow Gadget"},
 	})
 	if err != nil {
 		t.Fatalf("post-overflow write failed: %v", err)
@@ -420,13 +441,15 @@ func TestWatchRebuildEmitsReset(t *testing.T) {
 	}
 	defer store.Close()
 
-	// Create an initial review
-	_, err = store.Objects.Create(ctx, "review", writ.NewOp{
+	applyCoreSchema(t, ctx, store)
+
+	// Create an initial widget
+	_, err = store.Objects.Create(ctx, "widget", writ.NewOp{
 		Type:   "create",
-		Fields: map[string]any{"title": "Rebuild Review"},
+		Fields: map[string]any{"title": "Rebuild Widget"},
 	})
 	if err != nil {
-		t.Fatalf("Objects.Create(review) failed: %v", err)
+		t.Fatalf("Objects.Create(widget) failed: %v", err)
 	}
 
 	events := store.Watch(ctx)
@@ -447,7 +470,7 @@ func TestWatchRebuildEmitsReset(t *testing.T) {
 	}
 
 	// Chain deletion triggers rebuild on Refresh
-	cmd := exec.Command("git", "update-ref", "-d", "refs/writ/0123456789abcdef/review")
+	cmd := exec.Command("git", "update-ref", "-d", "refs/writ/0123456789abcdef/widget")
 	cmd.Dir = repoDir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("delete ref failed: %v, out: %s", err, string(out))
@@ -477,6 +500,8 @@ func TestWatchLifecycle(t *testing.T) {
 		t.Fatalf("Open failed: %v", err)
 	}
 
+	applyCoreSchema(t, ctx, store)
+
 	// 1. Context cancellation unsubscribes and closes channel
 	subCtx, cancel := context.WithCancel(ctx)
 	events1 := store.Watch(subCtx)
@@ -493,12 +518,12 @@ func TestWatchLifecycle(t *testing.T) {
 	}
 
 	// Further writes succeed without panicking
-	_, err = store.Objects.Create(ctx, "issue", writ.NewOp{
+	_, err = store.Objects.Create(ctx, "gadget", writ.NewOp{
 		Type:   "create",
-		Fields: map[string]any{"title": "Post-cancel Issue"},
+		Fields: map[string]any{"title": "Post-cancel Gadget"},
 	})
 	if err != nil {
-		t.Fatalf("Objects.Create(issue) after cancel failed: %v", err)
+		t.Fatalf("Objects.Create(gadget) after cancel failed: %v", err)
 	}
 
 	// 2. Store.Close closes all remaining subscribers
@@ -549,15 +574,22 @@ func TestWatchWithoutAutoRefresh(t *testing.T) {
 	}
 	defer store.Close()
 
+	// Installing the vocabulary and folding it happen before the
+	// subscription, so the only event this test can see is its own write's.
+	applyCoreSchema(t, ctx, store)
+	if _, err := store.Refresh(ctx); err != nil {
+		t.Fatalf("Refresh after ApplySchema failed: %v", err)
+	}
+
 	events := store.Watch(ctx)
 
 	// Write without auto-refresh produces no event immediately
-	reviewID, err := store.Objects.Create(ctx, "review", writ.NewOp{
+	widgetID, err := store.Objects.Create(ctx, "widget", writ.NewOp{
 		Type:   "create",
-		Fields: map[string]any{"title": "Manual Refresh Review"},
+		Fields: map[string]any{"title": "Manual Refresh Widget"},
 	})
 	if err != nil {
-		t.Fatalf("Objects.Create(review) failed: %v", err)
+		t.Fatalf("Objects.Create(widget) failed: %v", err)
 	}
 
 	select {
@@ -575,8 +607,8 @@ func TestWatchWithoutAutoRefresh(t *testing.T) {
 
 	select {
 	case ev := <-events:
-		if ev.ObjectID != reviewID {
-			t.Fatalf("expected ObjectID %q, got %q", reviewID, ev.ObjectID)
+		if ev.ObjectID != widgetID {
+			t.Fatalf("expected ObjectID %q, got %q", widgetID, ev.ObjectID)
 		}
 		if ev.Kind != writ.EventCreated {
 			t.Fatalf("expected EventCreated, got %q", ev.Kind)

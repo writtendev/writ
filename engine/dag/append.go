@@ -67,7 +67,7 @@ func (s *Store) Append(ctx context.Context, env codec.Envelope, causalParents []
 	// unconditional top-level check does not even consult vocabularies for
 	// it), so resolving them here would only make schema bootstrap depend
 	// on a log walk it has no use for — exactly the coupling the ruling
-	// that carved out tier 4 (a permanent write outage is the failure mode
+	// that carved out tier 3 (a permanent write outage is the failure mode
 	// to avoid) would not tolerate for tier 1 either: a schema object that
 	// fails to resolve must never block writing the very "schema" ops that
 	// could fix it.

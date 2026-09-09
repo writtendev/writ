@@ -80,14 +80,14 @@ func TestInterop_EngineToSystemGit(t *testing.T) {
 		When:  fixedTime,
 	}
 	env := codec.Envelope{
-		ObjectID:   "review-01",
-		ObjectType: "review",
+		ObjectID:   "w-01",
+		ObjectType: "widget",
 		OpType:     "create",
 		OpVersion:  1,
 		Body:       json.RawMessage(`{"title":"Initial"}`),
 	}
 
-	commit, err := codec.BuildCommit(env, author, nil, nil)
+	commit, err := codec.BuildCommit(env, author, nil, widgetVocabulary())
 	if err != nil {
 		t.Fatalf("BuildCommit: %v", err)
 	}
@@ -201,11 +201,11 @@ func TestInterop_SystemGitToEngine(t *testing.T) {
 	runGit(t, repoDir, "config", "gpg.format", "ssh")
 	runGit(t, repoDir, "config", "user.signingkey", pubPath)
 
-	if err := os.WriteFile(filepath.Join(repoDir, "op.json"), []byte(`{"body":{},"object_id":"review-01","object_type":"review","op_type":"create","op_version":1}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(repoDir, "op.json"), []byte(`{"body":{},"object_id":"w-01","object_type":"widget","op_type":"create","op_version":1}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	runGit(t, repoDir, "add", "op.json")
-	runGit(t, repoDir, "commit", "-q", "-S", "-m", "writ: create review/review-01\n")
+	runGit(t, repoDir, "commit", "-q", "-S", "-m", "writ: create widget/w-01\n")
 
 	headOut := strings.TrimSpace(runGit(t, repoDir, "rev-parse", "HEAD"))
 	commitHash := plumbing.NewHash(headOut)
@@ -261,14 +261,14 @@ func TestDeterminism(t *testing.T) {
 		When:  fixedTime,
 	}
 	env := codec.Envelope{
-		ObjectID:   "review-01",
-		ObjectType: "review",
+		ObjectID:   "w-01",
+		ObjectType: "widget",
 		OpType:     "create",
 		OpVersion:  1,
 		Body:       json.RawMessage(`{"title":"Initial"}`),
 	}
 
-	commit1, err := codec.BuildCommit(env, author, nil, nil)
+	commit1, err := codec.BuildCommit(env, author, nil, widgetVocabulary())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +276,7 @@ func TestDeterminism(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	commit2, err := codec.BuildCommit(env, author, nil, nil)
+	commit2, err := codec.BuildCommit(env, author, nil, widgetVocabulary())
 	if err != nil {
 		t.Fatal(err)
 	}

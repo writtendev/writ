@@ -57,7 +57,7 @@ func WithGitBinary(gitBin string) Option {
 	}
 }
 
-// WithTargetRefs configures code branch or tag ref names to resolve comment anchors against.
+// WithTargetRefs configures code branch or tag ref names to resolve anchors against.
 func WithTargetRefs(refs ...string) Option {
 	return func(c *openConfig) {
 		c.targetRefs = append(c.targetRefs, refs...)

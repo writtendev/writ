@@ -4,7 +4,136 @@ description: >
   multi-version and v1 baseline operations (FC-7, FC-8, FC-10).
 
 refs:
-  - name: refs/writ/0123456789abcdef/review
+  # The schema half of testdata/forward-compat/reader-profile.json, declared
+  # in the repository's own log: widget's create v1 carries title and
+  # description, widget's close v1 and gadget's post v1 and v2 carry no field
+  # rules at all. The synthetic reader profile knows nothing about `schema`
+  # itself, so these ops are opaque to it — writ's one hard-coded object type
+  # is exactly the one a reader capability profile never has to declare.
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: schema-create
+            author: alice
+            timestamp: 2025-12-01T00:00:00Z
+            disposition: opaque
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+          - id: schema-define-widget
+            parents: [schema-create]
+            author: alice
+            timestamp: 2025-12-01T00:01:00Z
+            disposition: opaque
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "widget"
+            expect: accept
+          - id: schema-define-gadget
+            parents: [schema-define-widget]
+            author: alice
+            timestamp: 2025-12-01T00:02:00Z
+            disposition: opaque
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "gadget"
+            expect: accept
+          - id: schema-define-title
+            parents: [schema-define-gadget]
+            author: alice
+            timestamp: 2025-12-01T00:03:00Z
+            disposition: opaque
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+          - id: schema-define-description
+            parents: [schema-define-title]
+            author: alice
+            timestamp: 2025-12-01T00:04:00Z
+            disposition: opaque
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "create"
+                op_version: "1"
+                field: "description"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+          - id: schema-define-close
+            parents: [schema-define-description]
+            author: alice
+            timestamp: 2025-12-01T00:05:00Z
+            disposition: opaque
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-op
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "close"
+                op_version: "1"
+            expect: accept
+          - id: schema-define-post-v1
+            parents: [schema-define-close]
+            author: alice
+            timestamp: 2025-12-01T00:06:00Z
+            disposition: opaque
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-op
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "post"
+                op_version: "1"
+            expect: accept
+          - id: schema-define-post-v2
+            parents: [schema-define-post-v1]
+            author: alice
+            timestamp: 2025-12-01T00:07:00Z
+            disposition: opaque
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-op
+              op_version: 1
+              body:
+                type: "gadget"
+                op_type: "post"
+                op_version: "2"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/widget
     history:
       - commits:
           - id: alice-baseline-v1
@@ -12,29 +141,29 @@ refs:
             timestamp: 2026-01-01T00:00:00Z
             disposition: interpretable
             op:
-              object_id: review-01
-              object_type: review
+              object_id: widget-01
+              object_type: widget
               op_type: create
               op_version: 1
               body:
-                title: "Baseline v1 review"
+                title: "Baseline v1 widget"
             expect: accept
           - id: alice-future-version-v2
             author: alice
             timestamp: 2026-01-01T00:01:00Z
             disposition: opaque
             op:
-              object_id: review-02
-              object_type: review
+              object_id: widget-02
+              object_type: widget
               op_type: create
               op_version: 2
               body:
-                title: "V2 review schema"
+                title: "V2 widget shape"
                 structured_requirements:
-                  min_approvals: 2
+                  min_confirmations: 2
             expect: accept
 
-  - name: refs/writ/fedcba9876543210/review
+  - name: refs/writ/fedcba9876543210/widget
     history:
       - commits:
           - id: bob-multiversion-known-v2
@@ -42,12 +171,12 @@ refs:
             timestamp: 2026-01-01T00:00:30Z
             disposition: interpretable
             op:
-              object_id: review-01
-              object_type: comment
+              object_id: widget-01
+              object_type: gadget
               op_type: post
               op_version: 2
               body:
-                text: "Comment at v2 format"
+                text: "Post at v2 format"
                 rich_text:
                   markdown: true
             expect: accept
@@ -57,12 +186,12 @@ refs:
             timestamp: 2026-01-01T00:02:00Z
             disposition: opaque
             op:
-              object_id: review-01
-              object_type: comment
+              object_id: widget-01
+              object_type: gadget
               op_type: post
               op_version: 3
               body:
-                text: "Comment at v3 format"
+                text: "Post at v3 format"
                 reactions:
                   thumbs_up: 5
             expect: accept

@@ -72,8 +72,9 @@ type StrategyConfig struct {
 	// before. It exists so a merge vector can pin the object-type scoping
 	// clause in opMatchesRule itself: two StrategyConfig entries sharing a
 	// Target and Field but declaring different ObjectType are exactly the
-	// cross-vocabulary target collision spec.FieldRules() produces today
-	// (the "labels" target, document vs review/issue) and must not merge into
+	// shape any two schema-declared object types produce the moment they
+	// name the same target — targetBindings is built fresh per type in both
+	// engine/schema.go and schemasrc/compile.go — and must not merge into
 	// one accumulator.
 	ObjectType string `json:"object_type,omitempty"`
 }

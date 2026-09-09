@@ -15,7 +15,7 @@ import (
 func TestEnumerate_IncrementalCost(t *testing.T) {
 	dir, _ := initTestRepo(t)
 	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
-	store, err := dag.Open(dir, ident)
+	store, err := dag.Open(dir, ident, withVocabularies())
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
@@ -23,8 +23,8 @@ func TestEnumerate_IncrementalCost(t *testing.T) {
 	// 1. Append 50 ops
 	for i := 0; i < 50; i++ {
 		env := codec.Envelope{
-			ObjectID:   "rev-1",
-			ObjectType: "review",
+			ObjectID:   "w-1",
+			ObjectType: "widget",
 			OpType:     "update",
 			OpVersion:  1,
 			Body:       json.RawMessage(fmt.Sprintf(`{"seq":%d,"title":"Op %d"}`, i, i)),
@@ -42,8 +42,8 @@ func TestEnumerate_IncrementalCost(t *testing.T) {
 	if res1.DecodedCommits != 50 {
 		t.Fatalf("res1.DecodedCommits = %d, want 50", res1.DecodedCommits)
 	}
-	if len(res1.Ops["rev-1"]) != 50 {
-		t.Fatalf("len(res1.Ops[rev-1]) = %d, want 50", len(res1.Ops["rev-1"]))
+	if len(res1.Ops["w-1"]) != 50 {
+		t.Fatalf("len(res1.Ops[w-1]) = %d, want 50", len(res1.Ops["w-1"]))
 	}
 	if len(res1.Rewound) != 0 {
 		t.Fatalf("unexpected rewound chains: %v", res1.Rewound)
@@ -55,8 +55,8 @@ func TestEnumerate_IncrementalCost(t *testing.T) {
 	// 2. Append 3 more ops
 	for i := 50; i < 53; i++ {
 		env := codec.Envelope{
-			ObjectID:   "rev-1",
-			ObjectType: "review",
+			ObjectID:   "w-1",
+			ObjectType: "widget",
 			OpType:     "update",
 			OpVersion:  1,
 			Body:       json.RawMessage(fmt.Sprintf(`{"seq":%d,"title":"Op %d"}`, i, i)),
@@ -74,8 +74,8 @@ func TestEnumerate_IncrementalCost(t *testing.T) {
 	if res2.DecodedCommits != 3 {
 		t.Fatalf("res2.DecodedCommits = %d, want 3 (O(new ops))", res2.DecodedCommits)
 	}
-	if len(res2.Ops["rev-1"]) != 3 {
-		t.Fatalf("len(res2.Ops[rev-1]) = %d, want 3", len(res2.Ops["rev-1"]))
+	if len(res2.Ops["w-1"]) != 3 {
+		t.Fatalf("len(res2.Ops[w-1]) = %d, want 3", len(res2.Ops["w-1"]))
 	}
 
 	// 3. Enumerate again with no new ops
@@ -94,7 +94,7 @@ func TestEnumerate_IncrementalCost(t *testing.T) {
 func TestEnumerate_RewindDetection(t *testing.T) {
 	dir, repo := initTestRepo(t)
 	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
-	store, err := dag.Open(dir, ident)
+	store, err := dag.Open(dir, ident, withVocabularies())
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
@@ -103,8 +103,8 @@ func TestEnumerate_RewindDetection(t *testing.T) {
 	var ops []*codec.Op
 	for i := 0; i < 3; i++ {
 		env := codec.Envelope{
-			ObjectID:   "rev-1",
-			ObjectType: "review",
+			ObjectID:   "w-1",
+			ObjectType: "widget",
 			OpType:     "update",
 			OpVersion:  1,
 			Body:       json.RawMessage(fmt.Sprintf(`{"seq":%d,"title":"Op %d"}`, i, i)),
@@ -125,7 +125,7 @@ func TestEnumerate_RewindDetection(t *testing.T) {
 	}
 
 	// Force-move chain ref backwards to op 0 (ops[0].ID)
-	refName := dag.LocalRefName(ident.WriterID, "review")
+	refName := dag.LocalRefName(ident.WriterID, "widget")
 	err = repo.Storer.SetReference(plumbing.NewHashReference(refName, plumbing.NewHash(ops[0].ID)))
 	if err != nil {
 		t.Fatalf("SetReference failed: %v", err)
@@ -142,8 +142,8 @@ func TestEnumerate_RewindDetection(t *testing.T) {
 		t.Fatalf("expected rewound ref %s, got %v", refName, res2.Rewound)
 	}
 	// Full walk of rewound chain was performed -> 1 op (ops[0]) returned
-	if len(res2.Ops["rev-1"]) != 1 || res2.Ops["rev-1"][0].ID != ops[0].ID {
-		t.Fatalf("expected op 0 returned on rewound chain, got %v", res2.Ops["rev-1"])
+	if len(res2.Ops["w-1"]) != 1 || res2.Ops["w-1"][0].ID != ops[0].ID {
+		t.Fatalf("expected op 0 returned on rewound chain, got %v", res2.Ops["w-1"])
 	}
 }
 
@@ -156,13 +156,13 @@ func TestEnumerate_PackedRefs(t *testing.T) {
 	ident1 := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
 	ident2 := testIdentity("fedcba9876543210", "Bob", "bob@example.test")
 
-	store1, _ := dag.Open(dir, ident1)
-	store2, _ := dag.Open(dir, ident2)
+	store1, _ := dag.Open(dir, ident1, withVocabularies())
+	store2, _ := dag.Open(dir, ident2, withVocabularies())
 
 	for i := 0; i < 5; i++ {
 		env := codec.Envelope{
-			ObjectID:   "rev-1",
-			ObjectType: "review",
+			ObjectID:   "w-1",
+			ObjectType: "widget",
 			OpType:     "update",
 			OpVersion:  1,
 			Body:       json.RawMessage(`{"title":"Packed"}`),
@@ -178,7 +178,7 @@ func TestEnumerate_PackedRefs(t *testing.T) {
 	}
 
 	// Re-open store and enumerate packed refs
-	storePacked, err := dag.OpenRepo(repo, ident1)
+	storePacked, err := dag.OpenRepo(repo, ident1, withVocabularies())
 	if err != nil {
 		t.Fatalf("OpenRepo failed: %v", err)
 	}
@@ -188,8 +188,8 @@ func TestEnumerate_PackedRefs(t *testing.T) {
 		t.Fatalf("Enumerate on packed refs failed: %v", err)
 	}
 
-	if len(res.Ops["rev-1"]) != 10 {
-		t.Fatalf("len(res.Ops[rev-1]) = %d, want 10", len(res.Ops["rev-1"]))
+	if len(res.Ops["w-1"]) != 10 {
+		t.Fatalf("len(res.Ops[w-1]) = %d, want 10", len(res.Ops["w-1"]))
 	}
 	if len(res.Cursors) != 2 {
 		t.Fatalf("len(res.Cursors) = %d, want 2", len(res.Cursors))
@@ -224,14 +224,14 @@ func TestEnumerate_TwoReposGitFetch(t *testing.T) {
 
 	// Writer 1 appends ops and pushes to origin
 	ident1 := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
-	store1, err := dag.Open(w1Dir, ident1)
+	store1, err := dag.Open(w1Dir, ident1, withVocabularies())
 	if err != nil {
 		t.Fatalf("Open w1 failed: %v", err)
 	}
 
 	env1 := codec.Envelope{
-		ObjectID:   "rev-1",
-		ObjectType: "review",
+		ObjectID:   "w-1",
+		ObjectType: "widget",
 		OpType:     "create",
 		OpVersion:  1,
 		Body:       json.RawMessage(`{"title":"From Alice"}`),
@@ -241,7 +241,7 @@ func TestEnumerate_TwoReposGitFetch(t *testing.T) {
 		t.Fatalf("w1 append failed: %v", err)
 	}
 
-	cmdPush1 := exec.Command("git", "-C", w1Dir, "push", "origin", "refs/writ/0123456789abcdef/review:refs/writ/0123456789abcdef/review")
+	cmdPush1 := exec.Command("git", "-C", w1Dir, "push", "origin", "refs/writ/0123456789abcdef/widget:refs/writ/0123456789abcdef/widget")
 	if out, err := cmdPush1.CombinedOutput(); err != nil {
 		t.Fatalf("w1 push failed: %v (%s)", err, out)
 	}
@@ -260,7 +260,7 @@ func TestEnumerate_TwoReposGitFetch(t *testing.T) {
 
 	// Writer 2 opens DAG store and enumerates
 	ident2 := testIdentity("fedcba9876543210", "Bob", "bob@example.test")
-	store2, err := dag.Open(w2Dir, ident2)
+	store2, err := dag.Open(w2Dir, ident2, withVocabularies())
 	if err != nil {
 		t.Fatalf("Open w2 failed: %v", err)
 	}
@@ -271,10 +271,10 @@ func TestEnumerate_TwoReposGitFetch(t *testing.T) {
 	}
 
 	// Must discover Alice's remote-tracking chain and ops cold!
-	if len(res.Ops["rev-1"]) != 1 || res.Ops["rev-1"][0].ID != op1.ID {
-		t.Fatalf("expected Alice's op %s in w2 enumeration, got %v", op1.ID, res.Ops["rev-1"])
+	if len(res.Ops["w-1"]) != 1 || res.Ops["w-1"][0].ID != op1.ID {
+		t.Fatalf("expected Alice's op %s in w2 enumeration, got %v", op1.ID, res.Ops["w-1"])
 	}
-	expectedRemoteRef := "refs/remotes/origin/writ/0123456789abcdef/review"
+	expectedRemoteRef := "refs/remotes/origin/writ/0123456789abcdef/widget"
 	if res.Cursors[expectedRemoteRef] != op1.ID {
 		t.Fatalf("cursor %s = %s, want %s", expectedRemoteRef, res.Cursors[expectedRemoteRef], op1.ID)
 	}

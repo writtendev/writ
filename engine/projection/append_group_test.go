@@ -13,12 +13,13 @@ import (
 	"github.com/writtendev/writ/engine/state"
 )
 
-// makeWidgetEnv and makeWidgetOp build ops for a synthetic "widget" object
-// type directly, the same way makeReviewEnv does for "review" in
-// refresh_test.go: no schema validates a "widget" op body, so this
-// reaches Refresh with no producer-validation gate to route around,
-// regardless of whether the body shape below is one a real schema would
-// ever declare.
+// makeWidgetEnv builds one op envelope for "widget", the object type
+// testRules() declares: it is what the tests that write through dag.Store
+// hand to store.Append (refresh_test.go and its callers), and what
+// makeWidgetOp below wraps into a codec.Op fed straight to Refresh via
+// WithEnumOverrideForTest. That second path never reaches producer
+// validation, so the op types this file builds ("note-v1", "push") need not
+// be ones any declared vocabulary would accept.
 func makeWidgetEnv(objID, opType string, body map[string]any) codec.Envelope {
 	bodyRaw, _ := json.Marshal(body)
 	env := codec.Envelope{
@@ -165,9 +166,10 @@ func TestAppendGroupContentIsDeterministic(t *testing.T) {
 // envelope (op_type "push", op_version 1) so they land in one shared
 // appendGroupPlan table (buildAppendGroups unions same-envelope targets) —
 // "base" is written from body field "base_sha" and "head" from body field
-// "head_sha", exactly review's own base/head shape but with target(...)
-// used, which the built-in review rules never do on an append target
-// (that gap is why three rounds walked past this). writeAppendGroupRows
+// "head_sha": the same base/head append shape testRules() declares for
+// widget, but with target(...) used, which a rule whose field already names
+// its target never needs (that gap is why three rounds walked past this).
+// writeAppendGroupRows
 // used to read body[m.Key] — m.Key is state.Rule.TargetKey(), "base" or
 // "head" — instead of body[field], so both columns materialized NULL even
 // though the op body plainly carried "aaa" and "bbb" under "base_sha" and
