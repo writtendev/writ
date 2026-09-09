@@ -4,14 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/writtendev/writ/cmd/writ/internal/wire"
+	"github.com/writtendev/writ/engine"
 )
 
 // writeSchemaFile overwrites the working-tree writ.schema in dir.
@@ -160,12 +162,11 @@ func TestSchemaCLI_Idempotence(t *testing.T) {
 	if len(plan.Ops) == 0 {
 		t.Errorf("expected a non-empty op sequence, got none")
 	}
-	// A creation plan mints no id of its own — apply resolves its own
-	// target independently, so a planned id would never be the one apply
-	// actually creates. object_id must be entirely absent, not a fabricated
-	// preview (WRIT-191 round-1 finding 3).
-	if plan.ObjectID != nil {
-		t.Errorf("expected object_id to be omitted on a creation plan, got %q", *plan.ObjectID)
+	// The schema object id is derived from the namespace
+	// (spec/identifiers.md's schema carve-out), so a creation plan's id is
+	// exact, not a fabricated preview: apply writes to this same id.
+	if plan.ObjectID != deriveSchemaObjectID(plan.Namespace) {
+		t.Errorf("expected object_id %q on a creation plan, got %q", deriveSchemaObjectID(plan.Namespace), plan.ObjectID)
 	}
 
 	// apply: the ref must not exist yet.
@@ -205,10 +206,9 @@ func TestSchemaCLI_Idempotence(t *testing.T) {
 	if plan.Created {
 		t.Errorf("expected created=false once the object exists, got true")
 	}
-	// A reuse plan's target is real (already folded from the log), so
-	// object_id must be present.
-	if plan.ObjectID == nil {
-		t.Errorf("expected object_id to be present on a reuse plan, got nil")
+	// A reuse plan's target is real (already folded from the log).
+	if plan.ObjectID == "" {
+		t.Errorf("expected object_id to be present on a reuse plan, got empty")
 	}
 
 	// apply a second time: the writer's chain tip must not move.
@@ -701,16 +701,15 @@ type standup {
 `
 	writeSchemaFile(t, env.repoDir, first)
 
-	// The object id a "creation" plan reports is only a preview — there is
-	// no plan artifact, so apply mints its own id independently. The id
-	// that matters is the one apply actually wrote, from apply's own
-	// --json output.
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply", "--json"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("apply failed with %d; stderr: %s", code, stderr.String())
 	}
 	firstObjectID := applyObjectID(t, stdout.Bytes())
+	if want := deriveSchemaObjectID("acme"); firstObjectID != want {
+		t.Fatalf("expected the derived object id %s, got %s", want, firstObjectID)
+	}
 
 	// Reuse: same namespace, a changed description (an ordinary update, not
 	// a removal) must resolve to the same object id and never mint again.
@@ -970,6 +969,225 @@ type schema {
 	}
 }
 
+// runSchemaSyncOrFatal runs `writ sync` against dir (push any local ops,
+// fetch any new remote ones) and fails the test on a non-zero exit.
+func runSchemaSyncOrFatal(t *testing.T, dir string) {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", dir, "sync"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("sync in %s failed with %d; stdout: %s stderr: %s", dir, code, stdout.String(), stderr.String())
+	}
+}
+
+// TestSchemaCLI_IndependentOfflineBootstrapConverges is WRIT-199's
+// acceptance test, run end to end against a real system-git transport
+// (setupSyncTestHarness): two writers who each bootstrap the same
+// namespace offline — neither has fetched anything, so neither can know
+// whether a schema object already exists — must converge on one schema
+// object, not two.
+//
+// Before this change, each bootstrap minted an independent 128-bit random
+// object id; both pushes would land two schema objects binding the same
+// object_type, and RulesFromSchemas withholds every rule for a type bound
+// twice, permanently (WRIT-186) — this test fails against that behavior.
+// Deriving the id from the namespace (spec/identifiers.md's schema
+// carve-out) makes the collision unreachable: both writers compute
+// schema:<namespace> and append to the same object, and their disjoint
+// declarations merge through the fold the same way any other concurrent
+// edit would.
+func TestSchemaCLI_IndependentOfflineBootstrapConverges(t *testing.T) {
+	_, aliceDir, bobDir := setupSyncTestHarness(t)
+	ctx := context.Background()
+
+	const schemaSrc = `namespace offline-demo
+description "Offline bootstrap demo"
+
+type widget {
+  op create 1 {
+    title  string(200)  lww
+  }
+}
+`
+
+	// Alice bootstraps the namespace entirely offline: no sync has run, so
+	// she has no way to know whether anyone else has already created this
+	// schema object.
+	sA, err := writ.Open(aliceDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("open Alice: %v", err)
+	}
+	writeSchemaFile(t, aliceDir, schemaSrc)
+	planA, err := buildSchemaPlan(ctx, sA, aliceDir)
+	if err != nil {
+		t.Fatalf("Alice build schema plan: %v", err)
+	}
+	if !planA.created {
+		t.Fatalf("expected Alice's plan to create a fresh schema object")
+	}
+	if err := sA.ApplySchema(ctx, planA.ops); err != nil {
+		t.Fatalf("Alice apply schema: %v", err)
+	}
+	sA.Close()
+
+	// Bob independently bootstraps the same namespace, also offline, with
+	// no chance to fetch Alice's ops first — the exact hazard WRIT-199
+	// closes.
+	sB, err := writ.Open(bobDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("open Bob: %v", err)
+	}
+	writeSchemaFile(t, bobDir, schemaSrc)
+	planB, err := buildSchemaPlan(ctx, sB, bobDir)
+	if err != nil {
+		t.Fatalf("Bob build schema plan: %v", err)
+	}
+	if !planB.created {
+		t.Fatalf("expected Bob's plan to create a fresh schema object")
+	}
+	if planB.objectID != planA.objectID {
+		t.Fatalf("expected Alice and Bob to derive the same object id, got %s and %s", planA.objectID, planB.objectID)
+	}
+	if err := sB.ApplySchema(ctx, planB.ops); err != nil {
+		t.Fatalf("Bob apply schema: %v", err)
+	}
+	sB.Close()
+
+	// Both push, then both fetch, over real system git.
+	runSchemaSyncOrFatal(t, aliceDir)
+	runSchemaSyncOrFatal(t, bobDir)
+	runSchemaSyncOrFatal(t, aliceDir)
+
+	sA, err = writ.Open(aliceDir)
+	if err != nil {
+		t.Fatalf("reopen Alice: %v", err)
+	}
+	defer sA.Close()
+
+	schemas, err := sA.Schema(ctx)
+	if err != nil {
+		t.Fatalf("Alice Schema: %v", err)
+	}
+	if len(schemas) != 1 {
+		t.Fatalf("expected exactly one schema object once both writers push and fetch, got %d: %+v", len(schemas), schemas)
+	}
+	if want := deriveSchemaObjectID("offline-demo"); schemas[0].ObjectID != want {
+		t.Fatalf("expected the schema object id to be %s, got %s", want, schemas[0].ObjectID)
+	}
+
+	rules, conflicts := writ.RulesFromSchemas(schemas)
+	if len(conflicts) != 0 {
+		t.Fatalf("expected no schema conflicts once both writers converge on one object, got %+v", conflicts)
+	}
+	if len(rules["widget"]) == 0 {
+		t.Fatalf("expected rules for the declared type %q, got none; rules: %+v", "widget", rules)
+	}
+}
+
+// TestSchemaCLI_IndependentOfflineBootstrapFieldDisagreement is the second
+// half of WRIT-199's acceptance criteria: when two writers bootstrapping
+// the same namespace offline don't just declare disjoint types but
+// concurrently disagree about one field's declaration, the disagreement
+// resolves through the object's ordinary keyed-lww register — the field
+// is never withheld — and a later write corrects it, exactly the
+// correction flow that already works for any other keyed-lww disagreement.
+func TestSchemaCLI_IndependentOfflineBootstrapFieldDisagreement(t *testing.T) {
+	_, aliceDir, bobDir := setupSyncTestHarness(t)
+	ctx := context.Background()
+
+	schemaSrc := func(maxLength int) string {
+		return fmt.Sprintf(`namespace conflict-demo
+description "Conflict demo"
+
+type widget {
+  op create 1 {
+    priority  string(%d)  lww
+  }
+}
+`, maxLength)
+	}
+
+	applyOffline := func(dir string, maxLength int) {
+		t.Helper()
+		s, err := writ.Open(dir, writ.WithSigner(dummySigner()))
+		if err != nil {
+			t.Fatalf("open %s: %v", dir, err)
+		}
+		defer s.Close()
+		writeSchemaFile(t, dir, schemaSrc(maxLength))
+		planRes, err := buildSchemaPlan(ctx, s, dir)
+		if err != nil {
+			t.Fatalf("build schema plan in %s: %v", dir, err)
+		}
+		if err := s.ApplySchema(ctx, planRes.ops); err != nil {
+			t.Fatalf("apply schema in %s: %v", dir, err)
+		}
+	}
+
+	// Alice and Bob each bootstrap the same namespace offline, declaring
+	// the same field with a different max_length — a genuine concurrent
+	// disagreement, not a removal.
+	applyOffline(aliceDir, 50)
+	applyOffline(bobDir, 300)
+
+	runSchemaSyncOrFatal(t, aliceDir)
+	runSchemaSyncOrFatal(t, bobDir)
+	runSchemaSyncOrFatal(t, aliceDir)
+
+	readFolded := func(dir string) (maxLength int64, conflicts []writ.SchemaConflict) {
+		t.Helper()
+		s, err := writ.Open(dir)
+		if err != nil {
+			t.Fatalf("open %s: %v", dir, err)
+		}
+		defer s.Close()
+		schemas, err := s.Schema(ctx)
+		if err != nil {
+			t.Fatalf("Schema in %s: %v", dir, err)
+		}
+		if len(schemas) != 1 {
+			t.Fatalf("expected exactly one schema object, got %d: %+v", len(schemas), schemas)
+		}
+		_, conflicts = writ.RulesFromSchemas(schemas)
+		for _, ty := range schemas[0].Types {
+			if ty.Name != "widget" {
+				continue
+			}
+			for _, f := range ty.Fields {
+				if f.Name == "priority" {
+					return f.MaxLength, conflicts
+				}
+			}
+		}
+		t.Fatalf("field widget.priority not found in folded schema: %+v", schemas[0])
+		return 0, nil
+	}
+
+	maxLength, conflicts := readFolded(aliceDir)
+	if len(conflicts) != 0 {
+		t.Fatalf("expected the field disagreement to resolve via keyed-lww with no withheld rules, got conflicts: %+v", conflicts)
+	}
+	if maxLength != 50 && maxLength != 300 {
+		t.Fatalf("expected the folded max_length to be one writer's value (50 or 300), got %d", maxLength)
+	}
+
+	// Correction: a later write, applied and synced after both concurrent
+	// declarations have landed, resolves the disagreement to whatever it
+	// says — the same correction flow that already works for any other
+	// keyed-lww field.
+	time.Sleep(1100 * time.Millisecond)
+	applyOffline(aliceDir, 999)
+	runSchemaSyncOrFatal(t, aliceDir)
+	runSchemaSyncOrFatal(t, bobDir)
+
+	maxLength, conflicts = readFolded(bobDir)
+	if len(conflicts) != 0 {
+		t.Fatalf("expected no conflicts after the corrective write, got: %+v", conflicts)
+	}
+	if maxLength != 999 {
+		t.Fatalf("expected the corrective write (max_length 999) to win, got %d", maxLength)
+	}
+}
+
 func planObjectID(t *testing.T, jsonData []byte) string {
 	t.Helper()
 	var envW wire.Envelope
@@ -981,10 +1199,7 @@ func planObjectID(t *testing.T, jsonData []byte) string {
 	if err := json.Unmarshal(data, &plan); err != nil {
 		t.Fatalf("unmarshal SchemaPlan: %v", err)
 	}
-	if plan.ObjectID == nil {
-		return ""
-	}
-	return *plan.ObjectID
+	return plan.ObjectID
 }
 
 func applyObjectID(t *testing.T, jsonData []byte) string {
@@ -1001,14 +1216,6 @@ func applyObjectID(t *testing.T, jsonData []byte) string {
 	return apply.ObjectID
 }
 
-// maskGoldenSchemaObjectID neutralizes the randomly minted top-level
-// object_id in a schema.plan/schema.apply payload so the golden comparison
-// is deterministic across runs.
-func maskGoldenSchemaObjectID(data []byte) []byte {
-	re := regexp.MustCompile(`"object_id":"[0-9a-f]{32}"`)
-	return re.ReplaceAll(data, []byte(`"object_id":"0123456789abcdef0123456789abcdef"`))
-}
-
 func TestGolden_SchemaPlan_Fresh(t *testing.T) {
 	env := initTestRepo(t)
 	writeSchemaFile(t, env.repoDir, fullTestSchema)
@@ -1019,7 +1226,7 @@ func TestGolden_SchemaPlan_Fresh(t *testing.T) {
 		t.Fatalf("plan --json failed with %d; stderr: %s", code, stderr.String())
 	}
 
-	compareOrUpdateGolden(t, "schema_plan.json", maskGoldenSchemaObjectID(stdout.Bytes()))
+	compareOrUpdateGolden(t, "schema_plan.json", stdout.Bytes())
 }
 
 func TestGolden_SchemaPlan_UpToDate(t *testing.T) {
@@ -1038,7 +1245,7 @@ func TestGolden_SchemaPlan_UpToDate(t *testing.T) {
 		t.Fatalf("plan --json failed with %d; stderr: %s", code, stderr.String())
 	}
 
-	compareOrUpdateGolden(t, "schema_plan_up_to_date.json", maskGoldenSchemaObjectID(stdout.Bytes()))
+	compareOrUpdateGolden(t, "schema_plan_up_to_date.json", stdout.Bytes())
 }
 
 func TestGolden_SchemaApply(t *testing.T) {
@@ -1051,5 +1258,5 @@ func TestGolden_SchemaApply(t *testing.T) {
 		t.Fatalf("apply --json failed with %d; stderr: %s", code, stderr.String())
 	}
 
-	compareOrUpdateGolden(t, "schema_apply.json", maskGoldenSchemaObjectID(stdout.Bytes()))
+	compareOrUpdateGolden(t, "schema_apply.json", stdout.Bytes())
 }

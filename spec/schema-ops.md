@@ -41,6 +41,12 @@ each publish a schema without coordinating names, because each schema
 carries its own namespace. Namespace is a property of the schema object
 (set by `create`, §3.1) and never reaches the wire — see §2 for what does.
 
+A schema object's namespace is also its identity: `object_id` is derived
+from it (§3), so one namespace names exactly one schema object, and a
+producer bootstrapping a namespace it has not seen before converges on the
+same object as any other producer doing the same, with no coordination
+(`spec/identifiers.md`'s schema carve-out).
+
 ### 1.2. Scope boundaries
 
 - **No DSL, no plan/apply, no CLI.** This document specifies the op
@@ -89,10 +95,17 @@ conforms to `spec/schemas/op-envelope.schema.json` and
 - `object_type` MUST be `"schema"`.
 - `op_version` MUST be an integer ≥ 1. This document specifies version `1`.
 - `object_id` MUST be a non-empty printable-ASCII string identifier
-  (1–256 characters, `^[\x21-\x7e]+$`), per `spec/op-envelope.md`. There is
-  no well-known canonical object ID: a repository MAY have any number of
-  schema objects, each authored independently, so any envelope-legal
-  `object_id` is conforming.
+  (1–256 characters, `^[\x21-\x7e]+$`), per `spec/op-envelope.md`. A
+  repository MAY have any number of schema objects, but each is one
+  namespace's object: a conforming producer *creating* a schema object
+  for namespace `<namespace>` MUST derive its `object_id` as
+  `schema:<namespace>` (`spec/identifiers.md`'s schema carve-out). This
+  binds creation only — a producer appending to an *existing* schema
+  object MUST target whatever `object_id` that object already holds,
+  derived or not, the same way any other object type is targeted. Readers
+  still accept any envelope-legal `object_id` as opaque, unchanged — this
+  binds producers, not what a reader may fold (forward compatibility,
+  §10).
 - `op_type` MUST be one of the operation types defined below (§4), or an
   unknown string tolerated under forward-compatibility rules.
 - `body` MUST be a JSON object conforming to the schema for the declared
@@ -190,7 +203,7 @@ Initializes a schema object and sets its namespace.
 
 ```jsonc
 {
-  "object_id": "sch-acme",
+  "object_id": "schema:acme",
   "object_type": "schema",
   "op_type": "create",
   "op_version": 1,
@@ -213,7 +226,7 @@ Declares an object type.
 
 ```jsonc
 {
-  "object_id": "sch-acme",
+  "object_id": "schema:acme",
   "object_type": "schema",
   "op_type": "define-type",
   "op_version": 1,
@@ -241,7 +254,7 @@ Declares one field on one op's body for one type.
 
 ```jsonc
 {
-  "object_id": "sch-acme",
+  "object_id": "schema:acme",
   "object_type": "schema",
   "op_type": "define-field",
   "op_version": 1,
@@ -297,7 +310,7 @@ Declares an op type within a type's vocabulary.
 
 ```jsonc
 {
-  "object_id": "sch-acme",
+  "object_id": "schema:acme",
   "object_type": "schema",
   "op_type": "define-op",
   "op_version": 1,
@@ -319,7 +332,7 @@ Declares an op type within a type's vocabulary.
 
 ```jsonc
 {
-  "object_id": "sch-acme",
+  "object_id": "schema:acme",
   "object_type": "schema",
   "op_type": "deprecate-type",
   "op_version": 1,
@@ -335,7 +348,7 @@ Declares an op type within a type's vocabulary.
 
 ```jsonc
 {
-  "object_id": "sch-acme",
+  "object_id": "schema:acme",
   "object_type": "schema",
   "op_type": "deprecate-field",
   "op_version": 1,

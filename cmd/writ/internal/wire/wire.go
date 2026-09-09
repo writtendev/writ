@@ -203,14 +203,13 @@ func FromSchemaConflicts(conflicts []writ.SchemaConflict) []SchemaConflict {
 // the ops that would be appended to bring it in line with the working-tree
 // writ.schema file.
 //
-// ObjectID is omitted when Created is true: `plan` mints no id of its own
-// (there is no plan artifact, and apply computes its own target fresh, by
-// its own independent mint), so a creation plan has no id that `apply`
-// is bound to reuse — reporting one would be reporting an id no
-// repository will ever actually hold. On a reuse plan the id is the real,
-// already-folded target and is always present.
+// ObjectID is always present. A creation plan's id used to be a preview
+// only — apply resolved its own target independently and minted its own
+// id, so the two could diverge — but the schema object id is now derived
+// from the namespace (spec/identifiers.md's schema carve-out), so plan's
+// id for a fresh object is the exact id apply would write to.
 type SchemaPlan struct {
-	ObjectID      *string          `json:"object_id,omitempty"`
+	ObjectID      string           `json:"object_id"`
 	Namespace     string           `json:"namespace"`
 	Created       bool             `json:"created"`
 	UpToDate      bool             `json:"up_to_date"`

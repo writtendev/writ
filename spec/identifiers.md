@@ -34,7 +34,9 @@ This section deliberately does not define:
 ## Object identifiers
 
 A collaborative object in Writ possesses an identifier that is globally unique
-across all repositories, writers, and devices.
+across all repositories, writers, and devices — with one deliberate
+exception, the derived `schema` id described below, which is unique only
+within its namespace, not globally.
 
 ```jsonc
 "0123456789abcdef0123456789abcdef"
@@ -61,6 +63,15 @@ probability of a collision is less than $1.47 \times 10^{-15}$. This ensures
 collision safety across independent writers without requiring centralized
 locking.
 
+This argument covers the randomly minted form only. The derived `schema`
+id below is not drawn from a 128-bit random space at all — it is a pure
+function of the namespace — so "collision" does not apply to it the way it
+does here: two schema objects sharing an id is not a low-probability event
+to be bounded, it is the certain, intended outcome for any two producers
+that declare the same namespace. See
+§[The `schema` object type: a derived exception](#the-schema-object-type-a-derived-exception)
+below for what that means when those producers are not in the same repository.
+
 ### Rationale and closed alternatives
 
 Two alternative identification schemes were considered and rejected:
@@ -79,16 +90,88 @@ Two alternative identification schemes were considered and rejected:
    which is incompatible with offline creation and conflict-free concurrent
    pushes.
 
+### The `schema` object type: a derived exception
+
+One object type does not mint a random id: `schema` ([`spec/schema-ops.md`](schema-ops.md)).
+A schema object's identity *is* its namespace, not an arbitrary handle picked
+at creation — so a producer creating one MUST derive the id from the
+`create` op's `namespace` as the literal:
+
+```jsonc
+"schema:acme"
+```
+
+That is, `"schema:" + namespace`.
+
+The reason is convergence, not aesthetics. `writ schema apply` creates a
+schema object with no coordination, the same way any other object is
+created — but two writers who each bootstrap the same namespace offline,
+with no chance to fetch each other's ops first, would otherwise mint two
+different random ids for what is meant to be one object. Both push; the
+repository now holds two schema objects each binding the same
+`object_type`(s), and `RulesFromSchemas` withholds every rule for those
+types, permanently, because it has no way to pick a winner between them
+(see [`spec/schema-ops.md`](schema-ops.md) §6). Deriving the id from the
+namespace makes that collision unreachable: both writers compute the same
+id and append to the same object, and their ops merge through the same
+keyed-lww resolution that already handles any other concurrent edit.
+
+The derivation is total. A namespace is constrained to
+`^[a-z][a-z0-9-]*$`, maximum length 64
+(`spec/schemas/schema-ops.schema.json` `$defs.namespace`), so
+`schema:<namespace>` is always 8–71 characters of printable non-space
+ASCII — within the envelope's own `object_id` bound
+(`^[\x21-\x7e]+$`, 1–256 characters, [`spec/op-envelope.md`](op-envelope.md))
+for every namespace a producer could legally declare, with no separate
+encoding step. It is also unambiguous against the canonical minted form:
+`^[0-9a-f]{32}$` admits no colon, so `schema:<namespace>` can never
+collide with, or be mistaken for, a randomly minted id.
+
+**Consequence: namespace identity is now global, not per-repository.**
+Because the id is a function of the namespace alone, `schema:acme` names
+the same object everywhere `acme` is declared — not just within one
+repository. Two repositories that each independently bootstrapped
+`namespace acme` (say, a fork and its upstream, each offline from the
+other) hold two objects with the same id. If those repositories are later
+connected — a remote added, a fetch of both into one place — grouping ops
+by `object_id` folds them into one schema object holding the union of
+both vocabularies, the same mechanism that makes the two-writer,
+one-repository case in the scenario above converge. Under the old random
+mint, that same situation produced two distinct objects and a loud
+`resolveSchemaTarget` `default:` refusal on the second `create`, with
+`RulesFromSchemas` withholding rules for any type both bound.
+
+That is a behavior change in the opposite direction from the rest of this
+carve-out — silent convergence instead of a loud refusal — and it is
+accepted deliberately, not overlooked: converging writers of the *same*
+namespace is the entire point of this change, and a namespace is meant to
+name one vocabulary regardless of which repository declares it. A schema
+object's identity being its namespace, globally, is the carve-out's
+premise, not a gap in it. Two repositories that mean *different*
+vocabularies can still end up with the same namespace string with no
+writer ever choosing it: `writ init` derives a repository's starter
+namespace from its working-tree directory basename, falling back to the
+fixed placeholder `repo` when nothing legal survives the derivation. Two
+unrelated repositories checked out under directories with the same name
+— or two whose basenames both fail to survive derivation and both land
+on the `repo` fallback — collide on namespace by that default alone,
+reachable without anyone opting into a shared string. That is a naming
+collision this derivation cannot detect or arbitrate, not something a
+writer has to choose their way into.
+
 ### Producer and reader conformance
 
 - **Producers MUST** mint object IDs using 128 bits of cryptographically
-  secure randomness formatted as 32 lowercase hexadecimal characters.
+  secure randomness formatted as 32 lowercase hexadecimal characters,
+  **except** for a `schema` object, whose id MUST instead be derived from
+  its namespace as `schema:<namespace>` (see above).
 - **Readers MUST NOT** reject object IDs that fail to match the 32-hex
   lowercase format if they satisfy the envelope's printable non-space ASCII
   constraint (`^[\x21-\x7e]+$`, 1–256 characters). Readers MUST treat
   non-conforming or foreign IDs as opaque identifiers. This forward-compatibility
   rule ensures older readers do not discard objects created by newer or
-  third-party producers.
+  third-party producers — it already covers a derived `schema` id with no
+  change of its own.
 
 ## Person identifiers (`person-id`)
 

@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -262,16 +260,8 @@ type schemaPlanResult struct {
 }
 
 func (r *schemaPlanResult) toWirePlan() wire.SchemaPlan {
-	// A creation plan's objectID is only ever a preview: apply resolves its
-	// own target independently and mints its own id, so this id is never
-	// the one a later apply would actually write to (see wire.SchemaPlan).
-	var objectID *string
-	if !r.created {
-		id := r.objectID
-		objectID = &id
-	}
 	return wire.SchemaPlan{
-		ObjectID:      objectID,
+		ObjectID:      r.objectID,
 		Namespace:     r.namespace,
 		Created:       r.created,
 		UpToDate:      r.upToDate,
@@ -497,11 +487,7 @@ func resolveSchemaTarget(schemas []state.Schema, f *schemasrc.File) (string, err
 				"writ schema: no schema object declares namespace %q, but this file would bind object_type(s) %s to a new schema object; applying would bind the same object_type twice and RulesFromSchemas withholds all rules for it, permanently — reconcile the namespace or type name before running `writ schema apply`",
 				f.Namespace, contestedTypeParts(contested))
 		}
-		id, err := newSchemaObjectID()
-		if err != nil {
-			return "", fmt.Errorf("writ schema: mint schema object id: %w", err)
-		}
-		return id, nil
+		return deriveSchemaObjectID(f.Namespace), nil
 	default:
 		ids := make([]string, 0, len(matches))
 		for _, s := range matches {
@@ -563,20 +549,20 @@ func contestedTypeParts(contested map[string]string) string {
 	return strings.Join(parts, ", ")
 }
 
-// newSchemaObjectID mints a fresh object id per spec/identifiers.md: 128
-// bits of CSPRNG randomness, rendered as 32 lowercase hex characters. This
-// mirrors engine/objectid.go's unexported newObjectID exactly — object id
-// minting for a brand-new schema object happens here, in the CLI, rather
-// than in the engine, because schemasrc.Compile needs the target id before
-// the engine ever sees a single envelope: there is no "create and get an
-// id back" call for schema the way the deleted typed create services offered
-// for their own types.
-func newSchemaObjectID() (string, error) {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b), nil
+// deriveSchemaObjectID returns the schema object id for namespace:
+// "schema:" + namespace, per spec/identifiers.md's schema carve-out. A
+// schema object's identity is its namespace, so two writers bootstrapping
+// the same namespace offline derive the same id and converge on the same
+// object instead of minting two that both bind the same object_type(s) —
+// the collision RulesFromSchemas has no way to resolve. namespacePattern
+// (engine/schemasrc/parse.go) constrains namespace to
+// ^[a-z][a-z0-9-]*$, maxLength 64, so the result is always 8-71 characters
+// of printable non-space ASCII: envelope-legal for every legal namespace,
+// and never confusable with a minted id, since ^[0-9a-f]{32}$ admits no
+// colon. deriveStarterNamespace (cmd/writ/init.go) is the naming
+// precedent for this kind of derivation.
+func deriveSchemaObjectID(namespace string) string {
+	return "schema:" + namespace
 }
 
 // conflictsIntroducedByApply computes which of RulesFromSchemas' conflicts

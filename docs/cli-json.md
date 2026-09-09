@@ -128,9 +128,9 @@ Parses `writ.schema`, folds the schema objects already in the repository, and re
 
 | Field | Type | Description |
 |---|---|---|
-| `object_id` | string | 32-character lowercase hex identifier for the target schema object, present only when `created` is `false`. A creation plan mints no id of its own — `apply` resolves its own target independently and mints its own id — so there is no id to report yet; the field is omitted rather than naming one `apply` may never actually create. |
+| `object_id` | string | The target schema object's id. On a creation plan (`created: true`), this is `schema:<namespace>`, derived from the file's `namespace` declaration (`spec/identifiers.md`'s schema carve-out) — the exact id `apply` would write to, not a preview. On a reuse plan (`created: false`), this is whatever id the existing schema object already holds, derived or not. Always present. |
 | `namespace` | string | The file's `namespace` declaration. |
-| `created` | boolean | `true` iff the repository has no schema object with this namespace yet, so applying would mint a fresh object id. |
+| `created` | boolean | `true` iff the repository has no schema object with this namespace yet, so applying would create a fresh object at `object_id`. |
 | `up_to_date` | boolean | `true` iff `ops` is empty: the file already matches the folded log state. |
 | `ops` | array | The ops `apply` would append, in the order it would append them. Empty array (`[]`), never `null`, when `up_to_date`. |
 | `ops[].op_type` | string | One of `create`, `define-type`, `define-op`, `define-field`, `deprecate-type`, `deprecate-field` (`spec/schema-ops.md` §4). |
@@ -152,6 +152,7 @@ A refused plan (an invalid file, or an edit that would remove a declaration) exi
   "schema_version": 1,
   "kind": "schema.plan",
   "data": {
+    "object_id": "schema:acme",
     "namespace": "acme",
     "created": true,
     "up_to_date": false,
@@ -172,14 +173,14 @@ A refused plan (an invalid file, or an edit that would remove a declaration) exi
 }
 ```
 
-A reuse plan (`created: false`) reports the real, already-folded `object_id`:
+A reuse plan (`created: false`) reports the same, real, already-folded `object_id`:
 
 ```json
 {
   "schema_version": 1,
   "kind": "schema.plan",
   "data": {
-    "object_id": "0123456789abcdef0123456789abcdef",
+    "object_id": "schema:acme",
     "namespace": "acme",
     "created": false,
     "up_to_date": true,
@@ -204,9 +205,9 @@ Runs the same computation as `writ schema plan`, then signs and appends the resu
 
 | Field | Type | Description |
 |---|---|---|
-| `object_id` | string | The schema object written to. |
+| `object_id` | string | The schema object written to. On creation (`created: true`), `schema:<namespace>`. On reuse (`created: false`), whatever id the existing schema object already held. |
 | `namespace` | string | The file's `namespace` declaration. |
-| `created` | boolean | `true` iff this apply minted a fresh object id. |
+| `created` | boolean | `true` iff this apply created a fresh schema object at `object_id`. |
 | `ops_appended` | integer | Count of ops actually appended. `0` when the file already matched the log. |
 | `ops` | array | The ops appended, same shape as `SchemaPlan.ops`. Empty array (`[]`) when nothing was appended. |
 
@@ -217,7 +218,7 @@ Runs the same computation as `writ schema plan`, then signs and appends the resu
   "schema_version": 1,
   "kind": "schema.apply",
   "data": {
-    "object_id": "0123456789abcdef0123456789abcdef",
+    "object_id": "schema:acme",
     "namespace": "acme",
     "created": true,
     "ops_appended": 2,

@@ -50,26 +50,20 @@ git clone "$WRIT_BARE_DIR" "$WRIT_COLLAB_DIR" >/dev/null 2>&1
   writ init >/dev/null 2>&1
 )
 
-# Fixed placeholder ids the tape "types" literally, so the recording reads
+# Fixed placeholder id the tape "types" literally, so the recording reads
 # the same every run despite object ids being freshly minted (crypto/rand)
 # each time. The wrapper below resolves a placeholder to the real id via
 # `object list --json`, runs the real command against it, then masks the
-# real id back out of the output.
+# real id back out of the output. The schema object id needs no such
+# masking: it is derived from the namespace (`schema:demo`, since this
+# script's writ.schema declares `namespace demo`), so it already reads the
+# same every run.
 TICKET_PLACEHOLDER=0192a1b2c3d4e5f60718293a4b5c6d7e
-SCHEMA_PLACEHOLDER=426905eb8b0b65f913ddcfd05905d1d3
 
 # Wrapper to format object/schema ids cleanly
 _real_writ=$(which writ)
 writ() {
-  if [ "$1" = "schema" ] && [ "$2" = "apply" ]; then
-    out=$("$_real_writ" "$@")
-    real_id=$(echo "$out" | grep -o '[0-9a-f]\{32\}' | head -1)
-    if [ -n "$real_id" ]; then
-      echo "$out" | sed "s/$real_id/$SCHEMA_PLACEHOLDER/g"
-    else
-      echo "$out"
-    fi
-  elif [ "$1" = "object" ] && [ "$2" = "create" ]; then
+  if [ "$1" = "object" ] && [ "$2" = "create" ]; then
     out=$("$_real_writ" "$@")
     real_id="$out"
     echo "$out" | sed "s/$real_id/$TICKET_PLACEHOLDER/g"

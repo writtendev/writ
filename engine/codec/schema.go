@@ -287,8 +287,14 @@ func ValidateBody(env Envelope, vocabularies Vocabularies) error {
 //  2. Otherwise, vocabularies declares (and does not contest) object_type
 //     -> the log-sourced declaration, and only it.
 //  3. Otherwise, object_type is contested (vocabularies has an entry with
-//     Contested set) -> permit the write, unvalidated; deleted outright
-//     by WRIT-199.
+//     Contested set) -> permit the write, unvalidated. WRIT-199 makes the
+//     *accidental* route into this tier unreachable for schema objects —
+//     two writers bootstrapping the same namespace offline now converge
+//     on one object instead of each minting one that contests the
+//     other's type — but does not delete the tier itself: a
+//     hand-crafted op with a random object_id and a colliding
+//     object_type can still contest one deliberately, and that
+//     adversarial path is out of scope for WRIT-199 by design.
 //  4. Otherwise -> refuse, naming object_type.
 func validateProducerOp(env Envelope, raw []byte, vocabularies Vocabularies) error {
 	if env.ObjectType == "schema" {
@@ -310,9 +316,12 @@ func validateProducerOp(env Envelope, raw []byte, vocabularies Vocabularies) err
 		// validation). Nothing to check here: rules 1 and 2 of the
 		// envelope schema and canonical-encoding check already ran in
 		// BuildCommit before this was ever reached, and no conforming
-		// reader will interpret these ops until the contest resolves
-		// (WRIT-199) — but a permanent write outage is the alternative,
-		// and that trade is not this function's call to make.
+		// reader will interpret these ops until the contest resolves —
+		// WRIT-199 makes the accidental route to a contested schema type
+		// unreachable, but a deliberately hand-crafted contest is still
+		// possible and still lands here — but a permanent write outage is
+		// the alternative, and that trade is not this function's call to
+		// make.
 		return nil
 	}
 	return fmt.Errorf("codec: object_type %q is not declared by any schema in the log: spec/op-envelope.md §Producer validation rule 3/4", env.ObjectType)

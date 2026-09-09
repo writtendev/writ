@@ -202,8 +202,15 @@ description; this is the producer-side consequence of it):
    not a transient availability dip, and the realistic cause is not
    malice — writ has no anonymous write path, so a peer able to push a
    colliding `schema` object is already a collaborator with push access —
-   but two writers each minting a repository's first `schema` object while
-   offline. This tier's cost, stated plainly rather than left to be
+   but two `schema` objects that bind the same bare `object_type` without
+   sharing a namespace: different namespaces naming overlapping
+   vocabulary, or a hand-crafted `object_id` deliberately colliding with
+   one. Two writers bootstrapping the *same* namespace offline no longer
+   reach this tier — a schema object's id is derived from its namespace
+   rather than minted, so both converge on one object instead of
+   contesting each other's `object_type`
+   ([`spec/identifiers.md`](identifiers.md) §The `schema` object type: a
+   derived exception). This tier's cost, stated plainly rather than left to be
    discovered: a producer may write ops here that **no conforming reader
    will interpret** — a reader also withholds interpretation from a
    contested `object_type` ([`spec/schema-ops.md`](schema-ops.md) §6) —

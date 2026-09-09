@@ -1,0 +1,40 @@
+{
+  "objects": [
+    {
+      "object_id": "schema:acme",
+      "schema": {
+        "object_id": "schema:acme",
+        "namespace": "acme",
+        "description": "Acme's vocabulary",
+        "types": [
+          {
+            "type": "gadget",
+            "description": "A small gadget",
+            "fields": [
+              {
+                "field": "subject",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              }
+            ]
+          },
+          {
+            "type": "widget",
+            "description": "A daily widget",
+            "fields": [
+              {
+                "field": "title",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
