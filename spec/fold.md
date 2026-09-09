@@ -200,7 +200,7 @@ Field merge rules are declared in machine-readable tables (`field-rules.json`, c
 - `op_type` (string): The operation type.
 - `op_version` (integer): The operation schema version.
 - `field` (string): The target field in the operation body.
-- `target` (optional string): The state key in the generic fold map (`ObjectState.State`). Defaults to `field` if omitted. Rules may declare a `target` state key to avoid strategy collisions when multiple op types define identical body field names with differing merge strategies. The same remedy applies across versions of one op type, not only across op types: `Fold` groups matched rules by target key alone (not by `op_version`) and instantiates one accumulator from whichever matching rule a caller's slice lists first, so a `define-field` version bump (`spec/schema-ops.md`) that changes `strategy` while reusing a `target` already bound to a different strategy is order-dependent — two conforming implementations that list rules differently would disagree. A version bump MAY freely change `value_type`, `enum`, `max_length`, `key`, or `key_types` under the same target, because those never change which accumulator factory runs; a version bump that changes `strategy` MUST declare a distinct `target`, and a rule table that reuses a target across a strategy change is non-conforming.
+- `target` (optional string): The state key in the generic fold map (`ObjectState.State`). Defaults to `field` if omitted. Rules may declare a `target` state key to avoid strategy collisions when multiple op types define identical body field names with differing merge strategies. The same remedy applies across versions of one op type, not only across op types: `Fold` groups matched rules by target key alone (not by `op_version`) and instantiates one accumulator from whichever matching rule a caller's slice lists first, so a `define-field` version bump (`spec/schema-ops.md`) that changes `strategy` while reusing a `target` already bound to a different strategy is order-dependent — two conforming implementations that list rules differently would disagree. A version bump MAY freely change `value_type`, `enum`, `max_length`, `key`, or `key_types` under the same target, because those never change which accumulator factory runs; `lattice` is not on that list, because the `lattice` accumulator reads it to order its semilattice, so a version bump reusing a target MUST still agree on it. A version bump that changes `strategy` MUST declare a distinct `target`, and a rule table that reuses a target across a strategy change is non-conforming.
 - `strategy` (string): Exactly one strategy from the closed catalogue.
 - `key` (array of strings, required for `keyed-lww`): The ordered list of body fields forming the composite key.
 - `lattice` (array of strings, required for `lattice`): The ordered elements of the semilattice.
@@ -233,12 +233,13 @@ undeclared) is equal MUST agree on `strategy`, `value_type`, `key`,
 rules that share both `op_type` and `field`, differing only by `op_version`
 (a version bump), MAY freely change `value_type`, `enum`, `max_length`,
 `key`, or `key_types` under the same target, as already stated above, and
-MUST declare a distinct `target` only if the bump also changes `strategy`.
+MUST declare a distinct `target` if the bump also changes `strategy`.
 `lattice` is not on that freely-changeable list: unlike those five, it is
 consulted by the strategy at fold time — the `lattice` accumulator reads it
-to order its semilattice — so two rules that share a target without being a
-version bump of one another must agree on it too, exactly as they must on
-`value_type`, `key`, `key_types`, `enum` and `max_length`. This is what
+to order its semilattice — so two rules that share a target MUST agree on
+it even when they are a version bump of one another, exactly as they must
+on `value_type`, `key`, `key_types`, `enum` and `max_length` outside a
+version bump, and exactly as they must on `strategy` itself. This is what
 stops two body fields that merely happen to share a name — such as
 one OR-set's `add` side and an unrelated OR-set's `add` side, declared
 under different `op_type`s with no `target` of their own — from silently
