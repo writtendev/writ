@@ -1119,6 +1119,37 @@ func regressionVectorWRIT126() FuzzCase {
 	}
 }
 
+// WRIT-196: a rule with Strategy == "" and a rule with an unknown strategy
+// string must be dropped by filterValidRules before the fold ever sees
+// them -- fuzz-mutated JSON decodes a missing/garbled "strategy" key into
+// exactly these shapes, and undropped they reach NewAccumulator
+// (engine/internal/fold/strategy.go) as `unknown strategy ""`.
+func regressionVectorWRIT196() FuzzCase {
+	now := time.Unix(100, 0).UTC()
+	rules := []writ.Rule{
+		{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww"},
+		{OpType: "create", OpVersion: 1, Field: "empty_strategy", Strategy: ""},
+		{OpType: "create", OpVersion: 1, Field: "unknown_strategy", Strategy: "not-a-real-strategy"},
+	}
+	ops := []codec.Op{
+		{
+			ID: "op-create",
+			Envelope: codec.Envelope{
+				ObjectID:   "obj-196",
+				ObjectType: "synthetic-196",
+				OpType:     "create",
+				OpVersion:  1,
+				Body:       json.RawMessage(`{"title":"writ-196"}`),
+			},
+			Author: codec.Identity{When: now},
+		},
+	}
+	return FuzzCase{
+		Rules: rules,
+		Ops:   ops,
+	}
+}
+
 // --------------------------------------------------------------------------
 // 6. Test Suite & Property Tests
 // --------------------------------------------------------------------------
@@ -1128,7 +1159,7 @@ func TestProperty_FoldThreeWay(t *testing.T) {
 	rng := rand.New(rand.NewSource(seed))
 	t.Logf("property test random seed: %d", seed)
 
-	// Subtests for the 6 historical regression vectors
+	// Subtests for the 7 historical regression vectors
 	t.Run("Regression_WRIT_112_ApprovalSubjectDenormalized", func(t *testing.T) {
 		c := regressionVectorWRIT112()
 		assertThreeWayFoldAbstract(t, c.Ops, c.Rules)
@@ -1161,6 +1192,20 @@ func TestProperty_FoldThreeWay(t *testing.T) {
 		} else {
 			assertThreeWayFoldAbstract(t, c.Ops, c.Rules)
 		}
+	})
+
+	t.Run("Regression_WRIT_196_EmptyAndUnknownStrategyFiltered", func(t *testing.T) {
+		c := regressionVectorWRIT196()
+		filtered := filterValidRules(c.Rules)
+		if len(filtered) != len(c.Rules)-2 {
+			t.Fatalf("filterValidRules: got %d rules, want %d (rules with Strategy \"\" and an unknown strategy must be dropped): %+v", len(filtered), len(c.Rules)-2, filtered)
+		}
+		for _, r := range filtered {
+			if !spec.KnownCatalogueStrategies[r.Strategy] {
+				t.Fatalf("filterValidRules let an invalid strategy through: %+v", r)
+			}
+		}
+		assertThreeWayFoldAbstract(t, c.Ops, filtered)
 	})
 
 	t.Run("Review_CIStatusOnlyRevision", func(t *testing.T) {
@@ -1269,7 +1314,7 @@ func TestProperty_FoldThreeWay(t *testing.T) {
 // --------------------------------------------------------------------------
 
 func FuzzFoldThreeWay(f *testing.F) {
-	// Seed with the 6 regression vectors
+	// Seed with the 7 regression vectors
 	seedVectors := []FuzzCase{
 		regressionVectorWRIT112(),
 		regressionVectorWRIT116(),
@@ -1277,6 +1322,7 @@ func FuzzFoldThreeWay(f *testing.F) {
 		regressionVectorWRIT124(),
 		regressionVectorWRIT125(),
 		regressionVectorWRIT126(),
+		regressionVectorWRIT196(),
 	}
 	for _, vec := range seedVectors {
 		if data, err := json.Marshal(vec); err == nil {
