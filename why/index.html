@@ -80,9 +80,9 @@ deterministically folding an object&rsquo;s operations in causal order.</p>
 </span></span></span><span class="line"><span class="cl"><span class="go">}
 </span></span></span><span class="line"><span class="cl"><span class="go">EOF
 </span></span></span><span class="line"><span class="cl"><span class="gp">$</span> writ schema apply                <span class="c1"># signs and appends the ops declaring them</span>
-</span></span><span class="line"><span class="cl"><span class="gp">$</span> writ object create ticket create -field <span class="nv">title</span><span class="o">=</span><span class="s2">&#34;Add rate limiting&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="gp">$</span> writ object create acme.ticket create -field <span class="nv">title</span><span class="o">=</span><span class="s2">&#34;Add rate limiting&#34;</span>
 </span></span><span class="line"><span class="cl"><span class="gp">$</span> writ object apply &lt;id&gt; revision -field <span class="nv">base</span><span class="o">=</span>&lt;base-sha&gt; -field <span class="nv">head</span><span class="o">=</span>&lt;head-sha&gt;
-</span></span><span class="line"><span class="cl"><span class="gp">$</span> writ object create gadget create -field-json <span class="nv">subject</span><span class="o">=</span><span class="s1">&#39;{&#34;object_type&#34;:&#34;ticket&#34;,&#34;object_id&#34;:&#34;&lt;id&gt;&#34;}&#39;</span> -field <span class="nv">text</span><span class="o">=</span><span class="s2">&#34;this allocates in the hot path&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="gp">$</span> writ object create acme.gadget create -field-json <span class="nv">subject</span><span class="o">=</span><span class="s1">&#39;{&#34;object_type&#34;:&#34;acme.ticket&#34;,&#34;object_id&#34;:&#34;&lt;id&gt;&#34;}&#39;</span> -field <span class="nv">text</span><span class="o">=</span><span class="s2">&#34;this allocates in the hot path&#34;</span>
 </span></span><span class="line"><span class="cl"><span class="gp">$</span> writ sync                        <span class="c1"># git push, to your own ref namespace</span>
 </span></span></code></pre></div><p>That is the whole deployment story. No server, no database, no webhook, no
 account. <code>writ init</code> adds one line to <code>.git/config</code>
