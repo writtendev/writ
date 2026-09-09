@@ -20,6 +20,7 @@ import (
 	"github.com/writtendev/writ/engine/identity"
 	"github.com/writtendev/writ/engine/schemasrc"
 	"github.com/writtendev/writ/engine/sync"
+	"github.com/writtendev/writ/spec"
 )
 
 func TestInit_Idempotent(t *testing.T) {
@@ -760,22 +761,43 @@ func TestInit_E2E_PlainGitFetch(t *testing.T) {
 		Key:      identity.SigningKey{Format: "ssh", Value: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKeyBlob", Literal: true},
 	}
 
-	storeA, err := dag.Open(cloneADir, identA, dag.WithNow(func() time.Time {
-		return time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
-	}))
+	// This exercises plain-git-fetch/ref mechanics only — a raw dag.Append
+	// beneath any schema layer. Writ hard-codes no object type but
+	// "schema", so the producer vocabulary the append validates against is
+	// supplied here directly, in place of the log walk a full store wires
+	// up: one neutral consumer type, declared with the one field the body
+	// carries.
+	vocabularies := codec.Vocabularies{
+		"widget": {
+			Declared:       true,
+			SchemaObjectID: "0123456789abcdef",
+			OpTypes:        map[codec.OpVersionKey]bool{{OpType: "create", OpVersion: 1}: true},
+			Fields: map[codec.OpVersionKey][]spec.FieldRule{
+				{OpType: "create", OpVersion: 1}: {{
+					OpType:    "create",
+					OpVersion: 1,
+					Field:     "title",
+					Strategy:  "lww",
+					ValueType: "string",
+				}},
+			},
+		},
+	}
+	storeA, err := dag.Open(cloneADir, identA,
+		dag.WithNow(func() time.Time {
+			return time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+		}),
+		dag.WithProducerVocabularies(func() (codec.Vocabularies, error) {
+			return vocabularies, nil
+		}))
 	if err != nil {
 		t.Fatalf("dag.Open clone A: %v", err)
 	}
 
-	// This exercises plain-git-fetch/ref mechanics only — a raw dag.Append
-	// beneath any schema layer — and needs an object_type the installed
-	// (still built-in, pre-WRIT-194) vocabulary already declares, so
-	// "review" here is a stand-in value for that vocabulary slot, not a
-	// naming choice this ticket's per-type removal governs.
 	bodyBytes, _ := json.Marshal(map[string]any{"title": "Initial"})
 	envOp := codec.Envelope{
-		ObjectID:   "rev-1234567890abcdef",
-		ObjectType: "review",
+		ObjectID:   "wid-1234567890abcdef",
+		ObjectType: "widget",
 		OpType:     "create",
 		OpVersion:  1,
 		Body:       bodyBytes,
@@ -825,7 +847,7 @@ func TestInit_E2E_PlainGitFetch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open clone B repo: %v", err)
 	}
-	remoteRefName := plumbing.ReferenceName("refs/remotes/origin/writ/" + writerIDA + "/review")
+	remoteRefName := plumbing.ReferenceName("refs/remotes/origin/writ/" + writerIDA + "/widget")
 	refB, err := repoB.Reference(remoteRefName, true)
 	if err != nil {
 		t.Fatalf("Clone B missing remote tracking ref %s: %v", remoteRefName, err)

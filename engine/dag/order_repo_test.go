@@ -23,23 +23,23 @@ func TestOrder_RealGitStoreMultiWriter(t *testing.T) {
 	time4 := time.Date(2026, 1, 1, 10, 10, 0, 0, time.UTC)
 
 	nowAlice := time1
-	storeAlice, err := dag.Open(dir, identAlice, dag.WithNow(func() time.Time { return nowAlice }))
+	storeAlice, err := dag.Open(dir, identAlice, withVocabularies(), dag.WithNow(func() time.Time { return nowAlice }))
 	if err != nil {
 		t.Fatalf("Open storeAlice failed: %v", err)
 	}
 
 	nowBob := time3
-	storeBob, err := dag.Open(dir, identBob, dag.WithNow(func() time.Time { return nowBob }))
+	storeBob, err := dag.Open(dir, identBob, withVocabularies(), dag.WithNow(func() time.Time { return nowBob }))
 	if err != nil {
 		t.Fatalf("Open storeBob failed: %v", err)
 	}
 
 	ctx := context.Background()
 
-	// 1. Alice creates review
+	// 1. Alice creates the widget
 	envA1 := codec.Envelope{
-		ObjectID:   "rev-42",
-		ObjectType: "review",
+		ObjectID:   "w-42",
+		ObjectType: "widget",
 		OpType:     "create",
 		OpVersion:  1,
 		Body:       json.RawMessage(`{"title":"Initial"}`),
@@ -49,11 +49,11 @@ func TestOrder_RealGitStoreMultiWriter(t *testing.T) {
 		t.Fatalf("Append opA1 failed: %v", err)
 	}
 
-	// 2. Alice updates review
+	// 2. Alice updates the widget
 	nowAlice = time2
 	envA2 := codec.Envelope{
-		ObjectID:   "rev-42",
-		ObjectType: "review",
+		ObjectID:   "w-42",
+		ObjectType: "widget",
 		OpType:     "update",
 		OpVersion:  1,
 		Body:       json.RawMessage(`{"title":"Updated"}`),
@@ -63,28 +63,28 @@ func TestOrder_RealGitStoreMultiWriter(t *testing.T) {
 		t.Fatalf("Append opA2 failed: %v", err)
 	}
 
-	// 3. Bob comments on review, causally referencing opA1
+	// 3. Bob adds a waypoint on the widget, causally referencing opA1
 	nowBob = time3
 	envB1 := codec.Envelope{
-		ObjectID:   "rev-42",
-		ObjectType: "comment",
+		ObjectID:   "w-42",
+		ObjectType: "waypoint",
 		OpType:     "create",
 		OpVersion:  1,
-		Body:       json.RawMessage(`{"subject":{"object_type":"review","object_id":"rev-42"},"text":"Looks good"}`),
+		Body:       json.RawMessage(`{"text":"Looks good"}`),
 	}
 	opB1, err := storeBob.Append(ctx, envB1, []string{opA1.ID})
 	if err != nil {
 		t.Fatalf("Append opB1 failed: %v", err)
 	}
 
-	// 4. Alice creates merge op on review causally referencing opB1 and opA2
+	// 4. Alice closes the widget, causally referencing opB1 and opA2
 	nowAlice = time4
 	envA3 := codec.Envelope{
-		ObjectID:   "rev-42",
-		ObjectType: "review",
+		ObjectID:   "w-42",
+		ObjectType: "widget",
 		OpType:     "set-status",
 		OpVersion:  1,
-		Body:       json.RawMessage(`{"status":"merged"}`),
+		Body:       json.RawMessage(`{"status":"closed"}`),
 	}
 	opA3, err := storeAlice.Append(ctx, envA3, []string{opB1.ID})
 	if err != nil {
@@ -97,9 +97,9 @@ func TestOrder_RealGitStoreMultiWriter(t *testing.T) {
 		t.Fatalf("Enumerate failed: %v", err)
 	}
 
-	ops, ok := enumResult.Ops["rev-42"]
+	ops, ok := enumResult.Ops["w-42"]
 	if !ok || len(ops) != 4 {
-		t.Fatalf("expected 4 ops for rev-42, got %d", len(ops))
+		t.Fatalf("expected 4 ops for w-42, got %d", len(ops))
 	}
 
 	ordered, err := dag.Order(ops)

@@ -66,74 +66,76 @@ func TestOpenWithRepositoryExtensions(t *testing.T) {
 			}
 			defer s.Close()
 
-			// 2. Create Issue
-			issueID, err := s.Objects.Create(ctx, "issue", writ.NewOp{
+			applyCoreSchema(t, ctx, s)
+
+			// 2. Create a gadget
+			gadgetID, err := s.Objects.Create(ctx, "gadget", writ.NewOp{
 				Type: "create",
 				Fields: map[string]any{
-					"title":       "Test issue with extensions",
+					"title":       "Test gadget with extensions",
 					"description": "Testing repository extensions compatibility",
 				},
 			})
 			if err != nil {
-				t.Fatalf("Objects.Create(issue) failed: %v", err)
+				t.Fatalf("Objects.Create(gadget) failed: %v", err)
 			}
-			if issueID == "" {
-				t.Fatal("expected non-empty issue ID")
+			if gadgetID == "" {
+				t.Fatal("expected non-empty gadget ID")
 			}
 
-			// 3. Create Review
-			revID, err := s.Objects.Create(ctx, "review", writ.NewOp{
+			// 3. Create a widget
+			widgetID, err := s.Objects.Create(ctx, "widget", writ.NewOp{
 				Type:   "create",
-				Fields: map[string]any{"title": "Test review with extensions"},
+				Fields: map[string]any{"title": "Test widget with extensions"},
 			})
 			if err != nil {
-				t.Fatalf("Objects.Create(review) failed: %v", err)
+				t.Fatalf("Objects.Create(widget) failed: %v", err)
 			}
-			if revID == "" {
-				t.Fatal("expected non-empty review ID")
+			if widgetID == "" {
+				t.Fatal("expected non-empty widget ID")
 			}
 
-			// 4. Create Comment
-			commentID, err := s.Objects.Create(ctx, "comment", writ.NewOp{
+			// 4. Create a note against the widget
+			noteID, err := s.Objects.Create(ctx, "note", writ.NewOp{
 				Type: "create",
 				Fields: map[string]any{
 					"text": "Looks good to me!",
 					"subject": map[string]string{
-						"object_type": "review",
-						"object_id":   revID,
+						"object_type": "widget",
+						"object_id":   widgetID,
 					},
 				},
 			})
 			if err != nil {
-				t.Fatalf("Objects.Create(comment) failed: %v", err)
+				t.Fatalf("Objects.Create(note) failed: %v", err)
 			}
-			if commentID == "" {
-				t.Fatal("expected non-empty comment ID")
+			if noteID == "" {
+				t.Fatal("expected non-empty note ID")
 			}
 
 			// 5. Query
-			issues, err := s.Query.Objects(writ.ObjectFilter{Type: []string{"issue"}})
+			gadgets, err := s.Query.Objects(writ.ObjectFilter{Type: []string{"gadget"}})
 			if err != nil {
-				t.Fatalf("Query.Objects(issue) failed: %v", err)
+				t.Fatalf("Query.Objects(gadget) failed: %v", err)
 			}
-			if len(issues) != 1 || issues[0].ObjectID != issueID {
-				t.Fatalf("unexpected issues query result: %+v", issues)
+			if len(gadgets) != 1 || gadgets[0].ObjectID != gadgetID {
+				t.Fatalf("unexpected gadgets query result: %+v", gadgets)
 			}
 
-			reviews, err := s.Query.Objects(writ.ObjectFilter{Type: []string{"review"}})
+			widgets, err := s.Query.Objects(writ.ObjectFilter{Type: []string{"widget"}})
 			if err != nil {
-				t.Fatalf("Query.Objects(review) failed: %v", err)
+				t.Fatalf("Query.Objects(widget) failed: %v", err)
 			}
-			if len(reviews) != 1 || reviews[0].ObjectID != revID {
-				t.Fatalf("unexpected reviews query result: %+v", reviews)
+			if len(widgets) != 1 || widgets[0].ObjectID != widgetID {
+				t.Fatalf("unexpected widgets query result: %+v", widgets)
 			}
 
-			comments, err := s.Query.Objects(writ.ObjectFilter{Type: []string{"comment"}})
+			notes, err := s.Query.Objects(writ.ObjectFilter{Type: []string{"note"}})
 			if err != nil {
-				t.Fatalf("Query.Objects(comment) failed: %v", err)
+				t.Fatalf("Query.Objects(note) failed: %v", err)
 			}
-			if len(comments) != 1 || comments[0].ObjectID != commentID {
-				t.Fatalf("unexpected comments query result: %+v", comments)
+			if len(notes) != 1 || notes[0].ObjectID != noteID {
+				t.Fatalf("unexpected notes query result: %+v", notes)
 			}
 
 			// 6. Refresh projection
@@ -187,23 +189,25 @@ func TestOpenSparseCheckoutRepository(t *testing.T) {
 	}
 	defer s.Close()
 
-	issueID, err := s.Objects.Create(ctx, "issue", writ.NewOp{
+	applyCoreSchema(t, ctx, s)
+
+	gadgetID, err := s.Objects.Create(ctx, "gadget", writ.NewOp{
 		Type:   "create",
-		Fields: map[string]any{"title": "Sparse checkout test issue"},
+		Fields: map[string]any{"title": "Sparse checkout test gadget"},
 	})
 	if err != nil {
-		t.Fatalf("Objects.Create(issue) failed: %v", err)
+		t.Fatalf("Objects.Create(gadget) failed: %v", err)
 	}
-	if issueID == "" {
-		t.Fatal("expected non-empty issue ID")
+	if gadgetID == "" {
+		t.Fatal("expected non-empty gadget ID")
 	}
 
-	issues, err := s.Query.Objects(writ.ObjectFilter{Type: []string{"issue"}})
+	gadgets, err := s.Query.Objects(writ.ObjectFilter{Type: []string{"gadget"}})
 	if err != nil {
-		t.Fatalf("Query.Objects(issue) failed: %v", err)
+		t.Fatalf("Query.Objects(gadget) failed: %v", err)
 	}
-	if len(issues) != 1 || issues[0].ObjectID != issueID {
-		t.Fatalf("unexpected issues query result: %+v", issues)
+	if len(gadgets) != 1 || gadgets[0].ObjectID != gadgetID {
+		t.Fatalf("unexpected gadgets query result: %+v", gadgets)
 	}
 }
 
@@ -228,23 +232,25 @@ func TestOpenLinkedWorktreeWithExtensions(t *testing.T) {
 	}
 	defer s.Close()
 
-	issueID, err := s.Objects.Create(ctx, "issue", writ.NewOp{
+	applyCoreSchema(t, ctx, s)
+
+	gadgetID, err := s.Objects.Create(ctx, "gadget", writ.NewOp{
 		Type:   "create",
-		Fields: map[string]any{"title": "Linked worktree with extensions issue"},
+		Fields: map[string]any{"title": "Linked worktree with extensions gadget"},
 	})
 	if err != nil {
-		t.Fatalf("Objects.Create(issue) failed: %v", err)
+		t.Fatalf("Objects.Create(gadget) failed: %v", err)
 	}
-	if issueID == "" {
-		t.Fatal("expected non-empty issue ID")
+	if gadgetID == "" {
+		t.Fatal("expected non-empty gadget ID")
 	}
 
-	issues, err := s.Query.Objects(writ.ObjectFilter{Type: []string{"issue"}})
+	gadgets, err := s.Query.Objects(writ.ObjectFilter{Type: []string{"gadget"}})
 	if err != nil {
-		t.Fatalf("Query.Objects(issue) failed: %v", err)
+		t.Fatalf("Query.Objects(gadget) failed: %v", err)
 	}
-	if len(issues) != 1 || issues[0].ObjectID != issueID {
-		t.Fatalf("unexpected issues query result: %+v", issues)
+	if len(gadgets) != 1 || gadgets[0].ObjectID != gadgetID {
+		t.Fatalf("unexpected gadgets query result: %+v", gadgets)
 	}
 }
 

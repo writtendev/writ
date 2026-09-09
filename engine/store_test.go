@@ -50,6 +50,123 @@ func runGitCmd(t *testing.T, dir string, args ...string) string {
 	return string(out)
 }
 
+// coreSchemaSrc is the vocabulary the store-backed tests in this package
+// write objects under. Writ hard-codes exactly one object type, `schema`;
+// every other type an object can have is declared as data by a schema
+// object in the repository's own log, so a test that writes an object
+// installs a vocabulary for it first, exactly as a consumer would. Nothing
+// here is privileged: these three types are declared the same way a
+// waypoint or a standup is elsewhere in this package.
+const coreSchemaSrc = `namespace acme
+description "The vocabulary this package's store-backed tests write under"
+
+type widget {
+  description "A titled object carrying revisions, approvals and assignees"
+
+  op create 1, update 1 {
+    title        string(200)  lww
+    description  text         lww
+  }
+
+  op set-status 1 {
+    status  enum(draft, open, closed, merged)  lww
+    reason  string(200)                        lww
+  }
+
+  op revision 1 {
+    base  git-oid  append
+    head  git-oid  append
+  }
+
+  op approval 1 {
+    revision  git-oid                               keyed-lww  key(subject person-ref, revision git-oid)
+    subject   person-ref                            keyed-lww  key(subject person-ref, revision git-oid)
+    verdict   enum(approve, request-changes, none)  keyed-lww  key(subject person-ref, revision git-oid)
+    message   text                                  keyed-lww  key(subject person-ref, revision git-oid)
+  }
+
+  op assign 1 {
+    add     [person-ref]  set-observed-remove  target(assignees)
+    remove  [person-ref]  set-observed-remove  target(assignees)
+  }
+}
+
+type gadget {
+  description "A titled object carrying a state, assignees and tags"
+
+  op create 1, update 1 {
+    title        string(200)  lww
+    description  text         lww
+  }
+
+  op set-state 1 {
+    state   string(60)   lww
+    reason  string(200)  lww
+  }
+
+  op assign 1 {
+    add     [person-ref]  set-observed-remove  target(assignees)
+    remove  [person-ref]  set-observed-remove  target(assignees)
+  }
+
+  op tag 1 {
+    add     [object-ref]  set-observed-remove  target(tags)
+    remove  [object-ref]  set-observed-remove  target(tags)
+  }
+}
+
+type note {
+  description "A body of text pointing at another object"
+
+  op create 1 {
+    text         text     lww
+    subject      untyped  create-once
+    in_reply_to  untyped  create-once
+    anchor       untyped  create-once
+  }
+
+  op edit 1 {
+    text  text  lww
+  }
+
+  op delete 1 {
+    deleted  bool  tombstone
+  }
+}
+`
+
+// coreSchemaObjectID is the object id coreSchemaSrc is installed under. A
+// schema object is an object like any other — it is listed, queried and
+// counted alongside the objects it declares the types of — so a test
+// asserting over every object in a store names it here rather than
+// pretending the vocabulary arrived from nowhere.
+const coreSchemaObjectID = "sch-acme"
+
+// applyCoreSchema installs coreSchemaSrc into store's log.
+func applyCoreSchema(t testing.TB, ctx context.Context, store *writ.Store) {
+	t.Helper()
+	if err := store.ApplySchema(ctx, compileTestSchema(t, coreSchemaObjectID, coreSchemaSrc)); err != nil {
+		t.Fatalf("ApplySchema failed: %v", err)
+	}
+}
+
+// openStoreWithCoreSchema opens a freshly configured repository with
+// coreSchemaSrc already installed — the setup every test that writes an
+// object of a declared type needs. Tests that need Open options of their
+// own call writ.Open themselves and applyCoreSchema after it.
+func openStoreWithCoreSchema(t *testing.T) (*writ.Store, context.Context, string) {
+	t.Helper()
+	dir, _ := setupConfiguredRepo(t)
+	store, err := writ.Open(dir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("writ.Open failed: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	ctx := context.Background()
+	applyCoreSchema(t, ctx, store)
+	return store, ctx, dir
+}
+
 func TestOpenMatrix(t *testing.T) {
 	// 1. Normal working tree
 	repoDir, _ := setupConfiguredRepo(t)
@@ -109,16 +226,17 @@ func TestOpenMatrix(t *testing.T) {
 	defer s5.Close()
 
 	// Query should succeed
-	results, err := s5.Query.Objects(writ.ObjectFilter{Type: []string{"review"}})
+	results, err := s5.Query.Objects(writ.ObjectFilter{Type: []string{"widget"}})
 	if err != nil {
 		t.Fatalf("Query on unconfigured repo failed: %v", err)
 	}
 	if len(results) != 0 {
-		t.Errorf("expected 0 reviews, got %d", len(results))
+		t.Errorf("expected 0 widgets, got %d", len(results))
 	}
 
-	// Write should fail with ErrNoIdentity
-	_, err = s5.Objects.Create(context.Background(), "review", writ.NewOp{
+	// Write should fail with ErrNoIdentity, before any vocabulary lookup
+	// the undeclared type would otherwise fail first.
+	_, err = s5.Objects.Create(context.Background(), "widget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Unconfigured write"},
 	})
@@ -179,7 +297,7 @@ func TestStoreMissingSigningKey(t *testing.T) {
 		t.Errorf("unexpected writer: %+v", w)
 	}
 
-	_, err = s1.Objects.Create(ctx, "review", writ.NewOp{
+	_, err = s1.Objects.Create(ctx, "widget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Should fail signing key"},
 	})
@@ -194,7 +312,9 @@ func TestStoreMissingSigningKey(t *testing.T) {
 	}
 	defer s2.Close()
 
-	id, err := s2.Objects.Create(ctx, "review", writ.NewOp{
+	applyCoreSchema(t, ctx, s2)
+
+	id, err := s2.Objects.Create(ctx, "widget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Should succeed with custom signer"},
 	})
@@ -202,7 +322,7 @@ func TestStoreMissingSigningKey(t *testing.T) {
 		t.Fatalf("Objects.Create with custom signer failed: %v", err)
 	}
 	if id == "" {
-		t.Fatal("expected non-empty review ID")
+		t.Fatal("expected non-empty widget ID")
 	}
 }
 

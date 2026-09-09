@@ -34,11 +34,12 @@ type waypoint {
 
 // TestObjectsCreateApplyGetRoundTrip_NeverHeardOfType is the ticket's
 // central acceptance test: a schema declares an object type through
-// writ.schema that writ's engine has never heard of (no Review/Issue/...
-// struct, no typed reducer, no typed reader — "waypoint" appears nowhere in
-// Go source outside this test file), and the generic Objects API round-
-// trips it — Create, then Apply, then Get — with Query.Objects finding it
-// by type and full-text search, exactly as it would for a built-in type.
+// writ.schema that writ's engine has never heard of (no Go struct, no
+// typed reducer, no typed reader — "waypoint" appears nowhere in Go source
+// outside this test file), and the generic Objects API round-trips it —
+// Create, then Apply, then Get — with Query.Objects finding it by type and
+// full-text search. Since WRIT-194 that is the only kind of type there is:
+// `schema` aside, every object type comes from the log.
 func TestObjectsCreateApplyGetRoundTrip_NeverHeardOfType(t *testing.T) {
 	ctx := context.Background()
 	dir, _ := setupConfiguredRepo(t)
@@ -136,7 +137,9 @@ func TestObjectsGet_FieldsSurviveRebuildAndCacheDeletion(t *testing.T) {
 		t.Fatalf("Open failed: %v", err)
 	}
 
-	id, err := store.Objects.Create(ctx, "review", writ.NewOp{
+	applyCoreSchema(t, ctx, store)
+
+	id, err := store.Objects.Create(ctx, "widget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Cache independence"},
 	})
@@ -242,21 +245,15 @@ type widgetv {
 	}
 }
 
-// TestObjectsApply_TargetKeyDiffersFromWriteFieldOnBuiltinType is the
-// built-in-type counterpart of the round-trip test above: WRIT-198
-// collapses review's assign.add/assign.remove onto the read-side target key
+// TestObjectsApply_TargetKeyDiffersFromWriteField pins the read-side half
+// of WRIT-198 against a schema whose add/remove pair declares an explicit
+// target: coreSchemaSrc collapses widget's assign.add/assign.remove onto
 // "assignees", so a caller writing NewOp.Fields["add"] must read the same
 // data back from Object.Fields["assignees"], never Object.Fields["add"].
-func TestObjectsApply_TargetKeyDiffersFromWriteFieldOnBuiltinType(t *testing.T) {
-	ctx := context.Background()
-	dir, _ := setupConfiguredRepo(t)
-	store, err := writ.Open(dir, writ.WithSigner(dummySigner()))
-	if err != nil {
-		t.Fatalf("Open failed: %v", err)
-	}
-	defer store.Close()
+func TestObjectsApply_TargetKeyDiffersFromWriteField(t *testing.T) {
+	store, ctx, _ := openStoreWithCoreSchema(t)
 
-	id, err := store.Objects.Create(ctx, "review", writ.NewOp{
+	id, err := store.Objects.Create(ctx, "widget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Target key example"},
 	})
@@ -315,7 +312,7 @@ func TestObjectsCreate_ValidationErrors(t *testing.T) {
 	if _, err := store.Objects.Create(ctx, "", writ.NewOp{Type: "create"}); err == nil {
 		t.Error("Objects.Create with an empty object type: expected an error, got none")
 	}
-	if _, err := store.Objects.Create(ctx, "review", writ.NewOp{}); err == nil {
+	if _, err := store.Objects.Create(ctx, "widget", writ.NewOp{}); err == nil {
 		t.Error("Objects.Create with an empty op type: expected an error, got none")
 	}
 	if err := store.Objects.Apply(ctx, "", writ.NewOp{Type: "update"}); err == nil {

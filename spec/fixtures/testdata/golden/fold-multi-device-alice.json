@@ -1,66 +1,151 @@
 {
   "refs": [
     {
-      "name": "refs/writ/550e8400e29b41d4/review",
-      "commit": "40169c558f452eb05cce16cf76fab8d904be2349"
+      "name": "refs/writ/0123456789abcdef/schema",
+      "commit": "aee4697e7e8faba2901272f50cc1ec2fbc996c99"
     },
     {
-      "name": "refs/writ/0123456789abcdef/review",
-      "commit": "ee88f24407830923cbf8da9f43929fa6d22aed45"
+      "name": "refs/writ/550e8400e29b41d4/widget",
+      "commit": "3c4c7e4dd7452f4895ab85b49a57516906a9d628"
+    },
+    {
+      "name": "refs/writ/0123456789abcdef/widget",
+      "commit": "7370b6a0e2a57a4017d35ed8ee8d9ed2bb3e330d"
     }
   ],
   "generations": [
     {
-      "ref": "refs/writ/550e8400e29b41d4/review",
+      "ref": "refs/writ/0123456789abcdef/schema",
       "index": 0,
       "commits": [
         {
-          "sha": "321c525ac182cb3184c0762756e3b456084c084b",
-          "tree": "9b47fcffea4ca4599d5018d4a0e7c26d93c72288",
+          "sha": "7e7b98e49daea722263a972a87eb6425554eec85",
+          "tree": "2601775727c841f53a2960e4169e9a4a216f66d2",
           "parents": [],
           "author": "Alice Example \u003calice@example.test\u003e",
-          "timestamp": "2026-01-01T00:00:00Z",
-          "message": "writ: create review/r-multi-device\n",
+          "timestamp": "2025-12-01T00:00:00Z",
+          "message": "writ: create schema/sch-acme\n",
           "signed": true
         },
         {
-          "sha": "40169c558f452eb05cce16cf76fab8d904be2349",
-          "tree": "815a5245f3a73c7d43693afb01588f08b4f78850",
+          "sha": "4becfd27f09972baaed6aebbac25e5edf0c1815d",
+          "tree": "28a4ca0269db83c9aeae44f12626f410b2f92f0d",
           "parents": [
-            "321c525ac182cb3184c0762756e3b456084c084b"
+            "7e7b98e49daea722263a972a87eb6425554eec85"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
-          "timestamp": "2026-01-01T00:01:00Z",
-          "message": "writ: update review/r-multi-device\n",
+          "timestamp": "2025-12-01T00:01:00Z",
+          "message": "writ: define-type schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "05be825287833aba9cdfcda59c2236dba06fbebd",
+          "tree": "0214859faf2e21c1f122efc6992f7ce7fbc68b50",
+          "parents": [
+            "4becfd27f09972baaed6aebbac25e5edf0c1815d"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:02:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "1543f4d278dc45df793e8e8cd708ac7e7992ea66",
+          "tree": "93c8909db54477c56c94bf58e7e87ce72a064ced",
+          "parents": [
+            "05be825287833aba9cdfcda59c2236dba06fbebd"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:03:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "61b1a77a1b5644d30b05ebc4a4da4921f2bf481d",
+          "tree": "703cbbeebc25cabddf8636b313edb4f714d1972e",
+          "parents": [
+            "1543f4d278dc45df793e8e8cd708ac7e7992ea66"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:04:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "72ceccc1ff9316587d195be241b6e27ae91abb3c",
+          "tree": "941dc251b20f763793e4b4ad02d63bb29976e1b4",
+          "parents": [
+            "61b1a77a1b5644d30b05ebc4a4da4921f2bf481d"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:05:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "aee4697e7e8faba2901272f50cc1ec2fbc996c99",
+          "tree": "bc4884df83dc213363c4f4de97d8274569f287e7",
+          "parents": [
+            "72ceccc1ff9316587d195be241b6e27ae91abb3c"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:06:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
           "signed": true
         }
       ]
     },
     {
-      "ref": "refs/writ/0123456789abcdef/review",
+      "ref": "refs/writ/550e8400e29b41d4/widget",
       "index": 0,
       "commits": [
         {
-          "sha": "b94c377802da3f595ec998d97e0b886545d405f2",
-          "tree": "3fd8582d956e80daf1c10b1a88b6a5940798f961",
-          "parents": [
-            "321c525ac182cb3184c0762756e3b456084c084b"
-          ],
+          "sha": "48139253c4796fa8ddb70f89a708ca4025b24c32",
+          "tree": "d990ab33028454f4794be96a2ebfa2d42f80c41e",
+          "parents": [],
           "author": "Alice Example \u003calice@example.test\u003e",
-          "timestamp": "2026-01-01T00:01:30Z",
-          "message": "writ: update review/r-multi-device\n",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "message": "writ: create widget/w-multi-device\n",
           "signed": true
         },
         {
-          "sha": "ee88f24407830923cbf8da9f43929fa6d22aed45",
-          "tree": "47ce64fdb2f4e6fb684498568fd7e74f18a80d05",
+          "sha": "3c4c7e4dd7452f4895ab85b49a57516906a9d628",
+          "tree": "8f1ec665bd015c6ff54f9780d6f65b7da67e7370",
           "parents": [
-            "b94c377802da3f595ec998d97e0b886545d405f2",
-            "40169c558f452eb05cce16cf76fab8d904be2349"
+            "48139253c4796fa8ddb70f89a708ca4025b24c32"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:01:00Z",
+          "message": "writ: update widget/w-multi-device\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/widget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "fad1dd2fb9ddcec1138d636ad309afc21d94966c",
+          "tree": "894eb8be7e9342678726d089ed180256015675cf",
+          "parents": [
+            "48139253c4796fa8ddb70f89a708ca4025b24c32"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:01:30Z",
+          "message": "writ: update widget/w-multi-device\n",
+          "signed": true
+        },
+        {
+          "sha": "7370b6a0e2a57a4017d35ed8ee8d9ed2bb3e330d",
+          "tree": "22807dc61d3c5d20dd9a06976cbb9dda21683f83",
+          "parents": [
+            "fad1dd2fb9ddcec1138d636ad309afc21d94966c",
+            "3c4c7e4dd7452f4895ab85b49a57516906a9d628"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:02:00Z",
-          "message": "writ: set-status review/r-multi-device\n",
+          "message": "writ: set-status widget/w-multi-device\n",
           "signed": true
         }
       ]

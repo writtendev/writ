@@ -291,8 +291,8 @@ func TestHarness_CommitSHALookup(t *testing.T) {
 				t.Fatalf("expected false for nonexistent label")
 			}
 			ref := fix.TargetRef(sha)
-			if ref != "refs/writ/alice/review" {
-				t.Fatalf("expected target ref refs/writ/alice/review, got %q", ref)
+			if ref != "refs/writ/alice/widget" {
+				t.Fatalf("expected target ref refs/writ/alice/widget, got %q", ref)
 			}
 			return marshalManifest(t, fix.Manifest), nil
 		},

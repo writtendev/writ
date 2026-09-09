@@ -65,14 +65,14 @@ Usage: writ object create [-C <dir>] <type> <op-type> [-field <k>=<v>]... [-fiel
 Append the op that starts a new object of <type>, using <op-type>'s field rules
 from the installed vocabulary (`writ schema show <type>`) to parse each -field value.
 -field-json sets a field from raw JSON instead, for a field -field cannot express: one
-that is object-shaped, or that declares no value type at all (such as comment.create's
-subject).
+that is object-shaped, or that declares no value type at all (such as an
+{object_type, object_id} record naming another object).
 
 #### Flags
 
 - `-C <dir>`: Run as if writ was started in <dir>
 - `-field <k>=<v>`: Field <k>=<v> to set on the creating op (repeatable; repeat the same key for a set)
-- `-field-json <k>=<v>`: Field <k>=<v> to set from raw JSON, skipping type-directed conversion (repeatable; the escape hatch for an object-shaped or untyped field, such as comment.create's subject)
+- `-field-json <k>=<v>`: Field <k>=<v> to set from raw JSON, skipping type-directed conversion (repeatable; the escape hatch for an object-shaped or untyped field, such as an {object_type, object_id} record naming another object)
 - `-op-version version`: Explicit op version (default: resolved from the installed vocabulary)
 - `-json`: Output result as JSON
 
@@ -81,7 +81,7 @@ subject).
 ```bash
 writ object create ticket create -field title="Fix the thing"
 writ object create ticket create -field title="Fix the thing" --json
-writ object create comment create -field-json subject='{"object_type":"review","object_id":"<id>"}' -field text="this allocates in the hot path"
+writ object create gadget create -field-json subject='{"object_type":"ticket","object_id":"<id>"}' -field text="needs a second look"
 ```
 
 ### `writ object apply`
@@ -104,7 +104,7 @@ see `writ object create -h`.
 
 - `-C <dir>`: Run as if writ was started in <dir>
 - `-field <k>=<v>`: Field <k>=<v> to set on the op (repeatable; repeat the same key for a set)
-- `-field-json <k>=<v>`: Field <k>=<v> to set from raw JSON, skipping type-directed conversion (repeatable; the escape hatch for an object-shaped or untyped field, such as comment.create's subject)
+- `-field-json <k>=<v>`: Field <k>=<v> to set from raw JSON, skipping type-directed conversion (repeatable; the escape hatch for an object-shaped or untyped field, such as an {object_type, object_id} record naming another object)
 - `-op-version version`: Explicit op version (default: resolved from the installed vocabulary)
 - `-json`: Output result as JSON
 

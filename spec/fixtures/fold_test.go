@@ -72,11 +72,6 @@ func runFoldFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 		return nil, fmt.Errorf("store.Enumerate failed: %w", err)
 	}
 
-	rules, err := spec.FieldRules()
-	if err != nil {
-		return nil, fmt.Errorf("loading field rules: %w", err)
-	}
-
 	// Map commit SHA to description label
 	shaToLabel := make(map[string]string)
 	commitIdx := 0
@@ -137,12 +132,82 @@ func runFoldFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 	}
 	sort.Strings(objectIDs)
 
+	// Merge rules come from the log, exactly as runSchemaDrivenFixture
+	// resolves them: `schema` is the one object type writ hard-codes, so
+	// every schema object in the fixture is folded with writ.FoldSchema and
+	// writ.RulesFromSchemas turns the result into per-object_type rules.
+	// A fixture that declares no schema still folds — with no rules, every
+	// op reaching unknown_ops — which is a legal outcome, not an error.
+	//
+	// Schema objects themselves are not folded into the golden's objects:
+	// here they are the rule source, and their own materialization is the
+	// schema family's subject (TestSchemaFamily).
+	var schemas []writ.Schema
+	nonSchemaOps := make(map[string][]codec.Op)
+	var nonSchemaIDs []string
+	for _, objID := range objectIDs {
+		var schemaOps, otherOps []codec.Op
+		for _, op := range opsByObject[objID] {
+			if op.ObjectType == "schema" {
+				schemaOps = append(schemaOps, op)
+			} else {
+				otherOps = append(otherOps, op)
+			}
+		}
+		if len(schemaOps) > 0 {
+			sch, err := writ.FoldSchema(schemaOps)
+			if err != nil {
+				return nil, fmt.Errorf("writ.FoldSchema for object %s in %s: %w", objID, fix.Name, err)
+			}
+			schemas = append(schemas, sch)
+		}
+		if len(otherOps) > 0 {
+			nonSchemaOps[objID] = otherOps
+			nonSchemaIDs = append(nonSchemaIDs, objID)
+		}
+	}
+
+	rulesByType, conflicts := writ.RulesFromSchemas(schemas)
+	// How RulesFromSchemas reports a collision is the schema-driven family's
+	// subject. No fold fixture declares one, and a conflict here would
+	// withhold rules for the contested type and silently empty a golden's
+	// state, so it fails loudly instead.
+	if len(conflicts) > 0 {
+		t.Fatalf("fixture %s declares conflicting schemas: %+v", fix.Name, conflicts)
+	}
+
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 
-	for _, objID := range objectIDs {
-		codecOps := opsByObject[objID]
+	for _, objID := range nonSchemaIDs {
+		codecOps := nonSchemaOps[objID]
 		if len(codecOps) == 0 {
 			continue
+		}
+
+		// One object_id can carry ops of more than one object_type — an
+		// unknown object type writing against a known object is precisely
+		// what forward-compat-mixed-dag pins — and each of those ops folds
+		// under the rules declared for its own type. spec.Fold's
+		// opMatchesRule already scopes a rule to its declaring object type
+		// (spec/fold.md §5), so handing it the union of the rules for the
+		// types present does exactly that.
+		writRules := rulesForObject(rulesByType, codecOps)
+		rules := make([]spec.FieldRule, 0, len(writRules))
+		for _, wr := range writRules {
+			rules = append(rules, spec.FieldRule{
+				OpType:     wr.OpType,
+				OpVersion:  wr.OpVersion,
+				Field:      wr.Field,
+				Target:     wr.Target,
+				Strategy:   wr.Strategy,
+				Key:        wr.Key,
+				Lattice:    wr.Lattice,
+				ValueType:  wr.ValueType,
+				Enum:       wr.Enum,
+				MaxLength:  wr.MaxLength,
+				KeyTypes:   wr.KeyTypes,
+				ObjectType: wr.ObjectType,
+			})
 		}
 
 		var orderOps []spec.OrderOp
@@ -225,23 +290,6 @@ func runFoldFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 		}
 
 		// Cross-check: public writ.Fold produces byte-identical canonical state and total order
-		var writRules []writ.Rule
-		for _, r := range rules {
-			writRules = append(writRules, writ.Rule{
-				OpType:     r.OpType,
-				OpVersion:  r.OpVersion,
-				Field:      r.Field,
-				Target:     r.Target,
-				Strategy:   r.Strategy,
-				Key:        r.Key,
-				Lattice:    r.Lattice,
-				ValueType:  r.ValueType,
-				Enum:       r.Enum,
-				MaxLength:  r.MaxLength,
-				KeyTypes:   r.KeyTypes,
-				ObjectType: r.ObjectType,
-			})
-		}
 		engineRes, err := writ.Fold(codecOps, writRules)
 		if err != nil {
 			return nil, fmt.Errorf("writ.Fold for object %s: %w", objID, err)
@@ -340,26 +388,30 @@ func runFoldFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 	return append(b, '\n'), nil
 }
 
-// TestFoldCoverage asserts that every (op_type, field) rule in published field-rules.json
-// is exercised by at least one op in some fold-* fixture repo.
-// Catalogue strategies with no v1 vocabulary field are explicitly exempted and required
-// to be covered by abstract merge vectors instead.
+// TestFoldCoverage asserts that every field rule a fold-* fixture's schema
+// object declares is exercised by at least one op in some fold-* fixture repo.
+// Writ ships no vocabulary: a fixture's merge rules come from a schema object
+// in its own log, so "no declared rule goes unexercised" is a property of the
+// corpus's own schemas now, not of a shipped rule table.
+//
+// Catalogue-level coverage — every strategy in spec.KnownCatalogueStrategies
+// having an abstract merge vector under spec/testdata/fold/merge/ — is
+// spec/fold_test.go's own assertion, over every strategy rather than only the
+// ones no vocabulary happened to use.
 func TestFoldCoverage(t *testing.T) {
-	rules, err := spec.FieldRules()
-	if err != nil {
-		t.Fatalf("loading field rules: %v", err)
-	}
-	if len(rules) == 0 {
-		t.Fatal("no field rules loaded")
-	}
-
 	corpus, err := fixtures.LoadCorpus()
 	if err != nil {
 		t.Fatalf("loading fixture corpus: %v", err)
 	}
 
-	// Collect all (op_type, field) writes present in fold-* descriptions
-	coveredFields := make(map[string]bool)
+	type fieldKey struct {
+		ObjectType string
+		OpType     string
+		Field      string
+	}
+
+	declared := make(map[fieldKey]string)
+	covered := make(map[fieldKey]bool)
 
 	for _, desc := range corpus {
 		if !strings.HasPrefix(desc.Name, "fold-") {
@@ -371,67 +423,57 @@ func TestFoldCoverage(t *testing.T) {
 					if c.Op == nil {
 						continue
 					}
-					opType := c.Op.OpType
-					if opType == "delete" {
-						coveredFields[fmt.Sprintf("%s:deleted", opType)] = true
-					}
-					if bodyMap, ok := c.Op.Body.(map[string]any); ok {
-						for f := range bodyMap {
-							coveredFields[fmt.Sprintf("%s:%s", opType, f)] = true
+					bodyMap, _ := c.Op.Body.(map[string]any)
+					if c.Op.ObjectType == "schema" {
+						if c.Op.OpType != "define-field" {
+							continue
 						}
+						objType, _ := bodyMap["type"].(string)
+						opType, _ := bodyMap["op_type"].(string)
+						field, _ := bodyMap["field"].(string)
+						declared[fieldKey{objType, opType, field}] = desc.Name
+						continue
+					}
+					for f := range bodyMap {
+						covered[fieldKey{c.Op.ObjectType, c.Op.OpType, f}] = true
 					}
 				}
 			}
 		}
 	}
 
-	// Check that every published rule for repo-scoped fixtures (review-ops, comments) has coverage in fold-* fixtures
-	for _, rule := range rules {
-		if rule.Vocabulary != "review-ops" && rule.Vocabulary != "comments" {
+	if len(declared) == 0 {
+		t.Fatal("no schema-declared field rules found in fold-* fixtures")
+	}
+
+	for key, declaredBy := range declared {
+		if !covered[key] {
+			t.Errorf("field rule declared by %s is exercised by no fold-* fixture op: (object_type: %s, op_type: %s, field: %s)",
+				declaredBy, key.ObjectType, key.OpType, key.Field)
+		}
+	}
+}
+
+// rulesForObject returns the rules governing one object's ops: the union, in
+// ascending object_type order, of the rules resolved for every object_type
+// present among them.
+func rulesForObject(rulesByType map[string][]writ.Rule, ops []codec.Op) []writ.Rule {
+	seen := make(map[string]bool, len(ops))
+	var objTypes []string
+	for _, op := range ops {
+		if seen[op.ObjectType] {
 			continue
 		}
-		key := fmt.Sprintf("%s:%s", rule.OpType, rule.Field)
-		if !coveredFields[key] {
-			t.Errorf("uncovered field rule in fold-* fixtures: (%s, op_version: %d, field: %s, strategy: %s)",
-				rule.OpType, rule.OpVersion, rule.Field, rule.Strategy)
-		}
+		seen[op.ObjectType] = true
+		objTypes = append(objTypes, op.ObjectType)
 	}
+	sort.Strings(objTypes)
 
-	// Catalogue strategies with no v1 vocabulary field (covered by abstract merge vectors only)
-	exemptStrategies := map[string]bool{
-		"set-union":           true,
-		"set-observed-remove": true,
-		"lattice":             true,
+	var rules []writ.Rule
+	for _, objType := range objTypes {
+		rules = append(rules, rulesByType[objType]...)
 	}
-
-	mergeVectors, err := spec.MergeVectors()
-	if err != nil {
-		t.Fatalf("loading merge vectors: %v", err)
-	}
-
-	abstractCoverage := make(map[string]bool)
-	for _, vec := range mergeVectors {
-		for _, cfg := range vec.Fields {
-			abstractCoverage[cfg.Strategy] = true
-		}
-	}
-
-	for strat := range exemptStrategies {
-		if !abstractCoverage[strat] {
-			t.Errorf("exempt catalogue strategy %q has no abstract merge vector under testdata/fold/merge/", strat)
-		}
-	}
-
-	// Check that every catalogue strategy is accounted for (either in published rules or exempt list)
-	usedStrategies := make(map[string]bool)
-	for _, r := range rules {
-		usedStrategies[r.Strategy] = true
-	}
-	for strat := range spec.KnownCatalogueStrategies {
-		if !usedStrategies[strat] && !exemptStrategies[strat] {
-			t.Errorf("catalogue strategy %q is neither used in field rules nor in exemptStrategies", strat)
-		}
-	}
+	return rules
 }
 
 func mustJSON(t *testing.T, v any) []byte {

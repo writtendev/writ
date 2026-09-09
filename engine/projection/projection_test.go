@@ -55,7 +55,7 @@ func TestSchemaVersionMismatchRecreates(t *testing.T) {
 	}
 
 	// Insert dummy object row
-	_, err = db.DB().Exec("INSERT INTO objects (object_id, object_type, op_count, last_op_id, author_name, author_email, created_at, updated_at) VALUES ('obj-1', 'review', 1, 'sha-1', 'alice', 'alice@example.com', 100, 100)")
+	_, err = db.DB().Exec("INSERT INTO objects (object_id, object_type, op_count, last_op_id, author_name, author_email, created_at, updated_at) VALUES ('obj-1', 'widget', 1, 'sha-1', 'alice', 'alice@example.com', 100, 100)")
 	if err != nil {
 		t.Fatalf("insert dummy object failed: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestMemoryConnectionPooling(t *testing.T) {
 	defer db.Close()
 
 	// Insert an initial row into objects to ensure data is shared across all concurrent workers.
-	_, err = db.DB().Exec("INSERT INTO objects (object_id, object_type, op_count, last_op_id, author_name, author_email, created_at, updated_at) VALUES ('obj-pool-1', 'review', 1, 'sha-1', 'alice', 'alice@example.com', 100, 100)")
+	_, err = db.DB().Exec("INSERT INTO objects (object_id, object_type, op_count, last_op_id, author_name, author_email, created_at, updated_at) VALUES ('obj-pool-1', 'widget', 1, 'sha-1', 'alice', 'alice@example.com', 100, 100)")
 	if err != nil {
 		t.Fatalf("insert object failed: %v", err)
 	}
@@ -290,7 +290,7 @@ func TestFileStoreConcurrency(t *testing.T) {
 				}
 				objID := fmt.Sprintf("obj-w%d-%d", workerID, j)
 				_, err = tx.Exec(
-					"INSERT INTO objects (object_id, object_type, op_count, last_op_id, author_name, author_email, created_at, updated_at) VALUES (?, 'review', 1, 'sha-1', 'alice', 'alice@example.com', 100, 100)",
+					"INSERT INTO objects (object_id, object_type, op_count, last_op_id, author_name, author_email, created_at, updated_at) VALUES (?, 'widget', 1, 'sha-1', 'alice', 'alice@example.com', 100, 100)",
 					objID,
 				)
 				if err != nil {

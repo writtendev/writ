@@ -145,7 +145,7 @@ refs:
             files: {f: "1"}
             op:
               object_id: r1
-              object_type: review
+              object_type: widget
               op_type: create
               op_version: 1
               body: {}
@@ -164,7 +164,7 @@ refs:
             message: custom message
             op:
               object_id: r1
-              object_type: review
+              object_type: widget
               op_type: create
               op_version: 1
               body: {}
@@ -229,7 +229,7 @@ refs:
             disposition: unsupported-disposition
             op:
               object_id: r1
-              object_type: review
+              object_type: widget
               op_type: create
               op_version: 1
               body: {}
@@ -274,7 +274,7 @@ refs:
             disposition: interpretable
             op:
               object_id: r1
-              object_type: review
+              object_type: widget
               op_type: create
               op_version: 1
               body: {}

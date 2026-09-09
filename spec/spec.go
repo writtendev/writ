@@ -5,13 +5,12 @@
 // carrying their own. (The fixture-repo corpus under fixtures/testdata is
 // separate and read by the fixtures package directly.)
 //
-// The prose halves live alongside as op-envelope.md, ref-layout.md,
-// canonicalization.md, forward-compatibility.md, anchors.md, identifiers.md,
-// ordering.md, value-types.md, review-ops.md, comments.md, issue-ops.md,
-// workflow-state-ops.md, label-ops.md, documents.md, project-cycle.md,
-// settings-ops.md, schema-ops.md, schema-source.md, and README.md in this
-// directory; the fixture-repo generator and golden harness live in the
-// fixtures subpackage.
+// The prose halves live alongside as op-envelope.md, signing.md,
+// ref-layout.md, canonicalization.md, forward-compatibility.md, anchors.md,
+// fold.md, identifiers.md, ordering.md, resolution.md, value-types.md,
+// schema-ops.md, schema-source.md, and README.md in this directory; the
+// fixture-repo generator and golden harness live in the fixtures
+// subpackage.
 package spec
 
 import "embed"

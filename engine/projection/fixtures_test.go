@@ -3,16 +3,61 @@ package projection_test
 import (
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/writtendev/writ/engine"
+	"github.com/writtendev/writ/engine/codec"
 	"github.com/writtendev/writ/engine/dag"
 	"github.com/writtendev/writ/engine/identity"
 	"github.com/writtendev/writ/engine/projection"
+	"github.com/writtendev/writ/engine/state"
 	"github.com/writtendev/writ/spec/fixtures"
 )
+
+// fixtureRules resolves a fixture repo's merge rules from the repo itself:
+// every `schema` object folded with writ.FoldSchema, the results handed to
+// writ.RulesFromSchemas. Writ hard-codes one object type, so a fixture's rule
+// table is data in its own log — the projection is handed exactly what a
+// reader of that repo would resolve, not a table this test invents.
+func fixtureRules(t *testing.T, store *dag.Store) map[string][]state.Rule {
+	t.Helper()
+
+	enumRes, err := store.Enumerate()
+	if err != nil {
+		t.Fatalf("store.Enumerate: %v", err)
+	}
+
+	var objectIDs []string
+	for objID := range enumRes.Ops {
+		objectIDs = append(objectIDs, objID)
+	}
+	sort.Strings(objectIDs)
+
+	var schemas []writ.Schema
+	for _, objID := range objectIDs {
+		var schemaOps []codec.Op
+		for _, op := range enumRes.Ops[objID] {
+			if op.ObjectType == "schema" {
+				schemaOps = append(schemaOps, op)
+			}
+		}
+		if len(schemaOps) == 0 {
+			continue
+		}
+		sch, err := writ.FoldSchema(schemaOps)
+		if err != nil {
+			t.Fatalf("writ.FoldSchema for object %s: %v", objID, err)
+		}
+		schemas = append(schemas, sch)
+	}
+
+	rules, _ := writ.RulesFromSchemas(schemas)
+	return rules
+}
 
 func TestFixturesIncrementalVsColdAndFoldAgreement(t *testing.T) {
 	corpus, err := fixtures.LoadCorpus()
@@ -22,14 +67,13 @@ func TestFixturesIncrementalVsColdAndFoldAgreement(t *testing.T) {
 
 	for _, desc := range corpus {
 		desc := desc
-		// Select fold, forward-compat, multi-writer, issue, project, cycle, and review-mixed-signals fixtures
+		// The fixture families that still carry ops: fold, forward-compat,
+		// multi-writer, and the schema-driven family, whose repos declare
+		// their own object types the way every other fixture now does.
 		if !strings.HasPrefix(desc.Name, "fold-") &&
 			!strings.HasPrefix(desc.Name, "forward-compat-") &&
 			!strings.HasPrefix(desc.Name, "multi-writer-") &&
-			!strings.HasPrefix(desc.Name, "issue-") &&
-			!strings.HasPrefix(desc.Name, "project-") &&
-			!strings.HasPrefix(desc.Name, "cycle-") &&
-			desc.Name != "review-mixed-signals" {
+			!strings.HasPrefix(desc.Name, "schema-driven-") {
 			continue
 		}
 
@@ -50,6 +94,8 @@ func TestFixturesIncrementalVsColdAndFoldAgreement(t *testing.T) {
 				t.Fatalf("dag.OpenRepo %s: %v", desc.Name, err)
 			}
 
+			rules := fixtureRules(t, store)
+
 			// 1. Cold build
 			dbCold, err := projection.Open(":memory:")
 			if err != nil {
@@ -57,7 +103,7 @@ func TestFixturesIncrementalVsColdAndFoldAgreement(t *testing.T) {
 			}
 			defer dbCold.Close()
 
-			statsCold, err := dbCold.Refresh(store, projection.WithSchema(testRules()))
+			statsCold, err := dbCold.Refresh(store, projection.WithSchema(rules))
 			if err != nil {
 				t.Fatalf("dbCold.Refresh: %v", err)
 			}
@@ -102,7 +148,7 @@ func TestFixturesIncrementalVsColdAndFoldAgreement(t *testing.T) {
 			defer dbInc.Close()
 
 			// Initial refresh at starting commit of each ref
-			_, err = dbInc.Refresh(store, projection.WithSchema(testRules()))
+			_, err = dbInc.Refresh(store, projection.WithSchema(rules))
 			if err != nil {
 				t.Fatalf("dbInc.Refresh initial: %v", err)
 			}
@@ -125,7 +171,7 @@ func TestFixturesIncrementalVsColdAndFoldAgreement(t *testing.T) {
 					}
 				}
 				if movedAny {
-					_, err := dbInc.Refresh(store, projection.WithSchema(testRules()))
+					_, err := dbInc.Refresh(store, projection.WithSchema(rules))
 					if err != nil {
 						t.Fatalf("dbInc.Refresh step %d: %v", step, err)
 					}
@@ -137,7 +183,7 @@ func TestFixturesIncrementalVsColdAndFoldAgreement(t *testing.T) {
 				refName := plumbing.ReferenceName(refNameStr)
 				_ = repo.Storer.SetReference(plumbing.NewReferenceFromStrings(refName.String(), finalHash.String()))
 			}
-			_, err = dbInc.Refresh(store, projection.WithSchema(testRules()))
+			_, err = dbInc.Refresh(store, projection.WithSchema(rules))
 			if err != nil {
 				t.Fatalf("dbInc.Refresh final: %v", err)
 			}

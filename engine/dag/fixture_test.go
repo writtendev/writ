@@ -62,13 +62,13 @@ func TestEnumerate_MultiWriterChainsFixture(t *testing.T) {
 		t.Errorf("rejection reason = %q, want %q", rej.Reason, codec.RejectMissingOpJSON)
 	}
 
-	// 3. Check review-01 ops (4 ops: alice-1, alice-3, bob-2, remote-1)
-	r1Ops, ok := res.Ops["review-01"]
+	// 3. Check widget-01 ops (4 ops: alice-1, alice-3, bob-2, remote-1)
+	r1Ops, ok := res.Ops["widget-01"]
 	if !ok {
-		t.Fatalf("missing review-01 in Ops: %v", res.Ops)
+		t.Fatalf("missing widget-01 in Ops: %v", res.Ops)
 	}
 	if len(r1Ops) != 4 {
-		t.Fatalf("review-01 ops count = %d, want 4", len(r1Ops))
+		t.Fatalf("widget-01 ops count = %d, want 4", len(r1Ops))
 	}
 	// Verify sorted by Op ID
 	for i := 1; i < len(r1Ops); i++ {
@@ -77,13 +77,13 @@ func TestEnumerate_MultiWriterChainsFixture(t *testing.T) {
 		}
 	}
 
-	// 4. Check review-02 ops (2 ops: alice-2, bob-1)
-	r2Ops, ok := res.Ops["review-02"]
+	// 4. Check widget-02 ops (2 ops: alice-2, bob-1)
+	r2Ops, ok := res.Ops["widget-02"]
 	if !ok {
-		t.Fatalf("missing review-02 in Ops: %v", res.Ops)
+		t.Fatalf("missing widget-02 in Ops: %v", res.Ops)
 	}
 	if len(r2Ops) != 2 {
-		t.Fatalf("review-02 ops count = %d, want 2", len(r2Ops))
+		t.Fatalf("widget-02 ops count = %d, want 2", len(r2Ops))
 	}
 	for i := 1; i < len(r2Ops); i++ {
 		if r2Ops[i-1].ID >= r2Ops[i].ID {

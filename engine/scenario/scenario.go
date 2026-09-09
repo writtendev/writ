@@ -107,8 +107,8 @@ func (ResetLocalChain) isStep() {}
 
 // AnchorCheck specifies an anchor resolution check to perform during Converge.
 type AnchorCheck struct {
-	CommentID string
-	Branch    string
+	ObjectID string
+	Branch   string
 }
 
 // Converge executes DAG enumeration on all clones, folds each collaborative object,
@@ -130,17 +130,17 @@ type Scenario struct {
 }
 
 // ObjectRecord is a folded collaborative object of any type in a converged
-// snapshot — the schema-shaped replacement for the per-type
-// ReviewRecord/IssueRecord/ProjectRecord/CycleRecord this ticket deletes.
+// snapshot. It is schema-shaped: the object types it carries are whatever
+// the scenario's log declares, not a set writ ships.
 type ObjectRecord struct {
 	ObjectID    string           `json:"object_id"`
 	ObjectType  string           `json:"object_type"`
 	ObjectState writ.ObjectState `json:"object_state"`
 }
 
-// ResolutionRecord records the deterministic resolution of an anchored comment.
+// ResolutionRecord records the deterministic resolution of an anchored object.
 type ResolutionRecord struct {
-	CommentID  string             `json:"comment_id"`
+	ObjectID   string             `json:"object_id"`
 	Anchor     resolve.Anchor     `json:"anchor"`
 	Resolution resolve.Resolution `json:"resolution"`
 	Status     string             `json:"status"`

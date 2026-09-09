@@ -1,105 +1,105 @@
 {
   "refs": [
     {
-      "name": "refs/writ/0123456789abcdef/review",
-      "commit": "674128181ec5fe8e21fc580a0650c54f2444bae6"
+      "name": "refs/writ/0123456789abcdef/widget",
+      "commit": "d0277f94c6bd331b71df3b3f506dd669ea7b56ba"
     },
     {
-      "name": "refs/writ/fedcba9876543210/review",
-      "commit": "ff99a9c63cf1085de6b72b434746eb3cfff44aac"
+      "name": "refs/writ/fedcba9876543210/widget",
+      "commit": "60e98d0fccec3d9abcc642ac3359ffc7fa82e4dd"
     },
     {
-      "name": "refs/remotes/origin/writ/550e8400e29b41d4/review",
-      "commit": "da854254051258a863873e1b043ec1b7de0fef05"
+      "name": "refs/remotes/origin/writ/550e8400e29b41d4/widget",
+      "commit": "3216fdf1fb6a9433cd20c4e1fc1b3fcada38e4d6"
     }
   ],
   "generations": [
     {
-      "ref": "refs/writ/0123456789abcdef/review",
+      "ref": "refs/writ/0123456789abcdef/widget",
       "index": 0,
       "commits": [
         {
-          "sha": "f2395b7b04e7e9a511036827cbdc416c431ee451",
-          "tree": "86a48896ff831c1803bb0422f9bc243221d41456",
+          "sha": "d88dde4783b9b8157248a1254da07d9fbef3cc82",
+          "tree": "9678afaabb28551ef9d79b037705f086673ab4bf",
           "parents": [],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:00:00Z",
-          "message": "writ: create review/review-01\n",
+          "message": "writ: create widget/widget-01\n",
           "signed": true
         },
         {
-          "sha": "982a0096b6340c873d01fc7947d8948072233142",
-          "tree": "308ae70724d070c55c5ced2a9769fc0ff4612d2b",
+          "sha": "8da97fa39d57f96063e267655a8a1b997f4fce83",
+          "tree": "32c0cade2a6a5d331f813b9616fcc9b7ca28bb49",
           "parents": [
-            "f2395b7b04e7e9a511036827cbdc416c431ee451"
+            "d88dde4783b9b8157248a1254da07d9fbef3cc82"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:01:00Z",
-          "message": "writ: create review/review-02\n",
+          "message": "writ: create widget/widget-02\n",
           "signed": true
         },
         {
-          "sha": "9a6ad14e892492f524d5f870dc55d3e898c26054",
+          "sha": "4c36716120b2c39b1e16d637e2c2ad43c4de1ed7",
           "tree": "b7657468690bf9cc92b9bd76fbc5d2771b3ee300",
           "parents": [
-            "982a0096b6340c873d01fc7947d8948072233142"
+            "8da97fa39d57f96063e267655a8a1b997f4fce83"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:02:00Z",
-          "message": "writ: create review/r-bad\n",
+          "message": "writ: create widget/w-bad\n",
           "signed": true
         },
         {
-          "sha": "674128181ec5fe8e21fc580a0650c54f2444bae6",
-          "tree": "80e17c81a51152f9ff703484b9565c093de79fd2",
+          "sha": "d0277f94c6bd331b71df3b3f506dd669ea7b56ba",
+          "tree": "e679c13145c3e8c012a042c52ac5c48dcceb11ff",
           "parents": [
-            "9a6ad14e892492f524d5f870dc55d3e898c26054"
+            "4c36716120b2c39b1e16d637e2c2ad43c4de1ed7"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:03:00Z",
-          "message": "writ: update review/review-01\n",
+          "message": "writ: update widget/widget-01\n",
           "signed": true
         }
       ]
     },
     {
-      "ref": "refs/writ/fedcba9876543210/review",
+      "ref": "refs/writ/fedcba9876543210/widget",
       "index": 0,
       "commits": [
         {
-          "sha": "3e2d60437f8d1c5cad47af25ae274d4fc82b1d06",
-          "tree": "8910acfdb13c9504a0011981c3f37532218a2de5",
+          "sha": "4589a1cdcb88ff53291c37562a7c82c83fea6a07",
+          "tree": "c9331c88bd02ad5becd12ae0f11281fc88d73a1a",
           "parents": [],
           "author": "Bob Example \u003cbob@example.test\u003e",
           "timestamp": "2026-01-01T00:00:30Z",
-          "message": "writ: comment review/review-02\n",
+          "message": "writ: note widget/widget-02\n",
           "signed": true
         },
         {
-          "sha": "ff99a9c63cf1085de6b72b434746eb3cfff44aac",
-          "tree": "1b11b16acbc806c89263e4b6e4905cb859618838",
+          "sha": "60e98d0fccec3d9abcc642ac3359ffc7fa82e4dd",
+          "tree": "1597c027c1e33364d86846e12c7fcd4dbdfafd94",
           "parents": [
-            "3e2d60437f8d1c5cad47af25ae274d4fc82b1d06",
-            "f2395b7b04e7e9a511036827cbdc416c431ee451"
+            "4589a1cdcb88ff53291c37562a7c82c83fea6a07",
+            "d88dde4783b9b8157248a1254da07d9fbef3cc82"
           ],
           "author": "Bob Example \u003cbob@example.test\u003e",
           "timestamp": "2026-01-01T00:02:30Z",
-          "message": "writ: comment review/review-01\n",
+          "message": "writ: note widget/widget-01\n",
           "signed": true
         }
       ]
     },
     {
-      "ref": "refs/remotes/origin/writ/550e8400e29b41d4/review",
+      "ref": "refs/remotes/origin/writ/550e8400e29b41d4/widget",
       "index": 0,
       "commits": [
         {
-          "sha": "da854254051258a863873e1b043ec1b7de0fef05",
-          "tree": "7bf0d99b3811065e149373703a7765da54f873e0",
+          "sha": "3216fdf1fb6a9433cd20c4e1fc1b3fcada38e4d6",
+          "tree": "e743ebee9fb2d47c45075740e9373d4f2f6b8759",
           "parents": [],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:00:45Z",
-          "message": "writ: approve review/review-01\n",
+          "message": "writ: endorse widget/widget-01\n",
           "signed": true
         }
       ]

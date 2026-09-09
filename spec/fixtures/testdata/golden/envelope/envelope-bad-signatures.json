@@ -1,8 +1,8 @@
 {
   "ops": [
     {
-      "ref": "refs/writ/alice/review",
-      "commit": "03d8a5475427965857083d7560d447c87e38fc87",
+      "ref": "refs/writ/alice/widget",
+      "commit": "dc30df091c7bc280b1bdb83cd09e011bf92d15d9",
       "parents": [],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -11,11 +11,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "37fa2a1a74a8708727d475bd585f9a5c7d3d31a0"
+          "sha": "363f590321c720da9db0abed7b54908cbd81c703"
         }
       ],
-      "payload": "{\"body\":{\"title\":\"Signed with Bob's key instead of Alice's\"},\"object_id\":\"review-01\",\"object_type\":\"review\",\"op_type\":\"create\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{\"title\":\"Signed with Bob's key instead of Alice's\"},\"object_id\":\"review-01\",\"object_type\":\"review\",\"op_type\":\"create\",\"op_version\":1}",
+      "payload": "{\"body\":{\"title\":\"Signed with Bob's key instead of Alice's\"},\"object_id\":\"widget-01\",\"object_type\":\"widget\",\"op_type\":\"create\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"title\":\"Signed with Bob's key instead of Alice's\"},\"object_id\":\"widget-01\",\"object_type\":\"widget\",\"op_type\":\"create\",\"op_version\":1}",
       "signed": true,
       "signature_key_fingerprint": "SHA256:O/tazBDLdOtpewVOG55l3W8ZJOSCXXSbkFws9gBOhYc",
       "verification_outcome": "wrong-key",
@@ -29,10 +29,10 @@
       }
     },
     {
-      "ref": "refs/writ/alice/review",
-      "commit": "3719c01328cfc060198c89252845cd299ecb73f9",
+      "ref": "refs/writ/alice/widget",
+      "commit": "b18ab5146fb570a9c8aa8188cdd9e99b4e910547",
       "parents": [
-        "03d8a5475427965857083d7560d447c87e38fc87"
+        "dc30df091c7bc280b1bdb83cd09e011bf92d15d9"
       ],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -41,11 +41,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "38d4c595297cdb1d1f28e021ff90d725b8b3bc46"
+          "sha": "4c9511f90fc5492726b53dccdf4e4a9e535b5ecc"
         }
       ],
-      "payload": "{\"body\":{\"title\":\"Bayload mutated after signing\"},\"object_id\":\"review-01\",\"object_type\":\"review\",\"op_type\":\"update\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{\"title\":\"Bayload mutated after signing\"},\"object_id\":\"review-01\",\"object_type\":\"review\",\"op_type\":\"update\",\"op_version\":1}",
+      "payload": "{\"body\":{\"title\":\"Bayload mutated after signing\"},\"object_id\":\"widget-01\",\"object_type\":\"widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"title\":\"Bayload mutated after signing\"},\"object_id\":\"widget-01\",\"object_type\":\"widget\",\"op_type\":\"update\",\"op_version\":1}",
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "payload-mutated",
@@ -59,10 +59,10 @@
       }
     },
     {
-      "ref": "refs/writ/alice/review",
-      "commit": "54fc97b3f2149c868f32a071f68ecc47277ed7be",
+      "ref": "refs/writ/alice/widget",
+      "commit": "2654ccf32e7b3f6ac431741abb88472aae55e335",
       "parents": [
-        "3719c01328cfc060198c89252845cd299ecb73f9"
+        "b18ab5146fb570a9c8aa8188cdd9e99b4e910547"
       ],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -71,11 +71,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "4478df4b1221123db2254ac934f9aa378e2538cf"
+          "sha": "3ad90b892217b259f642975a26ec6ff7ef82b52d"
         }
       ],
-      "payload": "{\"body\":{\"title\":\"Corrupted armor signature\"},\"object_id\":\"review-01\",\"object_type\":\"review\",\"op_type\":\"update\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{\"title\":\"Corrupted armor signature\"},\"object_id\":\"review-01\",\"object_type\":\"review\",\"op_type\":\"update\",\"op_version\":1}",
+      "payload": "{\"body\":{\"title\":\"Corrupted armor signature\"},\"object_id\":\"widget-01\",\"object_type\":\"widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"title\":\"Corrupted armor signature\"},\"object_id\":\"widget-01\",\"object_type\":\"widget\",\"op_type\":\"update\",\"op_version\":1}",
       "signed": true,
       "verification_outcome": "corrupted-signature",
       "expected": {
@@ -88,10 +88,10 @@
       }
     },
     {
-      "ref": "refs/writ/alice/review",
-      "commit": "ea2337ebf81dfd463fcff45967aecbd8d76b08ce",
+      "ref": "refs/writ/alice/widget",
+      "commit": "f2d23cab46c9b1d345be9f0c75259c3c108f0830",
       "parents": [
-        "54fc97b3f2149c868f32a071f68ecc47277ed7be"
+        "2654ccf32e7b3f6ac431741abb88472aae55e335"
       ],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -100,11 +100,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "62b5301c5322daeee6956e037dcdf6d69dbf57af"
+          "sha": "d2d1b88abb73d9ad84198e16d6838c09f8fb39bb"
         }
       ],
-      "payload": "{\"body\":{\"title\":\"Unsigned commit\"},\"object_id\":\"review-01\",\"object_type\":\"review\",\"op_type\":\"update\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{\"title\":\"Unsigned commit\"},\"object_id\":\"review-01\",\"object_type\":\"review\",\"op_type\":\"update\",\"op_version\":1}",
+      "payload": "{\"body\":{\"title\":\"Unsigned commit\"},\"object_id\":\"widget-01\",\"object_type\":\"widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"title\":\"Unsigned commit\"},\"object_id\":\"widget-01\",\"object_type\":\"widget\",\"op_type\":\"update\",\"op_version\":1}",
       "signed": false,
       "verification_outcome": "unsigned",
       "expected": {

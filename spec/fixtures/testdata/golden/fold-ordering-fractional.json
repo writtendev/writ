@@ -1,54 +1,106 @@
 {
   "refs": [
     {
-      "name": "refs/writ/0123456789abcdef/review",
-      "commit": "17edcd3307639d851dc80867f0750cc8297f5901"
+      "name": "refs/writ/0123456789abcdef/schema",
+      "commit": "85d7804b131abfd5f11524a8a313294f8cc607ed"
     },
     {
-      "name": "refs/writ/fedcba9876543210/review",
-      "commit": "a1c25775b57d501e93bda51b449d45588f8f193d"
+      "name": "refs/writ/0123456789abcdef/widget",
+      "commit": "7ce5346a8dee879825acc881d6b37ec7f2b0ec5f"
+    },
+    {
+      "name": "refs/writ/fedcba9876543210/widget",
+      "commit": "eb04a600c9da92ee025882dab2a1f6959eeaa89b"
     }
   ],
   "generations": [
     {
-      "ref": "refs/writ/0123456789abcdef/review",
+      "ref": "refs/writ/0123456789abcdef/schema",
       "index": 0,
       "commits": [
         {
-          "sha": "5e0a2155bddd5e6ebc9cecacf372774bf4ca30d4",
-          "tree": "3b589236268d311e034afc7ac5c11b7d67e5c264",
+          "sha": "7e7b98e49daea722263a972a87eb6425554eec85",
+          "tree": "2601775727c841f53a2960e4169e9a4a216f66d2",
           "parents": [],
           "author": "Alice Example \u003calice@example.test\u003e",
-          "timestamp": "2026-01-01T00:00:00Z",
-          "message": "writ: create review/r-fractional-order\n",
+          "timestamp": "2025-12-01T00:00:00Z",
+          "message": "writ: create schema/sch-acme\n",
           "signed": true
         },
         {
-          "sha": "17edcd3307639d851dc80867f0750cc8297f5901",
-          "tree": "6d8c7d5e96b294b183f3a930245e62994ace1852",
+          "sha": "4becfd27f09972baaed6aebbac25e5edf0c1815d",
+          "tree": "28a4ca0269db83c9aeae44f12626f410b2f92f0d",
           "parents": [
-            "5e0a2155bddd5e6ebc9cecacf372774bf4ca30d4"
+            "7e7b98e49daea722263a972a87eb6425554eec85"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
-          "timestamp": "2026-01-01T00:01:00Z",
-          "message": "writ: update review/r-fractional-order\n",
+          "timestamp": "2025-12-01T00:01:00Z",
+          "message": "writ: define-type schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "05be825287833aba9cdfcda59c2236dba06fbebd",
+          "tree": "0214859faf2e21c1f122efc6992f7ce7fbc68b50",
+          "parents": [
+            "4becfd27f09972baaed6aebbac25e5edf0c1815d"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:02:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "85d7804b131abfd5f11524a8a313294f8cc607ed",
+          "tree": "703cbbeebc25cabddf8636b313edb4f714d1972e",
+          "parents": [
+            "05be825287833aba9cdfcda59c2236dba06fbebd"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:03:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
           "signed": true
         }
       ]
     },
     {
-      "ref": "refs/writ/fedcba9876543210/review",
+      "ref": "refs/writ/0123456789abcdef/widget",
       "index": 0,
       "commits": [
         {
-          "sha": "a1c25775b57d501e93bda51b449d45588f8f193d",
-          "tree": "781f961e7ebf6ea39815053585c7b26aa452c3df",
+          "sha": "b0a7ba33a525f7a555828dc81c21920bec5f3cf2",
+          "tree": "51ee7d580e49511aa102e6343b25730c79dc0f81",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "message": "writ: create widget/w-fractional-order\n",
+          "signed": true
+        },
+        {
+          "sha": "7ce5346a8dee879825acc881d6b37ec7f2b0ec5f",
+          "tree": "8ed5aa68d236355eec28112a13679aea4e287653",
           "parents": [
-            "5e0a2155bddd5e6ebc9cecacf372774bf4ca30d4"
+            "b0a7ba33a525f7a555828dc81c21920bec5f3cf2"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:01:00Z",
+          "message": "writ: update widget/w-fractional-order\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/fedcba9876543210/widget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "eb04a600c9da92ee025882dab2a1f6959eeaa89b",
+          "tree": "b4fc04611bcd9c551f6247a0242b9b6c50635903",
+          "parents": [
+            "b0a7ba33a525f7a555828dc81c21920bec5f3cf2"
           ],
           "author": "Bob Example \u003cbob@example.test\u003e",
           "timestamp": "2026-01-01T00:01:00Z",
-          "message": "writ: update review/r-fractional-order\n",
+          "message": "writ: update widget/w-fractional-order\n",
           "signed": true
         }
       ]

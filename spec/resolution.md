@@ -3,12 +3,12 @@
 Status: normative. Schema: [`schemas/resolution.schema.json`](schemas/resolution.schema.json).
 Vectors: [`testdata/resolution/`](testdata/resolution/).
 
-An anchor records where in code a comment was originally placed ([`spec/anchors.md`](anchors.md)).
+An anchor records where in code an object was originally placed ([`spec/anchors.md`](anchors.md)).
 As code evolves across commits, rebases, and force-pushes, the anchor must be
 resolved against a target tree to find its current location. When re-anchoring
-succeeds, the comment is displayed at its new position; when re-anchoring fails,
-the comment degrades to "orphaned but preserved" — never silently lost
-(ARCHITECTURE.md §Anchoring).
+succeeds, the object carrying the anchor is displayed at its new position; when
+re-anchoring fails, it degrades to "orphaned but preserved" — never silently
+lost (ARCHITECTURE.md §Anchoring).
 
 The key words MUST, MUST NOT, SHOULD, and MAY are to be interpreted as
 described in RFC 2119.
@@ -36,10 +36,10 @@ deterministic resolution outcome.
    against one branch (e.g. where the file was deleted) and resolve against
    another (e.g. where the file is present). Orphaning does not write to the
    operation log or mutate historical operations.
-4. **Re-attachment model.** Re-attaching an orphaned comment to a new code
-   position happens exclusively by creating a *new* comment operation
-   (WRIT-9) that references the original comment or thread and carries a
-   new anchor. Historical operations and their anchors are immutable.
+4. **Re-attachment model.** Re-attaching an orphaned object to a new code
+   position happens exclusively by creating a *new* operation that
+   references the original object and carries a new anchor. Historical
+   operations and their anchors are immutable.
 
 ## Target Tree & Content Preparation
 
@@ -84,14 +84,14 @@ The resolution function produces a resolution outcome object conforming to
 At least one of `old` or `new` MUST be present in the outcome, exactly matching
 the sides present in `anchor`.
 
-### Overall Comment Resolution Status
+### Overall Anchor Resolution Status
 
-A comment's overall resolution status is derived from its side results:
+An anchor's overall resolution status is derived from its side results:
 
 - **Resolved:** At least one present side has `outcome: "resolved"`.
 - **Orphaned:** Every present side has `outcome: "orphaned"`.
 - **Partially Resolved:** One side has `outcome: "resolved"` and another has
-  `outcome: "orphaned"` (for example, a cross-side comment where the base side's
+  `outcome: "orphaned"` (for example, a cross-side anchor where the base side's
   deleted line is absent in the target tree, but the head side's added line
   resolves).
 
@@ -101,7 +101,7 @@ A comment's overall resolution status is derived from its side results:
 {
   "outcome": "resolved",
   "match": "exact-path-blob",
-  "path": "engine/fold/review.go",
+  "path": "engine/fold/fold.go",
   "range": { "start": 41, "end": 43 }
 }
 ```
@@ -304,22 +304,22 @@ Outcome:
 
 ## Orphan Semantics & Client Obligations
 
-The guiding principle of Writ's anchoring model is that **comments are never
-silently lost**.
+The guiding principle of Writ's anchoring model is that **anchored objects are
+never silently lost**.
 
 1. **Preservation:** Implementations MUST NOT drop, discard, or hide orphaned
-   comments.
-2. **Presentation:** Clients MUST present orphaned comments to the user with:
-   - Clear visual indication that the comment is *orphaned* / *unanchored* in
+   anchors.
+2. **Presentation:** Clients MUST present an orphaned anchor to the user with:
+   - Clear visual indication that it is *orphaned* / *unanchored* in
      the current tree.
-   - The full comment payload: author, timestamp, body, and reactions.
+   - The full folded payload of the object carrying it.
    - The recorded historical location: path, range, and the captured context
      lines (`before`, `lines`, `after`).
 3. **Immutability:** Implementations MUST NOT mutate the original anchor or op
    payload when resolution fails.
-4. **Re-attachment:** When a user or client re-attaches an orphaned comment to
-   a new position, it MUST be recorded as a new comment operation (WRIT-9),
-   preserving the full historical lineage.
+4. **Re-attachment:** When a user or client re-attaches an orphaned object to
+   a new position, it MUST be recorded as a new operation, preserving the full
+   historical lineage.
 
 ## V1 Scope Boundaries (Non-Normative)
 

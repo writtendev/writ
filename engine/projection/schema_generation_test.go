@@ -129,9 +129,9 @@ func TestSchemaChangeDropsAndRebuilds(t *testing.T) {
 	}
 }
 
-func labelCreateEnv(objectID, name string) codec.Envelope {
+func waypointCreateEnv(objectID, name string) codec.Envelope {
 	body, _ := json.Marshal(map[string]any{"name": name})
-	env := codec.Envelope{ObjectID: objectID, ObjectType: "label", OpType: "create", OpVersion: 1, Body: body}
+	env := codec.Envelope{ObjectID: objectID, ObjectType: "waypoint", OpType: "create", OpVersion: 1, Body: body}
 	raw, _ := codec.EncodePayload(env)
 	env.Raw = raw
 	return env
@@ -140,8 +140,9 @@ func labelCreateEnv(objectID, name string) codec.Envelope {
 // withoutType returns a copy of rules with objectType removed — simulating
 // a projection instance whose resolved schema does not (yet, or no longer)
 // declare a type the log's producer vocabulary is perfectly happy to
-// accept: RulesFromSchemas and the embedded producer vocabulary are
-// resolved independently, so a real gap between them (a fetch landing new
+// accept: the projection's rule index and the producer vocabulary the
+// store was opened with are resolved independently, so a real gap between
+// them (a fetch landing new
 // objects before this process re-resolves, or an object type a schema
 // stopped declaring) is exactly what this simulates without needing to
 // smuggle a truly undeclared object type past dag.Store.Append's own
@@ -160,7 +161,7 @@ func withoutType(rules map[string][]state.Rule, objectType string) map[string][]
 // TestUndeclaredTypeOpsLandInUnknownOps covers both halves of "nothing
 // declares this type" for the projection's own resolution: a real,
 // producer-valid object type this projection instance's schema simply does
-// not mention, and — even when the full built-in vocabulary is installed —
+// not mention, and — even with a full rule index installed —
 // a `schema` object itself, which is excluded from the rule index by
 // construction (spec/schema-ops.md §1.2) and must keep landing in
 // unknown_ops rather than being picked up as an ordinary declared type.
@@ -174,9 +175,9 @@ func TestUndeclaredTypeOpsLandInUnknownOps(t *testing.T) {
 	}
 	defer db.Close()
 
-	env := labelCreateEnv("lbl-1", "Label One")
+	env := waypointCreateEnv("wp-1", "Waypoint One")
 	if _, err := store.Append(ctx, env, nil); err != nil {
-		t.Fatalf("Append label op: %v", err)
+		t.Fatalf("Append waypoint op: %v", err)
 	}
 
 	schemaEnv := codec.Envelope{ObjectID: "sch-1", ObjectType: "schema", OpType: "create", OpVersion: 1, Body: json.RawMessage(`{"namespace":"test-ns"}`)}
@@ -186,12 +187,12 @@ func TestUndeclaredTypeOpsLandInUnknownOps(t *testing.T) {
 		t.Fatalf("Append schema op: %v", err)
 	}
 
-	rules := withoutType(testRules(), "label")
+	rules := withoutType(appendRules(), "waypoint")
 	if _, err := db.Refresh(store, projection.WithSchema(rules)); err != nil {
 		t.Fatalf("Refresh: %v", err)
 	}
 
-	for _, objID := range []string{"lbl-1", "sch-1"} {
+	for _, objID := range []string{"wp-1", "sch-1"} {
 		var count int
 		if err := db.DB().QueryRow("SELECT COUNT(*) FROM unknown_ops WHERE object_id = ?", objID).Scan(&count); err != nil {
 			t.Fatalf("query unknown_ops for %s: %v", objID, err)
@@ -201,8 +202,8 @@ func TestUndeclaredTypeOpsLandInUnknownOps(t *testing.T) {
 		}
 	}
 
-	if tableExists(t, db, "o_label") {
-		t.Errorf("expected no o_label table: this projection instance's schema does not declare label")
+	if tableExists(t, db, "o_waypoint") {
+		t.Errorf("expected no o_waypoint table: this projection instance's schema does not declare waypoint")
 	}
 }
 
@@ -220,45 +221,45 @@ func TestSchemaShrinkMovesOpsToUnknownOps(t *testing.T) {
 	}
 	defer db.Close()
 
-	env := labelCreateEnv("lbl-1", "Label One")
+	env := waypointCreateEnv("wp-1", "Waypoint One")
 	if _, err := store.Append(ctx, env, nil); err != nil {
 		t.Fatalf("Append: %v", err)
 	}
 
-	if _, err := db.Refresh(store, projection.WithSchema(testRules())); err != nil {
-		t.Fatalf("Refresh with label declared: %v", err)
+	if _, err := db.Refresh(store, projection.WithSchema(appendRules())); err != nil {
+		t.Fatalf("Refresh with waypoint declared: %v", err)
 	}
-	if !tableExists(t, db, "o_label") {
-		t.Fatalf("expected o_label to exist")
+	if !tableExists(t, db, "o_waypoint") {
+		t.Fatalf("expected o_waypoint to exist")
 	}
 	var name string
-	if err := db.DB().QueryRow("SELECT f_name FROM o_label WHERE object_id = ?", "lbl-1").Scan(&name); err != nil {
-		t.Fatalf("query o_label: %v", err)
+	if err := db.DB().QueryRow("SELECT f_name FROM o_waypoint WHERE object_id = ?", "wp-1").Scan(&name); err != nil {
+		t.Fatalf("query o_waypoint: %v", err)
 	}
-	if name != "Label One" {
-		t.Fatalf("expected name 'Label One', got %q", name)
+	if name != "Waypoint One" {
+		t.Fatalf("expected name 'Waypoint One', got %q", name)
 	}
 	var before int
-	if err := db.DB().QueryRow("SELECT COUNT(*) FROM unknown_ops WHERE object_id = ?", "lbl-1").Scan(&before); err != nil {
+	if err := db.DB().QueryRow("SELECT COUNT(*) FROM unknown_ops WHERE object_id = ?", "wp-1").Scan(&before); err != nil {
 		t.Fatalf("query unknown_ops before shrink: %v", err)
 	}
 	if before != 0 {
-		t.Fatalf("expected 0 unknown_ops rows for lbl-1 while declared, got %d", before)
+		t.Fatalf("expected 0 unknown_ops rows for wp-1 while declared, got %d", before)
 	}
 
-	// Shrink: this projection instance's schema no longer declares "label".
-	if _, err := db.Refresh(store, projection.WithSchema(withoutType(testRules(), "label"))); err != nil {
-		t.Fatalf("Refresh with label removed: %v", err)
+	// Shrink: this projection instance's schema no longer declares "waypoint".
+	if _, err := db.Refresh(store, projection.WithSchema(withoutType(appendRules(), "waypoint"))); err != nil {
+		t.Fatalf("Refresh with waypoint removed: %v", err)
 	}
 
-	if tableExists(t, db, "o_label") {
-		t.Fatalf("expected o_label to be dropped once nothing declares it")
+	if tableExists(t, db, "o_waypoint") {
+		t.Fatalf("expected o_waypoint to be dropped once nothing declares it")
 	}
 	var after int
-	if err := db.DB().QueryRow("SELECT COUNT(*) FROM unknown_ops WHERE object_id = ?", "lbl-1").Scan(&after); err != nil {
+	if err := db.DB().QueryRow("SELECT COUNT(*) FROM unknown_ops WHERE object_id = ?", "wp-1").Scan(&after); err != nil {
 		t.Fatalf("query unknown_ops after shrink: %v", err)
 	}
 	if after != 1 {
-		t.Fatalf("expected lbl-1's op to reappear in unknown_ops after the shrink, got %d rows", after)
+		t.Fatalf("expected wp-1's op to reappear in unknown_ops after the shrink, got %d rows", after)
 	}
 }

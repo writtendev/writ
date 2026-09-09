@@ -2,37 +2,250 @@ name: fold-person-unicode-folding
 description: >
   Exercise the pinned person-identifier folding algorithm — NFC, Unicode default
   case folding, NFC — through the fold itself, on the axes ASCII identifiers
-  cannot reach. Two spellings of the same name compose to one assignee; the
-  dotted capital I folds to i plus a combining dot rather than to a bare i; both
-  spellings of sharp s fold together; Cherokee folds up to its uppercase fixed
-  point; and a supplementary starter followed by a combining mark stays a
+  cannot reach, with the person-ref fields declared by a schema in the
+  repository's own log. Two spellings of the same name compose to one assignee;
+  the dotted capital I folds to i plus a combining dot rather than to a bare i;
+  both spellings of sharp s fold together; Cherokee folds up to its uppercase
+  fixed point; and a supplementary starter followed by a combining mark stays a
   different person from the Latin letter its truncated composition key would
   have merged it with.
 
 refs:
-  - name: refs/writ/0123456789abcdef/review
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: schema-create
+            author: alice
+            timestamp: 2025-12-01T00:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: schema-define-type
+            parents: [schema-create]
+            author: alice
+            timestamp: 2025-12-01T00:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "widget"
+            expect: accept
+
+          - id: schema-define-title
+            parents: [schema-define-type]
+            author: alice
+            timestamp: 2025-12-01T00:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: schema-define-log-base
+            parents: [schema-define-title]
+            author: alice
+            timestamp: 2025-12-01T00:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "log"
+                op_version: "1"
+                field: "base"
+                value_type: "git-oid"
+                strategy: "append"
+            expect: accept
+
+          - id: schema-define-log-head
+            parents: [schema-define-log-base]
+            author: alice
+            timestamp: 2025-12-01T00:04:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "log"
+                op_version: "1"
+                field: "head"
+                value_type: "git-oid"
+                strategy: "append"
+            expect: accept
+
+          - id: schema-define-assign-add
+            parents: [schema-define-log-head]
+            author: alice
+            timestamp: 2025-12-01T00:05:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "assign"
+                op_version: "1"
+                field: "add"
+                target: "assignees"
+                value_type: "person-ref"
+                strategy: "set-observed-remove"
+            expect: accept
+
+          - id: schema-define-assign-remove
+            parents: [schema-define-assign-add]
+            author: alice
+            timestamp: 2025-12-01T00:06:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "assign"
+                op_version: "1"
+                field: "remove"
+                target: "assignees"
+                value_type: "person-ref"
+                strategy: "set-observed-remove"
+            expect: accept
+
+          # The vote register is keyed on (subject, revision): a person-ref
+          # key column and a git-oid one, so the key tuple exercises both a
+          # normalizing and a non-normalizing column at once.
+          - id: schema-define-vote-subject
+            parents: [schema-define-assign-remove]
+            author: alice
+            timestamp: 2025-12-01T00:07:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "vote"
+                op_version: "1"
+                field: "subject"
+                value_type: "person-ref"
+                strategy: "keyed-lww"
+                key: ["subject", "revision"]
+                key_types:
+                  subject: "person-ref"
+                  revision: "git-oid"
+            expect: accept
+
+          - id: schema-define-vote-revision
+            parents: [schema-define-vote-subject]
+            author: alice
+            timestamp: 2025-12-01T00:08:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "vote"
+                op_version: "1"
+                field: "revision"
+                value_type: "git-oid"
+                strategy: "keyed-lww"
+                key: ["subject", "revision"]
+                key_types:
+                  subject: "person-ref"
+                  revision: "git-oid"
+            expect: accept
+
+          - id: schema-define-vote-choice
+            parents: [schema-define-vote-revision]
+            author: alice
+            timestamp: 2025-12-01T00:09:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "vote"
+                op_version: "1"
+                field: "choice"
+                value_type: "enum"
+                enum: ["yes", "no", "none"]
+                strategy: "keyed-lww"
+                key: ["subject", "revision"]
+                key_types:
+                  subject: "person-ref"
+                  revision: "git-oid"
+            expect: accept
+
+          - id: schema-define-vote-note
+            parents: [schema-define-vote-choice]
+            author: alice
+            timestamp: 2025-12-01T00:10:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "vote"
+                op_version: "1"
+                field: "note"
+                value_type: "text"
+                strategy: "keyed-lww"
+                key: ["subject", "revision"]
+                key_types:
+                  subject: "person-ref"
+                  revision: "git-oid"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/widget
     history:
       - commits:
           - id: alice-create
             author: alice
             timestamp: 2026-01-01T00:00:00Z
             op:
-              object_id: r-person-unicode
-              object_type: review
+              object_id: w-person-unicode
+              object_type: widget
               op_type: create
               op_version: 1
               body:
                 title: "Unicode Person Identifier Folding"
             expect: accept
 
-          - id: alice-revision
+          - id: alice-log
             parents: [alice-create]
             author: alice
             timestamp: 2026-01-01T00:01:00Z
             op:
-              object_id: r-person-unicode
-              object_type: review
-              op_type: revision
+              object_id: w-person-unicode
+              object_type: widget
+              op_type: log
               op_version: 1
               body:
                 base: "0000000000000000000000000000000000000001"
@@ -42,12 +255,12 @@ refs:
           # The decomposed and precomposed spellings of the same name are one
           # assignee, not two. Before NFC was pinned they were two people.
           - id: alice-assign-composition
-            parents: [alice-revision]
+            parents: [alice-log]
             author: alice
             timestamp: 2026-01-01T00:02:00Z
             op:
-              object_id: r-person-unicode
-              object_type: review
+              object_id: w-person-unicode
+              object_type: widget
               op_type: assign
               op_version: 1
               body:
@@ -61,8 +274,8 @@ refs:
             author: alice
             timestamp: 2026-01-01T00:03:00Z
             op:
-              object_id: r-person-unicode
-              object_type: review
+              object_id: w-person-unicode
+              object_type: widget
               op_type: assign
               op_version: 1
               body:
@@ -75,8 +288,8 @@ refs:
             author: alice
             timestamp: 2026-01-01T00:04:00Z
             op:
-              object_id: r-person-unicode
-              object_type: review
+              object_id: w-person-unicode
+              object_type: widget
               op_type: assign
               op_version: 1
               body:
@@ -91,49 +304,49 @@ refs:
             author: alice
             timestamp: 2026-01-01T00:05:00Z
             op:
-              object_id: r-person-unicode
-              object_type: review
+              object_id: w-person-unicode
+              object_type: widget
               op_type: assign
               op_version: 1
               body:
                 add: ["user:𐁁̀", "user:À"]
             expect: accept
 
-          # A keyed-lww approval opened under one spelling and updated under
-          # the other must be one key, not two verdicts.
-          - id: alice-approval-decomposed
+          # A keyed-lww vote opened under one spelling and updated under
+          # the other must be one key, not two choices.
+          - id: alice-vote-decomposed
             parents: [alice-assign-supplementary]
             author: alice
             timestamp: 2026-01-01T00:06:00Z
             op:
-              object_id: r-person-unicode
-              object_type: review
-              op_type: approval
+              object_id: w-person-unicode
+              object_type: widget
+              op_type: vote
               op_version: 1
               body:
                 revision: "0000000000000000000000000000000000000002"
-                verdict: approve
+                choice: "yes"
                 subject: "user:José"
-                message: "Approved under the decomposed spelling"
+                note: "Voted under the decomposed spelling"
             expect: accept
 
-          - id: alice-approval-precomposed
-            parents: [alice-approval-decomposed]
+          - id: alice-vote-precomposed
+            parents: [alice-vote-decomposed]
             author: alice
             timestamp: 2026-01-01T00:07:00Z
             op:
-              object_id: r-person-unicode
-              object_type: review
-              op_type: approval
+              object_id: w-person-unicode
+              object_type: widget
+              op_type: vote
               op_version: 1
               body:
                 revision: "0000000000000000000000000000000000000002"
-                verdict: request-changes
+                choice: "no"
                 subject: "user:José"
-                message: "Updated under the precomposed spelling"
+                note: "Updated under the precomposed spelling"
             expect: accept
 
-  - name: refs/writ/fedcba9876543210/review
+  - name: refs/writ/fedcba9876543210/widget
     history:
       - commits:
           - id: bob-remove-normalized
@@ -141,8 +354,8 @@ refs:
             author: bob
             timestamp: 2026-01-01T00:08:00Z
             op:
-              object_id: r-person-unicode
-              object_type: review
+              object_id: w-person-unicode
+              object_type: widget
               op_type: assign
               op_version: 1
               body:

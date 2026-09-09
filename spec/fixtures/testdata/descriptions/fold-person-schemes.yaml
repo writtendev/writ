@@ -1,43 +1,256 @@
 name: fold-person-schemes
 description: >
   Scheme-prefixed person identifiers (spec/identifiers.md §Person identifiers)
-  through the fold. Pins the three rules that make two implementations agree on
-  who an op refers to: schemes never unify, so 'user:alice' and
-  'email:alice@example.com' are two members of the assignee OR-set and removing
-  one leaves the other; an unrecognized scheme ('keybase:alice') is preserved
-  and compared byte-wise like any other; and a value carrying its own colon
-  ('email:"a:b"@example.com', a quoted local part) survives folding intact
-  because the identifier splits at its FIRST colon. Normalization is structural,
-  so whitespace between the colon and the value is trimmed with the value
-  ('user:   Dana   ' and 'USER:dana' are one member); a rule that folded the
-  identifier as one flat string would leave two. A non-human writer is
-  'user:ci' — the scheme exists so an actor with no mailbox does not need a
-  fictional one.
+  through the fold, on a widget type whose person-ref fields are declared by a
+  schema in the repository's own log. Pins the three rules that make two
+  implementations agree on who an op refers to: schemes never unify, so
+  'user:alice' and 'email:alice@example.com' are two members of the assignee
+  OR-set and removing one leaves the other; an unrecognized scheme
+  ('keybase:alice') is preserved and compared byte-wise like any other; and a
+  value carrying its own colon ('email:"a:b"@example.com', a quoted local
+  part) survives folding intact because the identifier splits at its FIRST
+  colon. Normalization is structural, so whitespace between the colon and the
+  value is trimmed with the value ('user:   Dana   ' and 'USER:dana' are one
+  member); a rule that folded the identifier as one flat string would leave
+  two. A non-human writer is 'user:ci' — the scheme exists so an actor with no
+  mailbox does not need a fictional one.
 
 refs:
-  - name: refs/writ/0123456789abcdef/review
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: schema-create
+            author: alice
+            timestamp: 2025-12-01T00:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: schema-define-type
+            parents: [schema-create]
+            author: alice
+            timestamp: 2025-12-01T00:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "widget"
+            expect: accept
+
+          - id: schema-define-title
+            parents: [schema-define-type]
+            author: alice
+            timestamp: 2025-12-01T00:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: schema-define-log-base
+            parents: [schema-define-title]
+            author: alice
+            timestamp: 2025-12-01T00:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "log"
+                op_version: "1"
+                field: "base"
+                value_type: "git-oid"
+                strategy: "append"
+            expect: accept
+
+          - id: schema-define-log-head
+            parents: [schema-define-log-base]
+            author: alice
+            timestamp: 2025-12-01T00:04:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "log"
+                op_version: "1"
+                field: "head"
+                value_type: "git-oid"
+                strategy: "append"
+            expect: accept
+
+          - id: schema-define-assign-add
+            parents: [schema-define-log-head]
+            author: alice
+            timestamp: 2025-12-01T00:05:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "assign"
+                op_version: "1"
+                field: "add"
+                target: "assignees"
+                value_type: "person-ref"
+                strategy: "set-observed-remove"
+            expect: accept
+
+          - id: schema-define-assign-remove
+            parents: [schema-define-assign-add]
+            author: alice
+            timestamp: 2025-12-01T00:06:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "assign"
+                op_version: "1"
+                field: "remove"
+                target: "assignees"
+                value_type: "person-ref"
+                strategy: "set-observed-remove"
+            expect: accept
+
+          # The vote register is keyed on (subject, revision): a person-ref
+          # key column and a git-oid one, so the key tuple exercises both a
+          # normalizing and a non-normalizing column at once.
+          - id: schema-define-vote-subject
+            parents: [schema-define-assign-remove]
+            author: alice
+            timestamp: 2025-12-01T00:07:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "vote"
+                op_version: "1"
+                field: "subject"
+                value_type: "person-ref"
+                strategy: "keyed-lww"
+                key: ["subject", "revision"]
+                key_types:
+                  subject: "person-ref"
+                  revision: "git-oid"
+            expect: accept
+
+          - id: schema-define-vote-revision
+            parents: [schema-define-vote-subject]
+            author: alice
+            timestamp: 2025-12-01T00:08:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "vote"
+                op_version: "1"
+                field: "revision"
+                value_type: "git-oid"
+                strategy: "keyed-lww"
+                key: ["subject", "revision"]
+                key_types:
+                  subject: "person-ref"
+                  revision: "git-oid"
+            expect: accept
+
+          - id: schema-define-vote-choice
+            parents: [schema-define-vote-revision]
+            author: alice
+            timestamp: 2025-12-01T00:09:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "vote"
+                op_version: "1"
+                field: "choice"
+                value_type: "enum"
+                enum: ["yes", "no", "none"]
+                strategy: "keyed-lww"
+                key: ["subject", "revision"]
+                key_types:
+                  subject: "person-ref"
+                  revision: "git-oid"
+            expect: accept
+
+          - id: schema-define-vote-note
+            parents: [schema-define-vote-choice]
+            author: alice
+            timestamp: 2025-12-01T00:10:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "vote"
+                op_version: "1"
+                field: "note"
+                value_type: "text"
+                strategy: "keyed-lww"
+                key: ["subject", "revision"]
+                key_types:
+                  subject: "person-ref"
+                  revision: "git-oid"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/widget
     history:
       - commits:
           - id: alice-create
             author: alice
             timestamp: 2026-03-01T00:00:00Z
             op:
-              object_id: r-person-schemes
-              object_type: review
+              object_id: w-person-schemes
+              object_type: widget
               op_type: create
               op_version: 1
               body:
                 title: "Person Identifier Schemes Test"
             expect: accept
 
-          - id: alice-revision
+          - id: alice-log
             parents: [alice-create]
             author: alice
             timestamp: 2026-03-01T00:01:00Z
             op:
-              object_id: r-person-schemes
-              object_type: review
-              op_type: revision
+              object_id: w-person-schemes
+              object_type: widget
+              op_type: log
               op_version: 1
               body:
                 base: "0000000000000000000000000000000000000001"
@@ -47,12 +260,12 @@ refs:
           # The same human under two schemes, plus a scheme this reader does
           # not know and a non-human writer. Four distinct identifiers.
           - id: alice-assign-cross-scheme
-            parents: [alice-revision]
+            parents: [alice-log]
             author: alice
             timestamp: 2026-03-01T00:02:00Z
             op:
-              object_id: r-person-schemes
-              object_type: review
+              object_id: w-person-schemes
+              object_type: widget
               op_type: assign
               op_version: 1
               body:
@@ -72,8 +285,8 @@ refs:
             author: alice
             timestamp: 2026-03-01T00:02:30Z
             op:
-              object_id: r-person-schemes
-              object_type: review
+              object_id: w-person-schemes
+              object_type: widget
               op_type: assign
               op_version: 1
               body:
@@ -87,8 +300,8 @@ refs:
             author: alice
             timestamp: 2026-03-01T00:03:00Z
             op:
-              object_id: r-person-schemes
-              object_type: review
+              object_id: w-person-schemes
+              object_type: widget
               op_type: assign
               op_version: 1
               body:
@@ -97,55 +310,55 @@ refs:
 
           # A quoted local part carrying a colon. Splitting anywhere but the
           # first colon reads the scheme as 'email:"a', which is not a scheme.
-          - id: alice-approval-quoted-local-part
+          - id: alice-vote-quoted-local-part
             parents: [alice-remove-user-scheme]
             author: alice
             timestamp: 2026-03-01T00:04:00Z
             op:
-              object_id: r-person-schemes
-              object_type: review
-              op_type: approval
+              object_id: w-person-schemes
+              object_type: widget
+              op_type: vote
               op_version: 1
               body:
                 revision: "0000000000000000000000000000000000000002"
-                verdict: approve
+                choice: "yes"
                 subject: "email:\"a:b\"@example.com"
-                message: "Approval subject with a colon inside a quoted local part"
+                note: "Vote subject with a colon inside a quoted local part"
             expect: accept
 
-  - name: refs/writ/fedcba9876543210/review
+  - name: refs/writ/fedcba9876543210/widget
     history:
-      # Concurrent approvals under two schemes for the same human. They key
+      # Concurrent votes under two schemes for the same human. They key
       # separately: two entries, not one overwriting the other.
       - commits:
-          - id: bob-approval-user-scheme
+          - id: bob-vote-user-scheme
             parents: [alice-remove-user-scheme]
             author: bob
             timestamp: 2026-03-01T00:05:00Z
             op:
-              object_id: r-person-schemes
-              object_type: review
-              op_type: approval
+              object_id: w-person-schemes
+              object_type: widget
+              op_type: vote
               op_version: 1
               body:
                 revision: "0000000000000000000000000000000000000002"
-                verdict: request-changes
+                choice: "no"
                 subject: "user:bob"
-                message: "Bob under the user scheme"
+                note: "Bob under the user scheme"
             expect: accept
 
-          - id: bob-approval-email-scheme
-            parents: [bob-approval-user-scheme]
+          - id: bob-vote-email-scheme
+            parents: [bob-vote-user-scheme]
             author: bob
             timestamp: 2026-03-01T00:06:00Z
             op:
-              object_id: r-person-schemes
-              object_type: review
-              op_type: approval
+              object_id: w-person-schemes
+              object_type: widget
+              op_type: vote
               op_version: 1
               body:
                 revision: "0000000000000000000000000000000000000002"
-                verdict: approve
+                choice: "yes"
                 subject: "  EMAIL:Bob@Example.COM  "
-                message: "Same human, other scheme, denormalized; a separate key"
+                note: "Same human, other scheme, denormalized; a separate key"
             expect: accept

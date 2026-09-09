@@ -18,11 +18,11 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/go-git/go-git/v5/storage"
 	"github.com/writtendev/writ/engine"
+	"github.com/writtendev/writ/engine/codec"
 	"github.com/writtendev/writ/engine/dag"
 	"github.com/writtendev/writ/engine/identity"
 	"github.com/writtendev/writ/engine/internal/fold"
 	"github.com/writtendev/writ/engine/resolve"
-	"github.com/writtendev/writ/engine/state"
 	writsync "github.com/writtendev/writ/engine/sync"
 	"github.com/writtendev/writ/spec/fixtures"
 )
@@ -124,7 +124,20 @@ func Run(t TestReporter, s Scenario) {
 		}
 
 		clock := &mutableClock{}
-		store, err := dag.Open(devDir, ident, dag.WithNow(clock.get))
+		// The producer-vocabularies resolver closes over store, which has
+		// to be constructed before it: forward-declare it so the closure
+		// captures the variable, not a snapshot of a nil value. By the time
+		// Append calls the resolver, store below has been assigned. This is
+		// the same wiring writ.Open uses (engine/open.go) — writ hard-codes
+		// no object type but `schema`, so a scenario's ops are validated
+		// against the declaration its own log carries.
+		var store *dag.Store
+		store, err = dag.Open(devDir, ident, dag.WithNow(clock.get), dag.WithProducerVocabularies(func() (codec.Vocabularies, error) {
+			if store == nil {
+				return nil, nil
+			}
+			return vocabulariesFromLog(store)
+		}))
 		if err != nil {
 			t.Fatalf("dag.Open %s failed: %v", dev.Name, err)
 		}
@@ -417,10 +430,16 @@ func buildSnapshot(t TestReporter, rt *deviceRuntime, checks []AnchorCheck) (Sna
 		return Snapshot{}, fmt.Errorf("enumerate: %w", err)
 	}
 
-	rules, err := state.BuiltinRules()
+	// Rules come from the log, the way every reader resolves them: fold
+	// each `schema` object present, then ask RulesFromSchemas for the
+	// per-object_type rule index (spec/schema-ops.md §Bootstrap). A
+	// scenario whose repo declares no schema folds every op as unknown,
+	// which is the correct answer, not an error.
+	schemas, err := schemasFromLog(enumRes)
 	if err != nil {
-		return Snapshot{}, fmt.Errorf("resolve builtin rules: %w", err)
+		return Snapshot{}, err
 	}
+	rules, _ := writ.RulesFromSchemas(schemas)
 
 	var objectIDs []string
 	for objID := range enumRes.Ops {
@@ -448,13 +467,13 @@ func buildSnapshot(t TestReporter, rt *deviceRuntime, checks []AnchorCheck) (Sna
 
 	// Anchor checks
 	for _, chk := range checks {
-		rec := findObjectRecord(snapshot.Objects, chk.CommentID)
+		rec := findObjectRecord(snapshot.Objects, chk.ObjectID)
 		if rec == nil {
-			return Snapshot{}, fmt.Errorf("anchor check: comment %q not found in snapshot objects", chk.CommentID)
+			return Snapshot{}, fmt.Errorf("anchor check: object %q not found in snapshot objects", chk.ObjectID)
 		}
 		anchor, ok := decodeAnchor(rec.ObjectState.State["anchor"])
 		if !ok {
-			return Snapshot{}, fmt.Errorf("anchor check: comment %q has no anchor", chk.CommentID)
+			return Snapshot{}, fmt.Errorf("anchor check: object %q has no anchor", chk.ObjectID)
 		}
 		branch := chk.Branch
 		if branch == "" {
@@ -475,7 +494,7 @@ func buildSnapshot(t TestReporter, rt *deviceRuntime, checks []AnchorCheck) (Sna
 		res := resolve.Resolve(anchor, tree)
 		status := deriveStatus(res)
 		snapshot.Resolutions = append(snapshot.Resolutions, ResolutionRecord{
-			CommentID:  chk.CommentID,
+			ObjectID:   chk.ObjectID,
 			Anchor:     anchor,
 			Resolution: res,
 			Status:     status,
@@ -483,10 +502,48 @@ func buildSnapshot(t TestReporter, rt *deviceRuntime, checks []AnchorCheck) (Sna
 	}
 
 	sort.Slice(snapshot.Resolutions, func(i, j int) bool {
-		return snapshot.Resolutions[i].CommentID < snapshot.Resolutions[j].CommentID
+		return snapshot.Resolutions[i].ObjectID < snapshot.Resolutions[j].ObjectID
 	})
 
 	return snapshot, nil
+}
+
+// schemasFromLog folds every `schema` object an enumeration turned up. It is
+// the one place the runner reads a repo's declarations, shared by the
+// producer-vocabularies resolver each device's store is opened with and by
+// the snapshot's own rule resolution, so a scenario cannot write against one
+// set of declarations and be folded against another.
+func schemasFromLog(enumRes *dag.EnumerateResult) ([]writ.Schema, error) {
+	var schemas []writ.Schema
+	for _, ops := range enumRes.Ops {
+		if len(ops) == 0 || ops[0].ObjectType != "schema" {
+			continue
+		}
+		sch, err := writ.FoldSchema(ops)
+		if err != nil {
+			return nil, fmt.Errorf("fold schema object: %w", err)
+		}
+		schemas = append(schemas, sch)
+	}
+	return schemas, nil
+}
+
+// vocabulariesFromLog is what dag.WithProducerVocabularies resolves for a
+// device: the declarations that device's own clone carries. A device that
+// has not fetched the schema object yet declares nothing, and its appends of
+// declared types are refused — which is the real behaviour, not a test
+// artefact.
+func vocabulariesFromLog(store *dag.Store) (codec.Vocabularies, error) {
+	enumRes, err := store.Enumerate()
+	if err != nil {
+		return nil, fmt.Errorf("resolve vocabularies: enumerate: %w", err)
+	}
+	schemas, err := schemasFromLog(enumRes)
+	if err != nil {
+		return nil, fmt.Errorf("resolve vocabularies: %w", err)
+	}
+	vocabularies, _ := writ.VocabulariesFromSchemas(schemas)
+	return vocabularies, nil
 }
 
 func materializeTree(s storage.Storer, commitHash string) (map[string][]byte, error) {

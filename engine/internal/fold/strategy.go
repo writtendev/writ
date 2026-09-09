@@ -440,18 +440,11 @@ func (a *keyedLWWAccumulator) Apply(rule Rule, op codec.Op, body map[string]any,
 
 	val, ok := body[rule.Field]
 	if !ok {
-		if rule.Field == "subject" && op.OpType == "approval" && op.Author.Email != "" {
-			val = value.Normalize("person-ref", "email:"+op.Author.Email)
-		} else {
-			return nil
-		}
-	} else if normVal {
+		return nil
+	}
+	if normVal {
 		if s, isStr := val.(string); isStr {
-			norm := value.Normalize(rule.ValueType, s)
-			if norm == "" && rule.Field == "subject" && op.OpType == "approval" && op.Author.Email != "" {
-				norm = value.Normalize("person-ref", "email:"+op.Author.Email)
-			}
-			val = norm
+			val = value.Normalize(rule.ValueType, s)
 		}
 	}
 	a.hasKeyed = true
@@ -460,14 +453,10 @@ func (a *keyedLWWAccumulator) Apply(rule Rule, op codec.Op, body map[string]any,
 	key := make([]string, 0, len(rule.Key))
 	for _, kf := range rule.Key {
 		// Every present key component is a string; see setUnionAccumulator.Apply.
-		// An absent one contributes the empty component, except for approval
-		// subject which falls back to the commit author's email.
+		// An absent one contributes the empty component.
 		vStr, _ := body[kf].(string)
 		if rule.NormalizesKey(kf) {
 			vStr = value.Normalize(rule.KeyTypes[kf], vStr)
-		}
-		if vStr == "" && kf == "subject" && op.OpType == "approval" && op.Author.Email != "" {
-			vStr = value.Normalize("person-ref", "email:"+op.Author.Email)
 		}
 		key = append(key, vStr)
 	}

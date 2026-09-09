@@ -14,7 +14,6 @@ import (
 	writ "github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/engine/codec"
 	"github.com/writtendev/writ/engine/codec/canonicaljson"
-	"github.com/writtendev/writ/engine/state"
 	"github.com/writtendev/writ/spec"
 )
 
@@ -178,31 +177,152 @@ func toCanonicalJSON(t *testing.T, v any) []byte {
 	return canon
 }
 
-func commentRules() []writ.Rule {
+// The five rule tables below are stated here as literal []writ.Rule values.
+// Writ hard-codes no object type but `schema`, so there is no installed
+// vocabulary to read realistic field-rule shapes out of any more: a property
+// suite over the fold declares its own, exactly as a consumer's schema
+// declares the ones its objects fold under.
+//
+// Between them they cover every strategy in the closed catalogue
+// (spec/fold.md §5) — lww, create-once, multi-value, append, set-union,
+// set-observed-remove, keyed-lww, lattice and tombstone — and every value
+// type that normalizes, including the shapes the historical regression
+// vectors below were minimized from: a multi-column keyed-lww whose key
+// carries a person-ref column, an add/remove pair collapsing onto one
+// target, and an enum. The abstract synthetic stream
+// (generateAbstractSyntheticStream) exercises the same catalogue against
+// arbitrary JSON values; these exercise it against value-typed fields.
+
+// The keyed-lww keys the tables below share. Every rule in one keyed group
+// must declare the identical key, so each group names one slice and one
+// key-type map rather than restating them per rule; nothing mutates them.
+var (
+	widgetApprovalKey      = []string{"subject", "revision"}
+	widgetApprovalKeyTypes = map[string]string{"subject": "person-ref", "revision": "git-oid"}
+	widgetGaugeKey         = []string{"revision", "name"}
+	widgetGaugeKeyTypes    = map[string]string{"revision": "git-oid", "name": "string"}
+	linkKey                = []string{"target"}
+	linkKeyTypes           = map[string]string{"target": "object-ref"}
+)
+
+// widgetRules is the widest table: lww over strings and an enum, append,
+// an add/remove pair collapsed onto one target, and two multi-column
+// keyed-lww groups — one of which keys on a person-ref column, the shape
+// spec/fold.md §5.7 normalizes and regressionVectorWRIT112 pins.
+func widgetRules() []writ.Rule {
+	return []writ.Rule{
+		{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
+		{OpType: "create", OpVersion: 1, Field: "description", Strategy: "lww", ValueType: "string"},
+		{OpType: "update", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
+		{OpType: "update", OpVersion: 1, Field: "description", Strategy: "lww", ValueType: "string"},
+		{OpType: "revision", OpVersion: 1, Field: "base", Strategy: "append", ValueType: "git-oid"},
+		{OpType: "revision", OpVersion: 1, Field: "head", Strategy: "append", ValueType: "git-oid"},
+		{OpType: "set-status", OpVersion: 1, Field: "status", Strategy: "lww", ValueType: "enum", Enum: []string{"draft", "open", "closed", "merged"}},
+		{OpType: "set-status", OpVersion: 1, Field: "merge_commit", Strategy: "lww", ValueType: "git-oid"},
+		{OpType: "set-status", OpVersion: 1, Field: "reason", Strategy: "lww", ValueType: "string"},
+		{OpType: "assign", OpVersion: 1, Field: "add", Target: "assignees", Strategy: "set-observed-remove", ValueType: "person-ref"},
+		{OpType: "assign", OpVersion: 1, Field: "remove", Target: "assignees", Strategy: "set-observed-remove", ValueType: "person-ref"},
+		{OpType: "approval", OpVersion: 1, Field: "revision", Strategy: "keyed-lww", Key: widgetApprovalKey, KeyTypes: widgetApprovalKeyTypes, ValueType: "git-oid"},
+		{OpType: "approval", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww", Key: widgetApprovalKey, KeyTypes: widgetApprovalKeyTypes, ValueType: "enum", Enum: []string{"approve", "request-changes", "none"}},
+		{OpType: "approval", OpVersion: 1, Field: "subject", Strategy: "keyed-lww", Key: widgetApprovalKey, KeyTypes: widgetApprovalKeyTypes, ValueType: "person-ref"},
+		{OpType: "approval", OpVersion: 1, Field: "message", Strategy: "keyed-lww", Key: widgetApprovalKey, KeyTypes: widgetApprovalKeyTypes, ValueType: "text"},
+		{OpType: "gauge", OpVersion: 1, Field: "revision", Target: "gauge_revision", Strategy: "keyed-lww", Key: widgetGaugeKey, KeyTypes: widgetGaugeKeyTypes, ValueType: "git-oid"},
+		{OpType: "gauge", OpVersion: 1, Field: "name", Strategy: "keyed-lww", Key: widgetGaugeKey, KeyTypes: widgetGaugeKeyTypes, ValueType: "string"},
+		{OpType: "gauge", OpVersion: 1, Field: "state", Strategy: "keyed-lww", Key: widgetGaugeKey, KeyTypes: widgetGaugeKeyTypes, ValueType: "enum", Enum: []string{"pending", "success", "failure", "error", "cancelled", "neutral", "skipped"}},
+		{OpType: "gauge", OpVersion: 1, Field: "url", Strategy: "keyed-lww", Key: widgetGaugeKey, KeyTypes: widgetGaugeKeyTypes, ValueType: "string"},
+		{OpType: "gauge", OpVersion: 1, Field: "description", Target: "gauge_description", Strategy: "keyed-lww", Key: widgetGaugeKey, KeyTypes: widgetGaugeKeyTypes, ValueType: "string"},
+		{OpType: "gauge", OpVersion: 1, Field: "started_at", Strategy: "keyed-lww", Key: widgetGaugeKey, KeyTypes: widgetGaugeKeyTypes, ValueType: "timestamp"},
+		{OpType: "gauge", OpVersion: 1, Field: "completed_at", Strategy: "keyed-lww", Key: widgetGaugeKey, KeyTypes: widgetGaugeKeyTypes, ValueType: "timestamp"},
+		{OpType: "gauge", OpVersion: 1, Field: "external_id", Strategy: "keyed-lww", Key: widgetGaugeKey, KeyTypes: widgetGaugeKeyTypes, ValueType: "string"},
+		{OpType: "tag", OpVersion: 1, Field: "add", Target: "tags", Strategy: "set-observed-remove", ValueType: "object-ref"},
+		{OpType: "tag", OpVersion: 1, Field: "remove", Target: "tags", Strategy: "set-observed-remove", ValueType: "object-ref"},
+		{OpType: "link", OpVersion: 1, Field: "target", Strategy: "keyed-lww", Key: linkKey, KeyTypes: linkKeyTypes, ValueType: "object-ref"},
+		{OpType: "link", OpVersion: 1, Field: "target_type", Strategy: "keyed-lww", Key: linkKey, KeyTypes: linkKeyTypes, ValueType: "string"},
+		{OpType: "link", OpVersion: 1, Field: "relation", Strategy: "keyed-lww", Key: linkKey, KeyTypes: linkKeyTypes, ValueType: "enum", Enum: []string{"fixes", "relates", "none"}},
+	}
+}
+
+// gadgetRules adds the numeric and ordering value types — int, number and
+// position — to the same set-observed-remove and single-column keyed-lww
+// shapes widgetRules carries.
+func gadgetRules() []writ.Rule {
+	return []writ.Rule{
+		{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
+		{OpType: "create", OpVersion: 1, Field: "description", Strategy: "lww", ValueType: "string"},
+		{OpType: "create", OpVersion: 1, Field: "rank", Strategy: "lww", ValueType: "int"},
+		{OpType: "create", OpVersion: 1, Field: "estimate", Strategy: "lww", ValueType: "number"},
+		{OpType: "create", OpVersion: 1, Field: "position", Strategy: "lww", ValueType: "position"},
+		{OpType: "update", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
+		{OpType: "update", OpVersion: 1, Field: "description", Strategy: "lww", ValueType: "string"},
+		{OpType: "update", OpVersion: 1, Field: "rank", Strategy: "lww", ValueType: "int"},
+		{OpType: "update", OpVersion: 1, Field: "estimate", Strategy: "lww", ValueType: "number"},
+		{OpType: "update", OpVersion: 1, Field: "position", Strategy: "lww", ValueType: "position"},
+		{OpType: "set-state", OpVersion: 1, Field: "state", Strategy: "lww", ValueType: "object-ref"},
+		{OpType: "set-state", OpVersion: 1, Field: "reason", Strategy: "lww", ValueType: "string"},
+		{OpType: "set-state", OpVersion: 1, Field: "position", Strategy: "lww", ValueType: "position"},
+		{OpType: "assign", OpVersion: 1, Field: "add", Target: "assignees", Strategy: "set-observed-remove", ValueType: "person-ref"},
+		{OpType: "assign", OpVersion: 1, Field: "remove", Target: "assignees", Strategy: "set-observed-remove", ValueType: "person-ref"},
+		{OpType: "tag", OpVersion: 1, Field: "add", Target: "tags", Strategy: "set-observed-remove", ValueType: "object-ref"},
+		{OpType: "tag", OpVersion: 1, Field: "remove", Target: "tags", Strategy: "set-observed-remove", ValueType: "object-ref"},
+		{OpType: "link", OpVersion: 1, Field: "target", Strategy: "keyed-lww", Key: linkKey, KeyTypes: linkKeyTypes, ValueType: "object-ref"},
+		{OpType: "link", OpVersion: 1, Field: "target_type", Strategy: "keyed-lww", Key: linkKey, KeyTypes: linkKeyTypes, ValueType: "string"},
+		{OpType: "link", OpVersion: 1, Field: "relation", Strategy: "keyed-lww", Key: linkKey, KeyTypes: linkKeyTypes, ValueType: "enum", Enum: []string{"fixes", "relates", "none"}},
+	}
+}
+
+// sprocketRules is the create-once / multi-value / tombstone table: an
+// untyped create-once field kept byte-exact (spec/fold.md §5.2), a text
+// field under lww beside one under multi-value, and a tombstone driven by
+// the `delete` op type rather than a body field.
+func sprocketRules() []writ.Rule {
 	return []writ.Rule{
 		{OpType: "create", OpVersion: 1, Field: "subject", Strategy: "create-once"},
 		{OpType: "create", OpVersion: 1, Field: "text", Strategy: "lww", ValueType: "text"},
+		{OpType: "create", OpVersion: 1, Field: "body", Strategy: "multi-value", ValueType: "text"},
 		{OpType: "create", OpVersion: 1, Field: "in_reply_to", Strategy: "create-once", ValueType: "string"},
 		{OpType: "create", OpVersion: 1, Field: "anchor", Strategy: "create-once", ValueType: "anchor"},
 		{OpType: "edit", OpVersion: 1, Field: "text", Strategy: "lww", ValueType: "text"},
+		{OpType: "edit", OpVersion: 1, Field: "body", Strategy: "multi-value", ValueType: "text"},
 		{OpType: "delete", OpVersion: 1, Field: "deleted", Strategy: "tombstone", ValueType: "bool"},
 		{OpType: "resolve", OpVersion: 1, Field: "resolved", Strategy: "lww", ValueType: "bool"},
 		{OpType: "resolve", OpVersion: 1, Field: "resolved_by", Strategy: "lww", ValueType: "person-ref"},
 	}
 }
 
-// builtinRules returns the built-in (pre-WRIT-194) vocabulary's fold rules
-// for one object type -- the replacement for the deleted
-// writ.ReviewRules/IssueRules/ProjectRules/CycleRules functions, which this
-// property/fuzz suite used only as a source of realistic field-rule shapes
-// to generate synthetic op streams against, not as public API surface in
-// its own right.
-func builtinRules(objectType string) []writ.Rule {
-	rules, err := state.BuiltinRules()
-	if err != nil {
-		panic(err)
+// gizmoRules is the membership table: an add/remove pair that does NOT
+// collapse onto a shared target (two op types writing the same field name
+// instead), plus the two catalogue strategies no other table here uses —
+// set-union and lattice.
+func gizmoRules() []writ.Rule {
+	return []writ.Rule{
+		{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
+		{OpType: "create", OpVersion: 1, Field: "description", Strategy: "lww", ValueType: "string"},
+		{OpType: "update", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
+		{OpType: "update", OpVersion: 1, Field: "description", Strategy: "lww", ValueType: "string"},
+		{OpType: "set-status", OpVersion: 1, Field: "status", Strategy: "lww", ValueType: "enum", Enum: []string{"planned", "active", "paused", "completed", "canceled"}},
+		{OpType: "set-status", OpVersion: 1, Field: "reason", Strategy: "lww", ValueType: "string"},
+		{OpType: "advance", OpVersion: 1, Field: "stage", Strategy: "lattice", Lattice: []string{"planned", "active", "completed"}, ValueType: "string"},
+		{OpType: "watch", OpVersion: 1, Field: "watcher", Strategy: "set-union", ValueType: "person-ref"},
+		{OpType: "add-item", OpVersion: 1, Field: "item", Strategy: "set-observed-remove", ValueType: "object-ref"},
+		{OpType: "remove-item", OpVersion: 1, Field: "item", Strategy: "set-observed-remove", ValueType: "object-ref"},
 	}
-	return rules[objectType]
+}
+
+// thingRules pairs timestamp-valued lww fields written by two different op
+// types with the same non-collapsing membership pair gizmoRules uses.
+func thingRules() []writ.Rule {
+	return []writ.Rule{
+		{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
+		{OpType: "create", OpVersion: 1, Field: "starts_at", Strategy: "lww", ValueType: "timestamp"},
+		{OpType: "create", OpVersion: 1, Field: "ends_at", Strategy: "lww", ValueType: "timestamp"},
+		{OpType: "create", OpVersion: 1, Field: "description", Strategy: "lww", ValueType: "string"},
+		{OpType: "update", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
+		{OpType: "update", OpVersion: 1, Field: "description", Strategy: "lww", ValueType: "string"},
+		{OpType: "set-dates", OpVersion: 1, Field: "starts_at", Strategy: "lww", ValueType: "timestamp"},
+		{OpType: "set-dates", OpVersion: 1, Field: "ends_at", Strategy: "lww", ValueType: "timestamp"},
+		{OpType: "add-item", OpVersion: 1, Field: "item", Strategy: "set-observed-remove", ValueType: "object-ref"},
+		{OpType: "remove-item", OpVersion: 1, Field: "item", Strategy: "set-observed-remove", ValueType: "object-ref"},
+	}
 }
 
 // --------------------------------------------------------------------------
@@ -402,11 +522,11 @@ func generateAbstractSyntheticStream(rng *rand.Rand) ([]codec.Op, []writ.Rule) {
 		{OpType: "op", OpVersion: 1, Field: "remove", Strategy: "set-observed-remove"},
 		{OpType: "op", OpVersion: 1, Field: "field_append", Strategy: "append"},
 		{OpType: "op", OpVersion: 1, Field: "deleted", Strategy: "tombstone"},
-		{OpType: "op", OpVersion: 1, Field: "field_lattice", Strategy: "lattice", Lattice: []string{"draft", "review", "approved", "merged"}},
+		{OpType: "op", OpVersion: 1, Field: "field_lattice", Strategy: "lattice", Lattice: []string{"draft", "ready", "approved", "merged"}},
 		{OpType: "op", OpVersion: 1, Field: "field_keyed", Strategy: "keyed-lww", Key: []string{"k1", "k2"}},
 	}
 
-	latticeVals := []string{"draft", "review", "approved", "merged", "unknown_lattice"}
+	latticeVals := []string{"draft", "ready", "approved", "merged", "unknown_lattice"}
 
 	for i := range ops {
 		// Forward-compatibility test: unknown op_type, future op_version, or unrecognized fields
@@ -554,14 +674,14 @@ func generateAbstractSyntheticStream(rng *rand.Rand) ([]codec.Op, []writ.Rule) {
 	return ops, rules
 }
 
-func generateReviewStream(rng *rand.Rand) ([]codec.Op, []writ.Rule, string) {
+func generateWidgetStream(rng *rand.Rand) ([]codec.Op, []writ.Rule, string) {
 	numOps := 6 + rng.Intn(12)
-	ops := generateDAGSkeleton(rng, numOps, "r-property", "review")
-	rules := builtinRules("review")
+	ops := generateDAGSkeleton(rng, numOps, "w-property", "widget")
+	rules := widgetRules()
 
 	// First op: create
 	createBody := map[string]any{
-		"title":       "Initial Property Review Title",
+		"title":       "Initial Property Widget Title",
 		"description": "Initial description",
 	}
 	ops[0].OpType = "create"
@@ -570,7 +690,7 @@ func generateReviewStream(rng *rand.Rand) ([]codec.Op, []writ.Rule, string) {
 	for i := 1; i < len(ops); i++ {
 		// Forward-compatibility test
 		if rng.Intn(12) == 0 {
-			ops[i].OpType = "custom-review-op"
+			ops[i].OpType = "custom-widget-op"
 			ops[i].OpVersion = 2
 			ops[i].Body, _ = json.Marshal(map[string]any{"extra": "val"})
 			continue
@@ -624,46 +744,46 @@ func generateReviewStream(rng *rand.Rand) ([]codec.Op, []writ.Rule, string) {
 			}
 			ops[i].Body, _ = json.Marshal(b)
 		case 4:
-			// ci-status: test presence and absence of state and other fields
-			ops[i].OpType = "ci-status"
+			// gauge: test presence and absence of state and other fields
+			ops[i].OpType = "gauge"
 			b := map[string]any{
 				"revision": "head-1",
 			}
 			if rng.Intn(4) > 0 {
-				b["name"] = fmt.Sprintf("check-%d", rng.Intn(3))
+				b["name"] = fmt.Sprintf("gauge-%d", rng.Intn(3))
 			}
 			if rng.Intn(4) > 0 {
 				b["state"] = []string{"pending", "success", "failure"}[rng.Intn(3)]
 			}
 			if rng.Intn(2) == 0 {
-				b["url"] = "https://ci.example.com"
+				b["url"] = "https://example.test/gauge"
 			}
 			if rng.Intn(2) == 0 {
-				b["description"] = "ci run"
+				b["description"] = "gauge run"
 			}
 			ops[i].Body, _ = json.Marshal(b)
 		case 5:
 			// link: test presence and absence of relation and target_type
 			ops[i].OpType = "link"
 			b := map[string]any{
-				"target": fmt.Sprintf("issue-%d", rng.Intn(3)),
+				"target": fmt.Sprintf("gadget-%d", rng.Intn(3)),
 			}
 			if rng.Intn(2) == 0 {
-				b["target_type"] = "issue"
+				b["target_type"] = "gadget"
 			}
 			if rng.Intn(4) > 0 {
 				b["relation"] = []string{"fixes", "relates-to", "none", ""}[rng.Intn(4)]
 			}
 			ops[i].Body, _ = json.Marshal(b)
 		case 6:
-			// label and assign can both appear in the same review stream,
-			// drawing from the same underlying identifier pool: a label
+			// tag and assign can both appear in the same widget stream,
+			// drawing from the same underlying identifier pool: a tag
 			// item can name the identical string an assign op introduces
 			// (assign.add's normalization is a no-op on a colonless string),
 			// the overlap WRIT-198's collapsed-target fix must survive —
-			// disjoint pools could never exercise a label.remove naming a
+			// disjoint pools could never exercise a tag.remove naming a
 			// value an assign.add introduced.
-			opType := []string{"assign", "label"}[rng.Intn(2)]
+			opType := []string{"assign", "tag"}[rng.Intn(2)]
 			ops[i].OpType = opType
 			item := fmt.Sprintf("shared-%d", rng.Intn(4))
 			b := make(map[string]any)
@@ -687,20 +807,23 @@ func generateReviewStream(rng *rand.Rand) ([]codec.Op, []writ.Rule, string) {
 	return ops, rules, ""
 }
 
-func generateIssueStream(rng *rand.Rand) ([]codec.Op, []writ.Rule, string) {
+func generateGadgetStream(rng *rand.Rand) ([]codec.Op, []writ.Rule, string) {
 	numOps := 5 + rng.Intn(10)
-	ops := generateDAGSkeleton(rng, numOps, "iss-property", "issue")
-	rules := builtinRules("issue")
+	ops := generateDAGSkeleton(rng, numOps, "g-property", "gadget")
+	rules := gadgetRules()
 
 	ops[0].OpType = "create"
 	ops[0].Body, _ = json.Marshal(map[string]any{
-		"title":       "Issue Title",
-		"description": "Issue Description",
+		"title":       "Gadget Title",
+		"description": "Gadget Description",
+		"rank":        rng.Intn(5),
+		"estimate":    math.Round(rng.Float64()*100) / 10,
+		"position":    "aN",
 	})
 
 	for i := 1; i < len(ops); i++ {
 		if rng.Intn(10) == 0 {
-			ops[i].OpType = "unknown-issue-op"
+			ops[i].OpType = "unknown-gadget-op"
 			ops[i].OpVersion = 2
 			ops[i].Body, _ = json.Marshal(map[string]any{"foo": "bar"})
 			continue
@@ -712,30 +835,33 @@ func generateIssueStream(rng *rand.Rand) ([]codec.Op, []writ.Rule, string) {
 			ops[i].Body, _ = json.Marshal(map[string]any{
 				"title":       interestingStrings[rng.Intn(len(interestingStrings))],
 				"description": interestingStrings[rng.Intn(len(interestingStrings))],
+				"rank":        rng.Intn(5),
+				"estimate":    math.Round(rng.Float64()*100) / 10,
 			})
 		case 1:
 			ops[i].OpType = "set-state"
 			ops[i].Body, _ = json.Marshal(map[string]any{
-				"state":  []string{"open", "in-progress", "closed", ""}[rng.Intn(4)],
-				"reason": interestingStrings[rng.Intn(len(interestingStrings))],
+				"state":    []string{"open", "in-progress", "closed", ""}[rng.Intn(4)],
+				"reason":   interestingStrings[rng.Intn(len(interestingStrings))],
+				"position": fmt.Sprintf("a%d", rng.Intn(5)),
 			})
 		case 2:
 			ops[i].OpType = "link"
 			b := map[string]any{
-				"target": fmt.Sprintf("rev-%d", rng.Intn(3)),
+				"target": fmt.Sprintf("widget-%d", rng.Intn(3)),
 			}
 			if rng.Intn(2) == 0 {
-				b["target_type"] = "review"
+				b["target_type"] = "widget"
 			}
 			if rng.Intn(4) > 0 {
 				b["relation"] = []string{"fixed-by", "relates-to", "none", ""}[rng.Intn(4)]
 			}
 			ops[i].Body, _ = json.Marshal(b)
 		case 3:
-			// label and assign draw from the same underlying identifier
-			// pool (see generateReviewStream's case 6), so a label item can
+			// tag and assign draw from the same underlying identifier
+			// pool (see generateWidgetStream's case 6), so a tag item can
 			// name the identical string an assign op introduces.
-			opType := []string{"assign", "label"}[rng.Intn(2)]
+			opType := []string{"assign", "tag"}[rng.Intn(2)]
 			ops[i].OpType = opType
 			item := fmt.Sprintf("shared-%d", rng.Intn(3))
 			b := make(map[string]any)
@@ -751,18 +877,19 @@ func generateIssueStream(rng *rand.Rand) ([]codec.Op, []writ.Rule, string) {
 	return ops, rules, ""
 }
 
-func generateCommentStream(rng *rand.Rand) ([]codec.Op, []writ.Rule) {
+func generateSprocketStream(rng *rand.Rand) ([]codec.Op, []writ.Rule) {
 	numOps := 4 + rng.Intn(8)
-	ops := generateDAGSkeleton(rng, numOps, "c-property", "comment")
-	rules := commentRules()
+	ops := generateDAGSkeleton(rng, numOps, "s-property", "sprocket")
+	rules := sprocketRules()
 
 	ops[0].OpType = "create"
 	ops[0].Body, _ = json.Marshal(map[string]any{
 		"subject": map[string]any{
-			"object_type": "review",
-			"object_id":   "r-1",
+			"object_type": "widget",
+			"object_id":   "w-1",
 		},
-		"text": "Initial comment text",
+		"text": "Initial sprocket text",
+		"body": "Initial sprocket body",
 		"anchor": map[string]any{
 			"new": map[string]any{
 				"commit": "1111111111111111111111111111111111111111",
@@ -775,7 +902,9 @@ func generateCommentStream(rng *rand.Rand) ([]codec.Op, []writ.Rule) {
 	for i := 1; i < len(ops); i++ {
 		switch rng.Intn(3) {
 		case 0:
-			// edit (exercising empty scalar write WRIT-125)
+			// edit (exercising empty scalar write WRIT-125, and the
+			// multi-value register beside the lww one: concurrent edits to
+			// "body" must survive as a set until one causally succeeds them)
 			ops[i].OpType = "edit"
 			var txt string
 			if rng.Intn(3) == 0 {
@@ -783,7 +912,10 @@ func generateCommentStream(rng *rand.Rand) ([]codec.Op, []writ.Rule) {
 			} else {
 				txt = interestingStrings[rng.Intn(len(interestingStrings))]
 			}
-			ops[i].Body, _ = json.Marshal(map[string]any{"text": txt})
+			ops[i].Body, _ = json.Marshal(map[string]any{
+				"text": txt,
+				"body": interestingStrings[rng.Intn(len(interestingStrings))],
+			})
 		case 1:
 			// resolve (exercising whitespace-only actor WRIT-118)
 			ops[i].OpType = "resolve"
@@ -807,19 +939,19 @@ func generateCommentStream(rng *rand.Rand) ([]codec.Op, []writ.Rule) {
 	return ops, rules
 }
 
-func generateProjectStream(rng *rand.Rand) ([]codec.Op, []writ.Rule) {
+func generateGizmoStream(rng *rand.Rand) ([]codec.Op, []writ.Rule) {
 	numOps := 4 + rng.Intn(6)
-	ops := generateDAGSkeleton(rng, numOps, "proj-property", "project")
-	rules := builtinRules("project")
+	ops := generateDAGSkeleton(rng, numOps, "gz-property", "gizmo")
+	rules := gizmoRules()
 
 	ops[0].OpType = "create"
 	ops[0].Body, _ = json.Marshal(map[string]any{
-		"title":       "Project v1",
-		"description": "Project Desc",
+		"title":       "Gizmo v1",
+		"description": "Gizmo Desc",
 	})
 
 	for i := 1; i < len(ops); i++ {
-		switch rng.Intn(3) {
+		switch rng.Intn(5) {
 		case 0:
 			ops[i].OpType = "update"
 			ops[i].Body, _ = json.Marshal(map[string]any{
@@ -832,13 +964,35 @@ func generateProjectStream(rng *rand.Rand) ([]codec.Op, []writ.Rule) {
 				"reason": interestingStrings[rng.Intn(len(interestingStrings))],
 			})
 		case 2:
+			// advance: lattice values in and out of the declared order, so
+			// the monotonic join is exercised against an unknown element too
+			ops[i].OpType = "advance"
+			ops[i].Body, _ = json.Marshal(map[string]any{
+				"stage": []string{"planned", "active", "completed", "unknown-stage"}[rng.Intn(4)],
+			})
+		case 3:
+			// watch: set-union over a person-ref, single item and slice
+			ops[i].OpType = "watch"
+			b := make(map[string]any)
 			if rng.Intn(2) == 0 {
-				ops[i].OpType = "add-issue"
+				b["watcher"] = fmt.Sprintf("email:watcher%d@example.com", rng.Intn(3))
 			} else {
-				ops[i].OpType = "remove-issue"
+				b["watcher"] = []string{
+					fmt.Sprintf("email:watcher%d@example.com", rng.Intn(3)),
+					interestingStrings[rng.Intn(len(interestingStrings))],
+				}
+			}
+			ops[i].Body, _ = json.Marshal(b)
+		case 4:
+			// The membership pair that does NOT collapse onto a shared
+			// target: two op types writing the same field name.
+			if rng.Intn(2) == 0 {
+				ops[i].OpType = "add-item"
+			} else {
+				ops[i].OpType = "remove-item"
 			}
 			ops[i].Body, _ = json.Marshal(map[string]any{
-				"issue": fmt.Sprintf("issue-%d", rng.Intn(4)),
+				"item": fmt.Sprintf("item-%d", rng.Intn(4)),
 			})
 		}
 	}
@@ -846,28 +1000,45 @@ func generateProjectStream(rng *rand.Rand) ([]codec.Op, []writ.Rule) {
 	return ops, rules
 }
 
-func generateCycleStream(rng *rand.Rand) ([]codec.Op, []writ.Rule) {
+func generateThingStream(rng *rand.Rand) ([]codec.Op, []writ.Rule) {
 	numOps := 4 + rng.Intn(6)
-	ops := generateDAGSkeleton(rng, numOps, "cycle-property", "cycle")
-	rules := builtinRules("cycle")
+	ops := generateDAGSkeleton(rng, numOps, "th-property", "thing")
+	rules := thingRules()
 
 	ops[0].OpType = "create"
 	ops[0].Body, _ = json.Marshal(map[string]any{
-		"title":       "Cycle 1",
-		"description": "Cycle Desc",
+		"title":       "Thing 1",
+		"description": "Thing Desc",
 		"starts_at":   "2026-09-01T00:00:00Z",
 		"ends_at":     "2026-09-14T00:00:00Z",
 	})
 
 	for i := 1; i < len(ops); i++ {
-		if rng.Intn(2) == 0 {
-			ops[i].OpType = "add-issue"
-		} else {
-			ops[i].OpType = "remove-issue"
+		switch rng.Intn(4) {
+		case 0:
+			ops[i].OpType = "update"
+			ops[i].Body, _ = json.Marshal(map[string]any{
+				"title":       interestingStrings[rng.Intn(len(interestingStrings))],
+				"description": interestingStrings[rng.Intn(len(interestingStrings))],
+			})
+		case 1:
+			// set-dates: the same two timestamp fields create writes, under
+			// a second op type, so lww resolves across op types too
+			ops[i].OpType = "set-dates"
+			ops[i].Body, _ = json.Marshal(map[string]any{
+				"starts_at": fmt.Sprintf("2026-09-%02dT00:00:00Z", 1+rng.Intn(9)),
+				"ends_at":   fmt.Sprintf("2026-09-%02dT00:00:00Z", 10+rng.Intn(9)),
+			})
+		default:
+			if rng.Intn(2) == 0 {
+				ops[i].OpType = "add-item"
+			} else {
+				ops[i].OpType = "remove-item"
+			}
+			ops[i].Body, _ = json.Marshal(map[string]any{
+				"item": fmt.Sprintf("item-%d", rng.Intn(4)),
+			})
 		}
-		ops[i].Body, _ = json.Marshal(map[string]any{
-			"issue": fmt.Sprintf("issue-%d", rng.Intn(4)),
-		})
 	}
 
 	return ops, rules
@@ -891,8 +1062,8 @@ func regressionVectorWRIT112() FuzzCase {
 		{
 			ID: "op-alice-app",
 			Envelope: codec.Envelope{
-				ObjectID:   "r-112",
-				ObjectType: "review",
+				ObjectID:   "w-112",
+				ObjectType: "widget",
 				OpType:     "approval",
 				OpVersion:  1,
 				Body:       json.RawMessage(`{"revision":"1111111111111111111111111111111111111111","subject":"Alice@Example.COM","verdict":"approve","message":"LGTM"}`),
@@ -903,8 +1074,8 @@ func regressionVectorWRIT112() FuzzCase {
 			ID:      "op-alice-update",
 			Parents: []string{"op-alice-app"},
 			Envelope: codec.Envelope{
-				ObjectID:   "r-112",
-				ObjectType: "review",
+				ObjectID:   "w-112",
+				ObjectType: "widget",
 				OpType:     "approval",
 				OpVersion:  1,
 				Body:       json.RawMessage(`{"revision":"1111111111111111111111111111111111111111","subject":"  alice@example.com  ","verdict":"approve","message":"Updated msg"}`),
@@ -913,8 +1084,8 @@ func regressionVectorWRIT112() FuzzCase {
 		},
 	}
 	return FuzzCase{
-		ObjectType: "review",
-		Rules:      builtinRules("review"),
+		ObjectType: "widget",
+		Rules:      widgetRules(),
 		Ops:        ops,
 	}
 }
@@ -924,23 +1095,23 @@ func regressionVectorWRIT116() FuzzCase {
 	now := time.Unix(100, 0).UTC()
 	ops := []codec.Op{
 		{
-			ID: "op-label-add",
+			ID: "op-tag-add",
 			Envelope: codec.Envelope{
-				ObjectID:   "iss-116",
-				ObjectType: "issue",
-				OpType:     "label",
+				ObjectID:   "g-116",
+				ObjectType: "gadget",
+				OpType:     "tag",
 				OpVersion:  1,
 				Body:       json.RawMessage(`{"add":["","   ","\t\n","bug","feature"]}`),
 			},
 			Author: codec.Identity{When: now},
 		},
 		{
-			ID:      "op-label-rem",
-			Parents: []string{"op-label-add"},
+			ID:      "op-tag-rem",
+			Parents: []string{"op-tag-add"},
 			Envelope: codec.Envelope{
-				ObjectID:   "iss-116",
-				ObjectType: "issue",
-				OpType:     "label",
+				ObjectID:   "g-116",
+				ObjectType: "gadget",
+				OpType:     "tag",
 				OpVersion:  1,
 				Body:       json.RawMessage(`{"remove":["","   ","feature"]}`),
 			},
@@ -948,10 +1119,10 @@ func regressionVectorWRIT116() FuzzCase {
 		},
 	}
 	return FuzzCase{
-		ObjectType: "issue",
-		Rules:      builtinRules("issue"),
+		ObjectType: "gadget",
+		Rules:      gadgetRules(),
 		Ops:        ops,
-		Mode:       "label",
+		Mode:       "tag",
 	}
 }
 
@@ -960,22 +1131,22 @@ func regressionVectorWRIT118() FuzzCase {
 	now := time.Unix(100, 0).UTC()
 	ops := []codec.Op{
 		{
-			ID: "op-comm-create",
+			ID: "op-sprocket-create",
 			Envelope: codec.Envelope{
-				ObjectID:   "c-118",
-				ObjectType: "comment",
+				ObjectID:   "s-118",
+				ObjectType: "sprocket",
 				OpType:     "create",
 				OpVersion:  1,
-				Body:       json.RawMessage(`{"subject":{"object_type":"review","object_id":"r-1"},"text":"Initial text"}`),
+				Body:       json.RawMessage(`{"subject":{"object_type":"widget","object_id":"w-1"},"text":"Initial text"}`),
 			},
 			Author: codec.Identity{When: now},
 		},
 		{
-			ID:      "op-comm-resolve",
-			Parents: []string{"op-comm-create"},
+			ID:      "op-sprocket-resolve",
+			Parents: []string{"op-sprocket-create"},
 			Envelope: codec.Envelope{
-				ObjectID:   "c-118",
-				ObjectType: "comment",
+				ObjectID:   "s-118",
+				ObjectType: "sprocket",
 				OpType:     "resolve",
 				OpVersion:  1,
 				Body:       json.RawMessage(`{"resolved":true,"resolved_by":"   \t\n   "}`),
@@ -984,8 +1155,8 @@ func regressionVectorWRIT118() FuzzCase {
 		},
 	}
 	return FuzzCase{
-		ObjectType: "comment",
-		Rules:      commentRules(),
+		ObjectType: "sprocket",
+		Rules:      sprocketRules(),
 		Ops:        ops,
 	}
 }
@@ -997,8 +1168,8 @@ func regressionVectorWRIT124() FuzzCase {
 		{
 			ID: "op-bad-key",
 			Envelope: codec.Envelope{
-				ObjectID:   "r-124",
-				ObjectType: "review",
+				ObjectID:   "w-124",
+				ObjectType: "widget",
 				OpType:     "approval",
 				OpVersion:  1,
 				Body:       json.RawMessage(`{"revision":"1111111111111111111111111111111111111111","subject":12345,"verdict":"approve"}`),
@@ -1007,8 +1178,8 @@ func regressionVectorWRIT124() FuzzCase {
 		},
 	}
 	return FuzzCase{
-		ObjectType: "review",
-		Rules:      builtinRules("review"),
+		ObjectType: "widget",
+		Rules:      widgetRules(),
 		Ops:        ops,
 	}
 }
@@ -1020,11 +1191,11 @@ func regressionVectorWRIT125() FuzzCase {
 		{
 			ID: "op-c-create",
 			Envelope: codec.Envelope{
-				ObjectID:   "c-125",
-				ObjectType: "comment",
+				ObjectID:   "s-125",
+				ObjectType: "sprocket",
 				OpType:     "create",
 				OpVersion:  1,
-				Body:       json.RawMessage(`{"subject":{"object_type":"review","object_id":"r-1"},"text":"Initial text"}`),
+				Body:       json.RawMessage(`{"subject":{"object_type":"widget","object_id":"w-1"},"text":"Initial text"}`),
 			},
 			Author: codec.Identity{When: now},
 		},
@@ -1032,8 +1203,8 @@ func regressionVectorWRIT125() FuzzCase {
 			ID:      "op-c-edit-empty",
 			Parents: []string{"op-c-create"},
 			Envelope: codec.Envelope{
-				ObjectID:   "c-125",
-				ObjectType: "comment",
+				ObjectID:   "s-125",
+				ObjectType: "sprocket",
 				OpType:     "edit",
 				OpVersion:  1,
 				Body:       json.RawMessage(`{"text":""}`),
@@ -1042,8 +1213,8 @@ func regressionVectorWRIT125() FuzzCase {
 		},
 	}
 	return FuzzCase{
-		ObjectType: "comment",
-		Rules:      commentRules(),
+		ObjectType: "sprocket",
+		Rules:      sprocketRules(),
 		Ops:        ops,
 	}
 }
@@ -1415,26 +1586,26 @@ func TestProperty_FoldThreeWay(t *testing.T) {
 		assertThreeWayFoldAbstract(t, c.Ops, c.Rules)
 	})
 
-	t.Run("Review_CIStatusOnlyRevision", func(t *testing.T) {
+	t.Run("Widget_GaugeOnlyRevision", func(t *testing.T) {
 		now := time.Unix(100, 0).UTC()
 		ops := []codec.Op{
 			{
-				ID: "op-rev-create",
+				ID: "op-widget-create",
 				Envelope: codec.Envelope{
-					ObjectID:   "r-ci-rev",
-					ObjectType: "review",
+					ObjectID:   "w-gauge-rev",
+					ObjectType: "widget",
 					OpType:     "create",
 					OpVersion:  1,
-					Body:       json.RawMessage(`{"title":"Review with CI"}`),
+					Body:       json.RawMessage(`{"title":"Widget with a gauge"}`),
 				},
 				Author: codec.Identity{When: now},
 			},
 			{
 				ID:      "op-app",
-				Parents: []string{"op-rev-create"},
+				Parents: []string{"op-widget-create"},
 				Envelope: codec.Envelope{
-					ObjectID:   "r-ci-rev",
-					ObjectType: "review",
+					ObjectID:   "w-gauge-rev",
+					ObjectType: "widget",
 					OpType:     "approval",
 					OpVersion:  1,
 					Body:       json.RawMessage(`{"revision":"head-1","subject":"alice@example.com","verdict":"approve"}`),
@@ -1442,41 +1613,41 @@ func TestProperty_FoldThreeWay(t *testing.T) {
 				Author: codec.Identity{When: now.Add(10 * time.Second)},
 			},
 			{
-				ID:      "op-ci-only-rev",
+				ID:      "op-gauge-only-rev",
 				Parents: []string{"op-app"},
 				Envelope: codec.Envelope{
-					ObjectID:   "r-ci-rev",
-					ObjectType: "review",
-					OpType:     "ci-status",
+					ObjectID:   "w-gauge-rev",
+					ObjectType: "widget",
+					OpType:     "gauge",
 					OpVersion:  1,
 					Body:       json.RawMessage(`{"revision":"head-1"}`),
 				},
 				Author: codec.Identity{When: now.Add(20 * time.Second)},
 			},
 		}
-		assertThreeWayFoldAbstract(t, ops, builtinRules("review"))
+		assertThreeWayFoldAbstract(t, ops, widgetRules())
 	})
 
-	t.Run("Issue_ExplicitEmptyState", func(t *testing.T) {
+	t.Run("Gadget_ExplicitEmptyState", func(t *testing.T) {
 		now := time.Unix(100, 0).UTC()
 		ops := []codec.Op{
 			{
-				ID: "op-iss-create",
+				ID: "op-gadget-create",
 				Envelope: codec.Envelope{
-					ObjectID:   "iss-empty-state",
-					ObjectType: "issue",
+					ObjectID:   "g-empty-state",
+					ObjectType: "gadget",
 					OpType:     "create",
 					OpVersion:  1,
-					Body:       json.RawMessage(`{"title":"Issue title"}`),
+					Body:       json.RawMessage(`{"title":"Gadget title"}`),
 				},
 				Author: codec.Identity{When: now},
 			},
 			{
-				ID:      "op-iss-set-empty",
-				Parents: []string{"op-iss-create"},
+				ID:      "op-gadget-set-empty",
+				Parents: []string{"op-gadget-create"},
 				Envelope: codec.Envelope{
-					ObjectID:   "iss-empty-state",
-					ObjectType: "issue",
+					ObjectID:   "g-empty-state",
+					ObjectType: "gadget",
 					OpType:     "set-state",
 					OpVersion:  1,
 					Body:       json.RawMessage(`{"state":""}`),
@@ -1484,7 +1655,7 @@ func TestProperty_FoldThreeWay(t *testing.T) {
 				Author: codec.Identity{When: now.Add(10 * time.Second)},
 			},
 		}
-		assertThreeWayFoldAbstract(t, ops, builtinRules("issue"))
+		assertThreeWayFoldAbstract(t, ops, gadgetRules())
 	})
 
 	// 100 randomized property iterations over abstract strategies and domain object streams
@@ -1498,19 +1669,19 @@ func TestProperty_FoldThreeWay(t *testing.T) {
 		domainIdx := rng.Intn(5)
 		switch domainIdx {
 		case 0:
-			ops, rules, _ := generateReviewStream(rng)
+			ops, rules, _ := generateWidgetStream(rng)
 			assertThreeWayFoldAbstract(t, ops, rules)
 		case 1:
-			ops, rules, _ := generateIssueStream(rng)
+			ops, rules, _ := generateGadgetStream(rng)
 			assertThreeWayFoldAbstract(t, ops, rules)
 		case 2:
-			ops, rules := generateCommentStream(rng)
+			ops, rules := generateSprocketStream(rng)
 			assertThreeWayFoldAbstract(t, ops, rules)
 		case 3:
-			ops, rules := generateProjectStream(rng)
+			ops, rules := generateGizmoStream(rng)
 			assertThreeWayFoldAbstract(t, ops, rules)
 		case 4:
-			ops, rules := generateCycleStream(rng)
+			ops, rules := generateThingStream(rng)
 			assertThreeWayFoldAbstract(t, ops, rules)
 		}
 	}
@@ -1546,20 +1717,20 @@ func FuzzFoldThreeWay(f *testing.F) {
 		var fc FuzzCase
 		switch i {
 		case 0:
-			ops, rules, mode := generateReviewStream(rng)
-			fc = FuzzCase{ObjectType: "review", Rules: rules, Ops: ops, Mode: mode}
+			ops, rules, mode := generateWidgetStream(rng)
+			fc = FuzzCase{ObjectType: "widget", Rules: rules, Ops: ops, Mode: mode}
 		case 1:
-			ops, rules, mode := generateIssueStream(rng)
-			fc = FuzzCase{ObjectType: "issue", Rules: rules, Ops: ops, Mode: mode}
+			ops, rules, mode := generateGadgetStream(rng)
+			fc = FuzzCase{ObjectType: "gadget", Rules: rules, Ops: ops, Mode: mode}
 		case 2:
-			ops, rules := generateCommentStream(rng)
-			fc = FuzzCase{ObjectType: "comment", Rules: rules, Ops: ops}
+			ops, rules := generateSprocketStream(rng)
+			fc = FuzzCase{ObjectType: "sprocket", Rules: rules, Ops: ops}
 		case 3:
-			ops, rules := generateProjectStream(rng)
-			fc = FuzzCase{ObjectType: "project", Rules: rules, Ops: ops}
+			ops, rules := generateGizmoStream(rng)
+			fc = FuzzCase{ObjectType: "gizmo", Rules: rules, Ops: ops}
 		case 4:
-			ops, rules := generateCycleStream(rng)
-			fc = FuzzCase{ObjectType: "cycle", Rules: rules, Ops: ops}
+			ops, rules := generateThingStream(rng)
+			fc = FuzzCase{ObjectType: "thing", Rules: rules, Ops: ops}
 		}
 		if data, err := json.Marshal(fc); err == nil {
 			f.Add(data)
@@ -1578,16 +1749,16 @@ func FuzzFoldThreeWay(f *testing.F) {
 			if fc.ObjectType != "" {
 				var rules []writ.Rule
 				switch fc.ObjectType {
-				case "review":
-					rules = builtinRules("review")
-				case "issue":
-					rules = builtinRules("issue")
-				case "comment":
-					rules = commentRules()
-				case "project":
-					rules = builtinRules("project")
-				case "cycle":
-					rules = builtinRules("cycle")
+				case "widget":
+					rules = widgetRules()
+				case "gadget":
+					rules = gadgetRules()
+				case "sprocket":
+					rules = sprocketRules()
+				case "gizmo":
+					rules = gizmoRules()
+				case "thing":
+					rules = thingRules()
 				default:
 					return
 				}
@@ -1616,19 +1787,19 @@ func FuzzFoldThreeWay(f *testing.F) {
 			} else {
 				switch choice {
 				case 1:
-					ops, rules, _ := generateReviewStream(localRNG)
+					ops, rules, _ := generateWidgetStream(localRNG)
 					assertThreeWayFoldAbstract(t, ops, rules)
 				case 2:
-					ops, rules, _ := generateIssueStream(localRNG)
+					ops, rules, _ := generateGadgetStream(localRNG)
 					assertThreeWayFoldAbstract(t, ops, rules)
 				case 3:
-					ops, rules := generateCommentStream(localRNG)
+					ops, rules := generateSprocketStream(localRNG)
 					assertThreeWayFoldAbstract(t, ops, rules)
 				case 4:
-					ops, rules := generateProjectStream(localRNG)
+					ops, rules := generateGizmoStream(localRNG)
 					assertThreeWayFoldAbstract(t, ops, rules)
 				case 5:
-					ops, rules := generateCycleStream(localRNG)
+					ops, rules := generateThingStream(localRNG)
 					assertThreeWayFoldAbstract(t, ops, rules)
 				}
 			}

@@ -12,7 +12,53 @@ import (
 	"github.com/writtendev/writ/engine/codec"
 	"github.com/writtendev/writ/engine/dag"
 	"github.com/writtendev/writ/engine/identity"
+	"github.com/writtendev/writ/spec"
 )
+
+// testSchemaObjectID is the schema object the declaration below is
+// attributed to, so a producer rejection names one the way a real one does.
+const testSchemaObjectID = "sch-acme"
+
+// declaredType is one object type's entry in a resolved Vocabularies: the
+// (op_type, op_version) pairs producer rule 4 accepts and the field rules
+// rule 3 checks, both read off the rules given — the same derivation
+// writ.VocabulariesFromSchemas makes from a folded schema object.
+func declaredType(objectType string, rules ...spec.FieldRule) codec.Vocabulary {
+	voc := codec.Vocabulary{
+		Declared:       true,
+		SchemaObjectID: testSchemaObjectID,
+		OpTypes:        make(map[codec.OpVersionKey]bool),
+		Fields:         make(map[codec.OpVersionKey][]spec.FieldRule),
+	}
+	for _, r := range rules {
+		r.ObjectType = objectType
+		key := codec.OpVersionKey{OpType: r.OpType, OpVersion: r.OpVersion}
+		voc.OpTypes[key] = true
+		voc.Fields[key] = append(voc.Fields[key], r)
+	}
+	return voc
+}
+
+// testVocabularies is what a repo whose log carries one schema object
+// declaring these two types resolves to. Append consults it through
+// dag.WithProducerVocabularies — the same wiring writ.Open uses — because
+// `schema` aside, writ hard-codes no object type: an op of an undeclared
+// type is refused before it is signed (spec/op-envelope.md §Producer
+// validation).
+func testVocabularies() (codec.Vocabularies, error) {
+	return codec.Vocabularies{
+		"widget": declaredType("widget",
+			spec.FieldRule{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
+			spec.FieldRule{OpType: "update", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
+			spec.FieldRule{OpType: "update", OpVersion: 1, Field: "description", Strategy: "lww", ValueType: "string"},
+			spec.FieldRule{OpType: "endorse", OpVersion: 1, Field: "revision", Strategy: "lww", ValueType: "git-oid"},
+			spec.FieldRule{OpType: "endorse", OpVersion: 1, Field: "verdict", Strategy: "lww", ValueType: "enum", Enum: []string{"yes", "no"}},
+		),
+		"gadget": declaredType("gadget",
+			spec.FieldRule{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
+		),
+	}, nil
+}
 
 func testIdentity(wID string, name string, email string) identity.Identity {
 	writerID, _ := identity.ParseWriterID(wID)
@@ -81,7 +127,7 @@ func appendTestOp(t *testing.T, store *dag.Store, objType, objID, opType string,
 func mustOpenStore(t *testing.T, dir string, ident identity.Identity) *dag.Store {
 	t.Helper()
 	fixedTime := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
-	store, err := dag.Open(dir, ident, dag.WithNow(func() time.Time { return fixedTime }))
+	store, err := dag.Open(dir, ident, dag.WithProducerVocabularies(testVocabularies), dag.WithNow(func() time.Time { return fixedTime }))
 	if err != nil {
 		t.Fatalf("dag.Open failed: %v", err)
 	}

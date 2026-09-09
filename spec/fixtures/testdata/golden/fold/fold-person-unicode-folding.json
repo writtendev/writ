@@ -1,51 +1,51 @@
 {
   "objects": [
     {
-      "object_id": "r-person-unicode",
-      "object_type": "review",
+      "object_id": "w-person-unicode",
+      "object_type": "widget",
       "total_order": [
         {
-          "commit": "bfcd698971914f57eca62669290763ead07dcc5c",
+          "commit": "ce342d77bc67c327f1bd61dc0e126d81df678d9d",
           "label": "alice-create",
           "t_star": 1767225600
         },
         {
-          "commit": "8ea065249970b07d5a09596d40c029d526712a5a",
-          "label": "alice-revision",
+          "commit": "5f517c1a2b52b4ea44174dc439ff96e2cc40ce06",
+          "label": "alice-log",
           "t_star": 1767225660
         },
         {
-          "commit": "8a3fd3ad4822e5d98a18caa7506bbfcf9cc1d8fa",
+          "commit": "2f956e64d1204780de4a5dc8b62ac3ef60557b62",
           "label": "alice-assign-composition",
           "t_star": 1767225720
         },
         {
-          "commit": "01353849c3941aeb934dd2707a8251d875b530c2",
+          "commit": "33a32c446e05fca570fff6c3dd5acd1f4492737d",
           "label": "alice-assign-casefold",
           "t_star": 1767225780
         },
         {
-          "commit": "9588964ad8e34e50197143c1fe1ea3a031d275c1",
+          "commit": "b391d0a02e25ad96efc183a42e06c9612ba9556e",
           "label": "alice-assign-cherokee",
           "t_star": 1767225840
         },
         {
-          "commit": "49ef6f76d848d1cff135aac8f5376f858c299c03",
+          "commit": "5a54cdb6540ba1997f12dbe08b18ac472d1cba28",
           "label": "alice-assign-supplementary",
           "t_star": 1767225900
         },
         {
-          "commit": "83540f436daf960cf7b9dbc58060d8e2618edc14",
-          "label": "alice-approval-decomposed",
+          "commit": "d253ab63a67357fe76fe203d26d788cb654866e5",
+          "label": "alice-vote-decomposed",
           "t_star": 1767225960
         },
         {
-          "commit": "e2d3aa131311b7359dc35865e29f14c2c8964d14",
-          "label": "alice-approval-precomposed",
+          "commit": "9ab69a038d3db64bf25f52ac4507e03acd0c817e",
+          "label": "alice-vote-precomposed",
           "t_star": 1767226020
         },
         {
-          "commit": "fa060464953ad61c9c3630130447f0e0b91c9669",
+          "commit": "2f9714a2b80ef32885e1f9b0349c2728680a626f",
           "label": "bob-remove-normalized",
           "t_star": 1767226080
         }
@@ -61,10 +61,19 @@
         "base": [
           "0000000000000000000000000000000000000001"
         ],
+        "choice": [
+          {
+            "key": [
+              "user:josé",
+              "0000000000000000000000000000000000000002"
+            ],
+            "value": "no"
+          }
+        ],
         "head": [
           "0000000000000000000000000000000000000002"
         ],
-        "message": [
+        "note": [
           {
             "key": [
               "user:josé",
@@ -91,16 +100,7 @@
             "value": "user:josé"
           }
         ],
-        "title": "Unicode Person Identifier Folding",
-        "verdict": [
-          {
-            "key": [
-              "user:josé",
-              "0000000000000000000000000000000000000002"
-            ],
-            "value": "request-changes"
-          }
-        ]
+        "title": "Unicode Person Identifier Folding"
       }
     }
   ]

@@ -16,7 +16,7 @@
       "type": "string",
       "maxLength": 64,
       "pattern": "^[a-z][a-z0-9-]*$",
-      "description": "The collaborative object's type, e.g. review, comment, approval, ci-status, issue, project, cycle. Deliberately not an enum: readers must tolerate object types they do not know (preserve and ignore, never drop)."
+      "description": "The collaborative object's type. `schema` is the one type this specification defines; every other value is declared by a schema object in the log. Deliberately not an enum: readers must tolerate object types they do not know (preserve and ignore, never drop)."
     },
     "op_type": {
       "type": "string",

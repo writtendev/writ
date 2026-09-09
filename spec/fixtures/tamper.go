@@ -43,8 +43,8 @@ func applyTamper(store storer.EncodedObjectStorer, commit *object.Commit, files 
 		if opContent, ok := mutatedFiles["op.json"]; ok {
 			if strings.Contains(opContent, "Payload") {
 				mutatedFiles["op.json"] = strings.Replace(opContent, "Payload", "Bayload", 1)
-			} else if strings.Contains(opContent, "review") {
-				mutatedFiles["op.json"] = strings.Replace(opContent, "review", "rewiew", 1)
+			} else if strings.Contains(opContent, "widget") {
+				mutatedFiles["op.json"] = strings.Replace(opContent, "widget", "widgat", 1)
 			} else {
 				mutatedFiles["op.json"] = opContent + " "
 			}

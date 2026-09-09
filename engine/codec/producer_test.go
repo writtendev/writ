@@ -23,76 +23,127 @@ func testAuthor() codec.Identity {
 	}
 }
 
-// TestBuildCommitRejectsSchemaInvalidBody pins the producer obligation from
-// spec/op-envelope.md: an op whose body violates its vocabulary schema is never
-// built, so it is never signed and never appended. The three named cases are
-// the instances that reached production as separate tickets (WRIT-114/115/119
-// for person identifiers, and the unguarded verdict enum noted on PR #88).
-func TestBuildCommitRejectsSchemaInvalidBody(t *testing.T) {
-	overLongValue := strings.Repeat("a", 321)
+// testSchemaObjectID is the object id the declarations below are attributed
+// to, so a tier 2 rejection names a schema object the way a real one does.
+const testSchemaObjectID = "sch-acme"
 
+// declareVocabulary builds the log-sourced declaration for one object type:
+// the (op_type, op_version) pairs rule 4 accepts and the field rules rule 3
+// checks, both read off the rules given. It stands in for what
+// writ.VocabulariesFromSchemas resolves out of a repo's own log, so a codec
+// test can pin tier 2 of spec/op-envelope.md's producer precedence without a
+// repository — and, like spec/schema-ops.md §4.2's generosity, a field rule
+// alone is enough to declare the op type it names.
+func declareVocabulary(objectType string, rules ...spec.FieldRule) codec.Vocabularies {
+	voc := codec.Vocabulary{
+		Declared:       true,
+		SchemaObjectID: testSchemaObjectID,
+		OpTypes:        make(map[codec.OpVersionKey]bool),
+		Fields:         make(map[codec.OpVersionKey][]spec.FieldRule),
+	}
+	for _, r := range rules {
+		r.ObjectType = objectType
+		key := codec.OpVersionKey{OpType: r.OpType, OpVersion: r.OpVersion}
+		voc.OpTypes[key] = true
+		voc.Fields[key] = append(voc.Fields[key], r)
+	}
+	return codec.Vocabularies{objectType: voc}
+}
+
+// widgetVocabulary is the declaration the plain create/update ops throughout
+// this package's tests are written against: one consumer-declared object
+// type, whose whole vocabulary is stated here rather than shipped by writ.
+func widgetVocabulary() codec.Vocabularies {
+	return declareVocabulary("widget",
+		spec.FieldRule{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
+		spec.FieldRule{OpType: "create", OpVersion: 1, Field: "description", Strategy: "lww", ValueType: "string"},
+		spec.FieldRule{OpType: "update", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
+	)
+}
+
+// TestBuildCommitRejectsInvalidBody pins the producer obligation from
+// spec/op-envelope.md: an op whose body violates the vocabulary that applies
+// to it is never built, so it is never signed and never appended. Both tiers
+// that have a vocabulary to violate are covered — the bootstrap one writ
+// embeds for `schema` (tier 1, a JSON Schema) and a log-declared one (tier 2,
+// field rules), which fail in different code and would not catch each other's
+// regressions.
+func TestBuildCommitRejectsInvalidBody(t *testing.T) {
 	cases := []struct {
-		name string
-		env  codec.Envelope
+		name         string
+		env          codec.Envelope
+		vocabularies codec.Vocabularies
 	}{
 		{
-			name: "over-long person id",
+			name: "schema create missing namespace",
 			env: codec.Envelope{
-				ObjectID:   "rev-1",
-				ObjectType: "review",
-				OpType:     "approval",
-				OpVersion:  1,
-				Body: json.RawMessage(`{"revision":"` + strings.Repeat("0", 40) +
-					`","verdict":"approve","subject":"email:` + overLongValue + `"}`),
-			},
-		},
-		{
-			name: "empty person id",
-			env: codec.Envelope{
-				ObjectID:   "rev-1",
-				ObjectType: "review",
-				OpType:     "approval",
-				OpVersion:  1,
-				Body: json.RawMessage(`{"revision":"` + strings.Repeat("0", 40) +
-					`","verdict":"approve","subject":""}`),
-			},
-		},
-		{
-			name: "invalid verdict enum",
-			env: codec.Envelope{
-				ObjectID:   "rev-1",
-				ObjectType: "review",
-				OpType:     "approval",
-				OpVersion:  1,
-				Body: json.RawMessage(`{"revision":"` + strings.Repeat("0", 40) +
-					`","verdict":"bogus"}`),
-			},
-		},
-		{
-			name: "review create missing title",
-			env: codec.Envelope{
-				ObjectID:   "rev-1",
-				ObjectType: "review",
+				ObjectID:   testSchemaObjectID,
+				ObjectType: "schema",
 				OpType:     "create",
 				OpVersion:  1,
-				Body:       json.RawMessage(`{"description":"no title"}`),
+				Body:       json.RawMessage(`{"description":"no namespace"}`),
 			},
 		},
 		{
-			name: "comment create missing subject",
+			name: "namespace violating its grammar",
 			env: codec.Envelope{
-				ObjectID:   "c-1",
-				ObjectType: "comment",
+				ObjectID:   testSchemaObjectID,
+				ObjectType: "schema",
 				OpType:     "create",
 				OpVersion:  1,
-				Body:       json.RawMessage(`{"text":"hello"}`),
+				Body:       json.RawMessage(`{"namespace":"Acme Corp"}`),
 			},
+		},
+		{
+			name: "define-field missing strategy",
+			env: codec.Envelope{
+				ObjectID:   testSchemaObjectID,
+				ObjectType: "schema",
+				OpType:     "define-field",
+				OpVersion:  1,
+				Body:       json.RawMessage(`{"type":"widget","op_type":"create","op_version":"1","field":"title"}`),
+			},
+		},
+		{
+			name: "define-field naming a value type outside the catalogue",
+			env: codec.Envelope{
+				ObjectID:   testSchemaObjectID,
+				ObjectType: "schema",
+				OpType:     "define-field",
+				OpVersion:  1,
+				Body:       json.RawMessage(`{"type":"widget","op_type":"create","op_version":"1","field":"title","strategy":"lww","value_type":"colour"}`),
+			},
+		},
+		{
+			// Rule 3 at tier 2: nothing bounds "known fields" for a
+			// log-declared type but the declared rules themselves, so a
+			// field no rule names is the rejection.
+			name: "body field the log schema does not declare",
+			env: codec.Envelope{
+				ObjectID:   "w-1",
+				ObjectType: "widget",
+				OpType:     "create",
+				OpVersion:  1,
+				Body:       json.RawMessage(`{"headline":"no rule declares this"}`),
+			},
+			vocabularies: widgetVocabulary(),
+		},
+		{
+			name: "value violating its declared value_type",
+			env: codec.Envelope{
+				ObjectID:   "w-1",
+				ObjectType: "widget",
+				OpType:     "create",
+				OpVersion:  1,
+				Body:       json.RawMessage(`{"title":42}`),
+			},
+			vocabularies: widgetVocabulary(),
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := codec.BuildCommit(tc.env, testAuthor(), nil, nil)
+			_, err := codec.BuildCommit(tc.env, testAuthor(), nil, tc.vocabularies)
 			if err == nil {
 				t.Fatal("BuildCommit accepted a schema-invalid body")
 			}
@@ -108,28 +159,19 @@ func TestBuildCommitRejectsSchemaInvalidBody(t *testing.T) {
 }
 
 // knownCreateBodies is a minimal, schema-valid create body for each vocabulary
-// writ registers, so the forward-compatibility cases below can be driven
-// against every one of them rather than against whichever one happens to be
-// most permissive.
+// writ ships, so the forward-compatibility cases below can be driven against
+// every one of them rather than against whichever one happens to be most
+// permissive. Writ ships exactly one — `schema`, the bootstrap
+// (spec/schema-ops.md §Bootstrap) — and the map is keyed by object type so a
+// second one cannot be added to spec/schemas/ without a body here.
 var knownCreateBodies = map[string]string{
-	"review":         `{"title":"Initial"}`,
-	"comment":        `{"subject":{"object_id":"rev-1","object_type":"review"},"text":"hello"}`,
-	"issue":          `{"title":"Initial"}`,
-	"project":        `{"title":"Initial"}`,
-	"cycle":          `{"ends_at":"2026-02-01T00:00:00Z","starts_at":"2026-01-01T00:00:00Z","title":"Sprint 1"}`,
-	"workflow-state": `{"name":"Todo","position":"V","type":"unstarted"}`,
-	"label":          `{"name":"bug"}`,
-	"document":       `{"title":"Initial"}`,
-	"section":        `{"body":"Initial","document_id":"0123456789abcdef0123456789abcdef","position":"V"}`,
-	"settings":       `{"name":"Initial"}`,
-	"schema":         `{"namespace":"acme"}`,
+	"schema": `{"namespace":"acme"}`,
 }
 
 // TestBuildCommitAcceptsUnknownFieldsInEveryVocabulary asserts the producer
-// check did not narrow the unknown-field tolerance that every vocabulary
-// shares (spec/forward-compatibility.md). It runs against all six registered
-// vocabularies: an earlier version of this test covered only review, the most
-// permissive one, so it could pass without touching the others at all.
+// check did not narrow the unknown-field tolerance every shipped vocabulary
+// has (spec/forward-compatibility.md): a field no version of it defines is
+// still writable.
 func TestBuildCommitAcceptsUnknownFieldsInEveryVocabulary(t *testing.T) {
 	for _, objectType := range sortedVocabularies(t) {
 		t.Run(objectType, func(t *testing.T) {
@@ -161,30 +203,29 @@ func TestBuildCommitAcceptsUnknownFieldsInEveryVocabulary(t *testing.T) {
 
 // TestBuildCommitRefusesUndeclaredObjectTypes inverts what this test used to
 // pin (TestBuildCommitAcceptsForeignObjectTypes, pre-WRIT-188): an object
-// type nothing in the log declares and this build embeds no vocabulary for
-// is now a producer error (spec/op-envelope.md §Producer validation, tier
-// 5), not a silent pass.
+// type nothing in the log declares is a producer error
+// (spec/op-envelope.md §Producer validation, tier 4), not a silent pass.
 //
 // The old rationale — "a reader has to tolerate it and writ's own producer
-// never emits one" — rested on writ's producer only ever emitting its own
-// ten embedded types. WRIT-188 makes the producer write consumer-declared
-// types too, and rules 3/4 ("the op_type and op_version are ones the
-// producer itself defines") stop being satisfiable for a type nothing
-// declares at all: an op of a truly foreign object type is exactly the
-// un-withdrawable mistake those rules exist to prevent, so it is refused
-// rather than let through. This is deliberately scoped to the *genuine*
-// absence case — a *contested* object type (two schema objects binding one
-// bare type) is a different tier and stays writable
-// (TestContestedObjectTypeStaysWritable in engine/schema_test.go).
+// never emits one" — rested on writ's producer only ever emitting types it
+// embedded itself. It emits consumer-declared types instead, and rules 3/4
+// ("the op_type and op_version are ones the producer itself defines") stop
+// being satisfiable for a type nothing declares at all: an op of a truly
+// foreign object type is exactly the un-withdrawable mistake those rules
+// exist to prevent, so it is refused rather than let through. This is
+// deliberately scoped to the *genuine* absence case — a *contested* object
+// type (two schema objects binding one bare type) is a different tier and
+// stays writable (TestContestedObjectTypeStaysWritable in
+// engine/schema_test.go).
 func TestBuildCommitRefusesUndeclaredObjectTypes(t *testing.T) {
 	if _, err := codec.BuildCommit(codec.Envelope{
-		ObjectID:   "w-1",
-		ObjectType: "widget",
+		ObjectID:   "g-1",
+		ObjectType: "gadget",
 		OpType:     "sprocket",
 		OpVersion:  7,
 		Body:       json.RawMessage(`{"anything":[1,2,3]}`),
-	}, testAuthor(), nil, nil); err == nil {
-		t.Fatal("BuildCommit accepted an object_type declared by no schema and embedded by no vocabulary")
+	}, testAuthor(), nil, widgetVocabulary()); err == nil {
+		t.Fatal("BuildCommit accepted an object_type no schema in the log declares")
 	}
 }
 
@@ -194,13 +235,11 @@ func TestBuildCommitRefusesUndeclaredObjectTypes(t *testing.T) {
 // of, or a version it does not implement, is a *valid instance* of it.
 //
 // This is what a third party validating a foreign op against a published
-// vocabulary schema depends on, and until WRIT-148 comment.schema.json was the
-// one vocabulary that broke it — it pinned op_version and an op_type enum in an
-// unconditional allOf, contradicting five sibling vocabularies, the ten
-// unknown-op-type/future-version vectors their corpora ship, and
-// spec/comments.md §Forward compatibility. It goes through the schemas alone,
-// not through ValidateBody, because ValidateBody also enforces the producer
-// rules that TestBuildCommitRefusesOpTypesItDoesNotDefine covers.
+// vocabulary schema depends on. A vocabulary that pins op_version or an
+// op_type enum in an unconditional allOf breaks it, which is what this
+// catches. It goes through the schemas alone, not through ValidateBody,
+// because ValidateBody also enforces the producer rules that
+// TestBuildCommitRefusesOpTypesItDoesNotDefine covers.
 func TestVocabularySchemasTolerateUnknownOpTypeAndVersion(t *testing.T) {
 	for _, objectType := range sortedVocabularies(t) {
 		cases := []struct {
@@ -249,22 +288,12 @@ func TestVocabularySchemasTolerateUnknownOpTypeAndVersion(t *testing.T) {
 // unrecognized op type means the body is never examined at all — and the op it
 // would write is one no reader will ever interpret.
 var producerTypos = map[string]string{
-	"review":         "aproval",
-	"comment":        "resolv",
-	"issue":          "set-stat",
-	"project":        "add-isue",
-	"cycle":          "set-date",
-	"workflow-state": "creat",
-	"label":          "creat",
-	"document":       "creat",
-	"section":        "mov",
-	"settings":       "st",
-	"schema":         "creat",
+	"schema": "creat",
 }
 
 // TestBuildCommitRefusesOpTypesItDoesNotDefine pins producer rule 4
 // (spec/op-envelope.md §Producer validation) across every vocabulary writ
-// registers: an op_type or op_version this build does not define for an object
+// ships: an op_type or op_version this build does not define for an object
 // type it does define is refused before the commit is built, so it is never
 // signed and never appended.
 func TestBuildCommitRefusesOpTypesItDoesNotDefine(t *testing.T) {
@@ -358,16 +387,7 @@ func TestProducerOpTypesMatchShippedVocabularies(t *testing.T) {
 			t.Fatalf("parse schema %s: %v", file, err)
 		}
 
-		var inSchema []string
-		if file == "document-ops.schema.json" {
-			if objectType == "document" {
-				inSchema = constsUnderProperty(doc["then"].(map[string]any), "op_type")
-			} else if objectType == "section" {
-				inSchema = constsUnderProperty(doc["else"].(map[string]any), "op_type")
-			}
-		} else {
-			inSchema = constsUnderProperty(doc, "op_type")
-		}
+		inSchema := constsUnderProperty(doc, "op_type")
 		if len(inSchema) == 0 {
 			t.Errorf("spec/schemas/%s pins no op_type consts, so this test cannot check the registry against it", file)
 			continue
@@ -382,10 +402,10 @@ func TestProducerOpTypesMatchShippedVocabularies(t *testing.T) {
 }
 
 // TestShippedVocabulariesGateOnTheProducedOpVersion pins the assumption behind
-// the single vocabularyOpVersion constant: all six vocabularies gate their body
-// rules on the same version this build writes. The first vocabulary to ship a
-// v2 fails here, which is the signal to make the constant a per-object-type
-// set rather than to widen it.
+// the single vocabularyOpVersion constant: every shipped vocabulary gates its
+// body rules on the same version this build writes. The first vocabulary to
+// ship a v2 fails here, which is the signal to make the constant a
+// per-object-type set rather than to widen it.
 func TestShippedVocabulariesGateOnTheProducedOpVersion(t *testing.T) {
 	for objectType, file := range shippedVocabularies(t) {
 		raw, err := spec.FS.ReadFile("schemas/" + file)
@@ -418,21 +438,25 @@ func TestShippedVocabulariesGateOnTheProducedOpVersion(t *testing.T) {
 // newer writ, which is the forward-compatibility break this whole change
 // exists to prevent. A defined op_type with a bad body does not exercise
 // rule 4 at all, so the unknown-op-type case is not a variation on the first
-// one — it is the other half of the guard.
+// one — it is the other half of the guard. The last case is the type nothing
+// declares at all: tier 4, the op the projection is likeliest to meet, since
+// a repo that has not fetched the declaring schema object yet still reads
+// every op written against it.
 func TestEncodePayloadDoesNotValidateBody(t *testing.T) {
 	cases := []struct {
-		name string
-		env  codec.Envelope
+		name         string
+		env          codec.Envelope
+		vocabularies codec.Vocabularies
 	}{
 		{
 			// Rule 3: a defined op_type whose body the vocabulary rejects.
 			name: "defined op type, schema-invalid body",
 			env: codec.Envelope{
-				ObjectID:   "rev-1",
-				ObjectType: "review",
-				OpType:     "approval",
+				ObjectID:   testSchemaObjectID,
+				ObjectType: "schema",
+				OpType:     "define-field",
 				OpVersion:  1,
-				Body:       json.RawMessage(`{"revision":"not-an-oid","verdict":"bogus"}`),
+				Body:       json.RawMessage(`{"field":"title","op_type":"create","op_version":"1","strategy":"colour","type":"widget"}`),
 			},
 		},
 		{
@@ -441,12 +465,24 @@ func TestEncodePayloadDoesNotValidateBody(t *testing.T) {
 			// way through the projection.
 			name: "undefined op type and future op version",
 			env: codec.Envelope{
-				ObjectID:   "rev-1",
-				ObjectType: "review",
+				ObjectID:   testSchemaObjectID,
+				ObjectType: "schema",
 				OpType:     "annotate",
 				OpVersion:  2,
 				Body:       json.RawMessage(`{"annotation":"written by a newer writ"}`),
 			},
+		},
+		{
+			// Tier 4: an object type no schema in the log declares.
+			name: "object type no schema declares",
+			env: codec.Envelope{
+				ObjectID:   "g-1",
+				ObjectType: "gadget",
+				OpType:     "create",
+				OpVersion:  1,
+				Body:       json.RawMessage(`{"title":"written against a schema this repo has not fetched"}`),
+			},
+			vocabularies: widgetVocabulary(),
 		},
 	}
 
@@ -455,18 +491,18 @@ func TestEncodePayloadDoesNotValidateBody(t *testing.T) {
 			if _, err := codec.EncodePayload(tc.env); err != nil {
 				t.Fatalf("EncodePayload rejected an op it must still re-encode: %v", err)
 			}
-			if _, err := codec.BuildCommit(tc.env, testAuthor(), nil, nil); err == nil {
+			if _, err := codec.BuildCommit(tc.env, testAuthor(), nil, tc.vocabularies); err == nil {
 				t.Fatal("BuildCommit accepted the same op EncodePayload re-encodes")
 			}
 		})
 	}
 }
 
-// TestEveryShippedVocabularyIsValidated is the exhaustiveness guard. Before
-// WRIT-129 the codec registered review and comment and silently validated
-// nothing for issue, project, cycle and repo, even though spec/schemas/ ships a
-// schema for each. This walks the shipped schemas rather than a hand-written
-// list, so adding a vocabulary without registering it fails here.
+// TestEveryShippedVocabularyIsValidated is the exhaustiveness guard. Writ
+// ships one vocabulary schema and registers one, and this walks the shipped
+// schemas rather than a hand-written list, so a second one added to
+// spec/schemas/ without a vocabularySchemaFiles entry — validated against
+// nothing, silently — fails here.
 //
 // The probe is an empty create body: every vocabulary requires at least one
 // field on create, so a registered schema rejects it and an unregistered one
@@ -523,12 +559,6 @@ func shippedVocabularies(t *testing.T) map[string]string {
 			continue
 		}
 
-		if entry.Name() == "document-ops.schema.json" {
-			vocabularies["document"] = entry.Name()
-			vocabularies["section"] = entry.Name()
-			continue
-		}
-
 		objectType, ok := pinnedObjectType(doc)
 		if !ok {
 			t.Errorf("spec/schemas/%s extends the op envelope, so it is a vocabulary, but no object_type const was found in it — this test cannot tell which object type it governs, so it cannot tell whether the codec validates that type. Pin object_type with a const, or teach pinnedObjectType where this schema puts it",
@@ -564,12 +594,14 @@ func sortedVocabularies(t *testing.T) []string {
 // BenchmarkProducerPath measures what the producer check costs against the work
 // it sits next to: canonical encoding, which every append already pays for.
 func BenchmarkProducerPath(b *testing.B) {
+	// The bootstrap tier's envelope: `schema`, the one object type writ
+	// validates against an embedded JSON Schema.
 	env := codec.Envelope{
 		ObjectID:   "0123456789abcdef0123456789abcdef",
-		ObjectType: "review",
-		OpType:     "create",
+		ObjectType: "schema",
+		OpType:     "define-field",
 		OpVersion:  1,
-		Body:       json.RawMessage(`{"title":"Add calculator functions","description":"Initial draft of addition"}`),
+		Body:       json.RawMessage(`{"field":"title","op_type":"create","op_version":"1","strategy":"lww","type":"widget","value_type":"string"}`),
 	}
 	author := testAuthor()
 
@@ -597,37 +629,30 @@ func BenchmarkProducerPath(b *testing.B) {
 	})
 
 	// ValidateBody/LogSourced is tier 2 (spec/op-envelope.md §Producer
-	// validation): the same envelope validated against a log-sourced
-	// codec.Vocabularies (a resolved schema object's declaration) instead
-	// of nil, which falls through to tier 3's embedded JSON Schema. The
-	// resolution itself (writ.VocabulariesFromSchemas, which walks the
+	// validation): a consumer-declared object type validated against a
+	// log-sourced codec.Vocabularies (a resolved schema object's
+	// declaration) instead of against the embedded JSON Schema tier 1 uses.
+	// The resolution itself (writ.VocabulariesFromSchemas, which walks the
 	// log) is not part of what this measures — engine/schema_bench_test.go's
 	// BenchmarkVocabulariesCache covers that cost — this is purely
 	// validateAgainstLogVocabulary's per-op cost once a Vocabularies value
 	// is already in hand, exactly as dag.Store.Append pays it on every
 	// append after Append's own once-per-call resolve.
 	b.Run("ValidateBody/LogSourced", func(b *testing.B) {
-		raw, err := codec.EncodePayload(env)
+		logEnv := codec.Envelope{
+			ObjectID:   "0123456789abcdef0123456789abcdef",
+			ObjectType: "widget",
+			OpType:     "create",
+			OpVersion:  1,
+			Body:       json.RawMessage(`{"title":"Add calculator functions","description":"Initial draft of addition"}`),
+		}
+		raw, err := codec.EncodePayload(logEnv)
 		if err != nil {
 			b.Fatal(err)
 		}
-		withRaw := env
+		withRaw := logEnv
 		withRaw.Raw = raw
-
-		key := codec.OpVersionKey{OpType: env.OpType, OpVersion: env.OpVersion}
-		vocabularies := codec.Vocabularies{
-			env.ObjectType: {
-				Declared:       true,
-				SchemaObjectID: "sch-bench",
-				OpTypes:        map[codec.OpVersionKey]bool{key: true},
-				Fields: map[codec.OpVersionKey][]spec.FieldRule{
-					key: {
-						{OpType: env.OpType, OpVersion: env.OpVersion, Field: "title", Strategy: "lww", ValueType: "string", ObjectType: env.ObjectType},
-						{OpType: env.OpType, OpVersion: env.OpVersion, Field: "description", Strategy: "lww", ValueType: "string", ObjectType: env.ObjectType},
-					},
-				},
-			},
-		}
+		vocabularies := widgetVocabulary()
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {

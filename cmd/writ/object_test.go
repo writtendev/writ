@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -161,8 +162,7 @@ func TestObjectCLI_EndToEnd_NeverHeardOfType(t *testing.T) {
 // value_type at all -- spec/value-types.md's "untyped" exception, written
 // with the schema-source DSL's `untyped` keyword (spec/schema-source.md
 // §3.1) -- to pin that -field-json is a general escape hatch for any
-// consumer schema's untyped/object-shaped field, not special-cased to the
-// built-in comment.create.subject.
+// consumer schema's untyped/object-shaped field.
 const untypedFieldTestSchema = `namespace acme
 description "Untyped-field vocabulary"
 
@@ -173,50 +173,75 @@ type widget {
 }
 `
 
-// TestObjectCLI_FieldJSON_CommentSubject pins WRIT-209's acceptance case:
-// comment.create's subject is a {object_type, object_id} record
-// (spec/schemas/comment.schema.json) that declares no value_type at all
-// (spec/value-types.md's "untyped" exception), so -field cannot express it
-// -- -field-json is the escape hatch. review and comment are engine
-// built-ins (ARCHITECTURE.md §Object types), so neither needs a schema
-// apply first.
-func TestObjectCLI_FieldJSON_CommentSubject(t *testing.T) {
-	env := initTestRepo(t)
+// objectRefFieldTestSchema declares a `subject` field that is an
+// {object_type, object_id} record naming another object, with no declared
+// value_type at all, alongside the type it names.
+const objectRefFieldTestSchema = `namespace acme
+description "Object-reference vocabulary"
 
+type ticket {
+  op create 1 {
+    title string(200) lww
+  }
+}
+
+type gadget {
+  op create 1 {
+    subject untyped create-once
+    text    string   lww
+  }
+}
+`
+
+// TestObjectCLI_FieldJSON_ObjectShapedSubject pins WRIT-209's acceptance
+// case: a field whose value is an {object_type, object_id} record naming
+// another object declares no value_type at all (spec/value-types.md's
+// "untyped" exception), so -field cannot express it -- -field-json is the
+// escape hatch. Writ hard-codes no object type but `schema` itself, so both
+// types here come from the schema the test installs first.
+func TestObjectCLI_FieldJSON_ObjectShapedSubject(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, objectRefFieldTestSchema)
 	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
 	code := run(context.Background(), []string{
-		"object", "create", "-C", env.repoDir, "review", "create",
+		"object", "create", "-C", env.repoDir, "ticket", "create",
 		"-field", "title=Add rate limiting",
 		"--json",
 	}, &stdout, &stderr)
 	if code != 0 {
-		t.Fatalf("review create failed with %d; stderr: %s", code, stderr.String())
+		t.Fatalf("ticket create failed with %d; stderr: %s", code, stderr.String())
 	}
-	var review wire.ObjectCreated
-	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectCreate, &review)
-	reviewID := review.ObjectID
+	var ticket wire.ObjectCreated
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectCreate, &ticket)
+	ticketID := ticket.ObjectID
 
 	stdout.Reset()
 	stderr.Reset()
-	subjectJSON := fmt.Sprintf(`{"object_type":"review","object_id":%q}`, reviewID)
+	subjectJSON := fmt.Sprintf(`{"object_type":"ticket","object_id":%q}`, ticketID)
 	code = run(context.Background(), []string{
-		"object", "create", "-C", env.repoDir, "comment", "create",
+		"object", "create", "-C", env.repoDir, "gadget", "create",
 		"-field-json", "subject=" + subjectJSON,
 		"-field", "text=this allocates in the hot path",
 		"--json",
 	}, &stdout, &stderr)
 	if code != 0 {
-		t.Fatalf("comment create failed with %d; stderr: %s", code, stderr.String())
+		t.Fatalf("gadget create failed with %d; stderr: %s", code, stderr.String())
 	}
-	var comment wire.ObjectCreated
-	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectCreate, &comment)
-	if comment.ObjectType != "comment" {
-		t.Errorf("object_type = %q, want comment", comment.ObjectType)
+	var gadget wire.ObjectCreated
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectCreate, &gadget)
+	if gadget.ObjectType != "gadget" {
+		t.Errorf("object_type = %q, want gadget", gadget.ObjectType)
 	}
 
 	stdout.Reset()
 	stderr.Reset()
-	code = run(context.Background(), []string{"object", "show", "-C", env.repoDir, comment.ObjectID, "--json"}, &stdout, &stderr)
+	code = run(context.Background(), []string{"object", "show", "-C", env.repoDir, gadget.ObjectID, "--json"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("object show failed with %d; stderr: %s", code, stderr.String())
 	}
@@ -226,19 +251,18 @@ func TestObjectCLI_FieldJSON_CommentSubject(t *testing.T) {
 	if !ok {
 		t.Fatalf("subject = %#v, want a JSON object", obj.Fields["subject"])
 	}
-	if subject["object_type"] != "review" || subject["object_id"] != reviewID {
-		t.Errorf("subject = %#v, want {object_type: review, object_id: %s}", subject, reviewID)
+	if subject["object_type"] != "ticket" || subject["object_id"] != ticketID {
+		t.Errorf("subject = %#v, want {object_type: ticket, object_id: %s}", subject, ticketID)
 	}
 	if text, _ := obj.Fields["text"].(string); text != "this allocates in the hot path" {
-		t.Errorf("text = %v, want the comment text", obj.Fields["text"])
+		t.Errorf("text = %v, want the text the create carried", obj.Fields["text"])
 	}
 }
 
 // TestObjectCLI_FieldJSON_UntypedConsumerField pins the ticket's broader
 // claim: "any consumer schema with a nested-object field hits the same
-// wall" -- -field-json is not special-cased to writ's built-in comment
-// type, it works for any (objectType, opType, field) the installed
-// vocabulary declares with no value_type.
+// wall" -- -field-json works for any (objectType, opType, field) the
+// installed vocabulary declares with no value_type, whatever its shape.
 func TestObjectCLI_FieldJSON_UntypedConsumerField(t *testing.T) {
 	env := initTestRepo(t)
 	writeSchemaFile(t, env.repoDir, untypedFieldTestSchema)
@@ -688,31 +712,32 @@ func TestObjectCLI_Show_ByteIdenticalAfterRebuild(t *testing.T) {
 }
 
 // TestSchemaShowCLI pins schema show's two forms: a bare type-name list,
-// and one type's full detail under --json.
+// and one type's full detail under --json. Writ hard-codes no object type
+// but `schema` itself, so the list is exactly what the log declares --
+// empty on a fresh repository, and the applied schema's types and nothing
+// else after an apply.
 func TestSchemaShowCLI(t *testing.T) {
 	env := initTestRepo(t)
-	applyTicketObjectSchema(t, env.repoDir)
 
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{"schema", "show", "-C", env.repoDir}, &stdout, &stderr)
 	if code != 0 {
+		t.Fatalf("schema show on a fresh repo failed with %d; stderr: %s", code, stderr.String())
+	}
+	if names := strings.Fields(stdout.String()); len(names) != 0 {
+		t.Errorf("a fresh repository declares no types, got %v", names)
+	}
+
+	applyTicketObjectSchema(t, env.repoDir)
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run(context.Background(), []string{"schema", "show", "-C", env.repoDir}, &stdout, &stderr)
+	if code != 0 {
 		t.Fatalf("schema show failed with %d; stderr: %s", code, stderr.String())
 	}
-	names := strings.Fields(stdout.String())
-	var foundTicket, foundBuiltin bool
-	for _, n := range names {
-		if n == "ticket" {
-			foundTicket = true
-		}
-		if n == "review" {
-			foundBuiltin = true
-		}
-	}
-	if !foundTicket {
-		t.Errorf("schema show did not list the log-declared type ticket:\n%s", stdout.String())
-	}
-	if !foundBuiltin {
-		t.Errorf("schema show did not list the built-in type review:\n%s", stdout.String())
+	if names := strings.Fields(stdout.String()); !slices.Equal(names, []string{"ticket"}) {
+		t.Errorf("schema show = %v, want exactly the one type the schema declared (ticket)", names)
 	}
 
 	stdout.Reset()
@@ -733,16 +758,16 @@ func TestSchemaShowCLI(t *testing.T) {
 
 // widgetTargetTestSchema declares one field twice under two different ops:
 // once under the default target (the field name) and once renamed via
-// `target(...)` -- the round-2 finding's `label`/`label_v2` example.
+// `target(...)` -- the round-2 finding's `caption`/`caption_v2` example.
 const widgetTargetTestSchema = `namespace acme
 description "Widget vocabulary"
 
 type widget {
   op create 1 {
-    label  string  lww
+    caption  string  lww
   }
   op rename 1 {
-    label  string  lww  target(label_v2)
+    caption  string  lww  target(caption_v2)
   }
 }
 `
@@ -770,14 +795,14 @@ func TestSchemaShowCLI_FieldTable_Target(t *testing.T) {
 
 	out := stdout.String()
 	for _, line := range strings.Split(out, "\n") {
-		if strings.Contains(line, "create") && strings.Contains(line, "label") {
-			if strings.Contains(line, "label_v2") {
-				t.Errorf("create's label declares no target override, want no target in the row: %q", line)
+		if strings.Contains(line, "create") && strings.Contains(line, "caption") {
+			if strings.Contains(line, "caption_v2") {
+				t.Errorf("create's caption declares no target override, want no target in the row: %q", line)
 			}
 		}
-		if strings.Contains(line, "rename") && strings.Contains(line, "label") {
-			if !strings.Contains(line, "label_v2") {
-				t.Errorf("rename's label targets label_v2, want it named in the row: %q", line)
+		if strings.Contains(line, "rename") && strings.Contains(line, "caption") {
+			if !strings.Contains(line, "caption_v2") {
+				t.Errorf("rename's caption targets caption_v2, want it named in the row: %q", line)
 			}
 		}
 	}

@@ -17,7 +17,61 @@ import (
 	"github.com/writtendev/writ/engine/codec"
 	"github.com/writtendev/writ/engine/dag"
 	"github.com/writtendev/writ/engine/identity"
+	"github.com/writtendev/writ/spec"
 )
+
+// testSchemaObjectID is the schema object the declaration below is
+// attributed to, so a producer rejection names one the way a real one does.
+const testSchemaObjectID = "sch-acme"
+
+// declaredType is one object type's entry in a resolved Vocabularies: the
+// (op_type, op_version) pairs producer rule 4 accepts and the field rules
+// rule 3 checks, both read off the rules given — the same derivation
+// writ.VocabulariesFromSchemas makes from a folded schema object, and, like
+// spec/schema-ops.md §4.2's generosity, a field rule alone declares the op
+// type it names.
+func declaredType(objectType string, rules ...spec.FieldRule) codec.Vocabulary {
+	voc := codec.Vocabulary{
+		Declared:       true,
+		SchemaObjectID: testSchemaObjectID,
+		OpTypes:        make(map[codec.OpVersionKey]bool),
+		Fields:         make(map[codec.OpVersionKey][]spec.FieldRule),
+	}
+	for _, r := range rules {
+		r.ObjectType = objectType
+		key := codec.OpVersionKey{OpType: r.OpType, OpVersion: r.OpVersion}
+		voc.OpTypes[key] = true
+		voc.Fields[key] = append(voc.Fields[key], r)
+	}
+	return voc
+}
+
+// testVocabularies is what a repo whose log carries one schema object
+// declaring these two types resolves to. Append consults it through
+// dag.WithProducerVocabularies — the same wiring writ.Open uses — because
+// `schema` aside, writ hard-codes no object type: an op of an undeclared
+// type is refused before it is signed (spec/op-envelope.md §Producer
+// validation).
+func testVocabularies() (codec.Vocabularies, error) {
+	return codec.Vocabularies{
+		"widget": declaredType("widget",
+			spec.FieldRule{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
+			spec.FieldRule{OpType: "update", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
+			spec.FieldRule{OpType: "update", OpVersion: 1, Field: "description", Strategy: "lww", ValueType: "string"},
+			spec.FieldRule{OpType: "update", OpVersion: 1, Field: "seq", Strategy: "lww", ValueType: "int"},
+			spec.FieldRule{OpType: "set-status", OpVersion: 1, Field: "status", Strategy: "lww", ValueType: "enum", Enum: []string{"open", "closed"}},
+		),
+		"waypoint": declaredType("waypoint",
+			spec.FieldRule{OpType: "create", OpVersion: 1, Field: "text", Strategy: "lww", ValueType: "text"},
+		),
+	}, nil
+}
+
+// withVocabularies is the option every store in these tests is opened with,
+// spelled once.
+func withVocabularies() dag.Option {
+	return dag.WithProducerVocabularies(testVocabularies)
+}
 
 func testIdentity(wID string, name string, email string) identity.Identity {
 	writerID, _ := identity.ParseWriterID(wID)
@@ -70,7 +124,7 @@ func TestAppend_AtomicAndLocalChainOnly(t *testing.T) {
 	_ = repo.Storer.SetReference(plumbing.NewHashReference("refs/tags/v1.0.0", dummyCommit))
 
 	fixedTime := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
-	store, err := dag.Open(dir, ident, dag.WithNow(func() time.Time { return fixedTime }))
+	store, err := dag.Open(dir, ident, withVocabularies(), dag.WithNow(func() time.Time { return fixedTime }))
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
@@ -78,11 +132,11 @@ func TestAppend_AtomicAndLocalChainOnly(t *testing.T) {
 	before := snapshotRefs(t, repo)
 
 	env1 := codec.Envelope{
-		ObjectID:   "rev-1",
-		ObjectType: "review",
+		ObjectID:   "w-1",
+		ObjectType: "widget",
 		OpType:     "create",
 		OpVersion:  1,
-		Body:       json.RawMessage(`{"title":"Review 1"}`),
+		Body:       json.RawMessage(`{"title":"Widget 1"}`),
 	}
 
 	op1, err := store.Append(context.Background(), env1, nil)
@@ -92,8 +146,8 @@ func TestAppend_AtomicAndLocalChainOnly(t *testing.T) {
 
 	after1 := snapshotRefs(t, repo)
 
-	// Assert exactly one ref moved: refs/writ/0123456789abcdef/review
-	expectedRef := "refs/writ/0123456789abcdef/review"
+	// Assert exactly one ref moved: refs/writ/0123456789abcdef/widget
+	expectedRef := "refs/writ/0123456789abcdef/widget"
 	if len(after1) != len(before)+1 {
 		t.Fatalf("expected ref count %d, got %d", len(before)+1, len(after1))
 	}
@@ -117,11 +171,11 @@ func TestAppend_AtomicAndLocalChainOnly(t *testing.T) {
 
 	// Append second op onto same chain
 	env2 := codec.Envelope{
-		ObjectID:   "rev-1",
-		ObjectType: "review",
+		ObjectID:   "w-1",
+		ObjectType: "widget",
 		OpType:     "update",
 		OpVersion:  1,
-		Body:       json.RawMessage(`{"title":"Review 1 updated"}`),
+		Body:       json.RawMessage(`{"title":"Widget 1 updated"}`),
 	}
 
 	op2, err := store.Append(context.Background(), env2, nil)
@@ -150,15 +204,15 @@ func TestAppend_AtomicAndLocalChainOnly(t *testing.T) {
 func TestAppend_CausalParents(t *testing.T) {
 	dir, repo := initTestRepo(t)
 	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
-	store, err := dag.Open(dir, ident)
+	store, err := dag.Open(dir, ident, withVocabularies())
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
 
-	// Append op 1 (root on review chain)
+	// Append op 1 (root on widget chain)
 	env1 := codec.Envelope{
-		ObjectID:   "rev-1",
-		ObjectType: "review",
+		ObjectID:   "w-1",
+		ObjectType: "widget",
 		OpType:     "create",
 		OpVersion:  1,
 		Body:       json.RawMessage(`{"title":"Initial"}`),
@@ -168,37 +222,37 @@ func TestAppend_CausalParents(t *testing.T) {
 		t.Fatalf("Append 1 failed: %v", err)
 	}
 
-	// Append op on comment chain referencing op1 as causal parent
-	envComment := codec.Envelope{
-		ObjectID:   "rev-1",
-		ObjectType: "comment",
+	// Append op on the waypoint chain referencing op1 as causal parent
+	envWaypoint := codec.Envelope{
+		ObjectID:   "wp-1",
+		ObjectType: "waypoint",
 		OpType:     "create",
 		OpVersion:  1,
-		Body:       json.RawMessage(`{"subject":{"object_type":"review","object_id":"rev-1"},"text":"hello"}`),
+		Body:       json.RawMessage(`{"text":"hello"}`),
 	}
-	opComment, err := store.Append(context.Background(), envComment, []string{op1.ID})
+	opWaypoint, err := store.Append(context.Background(), envWaypoint, []string{op1.ID})
 	if err != nil {
-		t.Fatalf("Append comment failed: %v", err)
+		t.Fatalf("Append waypoint failed: %v", err)
 	}
 
-	// Because comment chain was empty, parents[0] is the causal parent op1.ID
-	if len(opComment.Parents) != 1 || opComment.Parents[0] != op1.ID {
-		t.Fatalf("comment parents = %v, want [%s]", opComment.Parents, op1.ID)
+	// Because the waypoint chain was empty, parents[0] is the causal parent op1.ID
+	if len(opWaypoint.Parents) != 1 || opWaypoint.Parents[0] != op1.ID {
+		t.Fatalf("waypoint parents = %v, want [%s]", opWaypoint.Parents, op1.ID)
 	}
 
-	// Now append a second comment with another causal parent
-	opComment2, err := store.Append(context.Background(), envComment, []string{op1.ID})
+	// Now append a second waypoint op with another causal parent
+	opWaypoint2, err := store.Append(context.Background(), envWaypoint, []string{op1.ID})
 	if err != nil {
-		t.Fatalf("Append second comment failed: %v", err)
+		t.Fatalf("Append second waypoint failed: %v", err)
 	}
-	// parents[0] must be comment predecessor (opComment.ID), parents[1] is causal parent (op1.ID)
-	if len(opComment2.Parents) != 2 || opComment2.Parents[0] != opComment.ID || opComment2.Parents[1] != op1.ID {
-		t.Fatalf("comment2 parents = %v, want [%s, %s]", opComment2.Parents, opComment.ID, op1.ID)
+	// parents[0] must be the waypoint predecessor (opWaypoint.ID), parents[1] is causal parent (op1.ID)
+	if len(opWaypoint2.Parents) != 2 || opWaypoint2.Parents[0] != opWaypoint.ID || opWaypoint2.Parents[1] != op1.ID {
+		t.Fatalf("waypoint2 parents = %v, want [%s, %s]", opWaypoint2.Parents, opWaypoint.ID, op1.ID)
 	}
 
 	// Test invalid causal parents:
 	// 1. Non-existent hash
-	_, err = store.Append(context.Background(), envComment, []string{"9999999999999999999999999999999999999999"})
+	_, err = store.Append(context.Background(), envWaypoint, []string{"9999999999999999999999999999999999999999"})
 	if !errors.Is(err, dag.ErrInvalidParent) {
 		t.Errorf("expected ErrInvalidParent, got %v", err)
 	}
@@ -208,7 +262,7 @@ func TestAppend_CausalParents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("writeNonOpCommit failed: %v", err)
 	}
-	_, err = store.Append(context.Background(), envComment, []string{nonOpHash.String()})
+	_, err = store.Append(context.Background(), envWaypoint, []string{nonOpHash.String()})
 	if !errors.Is(err, dag.ErrNonOpParent) {
 		t.Errorf("expected ErrNonOpParent, got %v", err)
 	}
@@ -248,7 +302,7 @@ func writeNonOpCommit(repo *git.Repository) (plumbing.Hash, error) {
 func TestAppend_ConcurrentRace(t *testing.T) {
 	dir, repo := initTestRepo(t)
 	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
-	store, err := dag.Open(dir, ident)
+	store, err := dag.Open(dir, ident, withVocabularies())
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
@@ -271,8 +325,8 @@ func TestAppend_ConcurrentRace(t *testing.T) {
 			defer wg.Done()
 			for i := 0; i < opsPerGoroutine; i++ {
 				env := codec.Envelope{
-					ObjectID:   fmt.Sprintf("rev-%d-%d", gid, i),
-					ObjectType: "review",
+					ObjectID:   fmt.Sprintf("w-%d-%d", gid, i),
+					ObjectType: "widget",
 					OpType:     "create",
 					OpVersion:  1,
 					Body:       json.RawMessage(`{"title":"Initial"}`),
@@ -299,7 +353,7 @@ func TestAppend_ConcurrentRace(t *testing.T) {
 	}
 
 	// Check final chain tip
-	refName := dag.LocalRefName(ident.WriterID, "review")
+	refName := dag.LocalRefName(ident.WriterID, "widget")
 	ref, err := repo.Reference(refName, true)
 	if err != nil {
 		t.Fatalf("Reference failed: %v", err)
@@ -343,14 +397,14 @@ func TestAppend_WithSigner(t *testing.T) {
 		return "-----BEGIN SSH SIGNATURE-----\nsignature-bytes\n-----END SSH SIGNATURE-----", nil
 	})
 
-	store, err := dag.Open(dir, ident, dag.WithSigner(signer))
+	store, err := dag.Open(dir, ident, withVocabularies(), dag.WithSigner(signer))
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
 
 	env := codec.Envelope{
-		ObjectID:   "rev-1",
-		ObjectType: "review",
+		ObjectID:   "w-1",
+		ObjectType: "widget",
 		OpType:     "create",
 		OpVersion:  1,
 		Body:       json.RawMessage(`{"title":"Initial"}`),
@@ -380,13 +434,13 @@ func TestAppend_WithSigner(t *testing.T) {
 func TestAppend_InvalidObjectType(t *testing.T) {
 	dir, _ := initTestRepo(t)
 	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
-	store, err := dag.Open(dir, ident)
+	store, err := dag.Open(dir, ident, withVocabularies())
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
 
 	env := codec.Envelope{
-		ObjectID:   "rev-1",
+		ObjectID:   "w-1",
 		ObjectType: "Invalid_Type!",
 		OpType:     "create",
 		OpVersion:  1,
@@ -433,7 +487,7 @@ func TestAppendResolvesVocabulariesOnceDespiteCASRetries(t *testing.T) {
 	var resolveCalls int32
 	resolve := func() (codec.Vocabularies, error) {
 		atomic.AddInt32(&resolveCalls, 1)
-		return nil, nil
+		return testVocabularies()
 	}
 
 	store, err := dag.OpenStorage(flaky, ident, dag.WithProducerVocabularies(resolve))
@@ -442,8 +496,8 @@ func TestAppendResolvesVocabulariesOnceDespiteCASRetries(t *testing.T) {
 	}
 
 	env := codec.Envelope{
-		ObjectID:   "rev-1",
-		ObjectType: "review",
+		ObjectID:   "w-1",
+		ObjectType: "widget",
 		OpType:     "create",
 		OpVersion:  1,
 		Body:       json.RawMessage(`{"title":"Initial"}`),
@@ -501,14 +555,14 @@ func TestAppendOfSchemaObjectTypeNeverConsultsTheResolver(t *testing.T) {
 		t.Fatalf("Append of a \"schema\" op must not depend on the log-sourced resolver, got: %v", err)
 	}
 
-	reviewEnv := codec.Envelope{
-		ObjectID:   "rev-1",
-		ObjectType: "review",
+	widgetEnv := codec.Envelope{
+		ObjectID:   "w-1",
+		ObjectType: "widget",
 		OpType:     "create",
 		OpVersion:  1,
 		Body:       json.RawMessage(`{"title":"Initial"}`),
 	}
-	if _, err := store.Append(context.Background(), reviewEnv, nil); !errors.Is(err, wantErr) {
+	if _, err := store.Append(context.Background(), widgetEnv, nil); !errors.Is(err, wantErr) {
 		t.Fatalf("expected the same failing resolver to block a non-\"schema\" append (control case), got: %v", err)
 	}
 }

@@ -5,7 +5,7 @@ description: >
   and unsigned commit.
 
 refs:
-  - name: refs/writ/alice/review
+  - name: refs/writ/alice/widget
     history:
       - commits:
           - id: bad-sig-wrong-key
@@ -13,8 +13,8 @@ refs:
             sign_as: bob
             timestamp: 2026-01-01T00:00:00Z
             op:
-              object_id: review-01
-              object_type: review
+              object_id: widget-01
+              object_type: widget
               op_type: create
               op_version: 1
               body:
@@ -26,8 +26,8 @@ refs:
             tamper: payload-byte
             timestamp: 2026-01-01T00:01:00Z
             op:
-              object_id: review-01
-              object_type: review
+              object_id: widget-01
+              object_type: widget
               op_type: update
               op_version: 1
               body:
@@ -39,8 +39,8 @@ refs:
             tamper: signature
             timestamp: 2026-01-01T00:02:00Z
             op:
-              object_id: review-01
-              object_type: review
+              object_id: widget-01
+              object_type: widget
               op_type: update
               op_version: 1
               body:
@@ -52,8 +52,8 @@ refs:
             unsigned: true
             timestamp: 2026-01-01T00:03:00Z
             op:
-              object_id: review-01
-              object_type: review
+              object_id: widget-01
+              object_type: widget
               op_type: update
               op_version: 1
               body:

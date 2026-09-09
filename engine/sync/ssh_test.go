@@ -72,7 +72,7 @@ func TestSSH_TransportViaShim(t *testing.T) {
 	}
 
 	// 2. Alice appends and pushes over SSH
-	aliceOpID := appendTestOp(t, aliceStore, "review", "rev-ssh", "create", map[string]any{"title": "SSH Review"})
+	aliceOpID := appendTestOp(t, aliceStore, "widget", "w-ssh", "create", map[string]any{"title": "SSH Widget"})
 	pushRes, err := aliceSync.Push(ctx, "origin")
 	if err != nil {
 		t.Fatalf("alice Push over SSH failed: %v", err)
@@ -83,7 +83,7 @@ func TestSSH_TransportViaShim(t *testing.T) {
 
 	// 3. Verify bare repo received the ref
 	bareRefs := snapshotAllRefs(t, bareRepo)
-	aliceRefName := "refs/writ/" + aliceID + "/review"
+	aliceRefName := "refs/writ/" + aliceID + "/widget"
 	if tip, ok := bareRefs[aliceRefName]; !ok || tip != aliceOpID {
 		t.Fatalf("bare repo missing %s, refs: %v", aliceRefName, bareRefs)
 	}
@@ -99,7 +99,7 @@ func TestSSH_TransportViaShim(t *testing.T) {
 
 	// 5. Verify Bob has Alice's remote tracking ref
 	bobRefs := snapshotAllRefs(t, bobRepo)
-	trackingRef := "refs/remotes/origin/writ/" + aliceID + "/review"
+	trackingRef := "refs/remotes/origin/writ/" + aliceID + "/widget"
 	if tip, ok := bobRefs[trackingRef]; !ok || tip != aliceOpID {
 		t.Fatalf("bob missing tracking ref %s = %s, refs: %v", trackingRef, aliceOpID, bobRefs)
 	}
@@ -109,8 +109,8 @@ func TestSSH_TransportViaShim(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bobStore.Enumerate failed: %v", err)
 	}
-	if len(enumRes.Ops["rev-ssh"]) != 1 {
-		t.Fatalf("expected rev-ssh op in Bob's enumeration: %v", enumRes.Ops)
+	if len(enumRes.Ops["w-ssh"]) != 1 {
+		t.Fatalf("expected w-ssh op in Bob's enumeration: %v", enumRes.Ops)
 	}
 }
 

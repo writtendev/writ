@@ -1,14 +1,247 @@
 {
   "objects": [
     {
-      "object_id": "c-anchor",
-      "object_type": "comment",
+      "object_id": "sch-acme",
+      "object_type": "schema",
       "object_state": {
-        "object_id": "c-anchor",
-        "object_type": "comment",
+        "object_id": "sch-acme",
+        "object_type": "schema",
         "total_order": [
           {
-            "commit": "61d636ae08107da9dac94c32f057bbbfcfd951ca",
+            "commit": "cea7e05e4c434be34c5d3691cf7267c15ec22ed6",
+            "t_star": 1767268800
+          },
+          {
+            "commit": "4b905e86a1675528335ec3f9e57f1ca8aa7d9398",
+            "t_star": 1767268800
+          },
+          {
+            "commit": "197e911ffe2733e1f34d338a68158e8e84a69ea0",
+            "t_star": 1767268800
+          },
+          {
+            "commit": "5e4245746a0fc0d393baac9a7b4dd15e88821542",
+            "t_star": 1767268800
+          },
+          {
+            "commit": "037ead14734b0c3d91c0abd811f7504c6da2c8e8",
+            "t_star": 1767268800
+          },
+          {
+            "commit": "97b036b57ea1b951ea356be7e6e763000e987c2f",
+            "t_star": 1767268800
+          },
+          {
+            "commit": "fb74a5fa818ee0450abec8303c56374bf4a072c6",
+            "t_star": 1767268800
+          },
+          {
+            "commit": "39f2305152091d0f35665b3fd92bc223ac5ee37e",
+            "t_star": 1767268800
+          },
+          {
+            "commit": "a525340e81861a4219f1f9f396f96295e2a93543",
+            "t_star": 1767268800
+          },
+          {
+            "commit": "269a01071fa79f42a60f936b8d212a9cbaf2c702",
+            "t_star": 1767268800
+          },
+          {
+            "commit": "a070c2d0716e83073e3d370dcf65979e51fae9fa",
+            "t_star": 1767268800
+          },
+          {
+            "commit": "123b9fd51ce42344f5d1078deb971c7ed02f8110",
+            "t_star": 1767268800
+          },
+          {
+            "commit": "2d91603e99196a1d01a71fdcad5cdf13f9b00715",
+            "t_star": 1767268800
+          },
+          {
+            "commit": "81a837d57665ec75549a97533aed48e39dd44e97",
+            "t_star": 1767268800
+          },
+          {
+            "commit": "8edabd4e15405b4e48f75b570e76fdf7d5d6fcf8",
+            "t_star": 1767268800
+          },
+          {
+            "commit": "e913e20474e50ffdef1fd0e511c82daf8db58880",
+            "t_star": 1767268800
+          },
+          {
+            "commit": "98e5bb06d59741c0e660dc33e290e47ee52907a1",
+            "t_star": 1767268800
+          },
+          {
+            "commit": "060b28fce15311a5925f5847bc4e862539512682",
+            "t_star": 1767268800
+          },
+          {
+            "commit": "fa7eb7814508e68fee72b30b48fa17e67392475c",
+            "t_star": 1767268800
+          }
+        ],
+        "state": {},
+        "unknown_ops": [
+          {
+            "commit": "cea7e05e4c434be34c5d3691cf7267c15ec22ed6",
+            "object_type": "schema",
+            "op_type": "create",
+            "op_version": 1
+          },
+          {
+            "commit": "4b905e86a1675528335ec3f9e57f1ca8aa7d9398",
+            "object_type": "schema",
+            "op_type": "define-type",
+            "op_version": 1
+          },
+          {
+            "commit": "197e911ffe2733e1f34d338a68158e8e84a69ea0",
+            "object_type": "schema",
+            "op_type": "define-op",
+            "op_version": 1
+          },
+          {
+            "commit": "5e4245746a0fc0d393baac9a7b4dd15e88821542",
+            "object_type": "schema",
+            "op_type": "define-field",
+            "op_version": 1
+          },
+          {
+            "commit": "037ead14734b0c3d91c0abd811f7504c6da2c8e8",
+            "object_type": "schema",
+            "op_type": "define-field",
+            "op_version": 1
+          },
+          {
+            "commit": "97b036b57ea1b951ea356be7e6e763000e987c2f",
+            "object_type": "schema",
+            "op_type": "define-field",
+            "op_version": 1
+          },
+          {
+            "commit": "fb74a5fa818ee0450abec8303c56374bf4a072c6",
+            "object_type": "schema",
+            "op_type": "define-field",
+            "op_version": 1
+          },
+          {
+            "commit": "39f2305152091d0f35665b3fd92bc223ac5ee37e",
+            "object_type": "schema",
+            "op_type": "define-type",
+            "op_version": 1
+          },
+          {
+            "commit": "a525340e81861a4219f1f9f396f96295e2a93543",
+            "object_type": "schema",
+            "op_type": "define-op",
+            "op_version": 1
+          },
+          {
+            "commit": "269a01071fa79f42a60f936b8d212a9cbaf2c702",
+            "object_type": "schema",
+            "op_type": "define-op",
+            "op_version": 1
+          },
+          {
+            "commit": "a070c2d0716e83073e3d370dcf65979e51fae9fa",
+            "object_type": "schema",
+            "op_type": "define-op",
+            "op_version": 1
+          },
+          {
+            "commit": "123b9fd51ce42344f5d1078deb971c7ed02f8110",
+            "object_type": "schema",
+            "op_type": "define-field",
+            "op_version": 1
+          },
+          {
+            "commit": "2d91603e99196a1d01a71fdcad5cdf13f9b00715",
+            "object_type": "schema",
+            "op_type": "define-field",
+            "op_version": 1
+          },
+          {
+            "commit": "81a837d57665ec75549a97533aed48e39dd44e97",
+            "object_type": "schema",
+            "op_type": "define-field",
+            "op_version": 1
+          },
+          {
+            "commit": "8edabd4e15405b4e48f75b570e76fdf7d5d6fcf8",
+            "object_type": "schema",
+            "op_type": "define-field",
+            "op_version": 1
+          },
+          {
+            "commit": "e913e20474e50ffdef1fd0e511c82daf8db58880",
+            "object_type": "schema",
+            "op_type": "define-field",
+            "op_version": 1
+          },
+          {
+            "commit": "98e5bb06d59741c0e660dc33e290e47ee52907a1",
+            "object_type": "schema",
+            "op_type": "define-field",
+            "op_version": 1
+          },
+          {
+            "commit": "060b28fce15311a5925f5847bc4e862539512682",
+            "object_type": "schema",
+            "op_type": "define-field",
+            "op_version": 1
+          },
+          {
+            "commit": "fa7eb7814508e68fee72b30b48fa17e67392475c",
+            "object_type": "schema",
+            "op_type": "define-field",
+            "op_version": 1
+          }
+        ]
+      }
+    },
+    {
+      "object_id": "w-canonical",
+      "object_type": "widget",
+      "object_state": {
+        "object_id": "w-canonical",
+        "object_type": "widget",
+        "total_order": [
+          {
+            "commit": "041fa44744bb45370907f754e840cf0324d1b308",
+            "t_star": 1767268860
+          },
+          {
+            "commit": "bbee92436f412bb3c226650d449102b87508c519",
+            "t_star": 1767269040
+          },
+          {
+            "commit": "b813ffd2cc6c8b08b15d639ad459306ceb41b834",
+            "t_star": 1767269100
+          }
+        ],
+        "state": {
+          "description": "Initial draft of addition",
+          "message": "Looks solid",
+          "revision": "1111111111111111111111111111111111111111",
+          "subject": "user:bob",
+          "title": "Add calculator functions (polished title)",
+          "verdict": "yes"
+        }
+      }
+    },
+    {
+      "object_id": "wp-anchor",
+      "object_type": "waypoint",
+      "object_state": {
+        "object_id": "wp-anchor",
+        "object_type": "waypoint",
+        "total_order": [
+          {
+            "commit": "7c30f77cb5efa5a4f3ad2d516ec40d13c2b980dc",
             "t_star": 1767268920
           }
         ],
@@ -37,102 +270,34 @@
             },
             "version": 1
           },
-          "subject": {
-            "object_id": "rev-canonical",
-            "object_type": "review"
-          },
+          "subject": "w-canonical",
           "text": "Consider adding multiplication support as well."
         }
       }
     },
     {
-      "object_id": "c-reply",
-      "object_type": "comment",
+      "object_id": "wp-reply",
+      "object_type": "waypoint",
       "object_state": {
-        "object_id": "c-reply",
-        "object_type": "comment",
+        "object_id": "wp-reply",
+        "object_type": "waypoint",
         "total_order": [
           {
-            "commit": "e9c29828f1f97261e0e42894b445288b4b3f06e9",
+            "commit": "c0aab647d59d7762137511f3e64eca946c368451",
             "t_star": 1767268980
           }
         ],
         "state": {
-          "in_reply_to": "c-anchor",
-          "subject": {
-            "object_id": "rev-canonical",
-            "object_type": "review"
-          },
+          "in_reply_to": "wp-anchor",
+          "subject": "w-canonical",
           "text": "Great idea, will follow up!"
-        }
-      }
-    },
-    {
-      "object_id": "rev-canonical",
-      "object_type": "review",
-      "object_state": {
-        "object_id": "rev-canonical",
-        "object_type": "review",
-        "total_order": [
-          {
-            "commit": "ca7a67f10b2f960f6a575a14fc266eb1a958df31",
-            "t_star": 1767268860
-          },
-          {
-            "commit": "a92a532fcb1d9f6a0d67a07e27f30d33d3fcc079",
-            "t_star": 1767269040
-          },
-          {
-            "commit": "d43c663bfc9fc518735435a4aa86f5c476374bf5",
-            "t_star": 1767269100
-          }
-        ],
-        "state": {
-          "description": "Initial draft of addition",
-          "message": [
-            {
-              "key": [
-                "user:bob",
-                "1111111111111111111111111111111111111111"
-              ],
-              "value": "Looks solid"
-            }
-          ],
-          "revision": [
-            {
-              "key": [
-                "user:bob",
-                "1111111111111111111111111111111111111111"
-              ],
-              "value": "1111111111111111111111111111111111111111"
-            }
-          ],
-          "subject": [
-            {
-              "key": [
-                "user:bob",
-                "1111111111111111111111111111111111111111"
-              ],
-              "value": "user:bob"
-            }
-          ],
-          "title": "Add calculator functions (polished title)",
-          "verdict": [
-            {
-              "key": [
-                "user:bob",
-                "1111111111111111111111111111111111111111"
-              ],
-              "value": "approve"
-            }
-          ]
         }
       }
     }
   ],
   "resolutions": [
     {
-      "comment_id": "c-anchor",
+      "object_id": "wp-anchor",
       "anchor": {
         "version": 1,
         "new": {

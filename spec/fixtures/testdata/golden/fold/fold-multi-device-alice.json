@@ -1,26 +1,26 @@
 {
   "objects": [
     {
-      "object_id": "r-multi-device",
-      "object_type": "review",
+      "object_id": "w-multi-device",
+      "object_type": "widget",
       "total_order": [
         {
-          "commit": "321c525ac182cb3184c0762756e3b456084c084b",
+          "commit": "48139253c4796fa8ddb70f89a708ca4025b24c32",
           "label": "alice-init-create",
           "t_star": 1767225600
         },
         {
-          "commit": "40169c558f452eb05cce16cf76fab8d904be2349",
+          "commit": "3c4c7e4dd7452f4895ab85b49a57516906a9d628",
           "label": "alice-desktop-edit",
           "t_star": 1767225660
         },
         {
-          "commit": "b94c377802da3f595ec998d97e0b886545d405f2",
+          "commit": "fad1dd2fb9ddcec1138d636ad309afc21d94966c",
           "label": "alice-laptop-edit",
           "t_star": 1767225690
         },
         {
-          "commit": "ee88f24407830923cbf8da9f43929fa6d22aed45",
+          "commit": "7370b6a0e2a57a4017d35ed8ee8d9ed2bb3e330d",
           "label": "alice-laptop-sync",
           "t_star": 1767225720
         }

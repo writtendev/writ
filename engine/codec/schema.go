@@ -32,8 +32,10 @@ var supportSchemaFiles = []string{
 }
 
 // vocabularySchemaFiles maps an object type to the vocabulary schema that
-// governs ops on it. It is the producer's registry: every object type writ
-// can emit MUST appear here, or ops of that type are signed against nothing.
+// governs ops on it. It is the producer's registry, and it holds exactly one
+// entry: `schema` is the only object type writ hard-codes, and every other
+// type is declared by a schema object written into the log
+// (spec/schema-ops.md §Bootstrap).
 //
 // The map is exhaustive over the vocabularies shipped in spec/schemas/, and
 // TestEveryShippedVocabularyIsValidated fails when a schema file is added
@@ -41,34 +43,16 @@ var supportSchemaFiles = []string{
 // up" cannot recur silently. That is what lets a lookup miss below mean one
 // thing only: an object type this implementation has never heard of.
 var vocabularySchemaFiles = map[string]string{
-	"review":         "review-ops.schema.json",
-	"comment":        "comment.schema.json",
-	"issue":          "issue-ops.schema.json",
-	"project":        "project-ops.schema.json",
-	"cycle":          "cycle-ops.schema.json",
-	"workflow-state": "workflow-state-ops.schema.json",
-	"label":          "label-ops.schema.json",
-	"document":       "document-ops.schema.json",
-	"section":        "document-ops.schema.json",
-	"settings":       "settings-ops.schema.json",
-	"schema":         "schema-ops.schema.json",
+	"schema": "schema-ops.schema.json",
 }
 
 // fieldRuleVocabularies maps an object type to the field-rules.json directory
-// (spec.FieldRule.Vocabulary) that declares its value types. It is the
-// inverse of spec.VocabularyObjectTypes() (directory -> object type), derived
-// from it rather than kept as a second, independently hand-maintained copy
-// that could drift: "comment" ships as testdata/comments/, "issue" as
-// testdata/issue-ops/, "review" as testdata/review-ops/; the rest agree.
-var fieldRuleVocabularies = invertVocabularyObjectTypes()
-
-func invertVocabularyObjectTypes() map[string]string {
-	byDir := spec.VocabularyObjectTypes()
-	out := make(map[string]string, len(byDir))
-	for dir, objectType := range byDir {
-		out[objectType] = dir
-	}
-	return out
+// (spec.FieldRule.Vocabulary) that declares its value types. Like
+// vocabularySchemaFiles above it holds exactly one entry, for the same
+// reason: the bootstrap table is the one rule table that never comes from the
+// log, and it ships as spec/testdata/schema-ops/field-rules.json.
+var fieldRuleVocabularies = map[string]string{
+	"schema": "schema-ops",
 }
 
 // fieldRuleKey groups the value-typed rules for one (vocabulary, op_type,
@@ -102,14 +86,14 @@ var valueTypeRulesOnce = sync.OnceValue(func() map[fieldRuleKey][]spec.FieldRule
 // it. It is the second half of the producer's registry, and it is what rule 4
 // of spec/op-envelope.md §Producer validation is enforced from.
 //
-// It cannot be read out of the vocabulary schemas, because the schemas
-// deliberately do not say it: all six gate their body rules on op_version 1, so
-// an op carrying an unknown op_type or a future op_version is a valid instance
-// of them. That is what a reader needs (spec/forward-compatibility.md) and it
-// is exactly why schema validation alone cannot catch a producer's typo — an
-// op_type of "aproval" passes review-ops.schema.json with its body unexamined.
-// TestProducerOpTypesMatchShippedVocabularies keeps this table in agreement
-// with the op_type branches the schemas do carry.
+// It cannot be read out of the vocabulary schema, because the schema
+// deliberately does not say it: it gates its body rules on op_version 1, so an
+// op carrying an unknown op_type or a future op_version is a valid instance of
+// it. That is what a reader needs (spec/forward-compatibility.md) and it is
+// exactly why schema validation alone cannot catch a producer's typo — an
+// op_type of "define-feild" passes schema-ops.schema.json with its body
+// unexamined. TestProducerOpTypesMatchShippedVocabularies keeps this table in
+// agreement with the op_type branches the schema does carry.
 //
 // An object type registered in vocabularySchemaFiles but missing here refuses
 // every op of that type. That is deliberate: a producer that cannot say which
@@ -117,22 +101,12 @@ var valueTypeRulesOnce = sync.OnceValue(func() map[fieldRuleKey][]spec.FieldRule
 // closed on the write path costs an error message
 // (spec/op-envelope.md §Producer validation).
 var vocabularyOpTypes = map[string][]string{
-	"review":         {"approval", "assign", "ci-status", "create", "label", "link", "revision", "set-status", "update"},
-	"comment":        {"create", "delete", "edit", "resolve"},
-	"issue":          {"assign", "create", "label", "link", "set-state", "update"},
-	"project":        {"add-issue", "create", "remove-issue", "set-status", "update"},
-	"cycle":          {"add-issue", "create", "remove-issue", "set-dates", "update"},
-	"workflow-state": {"create", "update"},
-	"label":          {"create", "update"},
-	"document":       {"create", "label", "link", "update"},
-	"section":        {"create", "delete", "edit", "move", "update"},
-	"settings":       {"set"},
-	"schema":         {"create", "define-field", "define-op", "define-type", "deprecate-field", "deprecate-type"},
+	"schema": {"create", "define-field", "define-op", "define-type", "deprecate-field", "deprecate-type"},
 }
 
 // vocabularyOpVersion is the op version this build defines for every object
-// type: all six shipped vocabularies are at v1 and gate their body rules on it.
-// When one of them ships a v2, this becomes a per-object-type set;
+// type it hard-codes: the shipped `schema` vocabulary is at v1 and gates its
+// body rules on it. When it ships a v2, this becomes a per-object-type set;
 // TestShippedVocabulariesGateOnTheProducedOpVersion fails here first, so the
 // change cannot be missed.
 const vocabularyOpVersion int64 = 1
@@ -218,9 +192,9 @@ type OpVersionKey struct {
 // Vocabulary is one object type's producer-facing declaration, resolved
 // from the schema objects folded from a repo's log
 // (writ.VocabulariesFromSchemas). It is what the generic validator checks
-// tier 2 of spec/op-envelope.md's five-tier producer precedence against,
-// in place of the embedded per-vocabulary JSON Schema + vocabularyOpTypes
-// pair tier 3 uses.
+// tier 2 of spec/op-envelope.md's four-tier producer precedence against,
+// in place of the shipped JSON Schema + vocabularyOpTypes pair tier 1
+// uses.
 //
 // Declared and Contested are never both true: a bare object_type bound by
 // two or more schema objects installs no rules at all
@@ -252,26 +226,26 @@ type Vocabulary struct {
 	// (op_type, op_version), regardless of whether it carries a
 	// value_type: rule 3 refuses a body key with no declared rule at all
 	// — there is no per-vocabulary JSON Schema bounding "known fields"
-	// for a log-declared type the way there is for an embedded one — and
+	// for a log-declared type the way there is for the bootstrap one — and
 	// separately validates value_type on the rules that declare one.
 	Fields map[OpVersionKey][]spec.FieldRule
 }
 
 // Vocabularies maps object type to its resolved Vocabulary. It is the
 // log-sourced input BuildCommit and ValidateBody take alongside the
-// engine's built-in bootstrap table for "schema" and the still-embedded
-// SDLC vocabularies (spec/op-envelope.md §Producer validation).
+// engine's built-in bootstrap table for "schema"
+// (spec/op-envelope.md §Producer validation).
 //
 // A nil Vocabularies is legal and means "the log declares nothing" — what
 // a bare dag.Store, or engine/scenario's test runner, can honestly know
 // without resolving anything. Looking up any key in a nil map yields the
 // zero Vocabulary and ok == false, so it falls through to tier 3 (the
-// embedded fallback) or tier 5 (refusal) exactly as an object type simply
+// contested carve-out) or tier 4 (refusal) exactly as an object type simply
 // absent from a non-nil Vocabularies would.
 type Vocabularies map[string]Vocabulary
 
 // ValidateBody checks an envelope against the vocabulary that applies to
-// its object type under the five-tier precedence validateProducerOp
+// its object type under the four-tier precedence validateProducerOp
 // implements (spec/op-envelope.md §Producer validation): its op_type and
 // op_version are ones that tier defines (rule 4) and its payload satisfies
 // that tier's field rules (rule 3). BuildCommit calls it, so no op writ
@@ -279,7 +253,7 @@ type Vocabularies map[string]Vocabulary
 //
 // vocabularies is the log-sourced declarations resolved once per Append
 // (engine/dag's WithProducerVocabularies); nil means the log declares
-// nothing, which still lets tier 3 (the embedded fallback) or tier 5
+// nothing, which still lets tier 3 (the contested carve-out) or tier 4
 // (refusal) apply.
 //
 // The rules bind producers only. Nothing on the read path calls this: an op
@@ -300,7 +274,7 @@ func ValidateBody(env Envelope, vocabularies Vocabularies) error {
 
 // validateProducerOp validates an envelope whose payload bytes are already
 // encoded, so the append path does not canonicalize the same envelope
-// twice. It implements the five-tier precedence from spec/op-envelope.md
+// twice. It implements the four-tier precedence from spec/op-envelope.md
 // §Producer validation, exactly one tier of which ever applies to a given
 // op:
 //
@@ -312,20 +286,18 @@ func ValidateBody(env Envelope, vocabularies Vocabularies) error {
 //     it regardless.
 //  2. Otherwise, vocabularies declares (and does not contest) object_type
 //     -> the log-sourced declaration, and only it.
-//  3. Otherwise, this build still embeds a vocabulary for object_type ->
-//     today's path, unchanged; deleted outright by WRIT-194.
-//  4. Otherwise, object_type is contested (vocabularies has an entry with
+//  3. Otherwise, object_type is contested (vocabularies has an entry with
 //     Contested set) -> permit the write, unvalidated; deleted outright
 //     by WRIT-199.
-//  5. Otherwise -> refuse, naming object_type.
+//  4. Otherwise -> refuse, naming object_type.
 func validateProducerOp(env Envelope, raw []byte, vocabularies Vocabularies) error {
 	if env.ObjectType == "schema" {
-		return validateAgainstEmbedded(env, raw)
+		return validateAgainstBootstrap(env, raw)
 	}
 
 	// Indexing a nil or non-matching map yields the zero Vocabulary, whose
 	// Declared and Contested are both false — the same "nothing resolved"
-	// state tiers 3 and 5 already fall through on, so there is no separate
+	// state tier 4 already falls through on, so there is no separate
 	// "found" bit to track. Declared and Contested are never both true
 	// (see Vocabulary's doc comment), so checking each in turn is
 	// exhaustive.
@@ -333,11 +305,8 @@ func validateProducerOp(env Envelope, raw []byte, vocabularies Vocabularies) err
 	if voc.Declared {
 		return validateAgainstLogVocabulary(env, raw, voc)
 	}
-	if _, embedded := schemasOnce().vocab[env.ObjectType]; embedded {
-		return validateAgainstEmbedded(env, raw)
-	}
 	if voc.Contested {
-		// Tier 4: the ruling's carve-out (spec/op-envelope.md §Producer
+		// Tier 3: the ruling's carve-out (spec/op-envelope.md §Producer
 		// validation). Nothing to check here: rules 1 and 2 of the
 		// envelope schema and canonical-encoding check already ran in
 		// BuildCommit before this was ever reached, and no conforming
@@ -346,16 +315,14 @@ func validateProducerOp(env Envelope, raw []byte, vocabularies Vocabularies) err
 		// and that trade is not this function's call to make.
 		return nil
 	}
-	return fmt.Errorf("codec: object_type %q is not declared by any schema in the log, and this build embeds no vocabulary for it: spec/op-envelope.md §Producer validation rule 3/4", env.ObjectType)
+	return fmt.Errorf("codec: object_type %q is not declared by any schema in the log: spec/op-envelope.md §Producer validation rule 3/4", env.ObjectType)
 }
 
-// validateAgainstEmbedded is tiers 1 and 3: the object type is validated
-// against writ's own built-in tables (vocabularySchemaFiles,
-// vocabularyOpTypes, fieldRuleVocabularies) exactly as every producer
-// check did before this ticket. Untouched so WRIT-194 can delete the
-// tier-3 call site (and, eventually, these tables) without touching this
-// function's body.
-func validateAgainstEmbedded(env Envelope, raw []byte) error {
+// validateAgainstBootstrap is tier 1: `schema` ops are validated against
+// writ's own built-in tables (vocabularySchemaFiles, vocabularyOpTypes,
+// fieldRuleVocabularies), which is the bootstrap the log cannot supply
+// because a schema object has to exist before anything else can be typed.
+func validateAgainstBootstrap(env Envelope, raw []byte) error {
 	sch, ok := schemasOnce().vocab[env.ObjectType]
 	if !ok {
 		return nil
@@ -371,7 +338,7 @@ func validateAgainstEmbedded(env Envelope, raw []byte) error {
 
 // validateAgainstLogVocabulary is tier 2: rule 4 (op_type/op_version
 // declared) and rule 3 (every body field declared, and value-typed ones
-// valid) checked against a log-sourced Vocabulary rather than an embedded
+// valid) checked against a log-sourced Vocabulary rather than a shipped
 // JSON Schema. There is no per-vocabulary schema bounding "known fields"
 // for a consumer-declared type, so — unlike validateValueTypes below — an
 // undeclared field is itself a rejection, not a silent skip.
@@ -427,8 +394,8 @@ func validateValueTypes(env Envelope, raw []byte) error {
 // declared field-rule set for one (op_type, op_version). A field whose
 // rule declares a value_type must hold a value conforming to it
 // (spec/value-types.md); a field with no declared rule at all is skipped
-// when strict is false (the embedded tier, where a per-vocabulary JSON
-// Schema already bounds which fields are known and validateValueTypes'
+// when strict is false (the bootstrap tier, where the shipped JSON Schema
+// already bounds which fields are known and validateValueTypes'
 // rules are only the value-typed subset) and rejected when strict is true
 // (the log-sourced tier, where nothing else bounds "known fields" —
 // validateAgainstLogVocabulary's rules are every declared field).

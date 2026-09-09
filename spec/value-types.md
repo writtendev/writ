@@ -21,8 +21,8 @@ constraints, no cross-field validation, no custom types (WRIT-184 decision 6).
 | `int` | JSON integer | bounded to ±2⁵³−1 per `spec/canonicalization.md` |
 | `number` | JSON number | bounded to ±2⁵³−1 per `spec/canonicalization.md`; unlike `int`, a fractional value is legal |
 | `bool` | JSON boolean | |
-| `timestamp` | RFC 3339 date-time string | exactly the shipped `$defs/timestamp` pattern (`cycle-ops.schema.json`, `review-ops.schema.json`) |
-| `enum` | JSON string | parameterised by a declared `enum` value list; replaces the per-vocabulary schema-enum scraping `spec/vocabulary.go` used to do |
+| `timestamp` | RFC 3339 date-time string | exactly the `$defs/timestamp` pattern of `schemas/value-types.schema.json` |
+| `enum` | JSON string | parameterised by a declared `enum` value list |
 | `person-ref` | person identifier | per `spec/identifiers.md`; normalization is intrinsic to the type (see §Normalization below), not a separate rule attribute |
 | `object-ref` | `<object-id>` or `<repo-id>#<object-id>` | per `spec/identifiers.md`; an opaque pointer, no resolution |
 | `git-oid` | hex object id (40 or 64 characters) | git-shaped, so it stays in writ (`ARCHITECTURE.md` §Schema layer) |
@@ -33,8 +33,8 @@ constraints, no cross-field validation, no custom types (WRIT-184 decision 6).
 restructuring (WRIT-184): they are not merge strategies, but they are
 git-shaped, and writ is signed mergeable state in git. Keeping them as
 ordinary catalogue value types — with ordinary validators, no special-casing —
-is what makes code review expressible as a schema rather than something writ
-hard-codes.
+is what lets a consumer's schema declare a type that points into the
+repository's own history, without writ hard-coding one.
 
 ## `spec/schemas/value-types.schema.json`
 
@@ -43,8 +43,7 @@ encoding is already specified elsewhere, the entry `$ref`s that schema rather
 than restating it: `person-ref` and `object-ref` `$ref` `identifiers.schema.json`
 (`$defs/person-id` and `$defs/reference`), `position` `$ref`s
 `ordering.schema.json`, and `anchor` `$ref`s `anchor.schema.json` in full.
-`git-oid`'s pattern, previously duplicated as `review-ops.schema.json`'s local
-`$defs/oid`, now lives here; `review-ops.schema.json` `$ref`s it back.
+`git-oid` has no schema of its own to reference, so its pattern is stated here.
 
 `enum`'s schema entry constrains only the JSON type (a string): which strings
 are legal is declared per rule by the rule table's own `enum` property, not
@@ -71,12 +70,9 @@ default merge behaviors for undeclared fields"). This is not a compatibility
 shim tolerating an old form — every rule table here is new — it is the
 existing idiom applied to the second axis.
 
-Exactly five rules across the eleven shipped `field-rules.json` tables are
-untyped, and each is named so the exception cannot quietly spread:
+Exactly four rules in the shipped `field-rules.json` table are untyped, and
+each is named so the exception cannot quietly spread:
 
-- `comments`' `create.subject`, a two-field record (`{object_type,
-  object_id}`, `schemas/comment.schema.json` `$defs/subject`) folded whole
-  under `create-once`.
 - `schema-ops`' `define-field.enum`, `.key`, `.key_types`, and `.lattice`
   (`spec/schema-ops.md`): each holds an array or an object — the shape of a
   *rule table's own* `enum`, `key`, `key_types`, or `lattice` attribute
@@ -92,13 +88,12 @@ in this named set fails it by name.
 ## Orthogonality
 
 Value types and merge strategies are **orthogonal**: any (value type,
-strategy) pair that typechecks is legal, whether or not the shipped corpus
+strategy) pair that typechecks is legal, whether or not any particular schema
 happens to use it. `anchor` under `set-union`, `position` under `keyed-lww`,
-`git-oid` under `append` — all typecheck. `git-oid` is already used under
-`append` (`review.revision.base`/`head`), `lww` (`review.set-status.merge_commit`)
-and `keyed-lww` (`review.approval.revision`, `review.ci-status.revision`),
-which demonstrates the orthogonality claim from the shipped corpus rather than
-merely asserting it.
+`git-oid` under `append` — all typecheck.
+[`testdata/schema-rules/matrix.json`](testdata/schema-rules/matrix.json) walks
+the whole grid, pinning an accept or a stated rejection for every pair, which
+enforces the orthogonality claim rather than merely asserting it.
 
 Producer validation (`spec.ValidateFieldRule`) rejects five rule shapes as
 never able to typecheck, because the strategy's accumulator constrains the
@@ -118,13 +113,10 @@ value:
    non-`enum` `value_type`.
 5. `max_length` declared on a `value_type` other than `string`/`text`.
 
-The same field name is not bound to the same `value_type` across vocabularies.
-`link.relation` is `enum` (`[fixes, relates, none]`) in `review` and `issue`,
-but `string` — unconstrained — in `document`: `document`'s underlying schema
-field carries no `enum` constraint, and typing it `enum` here would be a
-producer-behaviour change this ticket must not make. This is a known
-inconsistency, not an oversight; `WRIT-194` resolves it when the SDLC
-vocabulary is deleted from the spec.
+The same field name carries no implied value type: two types that both
+declare a field called `relation` may type it `enum` and `string`
+respectively, and nothing reconciles them. A value type is a property of the
+rule that declares it, never of the name it happens to govern.
 
 ## Normalization is intrinsic to `person-ref`
 
@@ -144,18 +136,16 @@ value-type shape directly:
 
 A reducer MUST NOT normalize a person identifier for keying and then store it
 verbatim: where a rule's `value_type` is `person-ref` and one of its
-`key_types` entries is also `person-ref` for the same conceptual value (such
-as `review.approval.subject`), the folded entry's key component and its value
-are the same normalized string. This is unchanged from `spec/fold.md` §5's
-prior "declarative normalization attributes" text; only the source of the
-declaration moved.
+`key_types` entries is also `person-ref` for the same conceptual value (an
+`approval` op's `subject`, say), the folded entry's key component and its
+value are the same normalized string.
 
 ## Producer-side and reader-tolerant
 
 Matching `spec/op-envelope.md`'s existing split: a producer MUST reject a
 value that fails its declared `value_type` (producer validation rule 3, now
-driven off `value_type` as well as the per-vocabulary JSON schema). A reader
-MUST tolerate a value it cannot interpret, surfacing it through the existing
+driven off `value_type` as well as the governing schema). A reader MUST
+tolerate a value it cannot interpret, surfacing it through the existing
 `UnknownOp` channel (`spec/forward-compatibility.md`) rather than dropping the
 operation carrying it. Nothing on the read path calls the value-type
 validator: `engine/internal/value` is a producer-side guard, exactly as
@@ -165,7 +155,7 @@ For a type a repository's own `schema` object declares (WRIT-188,
 `spec/op-envelope.md`'s producer precedence tier 2), the `value_type` a
 field's value is checked against comes from that schema object — the
 folded `field_value_type` register a `define-field` op wrote — not from a
-per-vocabulary JSON schema in `spec/schemas/`: there is no such file for a
+per-type JSON schema in `spec/schemas/`: there is no such file for a
 consumer-declared type, and there never will be.
 
 ## Length units

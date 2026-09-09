@@ -1,31 +1,173 @@
 name: fold-empty-set-items
 description: >
-  Empty items in set-valued op bodies, on a code review object from two writers
-  (Alice and Bob). Op bodies are not schema-validated on the read/fold path, so a
-  non-conforming writer can emit an empty-string element in a label or assign
-  body. Every reducer MUST drop such elements before they enter the OR-set,
-  whatever the op type (spec/fold.md §5.3, §5.4) — the generic fold driver, the
-  reference fold, and the typed FoldReview reducer must agree. Object
-  r-empty-items mixes empty and real items on both the add and remove sides; the
-  empty label item is only ever removed concurrently (Bob), never causally, so
-  add-wins would keep it present in a reducer that failed to drop it. It also
-  pins the negative case: the whitespace-only label item "  " is KEPT verbatim,
-  because label items are not normalized before the emptiness test, while the
-  whitespace-only assign item is normalized to empty and therefore dropped. A
-  reducer that trimmed label items would fold the two identically and fail here.
-  Object r-empty-only carries nothing but empty items, pinning that the field is
+  Empty items in set-valued op bodies, on a widget object from two writers
+  (Alice and Bob), under a schema declared in the repository's own log. Op
+  bodies are not schema-validated on the read/fold path, so a non-conforming
+  writer can emit an empty-string element in a tag or assign body. Every
+  reducer MUST drop such elements before they enter the OR-set, whatever the
+  op type (spec/fold.md §5.3, §5.4) — the generic fold driver and the
+  reference fold must agree. Object w-empty-items mixes empty and real items
+  on both the add and remove sides; the empty tag item is only ever removed
+  concurrently (Bob), never causally, so add-wins would keep it present in a
+  reducer that failed to drop it. It also pins the negative case: the
+  whitespace-only tag item "  " is KEPT verbatim, because the tag rules
+  declare value_type object-ref and object-ref items are not normalized before
+  the emptiness test, while the whitespace-only assign item is person-ref, is
+  normalized to empty, and is therefore dropped. A reducer that trimmed
+  object-ref items would fold the two identically and fail here. Object
+  w-empty-only carries nothing but empty items, pinning that the field is
   still written and folds to the empty set in the generic state map.
 
 refs:
-  - name: refs/writ/0123456789abcdef/review
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: schema-create
+            author: alice
+            timestamp: 2025-12-01T00:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: schema-define-type
+            parents: [schema-create]
+            author: alice
+            timestamp: 2025-12-01T00:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "widget"
+            expect: accept
+
+          - id: schema-define-title
+            parents: [schema-define-type]
+            author: alice
+            timestamp: 2025-12-01T00:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: schema-define-description
+            parents: [schema-define-title]
+            author: alice
+            timestamp: 2025-12-01T00:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "create"
+                op_version: "1"
+                field: "description"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: schema-define-tag-add
+            parents: [schema-define-description]
+            author: alice
+            timestamp: 2025-12-01T00:04:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "tag"
+                op_version: "1"
+                field: "add"
+                target: "tags"
+                value_type: "object-ref"
+                strategy: "set-observed-remove"
+            expect: accept
+
+          - id: schema-define-tag-remove
+            parents: [schema-define-tag-add]
+            author: alice
+            timestamp: 2025-12-01T00:05:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "tag"
+                op_version: "1"
+                field: "remove"
+                target: "tags"
+                value_type: "object-ref"
+                strategy: "set-observed-remove"
+            expect: accept
+
+          - id: schema-define-assign-add
+            parents: [schema-define-tag-remove]
+            author: alice
+            timestamp: 2025-12-01T00:06:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "assign"
+                op_version: "1"
+                field: "add"
+                target: "assignees"
+                value_type: "person-ref"
+                strategy: "set-observed-remove"
+            expect: accept
+
+          - id: schema-define-assign-remove
+            parents: [schema-define-assign-add]
+            author: alice
+            timestamp: 2025-12-01T00:07:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "widget"
+                op_type: "assign"
+                op_version: "1"
+                field: "remove"
+                target: "assignees"
+                value_type: "person-ref"
+                strategy: "set-observed-remove"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/widget
     history:
       - commits:
           - id: alice-create
             author: alice
             timestamp: 2026-02-01T00:00:00Z
             op:
-              object_id: r-empty-items
-              object_type: review
+              object_id: w-empty-items
+              object_type: widget
               op_type: create
               op_version: 1
               body:
@@ -33,52 +175,52 @@ refs:
                 description: "Empty elements must not enter set-valued folds"
             expect: accept
 
-          - id: alice-label-with-empty
+          - id: alice-tag-with-empty
             parents: [alice-create]
             author: alice
             timestamp: 2026-02-01T00:01:00Z
             op:
-              object_id: r-empty-items
-              object_type: review
-              op_type: label
+              object_id: w-empty-items
+              object_type: widget
+              op_type: tag
               op_version: 1
               body:
                 add: ["", "  ", "area/fold", "wip"]
             expect: accept
 
           - id: alice-assign-with-empty
-            parents: [alice-label-with-empty]
+            parents: [alice-tag-with-empty]
             author: alice
             timestamp: 2026-02-01T00:02:00Z
             op:
-              object_id: r-empty-items
-              object_type: review
+              object_id: w-empty-items
+              object_type: widget
               op_type: assign
               op_version: 1
               body:
                 add: ["   ", "email:Alice@Example.test"]
             expect: accept
 
-          - id: alice-unlabel-with-empty
+          - id: alice-untag-with-empty
             parents: [alice-assign-with-empty]
             author: alice
             timestamp: 2026-02-01T00:03:00Z
             op:
-              object_id: r-empty-items
-              object_type: review
-              op_type: label
+              object_id: w-empty-items
+              object_type: widget
+              op_type: tag
               op_version: 1
               body:
                 remove: ["wip"]
             expect: accept
 
           - id: alice-create-empty-only
-            parents: [alice-unlabel-with-empty]
+            parents: [alice-untag-with-empty]
             author: alice
             timestamp: 2026-02-01T00:04:00Z
             op:
-              object_id: r-empty-only
-              object_type: review
+              object_id: w-empty-only
+              object_type: widget
               op_type: create
               op_version: 1
               body:
@@ -86,30 +228,30 @@ refs:
                 description: "Every set element is empty and every one is dropped"
             expect: accept
 
-          - id: alice-label-empty-only
+          - id: alice-tag-empty-only
             parents: [alice-create-empty-only]
             author: alice
             timestamp: 2026-02-01T00:05:00Z
             op:
-              object_id: r-empty-only
-              object_type: review
-              op_type: label
+              object_id: w-empty-only
+              object_type: widget
+              op_type: tag
               op_version: 1
               body:
                 add: [""]
             expect: accept
 
-  - name: refs/writ/fedcba9876543210/review
+  - name: refs/writ/fedcba9876543210/widget
     history:
       - commits:
-          - id: bob-concurrent-label
+          - id: bob-concurrent-tag
             parents: [alice-create]
             author: bob
             timestamp: 2026-02-01T00:02:30Z
             op:
-              object_id: r-empty-items
-              object_type: review
-              op_type: label
+              object_id: w-empty-items
+              object_type: widget
+              op_type: tag
               op_version: 1
               body:
                 remove: [""]

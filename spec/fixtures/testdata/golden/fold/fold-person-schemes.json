@@ -1,47 +1,47 @@
 {
   "objects": [
     {
-      "object_id": "r-person-schemes",
-      "object_type": "review",
+      "object_id": "w-person-schemes",
+      "object_type": "widget",
       "total_order": [
         {
-          "commit": "9aecae7a2e34d7bf0e1c1f4c51f1bd916677c6dd",
+          "commit": "bef8b0fe09528d900164428d5c392add3e023ff7",
           "label": "alice-create",
           "t_star": 1772323200
         },
         {
-          "commit": "cb64206fea404a527a7b760df2ce32222514fd99",
-          "label": "alice-revision",
+          "commit": "3380b427c85c033e6700a1badd1f4a7f76fabba0",
+          "label": "alice-log",
           "t_star": 1772323260
         },
         {
-          "commit": "3876d42a2c932db7a66c559e2e13e3acd05439d7",
+          "commit": "a276434c6c8888cc8e2e3eb3383c2e69fd3e7dac",
           "label": "alice-assign-cross-scheme",
           "t_star": 1772323320
         },
         {
-          "commit": "5f5b0aa6d2150cf4836d08406ddfef1774dd361b",
+          "commit": "e5c41a5dc7dabe13704a1421210cc58313bdfb49",
           "label": "alice-assign-padded-value",
           "t_star": 1772323350
         },
         {
-          "commit": "a9fd733e841bad287aa91e96c5d8e06358f694d7",
+          "commit": "8b02b7cb9b316bd33784f01e18a09e8fe91f6fa3",
           "label": "alice-remove-user-scheme",
           "t_star": 1772323380
         },
         {
-          "commit": "a0788e2cd6352d8c1c5e8b20483982f03af74a0d",
-          "label": "alice-approval-quoted-local-part",
+          "commit": "d043ee386fbb830b235a3638d6fedb0c6e6ae24f",
+          "label": "alice-vote-quoted-local-part",
           "t_star": 1772323440
         },
         {
-          "commit": "13f6b4f1a66eb2abc6bf346a0f3e258d98675adc",
-          "label": "bob-approval-user-scheme",
+          "commit": "9ff192de9ca00c1a0fffc46c4e05b5ca511f1531",
+          "label": "bob-vote-user-scheme",
           "t_star": 1772323500
         },
         {
-          "commit": "cd7ecc7a05e8b61eb5e7785099672d34ba87db26",
-          "label": "bob-approval-email-scheme",
+          "commit": "fe98d72a7f2937f4ee09081afccd2384f737e3df",
+          "label": "bob-vote-email-scheme",
           "t_star": 1772323560
         }
       ],
@@ -55,16 +55,39 @@
         "base": [
           "0000000000000000000000000000000000000001"
         ],
-        "head": [
-          "0000000000000000000000000000000000000002"
-        ],
-        "message": [
+        "choice": [
           {
             "key": [
               "email:\"a:b\"@example.com",
               "0000000000000000000000000000000000000002"
             ],
-            "value": "Approval subject with a colon inside a quoted local part"
+            "value": "yes"
+          },
+          {
+            "key": [
+              "email:bob@example.com",
+              "0000000000000000000000000000000000000002"
+            ],
+            "value": "yes"
+          },
+          {
+            "key": [
+              "user:bob",
+              "0000000000000000000000000000000000000002"
+            ],
+            "value": "no"
+          }
+        ],
+        "head": [
+          "0000000000000000000000000000000000000002"
+        ],
+        "note": [
+          {
+            "key": [
+              "email:\"a:b\"@example.com",
+              "0000000000000000000000000000000000000002"
+            ],
+            "value": "Vote subject with a colon inside a quoted local part"
           },
           {
             "key": [
@@ -127,30 +150,7 @@
             "value": "user:bob"
           }
         ],
-        "title": "Person Identifier Schemes Test",
-        "verdict": [
-          {
-            "key": [
-              "email:\"a:b\"@example.com",
-              "0000000000000000000000000000000000000002"
-            ],
-            "value": "approve"
-          },
-          {
-            "key": [
-              "email:bob@example.com",
-              "0000000000000000000000000000000000000002"
-            ],
-            "value": "approve"
-          },
-          {
-            "key": [
-              "user:bob",
-              "0000000000000000000000000000000000000002"
-            ],
-            "value": "request-changes"
-          }
-        ]
+        "title": "Person Identifier Schemes Test"
       }
     }
   ]

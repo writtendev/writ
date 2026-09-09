@@ -2,22 +2,37 @@
   "profile": "synthetic-conforming-reader-v1",
   "known_ops": [
     {
-      "object_type": "review",
+      "object_type": "widget",
       "op_type": "create",
       "versions": [1],
-      "vocabulary": "review-ops"
+      "rules": [
+        {
+          "op_type": "create",
+          "op_version": 1,
+          "field": "title",
+          "strategy": "lww",
+          "value_type": "string"
+        },
+        {
+          "op_type": "create",
+          "op_version": 1,
+          "field": "description",
+          "strategy": "lww",
+          "value_type": "string"
+        }
+      ]
     },
     {
-      "object_type": "review",
+      "object_type": "widget",
       "op_type": "close",
       "versions": [1],
-      "vocabulary": "review-ops"
+      "rules": []
     },
     {
-      "object_type": "comment",
+      "object_type": "gadget",
       "op_type": "post",
       "versions": [1, 2],
-      "vocabulary": "comments"
+      "rules": []
     }
   ]
 }

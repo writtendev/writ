@@ -18,6 +18,7 @@ import (
 	"github.com/writtendev/writ/engine/identity"
 	"github.com/writtendev/writ/engine/projection"
 	"github.com/writtendev/writ/engine/resolve"
+	"github.com/writtendev/writ/engine/state"
 )
 
 func createCommitWithFiles(t *testing.T, repo *git.Repository, parents []plumbing.Hash, files map[string]string, message string) plumbing.Hash {
@@ -57,10 +58,25 @@ func createCommitWithFiles(t *testing.T, repo *git.Repository, parents []plumbin
 	return hash
 }
 
-func makeCommentEnv(objID string, subjectObjID string, anchor *resolve.Anchor, text string) codec.Envelope {
+// noteRules declares "note": a type carrying an anchor-valued target.
+// anchor_resolutions is driven off every scalar target whose declared
+// value_type is "anchor" (materializeAnchors), and testRules() declares
+// none, so this test brings its own vocabulary — the same shape a consumer
+// declares in the log.
+func noteRules() map[string][]state.Rule {
+	return map[string][]state.Rule{
+		"note": {
+			{OpType: "create", OpVersion: 1, Field: "text", Strategy: "lww", ValueType: "text", ObjectType: "note"},
+			{OpType: "create", OpVersion: 1, Field: "subject", Strategy: "create-once", ObjectType: "note"},
+			{OpType: "create", OpVersion: 1, Field: "anchor", Strategy: "create-once", ValueType: "anchor", ObjectType: "note"},
+		},
+	}
+}
+
+func makeNoteEnv(objID string, subjectObjID string, anchor *resolve.Anchor, text string) codec.Envelope {
 	body := map[string]any{
 		"subject": map[string]any{
-			"object_type": "review",
+			"object_type": "widget",
 			"object_id":   subjectObjID,
 		},
 		"text": text,
@@ -72,7 +88,7 @@ func makeCommentEnv(objID string, subjectObjID string, anchor *resolve.Anchor, t
 	bodyRaw, _ := json.Marshal(body)
 	env := codec.Envelope{
 		ObjectID:   objID,
-		ObjectType: "comment",
+		ObjectType: "note",
 		OpType:     "create",
 		OpVersion:  1,
 		Body:       bodyRaw,
@@ -102,14 +118,14 @@ func TestAnchorResolutionAndCodeRefMove(t *testing.T) {
 	headRef := plumbing.ReferenceName("HEAD")
 	_ = repo.Storer.SetReference(plumbing.NewSymbolicReference(headRef, mainRef))
 
-	// 2. Open DAG store and append comment
+	// 2. Open DAG store and append the note
 	store, err := dag.OpenRepo(repo, identity.Identity{
 		WriterID: identity.WriterID("0123456789abcdef"),
 		Author: identity.Author{
-			Name:  "Commenter",
-			Email: "commenter@example.com",
+			Name:  "Note Writer",
+			Email: "note-writer@example.com",
 		},
-	})
+	}, withVocabularies(noteRules()))
 	if err != nil {
 		t.Fatalf("dag.OpenRepo: %v", err)
 	}
@@ -145,14 +161,14 @@ func TestAnchorResolutionAndCodeRefMove(t *testing.T) {
 		t.Fatalf("marshal anchor: %v", err)
 	}
 
-	commentEnv := makeCommentEnv("comm-1", "rev-1", anchor, "Nice function!")
-	_, err = store.Append(ctx, commentEnv, nil)
+	noteEnv := makeNoteEnv("n-1", "w-1", anchor, "Nice function!")
+	_, err = store.Append(ctx, noteEnv, nil)
 	if err != nil {
-		t.Fatalf("store.Append comment: %v", err)
+		t.Fatalf("store.Append note: %v", err)
 	}
 
 	// 3. Refresh projection
-	stats1, err := db.Refresh(store, projection.WithSchema(testRules()))
+	stats1, err := db.Refresh(store, projection.WithSchema(noteRules()))
 	if err != nil {
 		t.Fatalf("Refresh 1 failed: %v", err)
 	}
@@ -160,11 +176,11 @@ func TestAnchorResolutionAndCodeRefMove(t *testing.T) {
 		t.Fatalf("expected 1 anchor resolved, got %d", stats1.AnchorsResolved)
 	}
 
-	// Assert comments table has verbatim anchor JSON and no resolution state
+	// Assert the note table has verbatim anchor JSON and no resolution state
 	var storedAnchor string
-	err = db.DB().QueryRow("SELECT f_anchor FROM o_comment WHERE object_id = 'comm-1'").Scan(&storedAnchor)
+	err = db.DB().QueryRow("SELECT f_anchor FROM o_note WHERE object_id = 'n-1'").Scan(&storedAnchor)
 	if err != nil {
-		t.Fatalf("query comments anchor: %v", err)
+		t.Fatalf("query note anchor: %v", err)
 	}
 
 	canonStored, err := canonicaljson.Marshal([]byte(storedAnchor))
@@ -183,12 +199,12 @@ func TestAnchorResolutionAndCodeRefMove(t *testing.T) {
 	expectedRes1 := resolve.Resolve(*anchor, tree1)
 	var (
 		resCommit, side, outcome, match, path, reason string
-		startLine, endLine                           int
+		startLine, endLine                            int
 	)
 	err = db.DB().QueryRow(`
 		SELECT target_commit, side, outcome, match, path, start_line, end_line, reason
 		FROM anchor_resolutions
-		WHERE object_id = 'comm-1'
+		WHERE object_id = 'n-1'
 	`).Scan(&resCommit, &side, &outcome, &match, &path, &startLine, &endLine, &reason)
 	if err != nil {
 		t.Fatalf("query anchor_resolutions: %v", err)
@@ -213,7 +229,7 @@ func TestAnchorResolutionAndCodeRefMove(t *testing.T) {
 	_ = repo.Storer.SetReference(plumbing.NewReferenceFromStrings(mainRef.String(), c2Hash.String()))
 
 	// Refresh without any new ops: code ref moved, should re-resolve against commit 2
-	stats2, err := db.Refresh(store, projection.WithSchema(testRules()))
+	stats2, err := db.Refresh(store, projection.WithSchema(noteRules()))
 	if err != nil {
 		t.Fatalf("Refresh 2 failed: %v", err)
 	}
@@ -238,7 +254,7 @@ func TestAnchorResolutionAndCodeRefMove(t *testing.T) {
 	err = db.DB().QueryRow(`
 		SELECT target_commit, side, outcome, match, path, start_line, end_line, reason
 		FROM anchor_resolutions
-		WHERE object_id = 'comm-1'
+		WHERE object_id = 'n-1'
 	`).Scan(&resCommit, &side, &outcome, &match, &path, &startLine, &endLine, &reason)
 	if err != nil {
 		t.Fatalf("query anchor_resolutions after code move: %v", err)

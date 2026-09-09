@@ -224,15 +224,16 @@ func TestObjectsNotDeletedTwoTombstoneTargets(t *testing.T) {
 	}
 }
 
-// TestObjectsSectionSoftDeleteWidening pins WRIT-189 round 3 MAJOR-2's
-// generalization of the !IncludeDeleted filter from a single hard-coded
-// literal (o_comment.f_deleted) to every declared type with a
-// tombstone-strategy target — round 1 found this correct for the built-in
-// "section" type (which also carries a tombstone `deleted` target,
-// state.SectionRules) but unpinned by any test, so this is that test. Still
-// built against testRules()'s (pre-WRIT-194) builtin vocabulary, since
-// "section" and its tombstone semantics are what this regression is about.
-func TestObjectsSectionSoftDeleteWidening(t *testing.T) {
+// TestObjectsSoftDeleteWideningOverSharedRules pins WRIT-189 round 3
+// MAJOR-2's generalization of the !IncludeDeleted filter from a single
+// hard-coded table/column literal to every declared type with a
+// tombstone-strategy target — round 1 found the widening correct but
+// unpinned by any test, so this is that test. It runs over testRules()'
+// "widget", the one type in this package's shared rule index whose declared
+// vocabulary carries a tombstone target (`archived`) alongside ordinary
+// scalar fields, so the clause has to be derived from the descriptor rather
+// than from the filter's own type list.
+func TestObjectsSoftDeleteWideningOverSharedRules(t *testing.T) {
 	db, err := projection.Open(":memory:")
 	if err != nil {
 		t.Fatalf("Open(:memory:): %v", err)
@@ -243,27 +244,27 @@ func TestObjectsSectionSoftDeleteWidening(t *testing.T) {
 	}
 
 	rawDB := db.DB()
-	insertObject(t, rawDB, "sec-live", "section", 1, "op-sec-live", "Alice Smith", "alice@example.com", 4000, 4000)
-	execSQL(t, rawDB, "INSERT INTO o_section (object_id, f_document_id, f_position, f_title, f_deleted) VALUES (?, ?, ?, ?, ?)",
-		"sec-live", "doc-1", "a0", "Introduction", 0)
-	insertObject(t, rawDB, "sec-deleted", "section", 1, "op-sec-deleted", "Bob Jones", "bob@example.com", 4100, 4100)
-	execSQL(t, rawDB, "INSERT INTO o_section (object_id, f_document_id, f_position, f_title, f_deleted) VALUES (?, ?, ?, ?, ?)",
-		"sec-deleted", "doc-1", "a1", "Withdrawn section", 1)
+	insertObject(t, rawDB, "w-live", "widget", 1, "op-w-live", "Alice Smith", "alice@example.com", 4000, 4000)
+	execSQL(t, rawDB, "INSERT INTO o_widget (object_id, f_title, f_description, f_archived) VALUES (?, ?, ?, ?)",
+		"w-live", "Introduction", "still here", 0)
+	insertObject(t, rawDB, "w-deleted", "widget", 1, "op-w-deleted", "Bob Jones", "bob@example.com", 4100, 4100)
+	execSQL(t, rawDB, "INSERT INTO o_widget (object_id, f_title, f_description, f_archived) VALUES (?, ?, ?, ?)",
+		"w-deleted", "Withdrawn", "archived away", 1)
 
-	live, err := db.Objects(projection.ObjectFilter{Type: []string{"section"}})
+	live, err := db.Objects(projection.ObjectFilter{Type: []string{"widget"}})
 	if err != nil {
-		t.Fatalf("Objects(section, IncludeDeleted=false): %v", err)
+		t.Fatalf("Objects(widget, IncludeDeleted=false): %v", err)
 	}
-	if len(live) != 1 || live[0].ObjectID != "sec-live" {
-		t.Fatalf("expected only sec-live to survive the default filter, got %+v", live)
+	if len(live) != 1 || live[0].ObjectID != "w-live" {
+		t.Fatalf("expected only w-live to survive the default filter, got %+v", live)
 	}
 
-	all, err := db.Objects(projection.ObjectFilter{Type: []string{"section"}, IncludeDeleted: true})
+	all, err := db.Objects(projection.ObjectFilter{Type: []string{"widget"}, IncludeDeleted: true})
 	if err != nil {
-		t.Fatalf("Objects(section, IncludeDeleted=true): %v", err)
+		t.Fatalf("Objects(widget, IncludeDeleted=true): %v", err)
 	}
 	if len(all) != 2 {
-		t.Fatalf("expected both sections with IncludeDeleted=true, got %d (%+v)", len(all), all)
+		t.Fatalf("expected both widgets with IncludeDeleted=true, got %d (%+v)", len(all), all)
 	}
 }
 

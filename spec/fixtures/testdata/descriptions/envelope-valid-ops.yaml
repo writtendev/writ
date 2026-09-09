@@ -6,30 +6,30 @@ description: >
   empty body, op_version at 1 and 2^53-1, and object_id at 1 and 256 characters.
 
 refs:
-  - name: refs/writ/alice/review
+  - name: refs/writ/alice/widget
     history:
       - commits:
           - id: alice-root
             author: alice
             timestamp: 2026-01-01T00:00:00Z
             op:
-              object_id: review-01
-              object_type: review
+              object_id: widget-01
+              object_type: widget
               op_type: create
               op_version: 1
               body:
-                title: "Initial review"
+                title: "Initial widget"
             expect: accept
           - id: alice-update-1
             author: alice
             timestamp: 2026-01-01T00:01:00Z
             op:
-              object_id: review-01
-              object_type: review
+              object_id: widget-01
+              object_type: widget
               op_type: update
               op_version: 1
               body:
-                title: "Updated review"
+                title: "Updated widget"
                 summary: "日本語 • 🚀 • \u0000"
             expect: accept
           - id: alice-unknown
@@ -49,22 +49,22 @@ refs:
             timestamp: 2026-01-01T00:04:00Z
             op:
               object_id: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-              object_type: review
+              object_type: widget
               op_type: publish
               op_version: 1
               body:
                 status: "published"
             expect: accept
 
-  - name: refs/writ/bob/review
+  - name: refs/writ/bob/widget
     history:
       - commits:
           - id: bob-root
             author: bob
             timestamp: 2026-01-01T00:00:30Z
             op:
-              object_id: review-02
-              object_type: review
+              object_id: widget-02
+              object_type: widget
               op_type: create
               op_version: 1
               body: {}
@@ -74,11 +74,11 @@ refs:
             author: bob
             timestamp: 2026-01-01T00:02:00Z
             op:
-              object_id: review-01
-              object_type: comment
+              object_id: widget-01
+              object_type: gadget
               op_type: create
               op_version: 9007199254740991
               body:
-                comment: "looks good"
+                note: "looks good"
                 large_int: "9007199254740992837482910384729"
             expect: accept

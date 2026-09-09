@@ -168,12 +168,12 @@ To prevent implicit or undefined merge behavior, Writ establishes a
 
 ### The "no implicit behavior" requirement
 
-Every op-vocabulary specification (WRIT-8 through WRIT-11) MUST publish a
-complete field-rule table declaring exactly one catalogue strategy for every
-field of every body it defines.
+The schema governing an object type MUST declare exactly one catalogue
+strategy for every field of every body it defines
+([`spec/schema-ops.md`](schema-ops.md) §4.3).
 
 A field present in an operation payload that has no declared strategy in the
-corresponding vocabulary spec is **not merged**: it is treated as unknown data,
+governing schema is **not merged**: it is treated as unknown data,
 preserved and ignored per the forward-compatibility rule. Implementations MUST
 NOT invent default merge behaviors for undeclared fields.
 
@@ -185,7 +185,7 @@ NOT invent default merge behaviors for undeclared fields.
 | `create-once` | Immutable register | The first operation in the total order $L$ that writes a non-null value sets the field; all subsequent writes to the field are ignored. |
 | `set-union` | Grow-only set | Set of distinct elements; the folded state is the union of all elements added by any operation in $S$. |
 | `set-observed-remove` | Add-Wins set | Set supporting addition and removal; additions win over concurrent removals. |
-| `append` | Ordered list | Sequence of items (e.g. comments, revisions) ordered strictly by the total order $L$ of the operations that created them. |
+| `append` | Ordered list | Sequence of items ordered strictly by the total order $L$ of the operations that created them. |
 | `tombstone` | Deletable entity | Entity deletion state; deletion wins over concurrent edits while edits still fold into state. |
 | `lattice` | Join-semilattice | Monotone status transitions governed by a declared join operator ($\sqcup$). |
 | `keyed-lww` | Keyed register map | A map from a declared composite key to a register; `lww` applied independently within each key. |
@@ -216,15 +216,15 @@ described above) and, in addition, only when their object types agree. An
 empty object type on either side matches anything, the same convention
 `op_version` already uses, so this changes nothing for a rule table folded
 against a single known object type. A rule's object type is not a new
-`field-rules.json` attribute: it is derived from the vocabulary directory a
-rule table is declared in (or, for a rule resolved from the log,
-`spec/schema-ops.md`'s `define-field` body's own `type`), so the wire shape
-of a `field-rules.json` entry and of a `define-field` op body are both
-unchanged by this. Scoping exists so that a body field with a common name —
-`label`'s `add`, say — declared for one object type never matches an
-operation of another that happens to define an identically named field with
-a different merge strategy, without every vocabulary having to declare a
-distinct `target` defensively against every other vocabulary that exists.
+`field-rules.json` attribute: for a rule resolved from the log it is
+`spec/schema-ops.md`'s `define-field` body's own `type`, and for the
+bootstrap table it is the `schema` object type that table declares, so the
+wire shape of a `field-rules.json` entry and of a `define-field` op body are
+both unchanged by this. Scoping exists so that a body field with a common
+name — an OR-set's `add`, say — declared for one object type never matches
+an operation of another that happens to define an identically named field
+with a different merge strategy, without every schema having to declare a
+distinct `target` defensively against every other schema that exists.
 
 **Rules sharing a `target` within one object type MUST agree on every
 merge attribute.** Two rules whose `TargetKey()` (`target`, or `field` if
@@ -244,12 +244,12 @@ stops two body fields that merely happen to share a name — such as
 one OR-set's `add` side and an unrelated OR-set's `add` side, declared
 under different `op_type`s with no `target` of their own — from silently
 sharing one accumulator: a rule table with such a case MUST target each
-OR-set explicitly (`spec/review-ops.md`'s `assignees` and `labels` are the
-worked example: `assign`'s `add`/`remove` share `target: "assignees"`,
-`label`'s share `target: "labels"`, so the two OR-sets land in separate
-state keys instead of one shared `add`/`remove` pair). A rule table that
-violates this agreement rule is non-conforming, exactly as one that reuses
-a target across a `strategy` change already was.
+OR-set explicitly (a type whose `assign` op and `tag` op both carry
+`add`/`remove` is the worked example: `assign`'s pair declares
+`target: "assignees"` and `tag`'s declares `target: "tags"`, so the two
+OR-sets land in separate state keys instead of one shared `add`/`remove`
+pair). A rule table that violates this agreement rule is non-conforming,
+exactly as one that reuses a target across a `strategy` change already was.
 
 **Every rule that matches an operation applies.** An operation is not
 limited to the first declared rule that matches it, by declaration order or
@@ -306,7 +306,7 @@ position in $L$. The order the operation's own body happens to list those
 fields in is not consulted — canonical JSON object member order is a
 property of the encoding, not of the schema.
 
-**Normalization is intrinsic to `person-ref`.** `spec/value-types.md` §Normalization defines the rule: where a rule's `value_type` (or, for a key component, `key_types` entry) is `person-ref`, the field normalizes per `spec/identifiers.md` automatically. It is not a separate declarative attribute a rule table author repeats field by field, and it is not dispatched by inspecting operation types or field names (such as checking for `op_type == "assign"` or `field == "resolved_by"`) — accumulators remain vocabulary-blind, driven exclusively by the rule's `value_type`/`key_types`.
+**Normalization is intrinsic to `person-ref`.** `spec/value-types.md` §Normalization defines the rule: where a rule's `value_type` (or, for a key component, `key_types` entry) is `person-ref`, the field normalizes per `spec/identifiers.md` automatically. It is not a separate declarative attribute a rule table author repeats field by field, and it is not dispatched by inspecting operation types or field names — accumulators remain schema-blind, driven exclusively by the rule's `value_type`/`key_types`.
 
 ### Unified empty-value contract
 
@@ -337,16 +337,16 @@ Typed domain serializations (such as language-specific state structs) MAY omit e
 #### 3. `set-union`
 - **Initial state:** Empty set $\emptyset$.
 - **Reduction:** Any operation specifying one or more elements adds them to the set.
-- **Empty elements are dropped:** An element whose value, after any normalization the field declares (`spec/identifiers.md` §Person identifiers), is the empty string MUST NOT enter the set. This rule applies to **every** item-valued field regardless of its op type, not only to person-valued fields: an empty label, an empty remote URL, and an empty assignee are equally meaningless, and reducers MUST agree on discarding them. Producers are already forbidden from emitting such elements by the vocabulary schemas; the rule exists so that a non-conforming or future writer emitting an empty-string element cannot make two conforming readers disagree. Dropping governs materialized state only and does not weaken the preserve-and-ignore rule (`spec/forward-compatibility.md`): the operation carrying the element remains in the DAG, reachable, replicated, and byte-for-byte intact.
+- **Empty elements are dropped:** An element whose value, after any normalization the field declares (`spec/identifiers.md` §Person identifiers), is the empty string MUST NOT enter the set. This rule applies to **every** item-valued field regardless of its op type, not only to person-valued fields: an empty tag, an empty remote URL, and an empty assignee are equally meaningless, and reducers MUST agree on discarding them. Producers are already forbidden from emitting such elements by the governing schema; the rule exists so that a non-conforming or future writer emitting an empty-string element cannot make two conforming readers disagree. Dropping governs materialized state only and does not weaken the preserve-and-ignore rule (`spec/forward-compatibility.md`): the operation carrying the element remains in the DAG, reachable, replicated, and byte-for-byte intact.
 - **Elements are strings.** An element whose JSON value is not a string, or a field whose value is neither a string nor an array of strings, makes the whole operation uninterpretable per §7.1. `null` is such a value, at the field or as an element.
 - **Result:** The mathematical set union of all added elements. In serialized state, elements are emitted in canonical sorted order (UTF-16 code unit order for strings, ascending numerical order for numbers). An operation whose elements are all dropped still counts as a write of the field: the field is present in the generic folded state map with the empty set as its value. Typed domain serializations MAY omit an empty collection rather than emitting it.
 
 #### 4. `set-observed-remove` (Add-Wins OR-Set)
 - **Initial state:** Empty set $\emptyset$.
-- **Body shapes.** A field declaring this strategy has two sides, an add side and a remove side, and a body carries them in one of three shapes. Every vocabulary in this specification uses one of the three, and a conforming reader MUST accept all three, because §7.1 is not computable from a strategy whose body shapes are not stated:
+- **Body shapes.** A field declaring this strategy has two sides, an add side and a remove side, and a body carries them in one of three shapes. A conforming reader MUST accept all three, because §7.1 is not computable from a strategy whose body shapes are not stated:
   - **Nested** — the declared field holds an object whose `add` and `remove` members are the two sides. Either member MAY be absent.
-  - **Flat** — `add` and `remove` are themselves declared fields of the op, each carrying its own side. This is the shape review and issue `assign` and `label` operations use. Either field MAY be absent. The two are one operation on one set, so both sides are read together and both are subject to §7.1: an operation whose `remove` side is malformed is uninterpretable even where a reader reaches it by way of the `add` field. A reader MUST apply removals to additions carried by other operations even when the removal op carries no `add` field, and MUST accept the nested shape present at a flat-declared field.
-  - **Scalar** — the declared field carries one side's items directly and the operation's `op_type` says which side (an `add-*` or `add` op type maps to the add side, and a `remove-*` or `remove` op type maps to the remove side), as project and cycle `add-issue` and `remove-issue` do.
+  - **Flat** — `add` and `remove` are themselves declared fields of the op, each carrying its own side. Either field MAY be absent. The two are one operation on one set, so both sides are read together and both are subject to §7.1: an operation whose `remove` side is malformed is uninterpretable even where a reader reaches it by way of the `add` field. A reader MUST apply removals to additions carried by other operations even when the removal op carries no `add` field, and MUST accept the nested shape present at a flat-declared field.
+  - **Scalar** — the declared field carries one side's items directly and the operation's `op_type` says which side (an `add-*` or `add` op type maps to the add side, and a `remove-*` or `remove` op type maps to the remove side).
 - **A side holds a string or an array of strings,** exactly as a `set-union` field does (§5.3): a single item needs no array around it. A side the body does not carry is not a write of that side and has no effect.
 - **Mechanism:**
   - An add operation $a \in S$ adds an element $x$.
@@ -354,7 +354,7 @@ Typed domain serializations (such as language-specific state structs) MAY omit e
   - An element $x$ is present in the folded set if and only if there exists at least one add operation $a \in S$ for $x$ such that no remove operation $r \in S$ for $x$ causally follows $a$:
     $$\text{present}(x) \iff \exists a \in S \text{ s.t. } \text{adds}(a, x) \land (\forall r \in S \text{ s.t. } \text{removes}(r, x), a \not\prec r)$$
 - **Concurrency behavior:** If an addition $a$ and removal $r$ of the same element $x$ are concurrent ($a \parallel r$), the addition wins and $x$ is present in the folded set.
-- **Empty elements are dropped:** As in `set-union` (§5.3), an element whose value — normalized first, where the field's value type is `person-ref` — is the empty string MUST NOT enter either the add side or the remove side of the OR-set. This rule applies to **every** item-valued field regardless of its op type — `label` items are dropped on the same terms as `assign` items, even though only the latter are `person-ref` and so normalized before the test.
+- **Empty elements are dropped:** As in `set-union` (§5.3), an element whose value — normalized first, where the field's value type is `person-ref` — is the empty string MUST NOT enter either the add side or the remove side of the OR-set. This rule applies to **every** item-valued field regardless of its op type — a `string`-typed OR-set's items are dropped on the same terms as a `person-ref`-typed one's, even though only the latter are normalized before the test.
 - **Elements are strings.** As in `set-union` (§5.3), an element that is not a string — `null` included — makes the whole operation uninterpretable per §7.1, on the add side and the remove side alike, in all three body shapes. A side that is present and is neither a string nor an array of strings does so too, and a side whose value is `null` is such a side: an explicitly written side holding no value is a write claimed with no value in it, which is what §7.1 says `null` is. Reading it as an absent side instead would make `{"add": null}` and `{}` fold identically, which is exactly the objection §7.1 raises against skipping. A rejected remove removes nothing: an element it named stays present unless some other operation removes it.
 - **Result:** Present elements emitted in canonical sorted order. An operation whose elements are all dropped still counts as a write of the field: the field is present in the generic folded state map with the empty set as its value. Typed domain serializations MAY omit an empty collection rather than emitting it.
 
@@ -380,7 +380,7 @@ Typed domain serializations (such as language-specific state structs) MAY omit e
 - **Initial state:** The bottom element $\bot$ of the declared semilattice.
 - **Semantics:** The field's allowed values form a bounded join-semilattice $(V, \sqcup, \le)$ with partial order $\le$ and join operation $\sqcup$.
 - **Reduction:** When an operation writes value $v \in V$, the new state is $\text{state} \sqcup v$.
-- **The value is a string.** A value of any other JSON type — `null` included — makes the whole operation uninterpretable per §7.1. A value that *is* a string but is not a declared element of $V$ is a different case and MUST NOT be rejected: it is a status from a later version of the vocabulary, which the forward-compatibility preserve-and-ignore rule (`spec/forward-compatibility.md` FC-1) covers. It leaves the lattice state unchanged without quarantining the operation, so that sibling field updates carried in the same operation materialize normally.
+- **The value is a string.** A value of any other JSON type — `null` included — makes the whole operation uninterpretable per §7.1. A value that *is* a string but is not a declared element of $V$ is a different case and MUST NOT be rejected: it is a status from a later version of the governing schema, which the forward-compatibility preserve-and-ignore rule (`spec/forward-compatibility.md` FC-1) covers. It leaves the lattice state unchanged without quarantining the operation, so that sibling field updates carried in the same operation materialize normally.
 - **Result:** Because $\sqcup$ is associative, commutative, and idempotent, concurrent transitions $u \parallel v$ reconcile deterministically to $v_u \sqcup v_v$ regardless of arrival or topological order.
 
 #### 8. `keyed-lww` (Keyed Last-Writer-Wins registers)
@@ -389,23 +389,23 @@ Typed domain serializations (such as language-specific state structs) MAY omit e
 - **Reduction:** As operations are consumed in total order $L$, an operation writing the field replaces the value stored at its own key $k$ and leaves every other key untouched — that is, `lww` applied independently within each key.
 - **Result:** For each key, the value written by the latest operation in $L$ bearing that key. Entries are serialized as a list of `{key, value}` records ordered by their key tuples, compared component-wise.
 - **Key components are strings.** Every declared key component an operation carries MUST be a string. One that is a number, a boolean, an object, an array or `null` makes the whole operation uninterpretable per §7.1. A key component the body omits entirely is a different case and is not rejected: it contributes the empty component, except where a domain-specific key component resolution rule applies (see below). A value the strategy stores is under the register rule below, not this one.
-- **Normalization:** Where the rule's `value_type` is `person-ref`, or a `key_types` entry for a key component is `person-ref`, the normalization of `spec/identifiers.md` applies to that structural position. A reducer MUST NOT normalize a person identifier for keying and then store it verbatim: where a rule's value and a key component are both `person-ref` (such as `approval.subject`), the folded entry's key component and its value are the same normalized string. A non-string key component is schema-invalid and, being a key component, makes its operation uninterpretable per §7.1.
-- **Approval subject resolution:** In `approval` operations, an omitted or empty-after-normalization `subject` defaults to the op commit author's normalized email identifier (`email:<author.email>`) rather than contributing the empty string `""`. Both the key component for `subject` and the stored value for `approval.subject` in materialized state retain this effective normalized subject.
+- **Normalization:** Where the rule's `value_type` is `person-ref`, or a `key_types` entry for a key component is `person-ref`, the normalization of `spec/identifiers.md` applies to that structural position. A reducer MUST NOT normalize a person identifier for keying and then store it verbatim: where a rule's value and a key component are both `person-ref`, the folded entry's key component and its value are the same normalized string. A non-string key component is schema-invalid and, being a key component, makes its operation uninterpretable per §7.1.
 - **Registers hold values.** A value stored at a key is stored verbatim, so any JSON type reproduces byte-for-byte; `null` does not, and makes the operation uninterpretable per §7.1.
 - **Why this is not `lww` or a set:** Registers scoped to a key — one vote per (voter, revision), one status per (revision, check name) — need a later write under one key to leave the others alone. Plain `lww` would collapse them to a single register; a set has no notion of a value being replaced.
 
 #### 9. `multi-value` (Multi-value register)
  
-For long-form text documents (`spec/documents.md`), Writ defines the `multi-value`
-register strategy (ARCHITECTURE.md §Document concurrency model) for document section bodies.
+For long-form text fields — the fields a schema declares with the `text` value
+type (`spec/value-types.md`) — Writ defines the `multi-value` register
+strategy (ARCHITECTURE.md §Document concurrency model).
 
 ##### Semantics and reduction rules
 
-- **Target data type:** Document section body.
+- **Target data type:** Long-form text field.
 - **Initial state:** Unset / empty string `""`.
 - **Reduction:**
-  - An operation writing the section body asserts a version of the text.
-  - **Concurrent edits:** When two or more operations writing the body are
+  - An operation writing the field asserts a version of the text.
+  - **Concurrent edits:** When two or more operations writing the field are
     concurrent ($u \parallel v$ in the restricted DAG), all concurrent versions
     are preserved in the folded state. The fold never merges text, never picks a
     winner, and never emits conflict markers.
@@ -450,7 +450,7 @@ by whoever merges. Under Writ's concurrency model:
 
 ## 6. Anchors and external references
 
-Comment anchors (`spec/anchors.md`) and external references are **opaque to fold**:
+Anchors (`spec/anchors.md`) and external references are **opaque to fold**:
 - Fold treats anchor objects as raw data values and preserves them verbatim.
 - Fold MUST NOT perform anchor resolution or attempt to open git trees/blobs. Anchor resolution is the responsibility of the Anchor Resolver (ARCHITECTURE.md §The six machines #4) and runs during projection materialization.
 
@@ -504,20 +504,20 @@ does **not** touch forward compatibility:
 
 - Unknown `op_type` values and unknown `op_version` values keep §7 unchanged.
 - Unrecognized **fields** keep preserve-and-ignore unchanged. A body carrying a
-  field this vocabulary version does not define is not uninterpretable; the
+  field this op version does not define is not uninterpretable; the
   field is ignored and the operation folds.
 - It does not recurse. The check reads the value at the declared field and,
   where the strategy consumes a collection, that collection's immediate
-  elements. Structured payloads a strategy stores verbatim — a comment anchor,
+  elements. Structured payloads a strategy stores verbatim — an anchor,
   for instance — are opaque to fold (§6), so an anchor whose captured context
   is `null` inside is well formed.
-- It does not enforce vocabulary schema types. Where a strategy stores a value
+- It does not enforce declared value types. Where a strategy stores a value
   verbatim, any JSON type but `null` is accepted, because a verbatim value
   reproduces byte-for-byte through canonical encoding (§8) in any
   implementation. A `title` carrying a number is schema-invalid and a producer
   MUST NOT write one, but a reader folds it to that number rather than
   rejecting it: the fold catalogue declares strategies, not types, and the
-  vocabulary schemas are the one place types are declared.
+  governing schema is the one place types are declared.
 
 #### Why rejection, and not coercion or skipping
 
@@ -527,10 +527,10 @@ Recorded because the alternatives are the obvious ones and both are worse
 **Not coercion.** Coercing a malformed value to a string launders malformed
 data into data that looks legitimate. Once `{"email":"carol@example.com"}`
 becomes a person identifier by stringification, that string *is* a person: it
-enters assignee sets, an approval keys on it, later operations reference it,
-and nothing downstream can tell it was ever malformed. For a format whose
-product is attribution and tamper-evidence, manufacturing an approver who never
-signed anything is the worst failure available — and, unlike rejection, it is
+enters set-valued fields, keyed registers key on it, later operations
+reference it, and nothing downstream can tell it was ever malformed. For a
+format whose product is attribution and tamper-evidence, manufacturing a
+person who never signed anything is the worst failure available — and, unlike rejection, it is
 irreversible, because the fabricated value is entangled with real references by
 the time anyone notices. Coercion is also where implementations diverge in
 practice: a reducer that reached for its language's generic value-to-string
@@ -574,6 +574,4 @@ The normative test vectors and fixture repositories verify compliance:
 - `spec/testdata/fold/order/`: Abstract op graphs testing total order derivation across linear chains, multi-writer forks, equal-$t^*$ ties, skewed clocks, ancestry truncation, and multi-object interleaving.
 - `spec/testdata/fold/merge/`: Op graphs testing each catalogue strategy, including delete/edit interleavings and concurrent mutations. `schema-*.json` cover the `schema` vocabulary specifically (`spec/schema-ops.md`): a bootstrap fold of a whole schema object, a `deprecate-field` write interleaved with a redeclaring `define-field`, concurrent `define-field` ops on one keyed-lww key, the two `target`-remedy vectors this section's version-bump rule states above (`schema-version-bump-same-target.json`, `schema-version-bump-new-target.json`), and `spec/schema-ops.md` §8.1's narrowing vector (`schema-narrow-field-attribute-not-cleared.json`). `append-two-fields-shared-target.json` and `lww-two-fields-shared-target.json` pin the "every rule that matches an operation applies" requirement and the canonical rule order above (WRIT-201): two body fields sharing one target within one `(op_type, op_version)` envelope, both written by one operation, fold to a two-item list (and to the `(op_type, op_version, field)`-latest write, respectively) under every conforming implementation. Both label their rules so that sorting the labels gives the reverse of canonical rule order, so an implementation taking its order from its own rule slice fails them.
 - `spec/fixtures/testdata/descriptions/fold-*.yaml` and `spec/fixtures/testdata/golden/fold/`: Signed fixture repositories exercising concurrent field edits, multi-device writer races, LWW and tiebreaks, per-field merge strategies, and ancestry truncation.
-- `spec/fixtures/testdata/descriptions/issue-*.yaml` and `spec/fixtures/testdata/golden/issue/`: Signed fixture repositories exercising issue lifecycle, state transitions, concurrent assign and label OR-sets, and cross-repo links.
-- `spec/fixtures/testdata/descriptions/project-*.yaml` and `spec/fixtures/testdata/golden/project/`: Signed fixture repositories exercising project lifecycle, status transitions, and issue membership races.
-- `spec/fixtures/testdata/descriptions/cycle-*.yaml` and `spec/fixtures/testdata/golden/cycle/`: Signed fixture repositories exercising cycle lifecycle, concurrent date updates, and issue membership.
+- `spec/fixtures/testdata/descriptions/schema-driven-*.yaml` and `spec/fixtures/testdata/golden/schema-driven/`: Signed fixture repositories folding ordinary objects under rules resolved from a `schema` object in the log (`spec/schema-ops.md` §7), covering person normalization at every strategy position, version bumps, and rule-resolution conflicts.

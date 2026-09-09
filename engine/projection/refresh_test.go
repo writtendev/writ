@@ -2,7 +2,6 @@ package projection_test
 
 import (
 	"context"
-	"encoding/json"
 	"reflect"
 	"testing"
 	"time"
@@ -16,7 +15,84 @@ import (
 	"github.com/writtendev/writ/engine/identity"
 	"github.com/writtendev/writ/engine/projection"
 	"github.com/writtendev/writ/engine/state"
+	"github.com/writtendev/writ/spec"
 )
+
+// vocabulariesFrom turns a rule index into the producer vocabulary
+// dag.Store.Append consults (spec/op-envelope.md §Producer validation).
+// Writ hard-codes no object type but `schema`, so an op whose type no schema
+// declares is refused before it is signed: a projection test that appends
+// one has to declare it first, exactly as a consumer does. Deriving the
+// vocabulary from the same rule index the projection is handed keeps one
+// declaration behind both.
+//
+// A keyed-lww rule's key columns are declared as body fields too — they are
+// part of every body the rule matches, and a schema source declaring such a
+// field declares its key columns alongside it (engine/store_test.go's
+// approval op) — so the derivation reads them off Key/KeyTypes rather than
+// making each caller restate them.
+func vocabulariesFrom(rules map[string][]state.Rule) codec.Vocabularies {
+	vocabularies := make(codec.Vocabularies, len(rules))
+	for objectType, typeRules := range rules {
+		voc := codec.Vocabulary{
+			Declared:       true,
+			SchemaObjectID: "sch-acme",
+			OpTypes:        make(map[codec.OpVersionKey]bool),
+			Fields:         make(map[codec.OpVersionKey][]spec.FieldRule),
+		}
+		for _, r := range typeRules {
+			key := codec.OpVersionKey{OpType: r.OpType, OpVersion: r.OpVersion}
+			voc.OpTypes[key] = true
+			voc.Fields[key] = append(voc.Fields[key], spec.FieldRule{
+				OpType:     r.OpType,
+				OpVersion:  r.OpVersion,
+				Field:      r.Field,
+				Target:     r.Target,
+				Strategy:   r.Strategy,
+				Key:        r.Key,
+				KeyTypes:   r.KeyTypes,
+				ValueType:  r.ValueType,
+				Enum:       r.Enum,
+				MaxLength:  r.MaxLength,
+				ObjectType: objectType,
+			})
+			for _, col := range r.Key {
+				voc.Fields[key] = append(voc.Fields[key], spec.FieldRule{
+					OpType:     r.OpType,
+					OpVersion:  r.OpVersion,
+					Field:      col,
+					Strategy:   r.Strategy,
+					ValueType:  r.KeyTypes[col],
+					ObjectType: objectType,
+				})
+			}
+		}
+		vocabularies[objectType] = voc
+	}
+	return vocabularies
+}
+
+// withVocabularies is the option every dag store in these tests is opened
+// with, spelled once.
+func withVocabularies(rules map[string][]state.Rule) dag.Option {
+	return dag.WithProducerVocabularies(func() (codec.Vocabularies, error) {
+		return vocabulariesFrom(rules), nil
+	})
+}
+
+// appendRules is what the stores createTestStore hands back accept writes
+// under: testRules() plus "waypoint", a type the schema-shrink and
+// undeclared-type tests append producer-valid ops of while this projection
+// instance's own schema does or does not declare it. The producer
+// vocabulary and the projection's rule index are resolved independently in
+// a real repo, so the two differing is a state writ reaches, not a fiction.
+func appendRules() map[string][]state.Rule {
+	rules := testRules()
+	rules["waypoint"] = []state.Rule{
+		{OpType: "create", OpVersion: 1, Field: "name", Strategy: "lww", ValueType: "string", ObjectType: "waypoint"},
+	}
+	return rules
+}
 
 func createTestStore(t *testing.T, writerID string) (*git.Repository, *dag.Store) {
 	t.Helper()
@@ -33,26 +109,12 @@ func createTestStore(t *testing.T, writerID string) (*git.Repository, *dag.Store
 		},
 	}
 
-	store, err := dag.OpenRepo(repo, id)
+	store, err := dag.OpenRepo(repo, id, withVocabularies(appendRules()))
 	if err != nil {
 		t.Fatalf("dag.OpenRepo: %v", err)
 	}
 
 	return repo, store
-}
-
-func makeReviewEnv(objID, opType string, version int64, body map[string]any) codec.Envelope {
-	bodyRaw, _ := json.Marshal(body)
-	env := codec.Envelope{
-		ObjectID:   objID,
-		ObjectType: "review",
-		OpType:     opType,
-		OpVersion:  version,
-		Body:       bodyRaw,
-	}
-	raw, _ := codec.EncodePayload(env)
-	env.Raw = raw
-	return env
 }
 
 func TestIncrementalRefoldMatchesColdRebuild(t *testing.T) {
@@ -65,8 +127,8 @@ func TestIncrementalRefoldMatchesColdRebuild(t *testing.T) {
 	}
 	defer db.Close()
 
-	// 1. Initial op: create review
-	env1 := makeReviewEnv("rev-1", "create", 1, map[string]any{
+	// 1. Initial op: create widget
+	env1 := makeWidgetEnv("w-1", "create", map[string]any{
 		"title":       "Initial Title",
 		"description": "Initial Description",
 	})
@@ -86,8 +148,8 @@ func TestIncrementalRefoldMatchesColdRebuild(t *testing.T) {
 		t.Fatalf("expected 1 changed object in stats1, got %d", len(stats1.Changed))
 	}
 	expected1 := projection.ObjectChange{
-		ObjectID:   "rev-1",
-		ObjectType: "review",
+		ObjectID:   "w-1",
+		ObjectType: "widget",
 		OpTypes:    []string{"create"},
 		Created:    true,
 	}
@@ -96,16 +158,16 @@ func TestIncrementalRefoldMatchesColdRebuild(t *testing.T) {
 	}
 
 	var title, desc string
-	err = db.DB().QueryRow("SELECT f_title, f_description FROM o_review WHERE object_id = 'rev-1'").Scan(&title, &desc)
+	err = db.DB().QueryRow("SELECT f_title, f_description FROM o_widget WHERE object_id = 'w-1'").Scan(&title, &desc)
 	if err != nil {
-		t.Fatalf("query review failed: %v", err)
+		t.Fatalf("query widget failed: %v", err)
 	}
 	if title != "Initial Title" || desc != "Initial Description" {
-		t.Fatalf("unexpected review fields: title=%q desc=%q", title, desc)
+		t.Fatalf("unexpected widget fields: title=%q desc=%q", title, desc)
 	}
 
 	// 2. Incremental op: update title and add revision
-	env2 := makeReviewEnv("rev-1", "update", 1, map[string]any{
+	env2 := makeWidgetEnv("w-1", "update", map[string]any{
 		"title": "Updated Title",
 	})
 	_, err = store.Append(ctx, env2, nil)
@@ -113,7 +175,7 @@ func TestIncrementalRefoldMatchesColdRebuild(t *testing.T) {
 		t.Fatalf("store.Append env2 failed: %v", err)
 	}
 
-	env3 := makeReviewEnv("rev-1", "revision", 1, map[string]any{
+	env3 := makeWidgetEnv("w-1", "revision", map[string]any{
 		"base": "0000000000000000000000000000000000000001",
 		"head": "0000000000000000000000000000000000000002",
 	})
@@ -133,8 +195,8 @@ func TestIncrementalRefoldMatchesColdRebuild(t *testing.T) {
 		t.Fatalf("expected 1 changed object in stats2, got %d", len(stats2.Changed))
 	}
 	expected2 := projection.ObjectChange{
-		ObjectID:   "rev-1",
-		ObjectType: "review",
+		ObjectID:   "w-1",
+		ObjectType: "widget",
 		OpTypes:    []string{"revision", "update"},
 		Created:    false,
 	}
@@ -176,7 +238,7 @@ func TestNewWriterNamespaceDetected(t *testing.T) {
 			Name:  "Writer B",
 			Email: "writerB@example.com",
 		},
-	})
+	}, withVocabularies(appendRules()))
 	if err != nil {
 		t.Fatalf("dag.OpenRepo storeB: %v", err)
 	}
@@ -187,8 +249,8 @@ func TestNewWriterNamespaceDetected(t *testing.T) {
 	}
 	defer db.Close()
 
-	// Writer A creates review
-	envA := makeReviewEnv("rev-multi", "create", 1, map[string]any{
+	// Writer A creates widget
+	envA := makeWidgetEnv("w-multi", "create", map[string]any{
 		"title": "Title From Writer A",
 	})
 	_, err = storeA.Append(ctx, envA, nil)
@@ -204,12 +266,11 @@ func TestNewWriterNamespaceDetected(t *testing.T) {
 		t.Fatalf("expected 1 object touched, got %d", stats1.ObjectsTouched)
 	}
 
-	// Writer B appends approval on rev-multi
-	envB := makeReviewEnv("rev-multi", "approval", 1, map[string]any{
+	// Writer B appends an endorsement on w-multi
+	envB := makeWidgetEnv("w-multi", "endorse", map[string]any{
 		"subject":  "email:writerb@example.com",
 		"revision": "0000000000000000000000000000000000000001",
-		"verdict":  "approve",
-		"message":  "Looks great!",
+		"verdict":  "yes",
 	})
 	_, err = storeB.Append(ctx, envB, nil)
 	if err != nil {
@@ -226,12 +287,12 @@ func TestNewWriterNamespaceDetected(t *testing.T) {
 	}
 
 	var verdict string
-	err = db.DB().QueryRow("SELECT f_verdict FROM o_review__k_subject_revision WHERE object_id = 'rev-multi' AND k_subject = 'email:writerb@example.com'").Scan(&verdict)
+	err = db.DB().QueryRow("SELECT f_verdict FROM o_widget__k_subject_revision WHERE object_id = 'w-multi' AND k_subject = 'email:writerb@example.com'").Scan(&verdict)
 	if err != nil {
-		t.Fatalf("query approval failed: %v", err)
+		t.Fatalf("query endorsement failed: %v", err)
 	}
-	if verdict != "approve" {
-		t.Fatalf("expected verdict 'approve', got %q", verdict)
+	if verdict != "yes" {
+		t.Fatalf("expected verdict 'yes', got %q", verdict)
 	}
 
 	// Verify equal to cold rebuild
@@ -255,9 +316,9 @@ func TestRollbackTriggersRebuild(t *testing.T) {
 	defer db.Close()
 
 	// Append 2 ops
-	env1 := makeReviewEnv("rev-rb", "create", 1, map[string]any{"title": "Title 1"})
+	env1 := makeWidgetEnv("w-rb", "create", map[string]any{"title": "Title 1"})
 	_, _ = store.Append(ctx, env1, nil)
-	env2 := makeReviewEnv("rev-rb", "update", 1, map[string]any{"title": "Title 2"})
+	env2 := makeWidgetEnv("w-rb", "update", map[string]any{"title": "Title 2"})
 	_, _ = store.Append(ctx, env2, nil)
 
 	_, err = db.Refresh(store, projection.WithSchema(testRules()))
@@ -266,7 +327,7 @@ func TestRollbackTriggersRebuild(t *testing.T) {
 	}
 
 	// Now rewind the ref by creating a brand new commit not in ancestry and pointing ref at it
-	envDivergent := makeReviewEnv("rev-rb", "create", 1, map[string]any{"title": "Divergent Title"})
+	envDivergent := makeWidgetEnv("w-rb", "create", map[string]any{"title": "Divergent Title"})
 	c := codec.Commit{
 		Author: codec.Identity{
 			Name:  "Test Writer",
@@ -292,7 +353,7 @@ func TestRollbackTriggersRebuild(t *testing.T) {
 		t.Fatalf("WriteCommit: %v", err)
 	}
 
-	refName := plumbing.ReferenceName("refs/writ/0123456789abcdef/review")
+	refName := plumbing.ReferenceName("refs/writ/0123456789abcdef/widget")
 	err = repo.Storer.SetReference(plumbing.NewReferenceFromStrings(refName.String(), h.String()))
 	if err != nil {
 		t.Fatalf("force-set reference: %v", err)
@@ -308,7 +369,7 @@ func TestRollbackTriggersRebuild(t *testing.T) {
 	}
 
 	var title string
-	err = db.DB().QueryRow("SELECT f_title FROM o_review WHERE object_id = 'rev-rb'").Scan(&title)
+	err = db.DB().QueryRow("SELECT f_title FROM o_widget WHERE object_id = 'w-rb'").Scan(&title)
 	if err != nil {
 		t.Fatalf("query title: %v", err)
 	}
@@ -327,7 +388,7 @@ func TestDisappearedChainTriggersRebuild(t *testing.T) {
 	}
 	defer db.Close()
 
-	env1 := makeReviewEnv("rev-del", "create", 1, map[string]any{"title": "Title Del"})
+	env1 := makeWidgetEnv("w-del", "create", map[string]any{"title": "Title Del"})
 	_, _ = store.Append(ctx, env1, nil)
 
 	_, err = db.Refresh(store, projection.WithSchema(testRules()))
@@ -336,7 +397,7 @@ func TestDisappearedChainTriggersRebuild(t *testing.T) {
 	}
 
 	// Delete the chain ref
-	refName := plumbing.ReferenceName("refs/writ/0123456789abcdef/review")
+	refName := plumbing.ReferenceName("refs/writ/0123456789abcdef/widget")
 	err = repo.Storer.RemoveReference(refName)
 	if err != nil {
 		t.Fatalf("RemoveReference: %v", err)
@@ -396,7 +457,7 @@ func TestRefresh_WithTargetRefsResolution(t *testing.T) {
 	}
 	defer db.Close()
 
-	env := makeReviewEnv("rev-target", "create", 1, map[string]any{"title": "Target Ref Test"})
+	env := makeWidgetEnv("w-target", "create", map[string]any{"title": "Target Ref Test"})
 	_, _ = store.Append(ctx, env, nil)
 
 	// Refresh with short branch name "main", remote branch "origin/feat", lightweight tag "v1.0", and annotated tag "v2.0"
@@ -450,7 +511,7 @@ func TestRefresh_TargetRefTagBeatsBranch(t *testing.T) {
 	}
 	defer db.Close()
 
-	env := makeReviewEnv("rev-precedence", "create", 1, map[string]any{"title": "Precedence"})
+	env := makeWidgetEnv("w-precedence", "create", map[string]any{"title": "Precedence"})
 	_, _ = store.Append(ctx, env, nil)
 
 	if _, err := db.Refresh(store, projection.WithSchema(testRules()), projection.WithTargetRefs("release")); err != nil {
@@ -476,8 +537,8 @@ func TestRefreshIncrementalEmptyObjectType(t *testing.T) {
 	}
 	defer db.Close()
 
-	// 1. Initial op: create review
-	env1 := makeReviewEnv("rev-empty-type", "create", 1, map[string]any{
+	// 1. Initial op: create widget
+	env1 := makeWidgetEnv("w-empty-type", "create", map[string]any{
 		"title": "Initial Title",
 	})
 	op1, err := store.Append(ctx, env1, nil)
@@ -489,16 +550,16 @@ func TestRefreshIncrementalEmptyObjectType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Refresh 1 failed: %v", err)
 	}
-	if len(stats1.Changed) != 1 || stats1.Changed[0].ObjectType != "review" {
+	if len(stats1.Changed) != 1 || stats1.Changed[0].ObjectType != "widget" {
 		t.Fatalf("unexpected stats1: %+v", stats1)
 	}
 
-	// 2. Incremental delta op for rev-empty-type where ObjectType is omitted/empty
-	payload := []byte(`{"body":{"title":"Updated Title"},"object_id":"rev-empty-type","object_type":"review","op_type":"update","op_version":1}`)
+	// 2. Incremental delta op for w-empty-type where ObjectType is omitted/empty
+	payload := []byte(`{"body":{"title":"Updated Title"},"object_id":"w-empty-type","object_type":"widget","op_type":"update","op_version":1}`)
 	op2 := codec.Op{
 		ID: "op-update-2",
 		Envelope: codec.Envelope{
-			ObjectID:   "rev-empty-type",
+			ObjectID:   "w-empty-type",
 			ObjectType: "", // omitted / empty in delta batch
 			OpType:     "update",
 			OpVersion:  1,
@@ -516,15 +577,15 @@ func TestRefreshIncrementalEmptyObjectType(t *testing.T) {
 			Email: "writer@example.com",
 			When:  time.Unix(1700000001, 0).UTC(),
 		},
-		Message: "writ: update review/rev-empty-type\n",
+		Message: "writ: update widget/w-empty-type\n",
 	}
 
 	deltaEnum := &dag.EnumerateResult{
 		Ops: map[string][]codec.Op{
-			"rev-empty-type": {op2},
+			"w-empty-type": {op2},
 		},
 		Cursors: dag.CursorSet{
-			"refs/writ/0123456789abcdef/review": "op-update-2",
+			"refs/writ/0123456789abcdef/widget": "op-update-2",
 		},
 		DecodedCommits: 1,
 	}
@@ -536,8 +597,8 @@ func TestRefreshIncrementalEmptyObjectType(t *testing.T) {
 	if len(stats2.Changed) != 1 {
 		t.Fatalf("expected 1 changed object in stats2, got %d", len(stats2.Changed))
 	}
-	if stats2.Changed[0].ObjectType != "review" {
-		t.Errorf("stats2.Changed[0].ObjectType = %q, want %q", stats2.Changed[0].ObjectType, "review")
+	if stats2.Changed[0].ObjectType != "widget" {
+		t.Errorf("stats2.Changed[0].ObjectType = %q, want %q", stats2.Changed[0].ObjectType, "widget")
 	}
 	if stats2.Changed[0].Created {
 		t.Errorf("stats2.Changed[0].Created = true, want false")
@@ -547,20 +608,20 @@ func TestRefreshIncrementalEmptyObjectType(t *testing.T) {
 func TestDetermineObjectTypePrecedence(t *testing.T) {
 	// 1. Create op beats other ops even when not first
 	ops := []codec.Op{
-		{Envelope: codec.Envelope{ObjectType: "review", OpType: "update"}},
-		{Envelope: codec.Envelope{ObjectType: "issue", OpType: "create"}},
+		{Envelope: codec.Envelope{ObjectType: "widget", OpType: "update"}},
+		{Envelope: codec.Envelope{ObjectType: "gadget", OpType: "create"}},
 	}
-	if got := projection.DetermineObjectType(ops); got != "issue" {
-		t.Errorf("got %q, want 'issue'", got)
+	if got := projection.DetermineObjectType(ops); got != "gadget" {
+		t.Errorf("got %q, want 'gadget'", got)
 	}
 
 	// 2. First non-empty ObjectType when no create op
 	ops2 := []codec.Op{
 		{Envelope: codec.Envelope{ObjectType: "", OpType: "update"}},
-		{Envelope: codec.Envelope{ObjectType: "review", OpType: "update"}},
+		{Envelope: codec.Envelope{ObjectType: "widget", OpType: "update"}},
 	}
-	if got := projection.DetermineObjectType(ops2); got != "review" {
-		t.Errorf("got %q, want 'review'", got)
+	if got := projection.DetermineObjectType(ops2); got != "widget" {
+		t.Errorf("got %q, want 'widget'", got)
 	}
 
 	// 3. Fallback when all empty
@@ -574,9 +635,9 @@ func TestDetermineObjectTypePrecedence(t *testing.T) {
 
 // TestCollidingLogDeclaredTypeStaysOpenable is WRIT-189 round 1's MAJOR-3
 // finding, exercised at the level Store.Open actually calls: a log-declared
-// object type ("review--base-head") whose generated table name collides
-// with review's own built-in base/head append-group table
-// ("o_review__base_head" — round 2 MAJOR-1 folded the separate "base" and
+// object type ("widget--base-head") whose generated table name collides
+// with widget's own base/head append-group table
+// ("o_widget__base_head" — round 2 MAJOR-1 folded the separate "base" and
 // "head" child tables into this one shared table, so that is what a
 // collision has to target now) used to fail buildDescriptor with a hard
 // error, which propagated all the way
@@ -585,7 +646,7 @@ func TestDetermineObjectTypePrecedence(t *testing.T) {
 // bricking the whole repository for every writer, with nothing removable
 // from the log to fix it. Refresh (and so ApplySchema) must instead
 // withhold only the colliding type's tables: its ops fall to unknown_ops,
-// and review's own tables — including the one it collided with — are
+// and widget's own tables — including the one it collided with — are
 // unaffected.
 func TestCollidingLogDeclaredTypeStaysOpenable(t *testing.T) {
 	ctx := context.Background()
@@ -598,9 +659,9 @@ func TestCollidingLogDeclaredTypeStaysOpenable(t *testing.T) {
 	defer db.Close()
 
 	// The ordinary store.Append path enforces producer validation against
-	// the built-in embedded vocabulary when no schema-aware resolver is
-	// wired up (as in this package's tests), which would refuse to write an
-	// op for "review--base-head" long before it ever reached buildDescriptor —
+	// the vocabulary the store was opened with (appendRules, here), which
+	// would refuse to write an op for "widget--base-head" long before it
+	// ever reached buildDescriptor —
 	// that gate is orthogonal to this finding (a real repo reaches
 	// buildDescriptor with such an op only once a log-declared schema
 	// object has already made it writable). So, exactly like
@@ -608,26 +669,26 @@ func TestCollidingLogDeclaredTypeStaysOpenable(t *testing.T) {
 	// op directly and hands it to Refresh via WithEnumOverrideForTest,
 	// which is the same shape store.EnumerateSince itself would have
 	// produced, with no producer-validation gate to route around.
-	reviewEnv := makeReviewEnv("rev-1", "create", 1, map[string]any{"title": "T"})
-	reviewOp, err := store.Append(ctx, reviewEnv, nil)
+	widgetEnv := makeWidgetEnv("w-1", "create", map[string]any{"title": "T"})
+	widgetOp, err := store.Append(ctx, widgetEnv, nil)
 	if err != nil {
-		t.Fatalf("store.Append review failed: %v", err)
+		t.Fatalf("store.Append widget failed: %v", err)
 	}
 
 	stats1, err := db.Refresh(store, projection.WithSchema(testRules()))
 	if err != nil {
 		t.Fatalf("Refresh 1 failed: %v", err)
 	}
-	if len(stats1.Changed) != 1 || stats1.Changed[0].ObjectType != "review" {
+	if len(stats1.Changed) != 1 || stats1.Changed[0].ObjectType != "widget" {
 		t.Fatalf("unexpected stats1: %+v", stats1)
 	}
 
-	payload := []byte(`{"body":{"title":"colliding type"},"object_id":"collider-1","object_type":"review--base-head","op_type":"create","op_version":1}`)
+	payload := []byte(`{"body":{"title":"colliding type"},"object_id":"collider-1","object_type":"widget--base-head","op_type":"create","op_version":1}`)
 	collidingOp := codec.Op{
 		ID: "op-collider-1",
 		Envelope: codec.Envelope{
 			ObjectID:   "collider-1",
-			ObjectType: "review--base-head",
+			ObjectType: "widget--base-head",
 			OpType:     "create",
 			OpVersion:  1,
 			Body:       []byte(`{"title":"colliding type"}`),
@@ -643,7 +704,7 @@ func TestCollidingLogDeclaredTypeStaysOpenable(t *testing.T) {
 			Email: "writer@example.com",
 			When:  time.Unix(1700000002, 0).UTC(),
 		},
-		Message: "writ: create review--base-head/collider-1\n",
+		Message: "writ: create widget--base-head/collider-1\n",
 	}
 
 	deltaEnum := &dag.EnumerateResult{
@@ -651,15 +712,15 @@ func TestCollidingLogDeclaredTypeStaysOpenable(t *testing.T) {
 			"collider-1": {collidingOp},
 		},
 		Cursors: dag.CursorSet{
-			"refs/writ/0123456789abcdef/review":            reviewOp.ID,
-			"refs/writ/0123456789abcdef/review--base-head": "op-collider-1",
+			"refs/writ/0123456789abcdef/widget":            widgetOp.ID,
+			"refs/writ/0123456789abcdef/widget--base-head": "op-collider-1",
 		},
 		DecodedCommits: 1,
 	}
 
 	rules := testRules()
-	rules["review--base-head"] = []state.Rule{
-		{OpType: "create", Field: "title", Strategy: "lww", ValueType: "string", ObjectType: "review--base-head"},
+	rules["widget--base-head"] = []state.Rule{
+		{OpType: "create", Field: "title", Strategy: "lww", ValueType: "string", ObjectType: "widget--base-head"},
 	}
 
 	// The regression: this call used to return a "generated table name...
@@ -669,17 +730,17 @@ func TestCollidingLogDeclaredTypeStaysOpenable(t *testing.T) {
 		t.Fatalf("Refresh with colliding log-declared type failed: %v", err)
 	}
 
-	var reviewTitle string
-	if err := db.DB().QueryRow("SELECT f_title FROM o_review WHERE object_id = 'rev-1'").Scan(&reviewTitle); err != nil {
-		t.Fatalf("query o_review failed: %v", err)
+	var widgetTitle string
+	if err := db.DB().QueryRow("SELECT f_title FROM o_widget WHERE object_id = 'w-1'").Scan(&widgetTitle); err != nil {
+		t.Fatalf("query o_widget failed: %v", err)
 	}
-	if reviewTitle != "T" {
-		t.Fatalf("o_review.f_title = %q, want %q", reviewTitle, "T")
+	if widgetTitle != "T" {
+		t.Fatalf("o_widget.f_title = %q, want %q", widgetTitle, "T")
 	}
 
 	var unknownCount int
 	if err := db.DB().QueryRow(
-		"SELECT COUNT(*) FROM unknown_ops WHERE object_id = 'collider-1' AND object_type = 'review--base-head'",
+		"SELECT COUNT(*) FROM unknown_ops WHERE object_id = 'collider-1' AND object_type = 'widget--base-head'",
 	).Scan(&unknownCount); err != nil {
 		t.Fatalf("query unknown_ops failed: %v", err)
 	}
@@ -709,27 +770,27 @@ func TestFirstApplySchemaAfterSchemaLessRefreshRebuilds(t *testing.T) {
 	}
 	defer db.Close()
 
-	env := makeReviewEnv("rev-1", "create", 1, map[string]any{"title": "T"})
+	env := makeWidgetEnv("w-1", "create", map[string]any{"title": "T"})
 	if _, err := store.Append(ctx, env, nil); err != nil {
 		t.Fatalf("store.Append failed: %v", err)
 	}
 
-	// 1. Schema-less refresh: no installed rules, so the review falls to
+	// 1. Schema-less refresh: no installed rules, so the widget falls to
 	// unknown_ops exactly like the absent-schema path always has.
 	if _, err := db.Refresh(store); err != nil {
 		t.Fatalf("Refresh (no schema) failed: %v", err)
 	}
 	var unknownBefore int
-	if err := db.DB().QueryRow("SELECT COUNT(*) FROM unknown_ops WHERE object_id = 'rev-1'").Scan(&unknownBefore); err != nil {
+	if err := db.DB().QueryRow("SELECT COUNT(*) FROM unknown_ops WHERE object_id = 'w-1'").Scan(&unknownBefore); err != nil {
 		t.Fatalf("query unknown_ops failed: %v", err)
 	}
 	if unknownBefore != 1 {
-		t.Fatalf("expected rev-1 in unknown_ops before any schema, got count=%d", unknownBefore)
+		t.Fatalf("expected w-1 in unknown_ops before any schema, got count=%d", unknownBefore)
 	}
 
 	// 2. First-ever ApplySchema on this cache. The regression: this used to
 	// leave needs_rebuild unset, so the incremental path below would see no
-	// delta (the chain tip was already recorded) and never re-fold rev-1.
+	// delta (the chain tip was already recorded) and never re-fold w-1.
 	stats, err := db.Refresh(store, projection.WithSchema(testRules()))
 	if err != nil {
 		t.Fatalf("Refresh (with schema) failed: %v", err)
@@ -739,18 +800,18 @@ func TestFirstApplySchemaAfterSchemaLessRefreshRebuilds(t *testing.T) {
 	}
 
 	var title string
-	if err := db.DB().QueryRow("SELECT f_title FROM o_review WHERE object_id = 'rev-1'").Scan(&title); err != nil {
-		t.Fatalf("query o_review failed (rev-1 never got materialized): %v", err)
+	if err := db.DB().QueryRow("SELECT f_title FROM o_widget WHERE object_id = 'w-1'").Scan(&title); err != nil {
+		t.Fatalf("query o_widget failed (w-1 never got materialized): %v", err)
 	}
 	if title != "T" {
-		t.Fatalf("o_review.f_title = %q, want %q", title, "T")
+		t.Fatalf("o_widget.f_title = %q, want %q", title, "T")
 	}
 
 	var unknownAfter int
-	if err := db.DB().QueryRow("SELECT COUNT(*) FROM unknown_ops WHERE object_id = 'rev-1'").Scan(&unknownAfter); err != nil {
+	if err := db.DB().QueryRow("SELECT COUNT(*) FROM unknown_ops WHERE object_id = 'w-1'").Scan(&unknownAfter); err != nil {
 		t.Fatalf("query unknown_ops failed: %v", err)
 	}
 	if unknownAfter != 0 {
-		t.Fatalf("expected rev-1 no longer in unknown_ops once review has installed rules, got count=%d", unknownAfter)
+		t.Fatalf("expected w-1 no longer in unknown_ops once widget has installed rules, got count=%d", unknownAfter)
 	}
 }

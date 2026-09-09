@@ -139,10 +139,11 @@ record specified in two places is a record that will be specified two ways.
 ### Stale vs. corrupt state
 
 Ignoring an uninterpretable op produces a **stale view, never a corrupt one**.
-For example, if a newer client closes a review using a new op type that an older
-client does not recognize, the older client continues to display the review as
-open (accompanied by the opaque op record). This trade-off is deliberate: stale
-views are safe and honest, whereas guessing semantics causes data corruption.
+For example, if a newer client closes a `widget` using a new op type that an
+older client does not recognize, the older client continues to display the
+`widget` as open (accompanied by the opaque op record). This trade-off is
+deliberate: stale views are safe and honest, whereas guessing semantics causes
+data corruption.
 
 ### Fault isolation
 
@@ -272,8 +273,8 @@ MUST NOT:
 
 In an eventually-consistent, append-only distributed event log, operations
 frequently reference collaborative objects that may not have arrived in the
-local replica yet (for example, an issue referencing a newly created label or
-workflow state authored on an unmerged concurrent branch).
+local replica yet (for example, a `widget` referencing a newly created
+`gadget` authored on an unmerged concurrent branch).
 
 An op referencing an object ID not present in the local store MUST fold normally
 without error or rejection (`FC-16`); readers MUST NOT drop or reject operations
@@ -318,7 +319,7 @@ whose body a strategy cannot consume — is covered in the two other places
 conformance data lives:
 
 - `spec/testdata/forward-compat/ops/uninterpretable-body.json` carries the
-  disposition itself: a `review/create` v1 op, in the reader profile and beyond
+  disposition itself: a `create` v1 op, in the reader profile and beyond
   reproach at the envelope, whose `title` holds `null`. Its declared disposition
   is `opaque`, and the harness derives that by folding the body and reading the
   quarantine channel rather than by re-reading the envelope. These instances are
@@ -327,10 +328,10 @@ conformance data lives:
 
   Its index entry also carries `envelope_disposition`, which the other entries
   do not. An envelope classifier decides only `FC-1`'s type leg; deciding the
-  body leg needs the vocabulary's merge rules and a fold. Where the two legs
-  disagree the index states both, so a reader that classifies envelopes and a
-  reader that folds can each be measured against the half they answer, and
-  neither is scored on the other's.
+  body leg needs the governing schema's merge rules and a fold. Where the two
+  legs disagree the index states both, so a reader that classifies envelopes
+  and a reader that folds can each be measured against the half they answer,
+  and neither is scored on the other's.
 - The `uninterpretable-*` merge vectors under `spec/testdata/fold/merge/` carry
   the effect: each asserts both the folded state and the quarantine list,
   against the reference fold and the engine alike.

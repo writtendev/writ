@@ -1,38 +1,38 @@
 {
   "objects": [
     {
-      "object_id": "r-tiebreak",
-      "object_type": "review",
+      "object_id": "w-tiebreak",
+      "object_type": "widget",
       "total_order": [
         {
-          "commit": "2b36751a1943ff121ae84f266df959a03b3f87df",
+          "commit": "0ee1bc84aa89e6a95ce8b4c7039bafbec46e4c1b",
           "label": "alice-create",
           "t_star": 1767225600
         },
         {
-          "commit": "8754c34c76baf652fe8a6ee43bd5aed60c7fbfe0",
-          "label": "bob-eq",
-          "t_star": 1767225660
-        },
-        {
-          "commit": "e5b56c7fc8ed9c7bae21ad8ff123c6656af7995d",
+          "commit": "547b487eb07b7a9a126872b7ec1f6b2db62bd5ea",
           "label": "alice-eq",
           "t_star": 1767225660
         },
         {
-          "commit": "001969180285c551c657f80d2b5c40955b4c454d",
+          "commit": "8777d00c966296918a6a71b24a0d24a864ea3384",
+          "label": "bob-eq",
+          "t_star": 1767225660
+        },
+        {
+          "commit": "d622f1a995cd48e87062584b543efb9b8dc00ebf",
           "label": "bob-parent",
           "t_star": 1767225900
         },
         {
-          "commit": "d467bbf01f1e4703c9d5517bfa9704e45b871bb3",
+          "commit": "2c68a8675677fbf9c9549d272225709f56ab5999",
           "label": "bob-child-skewed",
           "t_star": 1767225900
         }
       ],
       "state": {
         "status": "open",
-        "title": "Alice Equal Timestamp"
+        "title": "Bob Equal Timestamp"
       }
     }
   ]

@@ -1,51 +1,51 @@
 {
   "objects": [
     {
-      "object_id": "review-01",
-      "object_type": "review",
+      "object_id": "widget-01",
+      "object_type": "gadget",
       "total_order": [
         {
-          "commit": "290ce1cb31c68170262856dc1fe93a0ac940e62a",
+          "commit": "ba1020d5d6bad36b912e14964bd449043599b173",
           "label": "alice-baseline-v1",
           "t_star": 1767225600
         },
         {
-          "commit": "eafb2d5323ec8ed03657b2e9776e68970e567bcf",
+          "commit": "8fb1667c50da1438f4bdca42dc6f497a0972eaf1",
           "label": "bob-multiversion-known-v2",
           "t_star": 1767225630
         },
         {
-          "commit": "96b61359722a6af55cb69ae70727e74ef1da0da7",
+          "commit": "3015114735cbe29b87297cf977ae5c1da3b43366",
           "label": "bob-future-version-v3",
           "t_star": 1767225720
         }
       ],
       "state": {
-        "title": "Baseline v1 review"
+        "title": "Baseline v1 widget"
       },
       "unknown_ops": [
         {
-          "commit": "eafb2d5323ec8ed03657b2e9776e68970e567bcf",
+          "commit": "8fb1667c50da1438f4bdca42dc6f497a0972eaf1",
           "label": "bob-multiversion-known-v2",
-          "object_type": "comment",
+          "object_type": "gadget",
           "op_type": "post",
           "op_version": 2
         },
         {
-          "commit": "96b61359722a6af55cb69ae70727e74ef1da0da7",
+          "commit": "3015114735cbe29b87297cf977ae5c1da3b43366",
           "label": "bob-future-version-v3",
-          "object_type": "comment",
+          "object_type": "gadget",
           "op_type": "post",
           "op_version": 3
         }
       ]
     },
     {
-      "object_id": "review-02",
-      "object_type": "review",
+      "object_id": "widget-02",
+      "object_type": "widget",
       "total_order": [
         {
-          "commit": "031ccbad9958a3002d7804e396c211d74fc85987",
+          "commit": "e8c08f675d08941abf82972e13d5477bb928a675",
           "label": "alice-future-version-v2",
           "t_star": 1767225660
         }
@@ -53,9 +53,9 @@
       "state": {},
       "unknown_ops": [
         {
-          "commit": "031ccbad9958a3002d7804e396c211d74fc85987",
+          "commit": "e8c08f675d08941abf82972e13d5477bb928a675",
           "label": "alice-future-version-v2",
-          "object_type": "review",
+          "object_type": "widget",
           "op_type": "create",
           "op_version": 2
         }

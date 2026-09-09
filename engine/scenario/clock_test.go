@@ -3,6 +3,7 @@ package scenario_test
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/writtendev/writ/engine/codec"
 	"github.com/writtendev/writ/engine/scenario"
@@ -16,25 +17,30 @@ func TestStepsWithoutExplicitTime(t *testing.T) {
 		t.Fatalf("marshal body: %v", err)
 	}
 
+	steps := []scenario.Step{
+		scenario.Commit{
+			Device:  aliceLaptop,
+			Files:   map[string]string{"calc.go": initialCalcCode},
+			Message: "initial calc implementation",
+		},
+	}
+	// The declaration comes first: an op of a type the log does not declare
+	// is refused by the producer, so there would be nothing to stamp.
+	steps = append(steps, declareSchema(t, aliceLaptop, time.Time{})...)
+	steps = append(steps, scenario.AppendOp{
+		Device: aliceLaptop,
+		Envelope: codec.Envelope{
+			ObjectID:   "w-no-time",
+			ObjectType: "widget",
+			OpType:     "create",
+			OpVersion:  1,
+			Body:       body,
+		},
+	})
+
 	scenario.Run(t, scenario.Scenario{
 		Name:    "no-explicit-time",
 		Devices: []scenario.Device{aliceLaptop},
-		Steps: []scenario.Step{
-			scenario.Commit{
-				Device:  aliceLaptop,
-				Files:   map[string]string{"calc.go": initialCalcCode},
-				Message: "initial calc implementation",
-			},
-			scenario.AppendOp{
-				Device: aliceLaptop,
-				Envelope: codec.Envelope{
-					ObjectID:   "rev-no-time",
-					ObjectType: "review",
-					OpType:     "create",
-					OpVersion:  1,
-					Body:       body,
-				},
-			},
-		},
+		Steps:   steps,
 	})
 }

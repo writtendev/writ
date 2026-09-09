@@ -1,76 +1,139 @@
 {
   "refs": [
     {
-      "name": "refs/writ/0123456789abcdef/review",
-      "commit": "e5b56c7fc8ed9c7bae21ad8ff123c6656af7995d"
+      "name": "refs/writ/0123456789abcdef/schema",
+      "commit": "04811a6c2478264563ce1dffbaf4a70f4efc1c18"
     },
     {
-      "name": "refs/writ/fedcba9876543210/review",
-      "commit": "d467bbf01f1e4703c9d5517bfa9704e45b871bb3"
+      "name": "refs/writ/0123456789abcdef/widget",
+      "commit": "547b487eb07b7a9a126872b7ec1f6b2db62bd5ea"
+    },
+    {
+      "name": "refs/writ/fedcba9876543210/widget",
+      "commit": "2c68a8675677fbf9c9549d272225709f56ab5999"
     }
   ],
   "generations": [
     {
-      "ref": "refs/writ/0123456789abcdef/review",
+      "ref": "refs/writ/0123456789abcdef/schema",
       "index": 0,
       "commits": [
         {
-          "sha": "2b36751a1943ff121ae84f266df959a03b3f87df",
-          "tree": "e67f7e985ac734564641223f3eeea0fd673b8bcb",
+          "sha": "7e7b98e49daea722263a972a87eb6425554eec85",
+          "tree": "2601775727c841f53a2960e4169e9a4a216f66d2",
           "parents": [],
           "author": "Alice Example \u003calice@example.test\u003e",
-          "timestamp": "2026-01-01T00:00:00Z",
-          "message": "writ: create review/r-tiebreak\n",
+          "timestamp": "2025-12-01T00:00:00Z",
+          "message": "writ: create schema/sch-acme\n",
           "signed": true
         },
         {
-          "sha": "e5b56c7fc8ed9c7bae21ad8ff123c6656af7995d",
-          "tree": "7298f1ad77a32c605db08588e51de2495ee789c6",
+          "sha": "4becfd27f09972baaed6aebbac25e5edf0c1815d",
+          "tree": "28a4ca0269db83c9aeae44f12626f410b2f92f0d",
           "parents": [
-            "2b36751a1943ff121ae84f266df959a03b3f87df"
+            "7e7b98e49daea722263a972a87eb6425554eec85"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
-          "timestamp": "2026-01-01T00:01:00Z",
-          "message": "writ: update review/r-tiebreak\n",
+          "timestamp": "2025-12-01T00:01:00Z",
+          "message": "writ: define-type schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "05be825287833aba9cdfcda59c2236dba06fbebd",
+          "tree": "0214859faf2e21c1f122efc6992f7ce7fbc68b50",
+          "parents": [
+            "4becfd27f09972baaed6aebbac25e5edf0c1815d"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:02:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "85d7804b131abfd5f11524a8a313294f8cc607ed",
+          "tree": "703cbbeebc25cabddf8636b313edb4f714d1972e",
+          "parents": [
+            "05be825287833aba9cdfcda59c2236dba06fbebd"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:03:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "04811a6c2478264563ce1dffbaf4a70f4efc1c18",
+          "tree": "bc4884df83dc213363c4f4de97d8274569f287e7",
+          "parents": [
+            "85d7804b131abfd5f11524a8a313294f8cc607ed"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:04:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
           "signed": true
         }
       ]
     },
     {
-      "ref": "refs/writ/fedcba9876543210/review",
+      "ref": "refs/writ/0123456789abcdef/widget",
       "index": 0,
       "commits": [
         {
-          "sha": "8754c34c76baf652fe8a6ee43bd5aed60c7fbfe0",
-          "tree": "8e760637109950e79342712611fb1110ce1e5c03",
+          "sha": "0ee1bc84aa89e6a95ce8b4c7039bafbec46e4c1b",
+          "tree": "5884dd77adcf21f2cf7726300912faf860e2aefd",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "message": "writ: create widget/w-tiebreak\n",
+          "signed": true
+        },
+        {
+          "sha": "547b487eb07b7a9a126872b7ec1f6b2db62bd5ea",
+          "tree": "03184fede5fe9ce869773832f77fb705a841c428",
           "parents": [
-            "2b36751a1943ff121ae84f266df959a03b3f87df"
+            "0ee1bc84aa89e6a95ce8b4c7039bafbec46e4c1b"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:01:00Z",
+          "message": "writ: update widget/w-tiebreak\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/fedcba9876543210/widget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "8777d00c966296918a6a71b24a0d24a864ea3384",
+          "tree": "848f3fa36957fbcb0a7a0a874dbd339515446dc9",
+          "parents": [
+            "0ee1bc84aa89e6a95ce8b4c7039bafbec46e4c1b"
           ],
           "author": "Bob Example \u003cbob@example.test\u003e",
           "timestamp": "2026-01-01T00:01:00Z",
-          "message": "writ: update review/r-tiebreak\n",
+          "message": "writ: update widget/w-tiebreak\n",
           "signed": true
         },
         {
-          "sha": "001969180285c551c657f80d2b5c40955b4c454d",
-          "tree": "89386408a429158ff5b930f25553c43ca3dfc971",
+          "sha": "d622f1a995cd48e87062584b543efb9b8dc00ebf",
+          "tree": "ed3612f568058f7f879b89ec160a5643b409f582",
           "parents": [
-            "8754c34c76baf652fe8a6ee43bd5aed60c7fbfe0"
+            "8777d00c966296918a6a71b24a0d24a864ea3384"
           ],
           "author": "Bob Example \u003cbob@example.test\u003e",
           "timestamp": "2026-01-01T00:05:00Z",
-          "message": "writ: set-status review/r-tiebreak\n",
+          "message": "writ: set-status widget/w-tiebreak\n",
           "signed": true
         },
         {
-          "sha": "d467bbf01f1e4703c9d5517bfa9704e45b871bb3",
-          "tree": "ce41745b17938d7aaf1f29aadd50c753ab6a6c19",
+          "sha": "2c68a8675677fbf9c9549d272225709f56ab5999",
+          "tree": "37e9a64b277dadf513b9a5a4d59fc5d381ce9516",
           "parents": [
-            "001969180285c551c657f80d2b5c40955b4c454d"
+            "d622f1a995cd48e87062584b543efb9b8dc00ebf"
           ],
           "author": "Bob Example \u003cbob@example.test\u003e",
           "timestamp": "2026-01-01T00:02:00Z",
-          "message": "writ: set-status review/r-tiebreak\n",
+          "message": "writ: set-status widget/w-tiebreak\n",
           "signed": true
         }
       ]

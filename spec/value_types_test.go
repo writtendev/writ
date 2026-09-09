@@ -14,9 +14,8 @@ import (
 	"github.com/writtendev/writ/spec"
 )
 
-// valueTypesSchemaID is the value-types.schema.json $id, used by
-// compileReviewOpsSchemas (review_ops_test.go) to resolve review-ops.schema.json's
-// $defs/oid, which $refs value-types.schema.json#/$defs/git-oid.
+// valueTypesSchemaID is the value-types.schema.json $id, the URI any schema
+// $refs to reach one of the catalogue's $defs.
 const valueTypesSchemaID = "https://writ.dev/spec/value-types.schema.json"
 
 // TestValueTypeCountMatchesProse binds spec/value-types.md's stated catalogue
@@ -56,7 +55,6 @@ func TestValueTypeCountMatchesProse(t *testing.T) {
 // exception from quietly spreading: an untyped rule anywhere not in this
 // set fails TestUntypedRulesAreNamed by name.
 var untypedRulesAllowed = map[string]bool{
-	"comments.create.subject":           true,
 	"schema-ops.define-field.enum":      true,
 	"schema-ops.define-field.key":       true,
 	"schema-ops.define-field.key_types": true,
@@ -218,9 +216,8 @@ func compileValueTypesSchemaCompiler(t *testing.T) *jsonschema.Compiler {
 // compileValueTypeDefs compiles every schemas/value-types.schema.json
 // $defs/<value_type> entry in isolation, keyed by value-type name.
 // Compilation also validates each $def against the draft 2020-12
-// meta-schema, so this is what makes eleven of the twelve $defs (every one
-// but git-oid, which review-ops.schema.json's $defs/oid already reaches)
-// compiled by something, closing the gap the round-3 review flagged.
+// meta-schema, so this is what makes every one of the twelve $defs compiled
+// by something, closing the gap the round-3 review flagged.
 func compileValueTypeDefs(t *testing.T) map[string]*jsonschema.Schema {
 	t.Helper()
 	c := compileValueTypesSchemaCompiler(t)

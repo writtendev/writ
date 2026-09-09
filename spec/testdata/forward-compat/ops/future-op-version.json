@@ -1,1 +1,1 @@
-{"body":{"base":"beef","head":"cafe","merge_strategy":"fast-forward-only"},"object_id":"r-303","object_type":"review","op_type":"create","op_version":2}
+{"body":{"base":"beef","head":"cafe","merge_strategy":"fast-forward-only"},"object_id":"w-303","object_type":"widget","op_type":"create","op_version":2}

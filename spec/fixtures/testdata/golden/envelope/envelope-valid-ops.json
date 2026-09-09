@@ -1,8 +1,8 @@
 {
   "ops": [
     {
-      "ref": "refs/writ/alice/review",
-      "commit": "eddb5c73f536a3ebfbd1b6ab134832dfd794a128",
+      "ref": "refs/writ/alice/widget",
+      "commit": "06e7bb2b50f98c9dfff9220945cb7e3ad5763778",
       "parents": [],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -11,11 +11,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "50671edfe4be8d6d29eca9f631c38ee4ea7b7ea3"
+          "sha": "527e32be577bf20411a2b1024a610244f2333129"
         }
       ],
-      "payload": "{\"body\":{\"title\":\"Initial review\"},\"object_id\":\"review-01\",\"object_type\":\"review\",\"op_type\":\"create\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{\"title\":\"Initial review\"},\"object_id\":\"review-01\",\"object_type\":\"review\",\"op_type\":\"create\",\"op_version\":1}",
+      "payload": "{\"body\":{\"title\":\"Initial widget\"},\"object_id\":\"widget-01\",\"object_type\":\"widget\",\"op_type\":\"create\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"title\":\"Initial widget\"},\"object_id\":\"widget-01\",\"object_type\":\"widget\",\"op_type\":\"create\",\"op_version\":1}",
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "valid",
@@ -27,10 +27,10 @@
       }
     },
     {
-      "ref": "refs/writ/alice/review",
-      "commit": "780b95abdc98c002962736805c173c2911a9912f",
+      "ref": "refs/writ/alice/widget",
+      "commit": "eb3ec0ce619556b50689e71d43c7671d62983d00",
       "parents": [
-        "eddb5c73f536a3ebfbd1b6ab134832dfd794a128"
+        "06e7bb2b50f98c9dfff9220945cb7e3ad5763778"
       ],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -39,11 +39,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "86df793427109d3c39edb5decb19b89d2fc90b7e"
+          "sha": "c89f9f95235b36bcfbcc1dbbe4abfd50ae28db19"
         }
       ],
-      "payload": "{\"body\":{\"summary\":\"日本語 • 🚀 • \\u0000\",\"title\":\"Updated review\"},\"object_id\":\"review-01\",\"object_type\":\"review\",\"op_type\":\"update\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{\"summary\":\"日本語 • 🚀 • \\u0000\",\"title\":\"Updated review\"},\"object_id\":\"review-01\",\"object_type\":\"review\",\"op_type\":\"update\",\"op_version\":1}",
+      "payload": "{\"body\":{\"summary\":\"日本語 • 🚀 • \\u0000\",\"title\":\"Updated widget\"},\"object_id\":\"widget-01\",\"object_type\":\"widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"summary\":\"日本語 • 🚀 • \\u0000\",\"title\":\"Updated widget\"},\"object_id\":\"widget-01\",\"object_type\":\"widget\",\"op_type\":\"update\",\"op_version\":1}",
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "valid",
@@ -55,10 +55,10 @@
       }
     },
     {
-      "ref": "refs/writ/alice/review",
-      "commit": "3cc3bf3a4ad6621e3380153ee52c4a755f4055c4",
+      "ref": "refs/writ/alice/widget",
+      "commit": "31d569fc457b327450bb3650a583f42704d84daf",
       "parents": [
-        "780b95abdc98c002962736805c173c2911a9912f"
+        "eb3ec0ce619556b50689e71d43c7671d62983d00"
       ],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -83,10 +83,10 @@
       }
     },
     {
-      "ref": "refs/writ/alice/review",
-      "commit": "43936ff596574233bb496e0078dfc4c810a7614e",
+      "ref": "refs/writ/alice/widget",
+      "commit": "d7283ef69bc5ad1ad42ee70d7642f689c0c362bc",
       "parents": [
-        "3cc3bf3a4ad6621e3380153ee52c4a755f4055c4"
+        "31d569fc457b327450bb3650a583f42704d84daf"
       ],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -95,11 +95,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "31a8bc7b942ff0e26cf50ff3f6e42d717528c4d5"
+          "sha": "79c169961fdc217d57546c701970101fd0775d79"
         }
       ],
-      "payload": "{\"body\":{\"status\":\"published\"},\"object_id\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"object_type\":\"review\",\"op_type\":\"publish\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{\"status\":\"published\"},\"object_id\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"object_type\":\"review\",\"op_type\":\"publish\",\"op_version\":1}",
+      "payload": "{\"body\":{\"status\":\"published\"},\"object_id\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"object_type\":\"widget\",\"op_type\":\"publish\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"status\":\"published\"},\"object_id\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"object_type\":\"widget\",\"op_type\":\"publish\",\"op_version\":1}",
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "valid",
@@ -111,8 +111,8 @@
       }
     },
     {
-      "ref": "refs/writ/bob/review",
-      "commit": "bcb871cb13b174fb4fd38bb898e8e1f2e57e97b7",
+      "ref": "refs/writ/bob/widget",
+      "commit": "93d3c366753b975c178c2090f3130bf5b0af0256",
       "parents": [],
       "author": "Bob Example \u003cbob@example.test\u003e",
       "committer": "Bob Example \u003cbob@example.test\u003e",
@@ -121,11 +121,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "0d943ac2d5be4c1a88975fd54ebc3013dee0397f"
+          "sha": "2a623d103463ba3d7f5203148a979600d0be211b"
         }
       ],
-      "payload": "{\"body\":{},\"object_id\":\"review-02\",\"object_type\":\"review\",\"op_type\":\"create\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{},\"object_id\":\"review-02\",\"object_type\":\"review\",\"op_type\":\"create\",\"op_version\":1}",
+      "payload": "{\"body\":{},\"object_id\":\"widget-02\",\"object_type\":\"widget\",\"op_type\":\"create\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{},\"object_id\":\"widget-02\",\"object_type\":\"widget\",\"op_type\":\"create\",\"op_version\":1}",
       "signed": true,
       "signature_key_fingerprint": "SHA256:O/tazBDLdOtpewVOG55l3W8ZJOSCXXSbkFws9gBOhYc",
       "verification_outcome": "valid",
@@ -137,11 +137,11 @@
       }
     },
     {
-      "ref": "refs/writ/bob/review",
-      "commit": "4ba085d0d96ddbe45cdaa7688f6fc2b1c438c18b",
+      "ref": "refs/writ/bob/widget",
+      "commit": "e9a71bfbb5b326f71663a602198f507d1ec751f3",
       "parents": [
-        "bcb871cb13b174fb4fd38bb898e8e1f2e57e97b7",
-        "780b95abdc98c002962736805c173c2911a9912f"
+        "93d3c366753b975c178c2090f3130bf5b0af0256",
+        "eb3ec0ce619556b50689e71d43c7671d62983d00"
       ],
       "author": "Bob Example \u003cbob@example.test\u003e",
       "committer": "Bob Example \u003cbob@example.test\u003e",
@@ -150,11 +150,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "4e99ae5d6c92dd8eea5ef155682b15d54a8a9c53"
+          "sha": "9421615498839f1070b7408a4f878acd29bec2c3"
         }
       ],
-      "payload": "{\"body\":{\"comment\":\"looks good\",\"large_int\":\"9007199254740992837482910384729\"},\"object_id\":\"review-01\",\"object_type\":\"comment\",\"op_type\":\"create\",\"op_version\":9007199254740991}",
-      "canonical_payload": "{\"body\":{\"comment\":\"looks good\",\"large_int\":\"9007199254740992837482910384729\"},\"object_id\":\"review-01\",\"object_type\":\"comment\",\"op_type\":\"create\",\"op_version\":9007199254740991}",
+      "payload": "{\"body\":{\"large_int\":\"9007199254740992837482910384729\",\"note\":\"looks good\"},\"object_id\":\"widget-01\",\"object_type\":\"gadget\",\"op_type\":\"create\",\"op_version\":9007199254740991}",
+      "canonical_payload": "{\"body\":{\"large_int\":\"9007199254740992837482910384729\",\"note\":\"looks good\"},\"object_id\":\"widget-01\",\"object_type\":\"gadget\",\"op_type\":\"create\",\"op_version\":9007199254740991}",
       "signed": true,
       "signature_key_fingerprint": "SHA256:O/tazBDLdOtpewVOG55l3W8ZJOSCXXSbkFws9gBOhYc",
       "verification_outcome": "valid",

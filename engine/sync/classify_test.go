@@ -113,9 +113,9 @@ func TestClassifyGitError(t *testing.T) {
 		{
 			name:          "pre_receive_hook_declined",
 			remote:        "origin",
-			args:          []string{"push", "--porcelain", "origin", "refs/writ/alice/review:refs/writ/alice/review"},
+			args:          []string{"push", "--porcelain", "origin", "refs/writ/alice/widget:refs/writ/alice/widget"},
 			inputErr:      errors.New("exit status 1"),
-			stderr:        "remote: error: hook declined to update refs/writ/alice/review\nTo origin\n!	refs/writ/alice/review:refs/writ/alice/review	[remote rejected] (pre-receive hook declined)\nerror: failed to push some refs",
+			stderr:        "remote: error: hook declined to update refs/writ/alice/widget\nTo origin\n!	refs/writ/alice/widget:refs/writ/alice/widget	[remote rejected] (pre-receive hook declined)\nerror: failed to push some refs",
 			wantKind:      sync.FailureKindRejected,
 			wantSentinel:  sync.ErrRefRejected,
 			wantRetryable: false,
@@ -124,9 +124,9 @@ func TestClassifyGitError(t *testing.T) {
 		{
 			name:          "non_fast_forward_rejected",
 			remote:        "origin",
-			args:          []string{"push", "--porcelain", "origin", "refs/writ/alice/review:refs/writ/alice/review"},
+			args:          []string{"push", "--porcelain", "origin", "refs/writ/alice/widget:refs/writ/alice/widget"},
 			inputErr:      errors.New("exit status 1"),
-			stderr:        "To origin\n!	refs/writ/alice/review:refs/writ/alice/review	[rejected] (non-fast-forward)\nerror: failed to push some refs to 'origin'\nhint: Updates were rejected because the tip of your current branch is behind",
+			stderr:        "To origin\n!	refs/writ/alice/widget:refs/writ/alice/widget	[rejected] (non-fast-forward)\nerror: failed to push some refs to 'origin'\nhint: Updates were rejected because the tip of your current branch is behind",
 			wantKind:      sync.FailureKindRejected,
 			wantSentinel:  sync.ErrNonFastForward,
 			wantRetryable: false,
