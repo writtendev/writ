@@ -8,6 +8,14 @@
     1. Sibling .md links (e.g. "comments.md") → the page's RelPermalink
        inside the site, preserving any #fragment.
 
+    1a. A .md link written relative to a *mounted* file's real location in
+       the repo (e.g. "content/docs/object.md" from docs/quickstart.md,
+       which hugo.toml mounts to content/docs/quickstart.md) → the same
+       page. A mounted file sits at a different depth in the repo than on
+       the site, so one relative spelling cannot be correct in both places
+       unless this hook normalizes it: the repo-relative form is the one
+       written, because that is the form GitHub can follow.
+
     2. Non-published paths (schemas/, testdata/, fixtures/) → the repo
        at this build's ref, so frozen versioned docs point at the tree
        they were cut from rather than whatever main has moved on to.
@@ -34,6 +42,11 @@
 {{- else if strings.HasSuffix $path ".md" -}}
   {{- $slug   := strings.TrimSuffix ".md" $path -}}
   {{- $target := .Page.GetPage $slug -}}
+  {{- /* A path relative to a mounted file's repo location — strip the
+         mount's "content/" prefix and look the page up by absolute path. */ -}}
+  {{- if and (not $target) (hasPrefix $slug "content/") -}}
+    {{- $target = site.GetPage (printf "/%s" (strings.TrimPrefix "content/" $slug)) -}}
+  {{- end -}}
   {{- if $target -}}
     <a href="{{ $target.RelPermalink }}{{ $frag }}"{{ with $.Title }} title="{{ . }}"{{ end }}>{{ $.Text }}</a>
   {{- else -}}
