@@ -496,6 +496,93 @@ func TestObjectCLI_List_SchemaType(t *testing.T) {
 	}
 }
 
+// TestObjectCLI_List_InvalidSort pins the WRIT-208 regression: an unknown
+// -sort key is refused (not silently ignored -- WRIT-195 deleted the
+// title/priority/position/estimate keys the cross-type query couldn't
+// honour, leaving only created_*/updated_*), and the refusal names the
+// keys parseOrderBy does accept instead of a bare "invalid sort order"
+// naming nothing. Exercised at the CLI, not just parseOrderBy directly,
+// because runObjectList used to print its own hardcoded message instead of
+// surfacing parseOrderBy's.
+func TestObjectCLI_List_InvalidSort(t *testing.T) {
+	env := initTestRepo(t)
+	applyTicketObjectSchema(t, env.repoDir)
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"object", "list", "-C", env.repoDir, "-sort", "title"}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatalf("expected a non-zero exit for an unknown sort key, got 0")
+	}
+	if !strings.Contains(stderr.String(), "title") {
+		t.Errorf("stderr does not name the rejected key: %q", stderr.String())
+	}
+	for _, key := range []string{"created_at_asc", "created_at_desc", "updated_at_asc", "updated_at_desc"} {
+		if !strings.Contains(stderr.String(), key) {
+			t.Errorf("stderr does not name accepted key %q: %q", key, stderr.String())
+		}
+	}
+}
+
+// TestObjectCLI_Create_SchemaType_Refused pins the WRIT-208 fix for finding
+// 2: `object create schema <op>` refuses schema objects, but must say why
+// -- "schema" is writ's built-in vocabulary, written through the dedicated
+// `writ schema plan`/`writ schema apply` pipeline -- rather than the
+// generic "not declared by the installed vocabulary", which contradicts
+// `object list schema` and `schema show schema` accepting it.
+func TestObjectCLI_Create_SchemaType_Refused(t *testing.T) {
+	env := initTestRepo(t)
+	applyTicketObjectSchema(t, env.repoDir)
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"object", "create", "-C", env.repoDir, "schema", "create"}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatalf("expected a non-zero exit for object create schema, got 0")
+	}
+	if strings.Contains(stderr.String(), "not declared by the installed vocabulary") {
+		t.Errorf("stderr still claims schema is undeclared: %q", stderr.String())
+	}
+	for _, want := range []string{"schema", "built-in", "writ schema plan", "writ schema apply"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("stderr does not mention %q: %q", want, stderr.String())
+		}
+	}
+}
+
+// TestObjectCLI_Apply_SchemaType_Refused is TestObjectCLI_Create_SchemaType_Refused's
+// counterpart for `object apply`, against a real schema object id (from
+// `object list schema`) rather than the type name directly.
+func TestObjectCLI_Apply_SchemaType_Refused(t *testing.T) {
+	env := initTestRepo(t)
+	applyTicketObjectSchema(t, env.repoDir)
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"object", "list", "-C", env.repoDir, "schema", "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("object list schema failed with %d; stderr: %s", code, stderr.String())
+	}
+	var summaries []wire.ObjectSummary
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectList, &summaries)
+	if len(summaries) == 0 {
+		t.Fatalf("expected at least one schema object, got none")
+	}
+	schemaObjectID := summaries[0].ObjectID
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run(context.Background(), []string{"object", "apply", "-C", env.repoDir, schemaObjectID, "create"}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatalf("expected a non-zero exit for object apply against a schema object, got 0")
+	}
+	if strings.Contains(stderr.String(), "not declared by the installed vocabulary") {
+		t.Errorf("stderr still claims schema is undeclared: %q", stderr.String())
+	}
+	for _, want := range []string{"schema", "built-in", "writ schema plan", "writ schema apply"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("stderr does not mention %q: %q", want, stderr.String())
+		}
+	}
+}
+
 // TestObjectCLI_ExplicitOpVersion_Undeclared pins the minor finding from
 // round 1: an explicit -op-version the vocabulary doesn't declare must be
 // refused by resolveOpVersion itself, naming the versions ticket create
