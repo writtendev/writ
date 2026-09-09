@@ -498,7 +498,16 @@ which one is "first" — so a version bump:
   reader-tolerant: nothing on the read path calls the value-type
   validator). `lattice` is deliberately absent from this list: the
   `lattice` accumulator reads it to order its semilattice, so it *is*
-  consulted at fold time.
+  consulted at fold time. A version bump reusing a `target` therefore
+  **MUST still agree on `lattice`**, exactly as the cross-`op_type`/
+  cross-`field` case below requires — two same-strategy `lattice` rules
+  sharing a target but declaring different orderings are exactly as
+  order-dependent as two rules disagreeing on `strategy` itself, version
+  bump or not. `spec.CheckTargetCollision` (`spec/fieldrules.go`) enforces
+  this inside the carve-out, not only outside it; the resolver-level
+  consequence — the second rule dropped as a `SchemaConflict` and an op
+  written under it becoming an `UnknownOp` — is pinned by
+  `spec/fixtures/testdata/descriptions/schema-driven-version-bump-lattice-collision.yaml`.
 - **MUST declare a distinct `target`** when it changes `strategy`: reusing
   a target across a strategy change is order-dependent, which is exactly
   what two conforming implementations disagreeing over rule-slice order

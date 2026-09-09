@@ -309,19 +309,24 @@ func equalKeyTypes(a, b map[string]string) bool {
 // shared-target agreement rule for one candidate rule against bound, every
 // rule already accepted within the same object type for the candidate's
 // target (TargetKey()) — not merely the most recently accepted one: rules
-// sharing a target MUST always agree on Strategy, and — unless they are an
-// op_version bump of the same (op_type, field), which those sections
-// explicitly permit to freely change every other attribute — MUST also agree
-// on ValueType, Key, KeyTypes, Enum, MaxLength and Lattice. The rule is
-// set-level, so this check is too: comparing a candidate only against the
-// last-bound rule let a version-bump carve-out against a *middle* rule
-// rebind the target, after which a *later* candidate was compared only to
-// the rebound rule and never caught disagreeing with the *first* — the
-// same order-dependence hazard WRIT-186 named for accumulator instantiation
-// ("two conforming implementations that list rules differently would
-// disagree"), reintroduced here in the validator meant to prevent it.
-// Checking every bound rule closes that hole regardless of declaration
-// order.
+// sharing a target MUST always agree on Strategy and on Lattice, and —
+// unless they are an op_version bump of the same (op_type, field), which
+// those sections permit to freely change everything else — MUST also agree
+// on ValueType, Key, KeyTypes, Enum and MaxLength. Lattice is held to
+// agreement even across a version bump: unlike the other five, it is
+// consulted by the strategy at fold time, so two same-strategy rules
+// sharing a target that disagree on it are exactly as order-dependent as
+// two that disagree on strategy.
+//
+// The rule is set-level, so this check is too: comparing a candidate only
+// against the last-bound rule let a version-bump carve-out against a
+// *middle* rule rebind the target, after which a *later* candidate was
+// compared only to the rebound rule and never caught disagreeing with the
+// *first* — the same order-dependence hazard WRIT-186 named for accumulator
+// instantiation ("two conforming implementations that list rules
+// differently would disagree"), reintroduced here in the validator meant to
+// prevent it. Checking every bound rule closes that hole regardless of
+// declaration order.
 //
 // It is the one check all three sites that resolve field rules run, so
 // writ's own hand-written Go tables are held to the exact standard writ
@@ -344,11 +349,17 @@ func CheckTargetCollision(bound map[string][]FieldRule, candidate FieldRule) err
 		// value_type, key, key_types, enum and max_length (spec/schema-ops.md
 		// §8) — that carve-out applies only against this specific prior, and
 		// no wider: every other pair here shares a target across a different
-		// op_type or field and must still agree.
-		if prior.OpType == candidate.OpType && prior.Field == candidate.Field {
-			continue
-		}
-		if !equalMergeAttrs(prior, candidate) {
+		// op_type or field and must still agree. It does not exempt lattice:
+		// equalMergeAttrs still runs, told which attributes this pair is a
+		// version bump of one another so it can skip only the genuinely
+		// freely-changeable ones and still hold lattice to agreement.
+		versionBump := prior.OpType == candidate.OpType && prior.Field == candidate.Field
+		if !equalMergeAttrs(prior, candidate, versionBump) {
+			if versionBump {
+				return fmt.Errorf(
+					"field rule (%s, %d, %s) is a version bump of (%s, %d, %s) sharing target %q, but they disagree on lattice; a version bump MAY freely change value_type, key, key_types, enum and max_length but MUST still agree on lattice, which is consulted by the strategy at fold time (spec/schema-ops.md §8)",
+					candidate.OpType, candidate.OpVersion, candidate.Field, prior.OpType, prior.OpVersion, prior.Field, targetKey)
+			}
 			return fmt.Errorf(
 				"field rule (%s, %d, %s) reuses target %q already bound by (%s, %d, %s), but they disagree on value_type, key, key_types, enum, max_length or lattice; rules sharing a target across different op_types or fields must agree on every merge attribute (spec/fold.md §5)",
 				candidate.OpType, candidate.OpVersion, candidate.Field, targetKey, prior.OpType, prior.OpVersion, prior.Field)
@@ -357,23 +368,29 @@ func CheckTargetCollision(bound map[string][]FieldRule, candidate FieldRule) err
 	return nil
 }
 
-// equalMergeAttrs reports whether a and b agree on every merge attribute
-// CheckTargetCollision holds a cross-op-type or cross-field target share to:
-// value_type, key, key_types, enum, max_length and lattice. Strategy is
-// checked separately by the caller, and op_type/field/op_version identify
-// the rule rather than describe its merge behaviour, so neither belongs
-// here. lattice belongs here and not on the version-bump carve-out's
-// freely-changeable list (spec/fold.md §5, spec/schema-ops.md §8): unlike
-// the other five, it is consulted by the strategy at fold time — the
+// equalMergeAttrs reports whether a and b agree on the merge attributes
+// CheckTargetCollision holds a target share to. Strategy is checked
+// separately by the caller, and op_type/field/op_version identify the rule
+// rather than describe its merge behaviour, so neither belongs here.
+//
+// versionBump reports whether a and b are an op_version bump of the same
+// (op_type, field) — the one case spec/schema-ops.md §8 lets change
+// value_type, key, key_types, enum and max_length freely, so those five are
+// skipped when it is true. lattice is never skipped, version bump or not:
+// unlike the other five, it is consulted by the strategy at fold time — the
 // lattice accumulator (engine/internal/fold/strategy.go, spec/reffold.go)
 // reads it to order its semilattice — so two rules sharing a target that
 // disagree on it are exactly as order-dependent as two that disagree on
-// strategy.
-func equalMergeAttrs(a, b FieldRule) bool {
-	return a.ValueType == b.ValueType &&
-		slices.Equal(a.Key, b.Key) &&
-		equalKeyTypes(a.KeyTypes, b.KeyTypes) &&
-		slices.Equal(a.Enum, b.Enum) &&
-		a.MaxLength == b.MaxLength &&
-		slices.Equal(a.Lattice, b.Lattice)
+// strategy, whether or not they are a version bump of one another.
+func equalMergeAttrs(a, b FieldRule, versionBump bool) bool {
+	if !versionBump {
+		if a.ValueType != b.ValueType ||
+			!slices.Equal(a.Key, b.Key) ||
+			!equalKeyTypes(a.KeyTypes, b.KeyTypes) ||
+			!slices.Equal(a.Enum, b.Enum) ||
+			a.MaxLength != b.MaxLength {
+			return false
+		}
+	}
+	return slices.Equal(a.Lattice, b.Lattice)
 }

@@ -85,7 +85,7 @@ producer would have refused. A blank cell means the split does not apply
 | `testdata/schema-rules/matrix.json` | Normative | reader | The rule-validation matrix (axis D of the schema-parametric corpus): every (strategy, value type) cell, including untyped, asserted against `spec.ValidateFieldRule` — the gate `engine/schema.go`'s `RulesFromSchemas` applies to every rule sourced from the log, since a reader has no producer step to lean on |
 | `testdata/resolution/` | Normative | reader | Resolution test vectors (`cases/*.json`) and outcome index (`index.json`) |
 | `fixtures/testdata/golden/schema/` | Normative | reader | Signed-fixture golden family driving the typed `writ.FoldSchema` reducer directly (`spec/fixtures/schema_test.go`): bootstrap, the §3.1 non-canonical `op_version` quarantine, multi-writer concurrent declarations, deprecate/redeclare, and schema-level forward compatibility |
-| `fixtures/testdata/golden/schema-driven/` | Normative | reader | Signed-fixture golden family (`spec/fixtures/schemadriven_test.go`) folding ordinary objects through rules resolved from the log itself (`writ.FoldSchema` → `writ.RulesFromSchemas` → `writ.Fold`): absent/uninterpretable, object_type/namespace/redefine-schema conflicts, version-bump target remedy (both halves), a version bump that changes only value_type, a cross-op-type value_type collision on a shared target, a cross-op-type lattice-ordering collision on a shared target, person-ref normalization across every strategy, invalid-rule dropping, and body-vocabulary tolerance |
+| `fixtures/testdata/golden/schema-driven/` | Normative | reader | Signed-fixture golden family (`spec/fixtures/schemadriven_test.go`) folding ordinary objects through rules resolved from the log itself (`writ.FoldSchema` → `writ.RulesFromSchemas` → `writ.Fold`): absent/uninterpretable, object_type/namespace/redefine-schema conflicts, version-bump target remedy (both halves), a version bump that changes only value_type, a cross-op-type value_type collision on a shared target, a cross-op-type lattice-ordering collision on a shared target, a version-bump lattice-ordering collision on a shared target, person-ref normalization across every strategy, invalid-rule dropping, and body-vocabulary tolerance |
 | `spec.go` | Informative | | Go embedding of `schemas/` and `testdata/` so every consumer reads the one committed copy |
 | `foldvectors.go` | Informative | | Go loader and structural validation for fold ordering and merge test vectors |
 | `resolutionvectors.go` | Informative | | Go loader and structural validation for resolution test cases |
@@ -261,8 +261,8 @@ a repo" is not the whole pipeline; the schema-driven pipeline below is:
    required values), drop and report the ones that fail rather than
    installing them, and detect the two schema-vs-schema conflicts (an
    `object_type` two schema objects both bind, and a version bump that
-   reuses a `target` across a strategy change) per `spec/schema-ops.md` §6
-   and §8. Neither conflict kind picks a winner.
+   reuses a `target` while disagreeing on `strategy` or `lattice`) per
+   `spec/schema-ops.md` §6 and §8. Neither conflict kind picks a winner.
 4. Fold every other object with the rules resolved for its own
    `object_type`. An `object_type` no schema declares (yet) is not a fold
    error: every op on it reports through `UnknownOps`, exactly as any other

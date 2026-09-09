@@ -258,14 +258,16 @@ func TestFieldRuleTargetKey(t *testing.T) {
 
 // TestCheckTargetCollision pins WRIT-198's widened target-collision standard
 // (spec/fold.md §5, spec/schema-ops.md §8): rules sharing a TargetKey must
-// always agree on Strategy, and must also agree on ValueType, Key, KeyTypes,
-// Enum, MaxLength and Lattice unless they are an op_version bump of the same
-// (op_type, field) — the one case those sections let change everything but
-// strategy. Lattice belongs in that must-agree set rather than on the
-// version-bump carve-out's freely-changeable list because, unlike the other
-// five, it is consulted by the strategy at fold time: two same-strategy
-// lattice rules sharing a target but declaring different orderings are
-// exactly as order-dependent as two rules disagreeing on strategy itself.
+// always agree on Strategy and on Lattice, and must also agree on
+// ValueType, Key, KeyTypes, Enum and MaxLength unless they are an
+// op_version bump of the same (op_type, field) — the one case those
+// sections let change everything but strategy and lattice. Lattice is held
+// to agreement even across a version bump — WRIT-206, pinned below by the
+// "different lattice ordering" cases both cross-op_type and within a
+// version bump — because, unlike the other five, it is consulted by the
+// strategy at fold time: two same-strategy lattice rules sharing a target
+// but declaring different orderings are exactly as order-dependent as two
+// rules disagreeing on strategy itself.
 func TestCheckTargetCollision(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -301,6 +303,24 @@ func TestCheckTargetCollision(t *testing.T) {
 			name:      "version bump, same op_type and field, different value_type: permitted",
 			prior:     spec.FieldRule{OpType: "widget-op", OpVersion: 1, Field: "value", Strategy: "lww", ValueType: "string"},
 			candidate: spec.FieldRule{OpType: "widget-op", OpVersion: 2, Field: "value", Strategy: "lww", ValueType: "enum", Enum: []string{"draft", "approved"}},
+			wantErr:   false,
+		},
+		{
+			// WRIT-206: the version-bump carve-out used to `continue` before
+			// equalMergeAttrs ran at all, so this pair — same (op_type,
+			// field), same strategy, disagreeing only on lattice ordering —
+			// was wrongly permitted. Lattice is not on spec/schema-ops.md
+			// §8's "MAY freely change" list, so a version bump must still
+			// agree on it.
+			name:      "version bump, same op_type and field, different lattice ordering: rejected",
+			prior:     spec.FieldRule{OpType: "promote", OpVersion: 1, Field: "level", Strategy: "lattice", Lattice: []string{"low", "high"}},
+			candidate: spec.FieldRule{OpType: "promote", OpVersion: 2, Field: "level", Strategy: "lattice", Lattice: []string{"high", "low"}},
+			wantErr:   true,
+		},
+		{
+			name:      "version bump, same op_type and field, same lattice, different value_type: permitted",
+			prior:     spec.FieldRule{OpType: "promote", OpVersion: 1, Field: "level", Strategy: "lattice", ValueType: "enum", Enum: []string{"low", "high"}, Lattice: []string{"low", "high"}},
+			candidate: spec.FieldRule{OpType: "promote", OpVersion: 2, Field: "level", Strategy: "lattice", ValueType: "enum", Enum: []string{"low", "medium", "high"}, Lattice: []string{"low", "high"}},
 			wantErr:   false,
 		},
 		{
