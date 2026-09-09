@@ -437,19 +437,30 @@ kinds of conflict can arise, and none is ever picked a winner:
    relation. The remedy is the same shape as an `object_type` collision,
    scoped to the target rather than the whole type: every rule bound to
    that target is withheld, never a survivor picked, as if none of those
-   rules had ever been declared. The consequence for an op is per-op, not
-   automatic: an op whose *every* field write lands on a withheld target
-   has no resolvable rule left at all and falls through the absent-schema
-   path (§7.1) to `UnknownOp`, exactly as an `object_type` collision does
-   for its whole type. An op that *also* writes a field bound to a target
-   whose rule survived stays known — that field folds normally, exactly as
-   `spec/fold.md` §7.1's Scope requires ("unrecognized fields keep
-   preserve-and-ignore unchanged"; a field with no resolvable rule is
-   ignored, not grounds to reject the whole op) — and the withheld
-   target's write on that op is an ordinary unrecognized field: preserved
-   in the log, absent from folded state, and not itself enough to make the
-   op an `UnknownOp`. The rest of the `object_type` — its other targets,
-   and any type-level metadata — is unaffected.
+   rules had ever been declared. Knownness is decided at the op envelope,
+   never per field: a rule matches an op on `(object_type, op_type,
+   op_version)` alone, with no inspection of which fields the op's body
+   actually carries, and an op becomes `UnknownOp` only when no surviving
+   rule matches that triple. Withholding the rules bound to one target
+   does not, by itself, make an op `UnknownOp`: if any surviving rule for
+   the same `object_type`, `op_type`, and `op_version` — necessarily bound
+   to a different target — still matches, the op stays known, whether it
+   writes only the withheld target's field, only the surviving target's
+   field, or both in the same envelope. A field bound to the surviving
+   rule folds normally; a field bound to the withheld target is an
+   ordinary unrecognized field, exactly as `spec/fold.md`
+   §7.1's Scope requires ("unrecognized fields keep preserve-and-ignore
+   unchanged"; a field with no resolvable rule is ignored, not grounds to
+   reject the whole op): preserved in the log, absent from folded state,
+   and not itself enough to make the op an `UnknownOp`. An op falls
+   through the absent-schema path (§7.1) to `UnknownOp` on account of a
+   target withholding only when that withholding happens to remove every
+   rule that would otherwise have matched the op's `(object_type,
+   op_type, op_version)` — i.e. when the withheld target was the only one
+   that `op_type`/`op_version` pair ever wrote — exactly as an
+   `object_type` collision does for its whole type. The rest of the
+   `object_type` — its other targets, and any type-level metadata — is
+   unaffected.
 
 A conflict is **resolver output, not fold output**. `Fold(ops, rules) →
 ObjectState{ObjectID, ObjectType, TotalOrder, State, UnknownOps}` is
