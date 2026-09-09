@@ -704,10 +704,55 @@ func findSchemaField(t state.SchemaType, opType string, opVersion int64, field s
 // body actually carries that key, so a new define-field op whose body
 // omits one does not clear the log's existing value — it leaves the log
 // holding an attribute the file no longer declares, forever. There is no
-// op that clears one of these (spec/schema-ops.md has no vocabulary for
-// it — WRIT-200 tracks adding one), so narrowing any of them is a removal
-// in every sense schemaRemovals already refuses others for.
+// op that clears one of these, and there deliberately never will be
+// (spec/schema-ops.md §8.1, ARCHITECTURE.md §Schema layer, WRIT-200):
+// narrowing an attribute takes a new op_version instead, a distinct
+// target only for the ones schemaFieldTargetSensitive names. So narrowing
+// any of them is a removal in every sense schemaRemovals already refuses
+// others for.
 var schemaFieldAttributeKeys = []string{"value_type", "enum", "max_length", "lattice", "key", "key_types", "target"}
+
+// schemaFieldTargetSensitive names the schemaFieldAttributeKeys entries a
+// version bump cannot narrow under the field's existing target:
+// `lattice` because newLatticeAccumulator (engine/internal/fold/
+// strategy.go) builds its rank map once, from whichever matched rule
+// Fold instantiates the target's single accumulator from, so two rules
+// sharing a target and disagreeing on `lattice` are order-dependent
+// (excluded from §8's "MAY freely change" bullet for exactly that
+// reason, the same reason a `strategy` change MUST declare a distinct
+// target — WRIT-206, spec/fieldrules.go's equalMergeAttrs); `target`
+// itself, whose narrowing is by definition a target change; and `key`
+// and `key_types`, because ValidateFieldRule (spec/fieldrules.go)
+// requires both exactly when strategy is keyed-lww and forbids them
+// otherwise, so a redeclaration that stops carrying `key` (this
+// function only runs on an attribute schemaRemovals found entirely
+// absent — see there) has necessarily also stopped declaring
+// `strategy: keyed-lww`. That entailed strategy change is the whole
+// reason key/key_types are here; they are not order-dependent in
+// themselves, since keyedLWWAccumulator.Apply reads Key and KeyTypes
+// off the matched rule on every op rather than capturing them at
+// construction, exactly as it reads ValueType. So §8's MAY bullet still
+// lists key/key_types correctly: it covers a version bump that keeps
+// both present and only changes their value (narrowing which columns
+// compose the key while staying keyed-lww), which never reaches
+// schemaRemovals's removed-attribute check at all, because the
+// attribute is never absent from the body, only different. Every
+// remaining entry is likewise unaffected by which rule the fold sees
+// first at a shared target: enum and max_length are validation-only and
+// the fold never reads them, and value_type, though read on every op to
+// normalize a value, is read off the matched rule rather than captured
+// at construction. So §8 already lets a version bump narrow any of the
+// three under the same target (spec/schema-ops.md §8.1).
+var schemaFieldTargetSensitive = map[string]bool{"lattice": true, "target": true, "key": true, "key_types": true}
+
+// schemaAttributeNarrowingAdvice is the recipe schemaRemovals points a
+// refused narrowing at, matching spec/schema-ops.md §8.1's split exactly.
+func schemaAttributeNarrowingAdvice(attr string) string {
+	if schemaFieldTargetSensitive[attr] {
+		return "declare a new op_version with a distinct target instead"
+	}
+	return "declare a new op_version instead; the same target is fine"
+}
 
 // schemaFieldHasAttribute reports whether current's folded state carries a
 // non-zero value for one of schemaFieldAttributeKeys.
@@ -863,8 +908,8 @@ func schemaRemovals(current, planned state.Schema, compiled []codec.Envelope) ([
 				}
 				if _, present := body[attr]; !present {
 					problems = append(problems, fmt.Sprintf(
-						"field %q on op %s version %d of type %q: attribute %q was removed; nothing is ever removed from the log — declare a new op_version with a distinct target instead (spec/schema-ops.md §8)",
-						cf.Name, cf.OpType, cf.OpVersion, ct.Name, attr))
+						"field %q on op %s version %d of type %q: attribute %q was removed; nothing is ever removed from the log — %s (spec/schema-ops.md §8.1)",
+						cf.Name, cf.OpType, cf.OpVersion, ct.Name, attr, schemaAttributeNarrowingAdvice(attr)))
 				}
 			}
 		}

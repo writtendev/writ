@@ -385,8 +385,12 @@ type standup {
 // key, so a define-field op that narrows one of these — the file stops
 // declaring it, but the log already holds it for that field — does not
 // clear it; it leaves the log holding both the new value and the stale
-// old one, forever, with no representable way to fix it (spec/schema-ops.md
-// has no op that clears a single attribute — WRIT-200 tracks adding one).
+// old one, forever, with no representable way to fix it in place
+// (spec/schema-ops.md §8.1, ARCHITECTURE.md §Schema layer, WRIT-200:
+// there deliberately is no op that clears a single attribute — narrowing
+// takes a new op_version instead, a distinct target only for the
+// attributes schemaFieldTargetSensitive names — see its comment for why
+// those four and not the ones the fold merely reads per op).
 // This is `schemaRemovals`'s attribute check treating that exactly like any
 // other removal: refuse, name the field and the attribute, append nothing.
 //
