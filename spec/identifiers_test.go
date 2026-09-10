@@ -319,6 +319,16 @@ func TestValidPersonVectors(t *testing.T) {
 				t.Errorf("schema rejected the normalized identifier: %v", err)
 			}
 
+			// The Stream-Safe Text rule is producer-side and unreachable from
+			// the schema (TestInvalidPersonVectors' enforced_by: "producer"
+			// arm), so this is the only place a valid vector is ever checked
+			// against it. Without this, a valid vector minted to sit exactly
+			// at the 30-non-starter boundary is never actually exercised on
+			// the accepting side.
+			if !spec.PersonValueIsStreamSafe(norm) {
+				t.Errorf("producer rejected %q as not Stream-Safe Text; want accept", norm)
+			}
+
 			for _, other := range vec.EqualTo {
 				if got := spec.NormalizePerson(other); got != norm {
 					t.Errorf("%q should denote the same person as %q, but normalizes to %q", other, vec.Identifier, got)

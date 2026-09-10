@@ -736,7 +736,10 @@ control, a bidi override, a bidi isolate, a zero-width character, and the
 BOM), what is deliberately still permitted despite the repertoire rule
 (an emoji value, an interior space, and unmarked right-to-left script), and
 the Stream-Safe Text boundary: a value accepted at exactly 30 consecutive NFD
-non-starters, one refused at 31, and one refused well past the limit.
+non-starters, one refused at 31, one refused well past the limit, and a
+legitimate multi-mark identifier well inside it (a Vietnamese name whose
+stacked diacritic is two non-starters) — a witness that the bound leaves
+ordinary stacked-diacritic text alone.
 
 Fold-level behaviour is pinned separately, by
 [`fixtures/testdata/descriptions/fold-person-schemes.yaml`](fixtures/testdata/descriptions/fold-person-schemes.yaml)

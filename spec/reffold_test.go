@@ -136,6 +136,67 @@ func FuzzReffoldNormalizePersonMatchesEngine(f *testing.F) {
 	})
 }
 
+// streamSafeInputs pins the Stream-Safe Text admissibility boundary
+// TestReffoldPersonValueIsStreamSafeMatchesEngine and its Fuzz check bind
+// between spec/reffold.go's personValueIsStreamSafe and the engine's
+// IsStreamSafe: one non-starter run under the limit, exactly at it, one past
+// it, and well past it, plus the axes personValueIsStreamSafe's own doc
+// comment says it must get right independently of normalization: a run
+// broken by a ccc-0 blocker partway through, a colonless string, and invalid
+// UTF-8.
+//
+// This is deliberately its own table rather than a reuse of
+// normalizePersonInputs above. That table's boundary cases were chosen to
+// pin normalization equivalence, and every one of them composes to a 31-run
+// (see longMarkRun's doc comment) — so on their own they cannot distinguish
+// "> 30" from ">= 30" the way TestValidPersonVectors' at-limit vector must:
+// both predicates already agree that a 31-run is refused.
+var streamSafeInputs = []string{
+	"",
+	"user:a",
+	"user:a" + strings.Repeat("̖", 29), // one under the limit
+	"user:a" + strings.Repeat("̖", 30), // exactly at the limit
+	"user:a" + strings.Repeat("̖", 31), // one past it
+	"user:a" + strings.Repeat("̖", 40), // well past it
+	"user:Åௗ̖́",         // a run broken by a ccc-0 blocker
+	"user:a" + longMarkRun + "́",       // normalizePersonInputs' boundary case: composes to a 31-run
+	"alice@example.com",                     // colonless, but still has a value to measure
+	"user:a\xff́",                      // invalid UTF-8
+}
+
+// TestReffoldPersonValueIsStreamSafeMatchesEngine binds the reference fold's
+// local copy of the Stream-Safe Text admissibility rule
+// (personMaxNonStarterRun / personValueIsStreamSafe in spec/reffold.go) to the
+// engine's one definition (MaxNonStarterRun / IsStreamSafe in
+// engine/internal/person), reached here through the exported
+// state.PersonValueIsStreamSafe on the same terms
+// TestReffoldNormalizePersonMatchesEngine reaches state.NormalizePerson.
+// reffold.go's copy sits outside the region TestReffoldIsTheSameAlgorithmAsTheEngine
+// compares source-for-source, because it backs a producer-side rule and
+// reffold.go is a reference fold, not a reference producer — so this
+// behavioural test is what stops the two copies drifting on which values are
+// admissible, the way the test above stops them drifting on normalization.
+func TestReffoldPersonValueIsStreamSafeMatchesEngine(t *testing.T) {
+	for _, in := range streamSafeInputs {
+		if got, want := spec.PersonValueIsStreamSafe(in), state.PersonValueIsStreamSafe(in); got != want {
+			t.Errorf("reffold personValueIsStreamSafe(%q) = %v, state.PersonValueIsStreamSafe(%q) = %v", in, got, in, want)
+		}
+	}
+}
+
+// FuzzReffoldPersonValueIsStreamSafeMatchesEngine covers the inputs the table
+// above cannot enumerate.
+func FuzzReffoldPersonValueIsStreamSafeMatchesEngine(f *testing.F) {
+	for _, in := range streamSafeInputs {
+		f.Add(in)
+	}
+	f.Fuzz(func(t *testing.T, in string) {
+		if got, want := spec.PersonValueIsStreamSafe(in), state.PersonValueIsStreamSafe(in); got != want {
+			t.Errorf("reffold personValueIsStreamSafe(%q) = %v, state.PersonValueIsStreamSafe(%q) = %v", in, got, in, want)
+		}
+	})
+}
+
 // emptyScalarRules is a synthetic rule table for the two tests below, which
 // pin how the reference fold treats an empty scalar — an empty string under
 // lww, and a person-ref that normalizes to nothing. Writ ships no vocabulary

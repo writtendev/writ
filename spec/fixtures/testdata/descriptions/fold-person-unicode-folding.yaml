@@ -351,8 +351,12 @@ refs:
 
           # WRIT-140: a value whose NFD carries 31 consecutive non-starters
           # (spec/identifiers.md section Value shape: Stream-Safe Text) is
-          # now refused at the producer -- it is
-          # spec/testdata/persons/invalid/normalization-long-mark-run.json --
+          # now refused at the producer -- this is the normalized (NFC)
+          # spelling of
+          # spec/testdata/persons/invalid/normalization-long-mark-run.json's
+          # identifier (a + 30 x U+0316 + U+0301, 32 code points there;
+          # precomposed here to a-with-acute + 30 x U+0316, 31 code points --
+          # the two are not the same bytes, only the same folded person) --
           # but the rule is producer-side only (spec/fold.md section 7.1
           # makes fold total), so a foreign or buggy client's op still folds
           # it, byte-for-byte, exactly as before this rule existed. Fixture

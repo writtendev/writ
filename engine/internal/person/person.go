@@ -598,6 +598,27 @@ func Check(s string) Problem {
 	return Valid
 }
 
+// IsStreamSafe reports whether id's value conforms to spec/identifiers.md
+// §Value shape: Stream-Safe Text — its NFD carries no run of more than
+// MaxNonStarterRun consecutive non-starters — independently of every other
+// rule Check enforces. Check's own non-starter-run branch above computes the
+// same thing inline; this is not a second implementation, just the one
+// exported so a test can reach it.
+//
+// It exists so spec/reffold_test.go's differential test can bind
+// spec.PersonValueIsStreamSafe — the reference copy of this rule — to this
+// package's definition of the same rule, the way
+// TestReffoldNormalizePersonMatchesEngine already binds spec.NormalizePerson
+// to NormalizePerson. Nothing in engine calls it outside tests: a real
+// caller wants Check's full verdict, not this one axis of it.
+func IsStreamSafe(id string) bool {
+	_, value, ok := Split(id)
+	if !ok {
+		value = id
+	}
+	return maxRunLen(value) <= MaxNonStarterRun
+}
+
 // validScheme reports whether scheme matches [a-z][a-z0-9+.-]*.
 func validScheme(scheme string) bool {
 	if scheme == "" {
