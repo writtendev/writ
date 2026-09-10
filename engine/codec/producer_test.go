@@ -836,11 +836,12 @@ func TestBuildCommitAcceptsUnknownFieldsInEveryVocabulary(t *testing.T) {
 //
 // The old rationale — "a reader has to tolerate it and writ's own producer
 // never emits one" — rested on writ's producer only ever emitting types it
-// embedded itself. It emits consumer-declared types instead, and rules 3,
-// 4, 5, and 6 ("the op_type and op_version are ones the producer itself
-// defines") stop being satisfiable for a type nothing declares at all: an
-// op of a truly foreign object type is exactly the un-withdrawable mistake
-// those rules exist to prevent, so it is refused rather than let through.
+// embedded itself. It emits consumer-declared types instead, and for a
+// type nothing declares at all, tier 4 is the only tier that ever
+// applies: there is no vocabulary to validate the body against, so the op
+// is refused outright rather than let through. An op of a truly foreign
+// object type is exactly the un-withdrawable mistake producer validation
+// exists to prevent.
 // This is deliberately scoped to the *genuine* absence case — a
 // *contested* object type (two schema objects binding one bare type) is a
 // different tier and stays writable (TestContestedObjectTypeStaysWritable
