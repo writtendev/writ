@@ -48,6 +48,11 @@
           "commit": "d0ff8430c5cd6fe8e880acb50ef956a1bf8e8ad6",
           "label": "bob-remove-normalized",
           "t_star": 1767226080
+        },
+        {
+          "commit": "f7bfaa78eb8e958f6ba66d44e4db36bb31577e5c",
+          "label": "alice-assign-stream-safe-boundary",
+          "t_star": 1767226140
         }
       ],
       "state": {
@@ -56,6 +61,7 @@
           "user:josé",
           "user:ss",
           "user:à",
+          "user:á̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖",
           "user:𐁁̀"
         ],
         "base": [

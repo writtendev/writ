@@ -1,0 +1,13 @@
+{
+  "identifier": "user:Nguyễn",
+  "scheme": "user",
+  "value": "nguyễn",
+  "normalized": "user:nguyễn",
+  "equal_to": [
+    "USER:Nguyễn",
+    "  user:Nguyễn  "
+  ],
+  "distinct_from": [
+    "user:nguyen"
+  ]
+}
