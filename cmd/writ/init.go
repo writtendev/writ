@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -19,17 +20,67 @@ import (
 )
 
 type initOpts struct {
-	dir string
+	dir       string
+	namespace string
 }
 
 func newInitFlagSet(defaultDir string) (*flag.FlagSet, *initOpts) {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	opts := &initOpts{}
 	fs.StringVar(&opts.dir, "C", defaultDir, "Run as if writ was started in `<dir>`")
+	fs.StringVar(&opts.namespace, "namespace", "", "Namespace `<name>` for a starter writ.schema (required the first time one is written)")
 	fs.Usage = func() {
 		renderUsage(fs.Output(), []string{"init"}, initCmd)
 	}
 	return fs, opts
+}
+
+// namespaceGrammar is restated in every namespace refusal below, so the
+// answer to "what would satisfy this" never depends on which of the three
+// paths (flag, prompt, or neither) produced the refusal.
+const namespaceGrammar = "^[a-z][a-z0-9-]*$, at most 64 characters, not a writ.schema reserved word"
+
+// resolveNamespace decides the namespace for the starter writ.schema this
+// run is about to write. It is called only when the caller has determined
+// one is actually due — a work tree with no writ.schema yet — and it must
+// be called before EnsureWriterID's first git-config write, so that a
+// refusal here leaves the repository untouched rather than
+// half-configured (dispatch decision on WRIT-220's plan).
+//
+// writ init never derives a namespace from anything: a bare directory
+// name is not a public package name anyone chose, and since WRIT-199 and
+// WRIT-217 the namespace is exactly that — baked into the schema object's
+// id and into every wire type the schema declares, permanently.
+//
+//   - flagValue supplied: validated, or refused naming the flag.
+//   - flagValue absent, interactive: prompted once on stderr with no
+//     suggested default; an empty answer, EOF, or an invalid answer
+//     refuses immediately, with no retry loop.
+//   - flagValue absent, non-interactive: refused outright, naming
+//     --namespace. This is the failure WRIT-220 exists to produce instead
+//     of a silent default.
+func resolveNamespace(flagValue string, stdin io.Reader, interactive bool, stderr io.Writer) (string, error) {
+	if flagValue != "" {
+		if err := schemasrc.ValidateNamespace(flagValue); err != nil {
+			return "", fmt.Errorf("--namespace: %w (must match %s)", err, namespaceGrammar)
+		}
+		return flagValue, nil
+	}
+
+	if !interactive {
+		return "", fmt.Errorf("writ.schema does not exist yet and no --namespace was given; pass --namespace <name>, matching %s", namespaceGrammar)
+	}
+
+	fmt.Fprint(stderr, "This repository has no writ.schema yet. Namespace for the starter file: ")
+	line, _ := bufio.NewReader(stdin).ReadString('\n')
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return "", fmt.Errorf("no namespace entered; pass --namespace <name>, matching %s", namespaceGrammar)
+	}
+	if err := schemasrc.ValidateNamespace(line); err != nil {
+		return "", fmt.Errorf("%w (must match %s)", err, namespaceGrammar)
+	}
+	return line, nil
 }
 
 // initMessage renders err for writ init's own output. An identity.ConfigError
@@ -75,7 +126,7 @@ func reportPartialInit(stderr io.Writer, writerID identity.WriterID, repoID iden
 	fmt.Fprintf(stderr, "  re-run writ init after fixing the error above: it reuses both IDs and writes only what is missing\n")
 }
 
-func runInit(ctx context.Context, defaultDir string, args []string, stdout, stderr io.Writer) int {
+func runInit(ctx context.Context, defaultDir string, args []string, stdin io.Reader, interactive bool, stdout, stderr io.Writer) int {
 	fs, opts := newInitFlagSet(defaultDir)
 	fs.SetOutput(stderr)
 
@@ -136,6 +187,37 @@ func runInit(ctx context.Context, defaultDir string, args []string, stdout, stde
 	if err != nil {
 		fmt.Fprintf(stderr, "writ init: %v\n", err)
 		return 1
+	}
+
+	// 2.5. Decide whether a starter writ.schema is due, and if so, resolve
+	// its namespace now — before anything below writes to git config, so
+	// that a refusal leaves the repository untouched rather than
+	// half-configured. Only a work tree with no writ.schema yet ever
+	// writes one (step 7): a bare repository has no working tree to put
+	// one in, and an already-initialized repository has nothing left for
+	// a namespace to name. Neither needs one, and neither is asked for
+	// one non-interactively (dispatch decision on WRIT-220's plan).
+	var starterNamespace string
+	starterFileDue := false
+	if gitInfo.WorkTree != "" {
+		switch _, statErr := os.Stat(filepath.Join(gitInfo.WorkTree, schemaSourceFileName)); {
+		case statErr == nil:
+			// Exists; step 7 reports this and, if --namespace was passed
+			// anyway, that it was ignored.
+		case os.IsNotExist(statErr):
+			starterFileDue = true
+		default:
+			fmt.Fprintf(stderr, "writ init: writ.schema: %v\n", statErr)
+			return 1
+		}
+	}
+	if starterFileDue {
+		ns, err := resolveNamespace(opts.namespace, stdin, interactive, stderr)
+		if err != nil {
+			fmt.Fprintf(stderr, "writ init: %v\n", err)
+			return 1
+		}
+		starterNamespace = ns
 	}
 
 	remotes := fs.Args()
@@ -292,9 +374,11 @@ func runInit(ctx context.Context, defaultDir string, args []string, stdout, stde
 	// (gitInfo.WorkTree is "" for one — resolved in step 2, not repoRoot
 	// itself, which the earlier `--is-bare-repository` branch already set
 	// to the git dir); an existing writ.schema is never overwritten, no
-	// matter its content.
+	// matter its content. The namespace, if this run needed one, was
+	// already resolved (and validated) in step 2.5, before anything above
+	// was written.
 	if gitInfo.WorkTree != "" {
-		if err := writeStarterSchemaFile(gitInfo.WorkTree, stdout, stderr); err != nil {
+		if err := writeStarterSchemaFile(gitInfo.WorkTree, starterNamespace, opts.namespace, stdout, stderr); err != nil {
 			fmt.Fprintf(stderr, "writ init: writ.schema: %v\n", err)
 		}
 	}
@@ -306,56 +390,29 @@ func runInit(ctx context.Context, defaultDir string, args []string, stdout, stde
 // tree root when one is not already there. Writ declares no types of its
 // own (spec/schema-source.md; AGENTS.md), so the starter file is a
 // namespace line and nothing else — no types, no vocabulary — and never
-// overwrites a file that already exists.
-func writeStarterSchemaFile(workTree string, stdout, stderr io.Writer) error {
+// overwrites a file that already exists. namespace is the value step 2.5
+// already resolved and validated when a starter file was due; it is empty
+// (and unused) when one was not, which is exactly the case where the file
+// already exists here too. flagValue is the raw --namespace the user
+// passed, if any, purely to report that it was ignored when there was
+// nothing for it to name.
+func writeStarterSchemaFile(workTree, namespace, flagValue string, stdout, stderr io.Writer) error {
 	path := filepath.Join(workTree, schemaSourceFileName)
 	if _, err := os.Stat(path); err == nil {
-		fmt.Fprintf(stdout, "writ.schema already exists; leaving it unchanged\n")
+		if flagValue != "" {
+			fmt.Fprintf(stdout, "writ.schema already exists; leaving it unchanged (--namespace %q ignored)\n", flagValue)
+		} else {
+			fmt.Fprintf(stdout, "writ.schema already exists; leaving it unchanged\n")
+		}
 		return nil
 	} else if !os.IsNotExist(err) {
 		return err
 	}
 
-	content := "namespace " + deriveStarterNamespace(workTree) + "\n"
+	content := "namespace " + namespace + "\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return err
 	}
 	fmt.Fprintf(stdout, "Wrote starter %s\n", path)
 	return nil
-}
-
-// starterNamespacePlaceholder is used when nothing legal survives deriving
-// a namespace from the work tree's directory name (spec/schema-source.md
-// §3: a namespace is ^[a-z][a-z0-9-]*$). It names no downstream product —
-// it is a placeholder, not a vocabulary (AGENTS.md).
-const starterNamespacePlaceholder = "repo"
-
-// deriveStarterNamespace turns the work tree's directory name into a legal
-// writ.schema namespace: lowercased, anything outside [a-z0-9-] replaced
-// with '-', trimmed of leading digits/hyphens (a namespace must start with
-// a letter) and trailing hyphens, and capped at the grammar's 64-character
-// limit. Falls back to a fixed placeholder when nothing legal survives.
-func deriveStarterNamespace(workTree string) string {
-	base := strings.ToLower(filepath.Base(workTree))
-
-	var b strings.Builder
-	for _, r := range base {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			b.WriteRune(r)
-		} else {
-			b.WriteByte('-')
-		}
-	}
-	s := strings.Trim(b.String(), "-")
-	s = strings.TrimLeft(s, "0123456789-")
-	s = strings.TrimRight(s, "-")
-
-	if len(s) > 64 {
-		s = strings.TrimRight(s[:64], "-")
-	}
-
-	if s == "" || schemasrc.IsKeyword(s) {
-		return starterNamespacePlaceholder
-	}
-	return s
 }

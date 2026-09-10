@@ -148,16 +148,14 @@ namespace is the entire point of this change, and a namespace is meant to
 name one vocabulary regardless of which repository declares it. A schema
 object's identity being its namespace, globally, is the carve-out's
 premise, not a gap in it. Two repositories that mean *different*
-vocabularies can still end up with the same namespace string with no
-writer ever choosing it: `writ init` derives a repository's starter
-namespace from its working-tree directory basename, falling back to the
-fixed placeholder `repo` when nothing legal survives the derivation. Two
-unrelated repositories checked out under directories with the same name
-— or two whose basenames both fail to survive derivation and both land
-on the `repo` fallback — collide on namespace by that default alone,
-reachable without anyone opting into a shared string. That is a naming
-collision this derivation cannot detect or arbitrate, not something a
-writer has to choose their way into.
+vocabularies converging on the same namespace is not a default this
+format can reach on its own: `writ init` never derives a namespace from
+anything (a directory basename included) and writes a starter
+`writ.schema` only once a human has supplied one, explicitly, on the
+command line or at an interactive prompt. Two repositories sharing a
+namespace therefore means two humans typed the same string — a choice,
+not a collision an unrelated pair of repositories can fall into by
+default.
 
 ### Producer and reader conformance
 

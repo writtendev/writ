@@ -31,23 +31,29 @@ Initialize writ configuration (writer ID and remote fetch refspecs)
 #### Synopsis
 
 ```console
-Usage: writ init [-C <dir>] [remote...]
+Usage: writ init [-C <dir>] [--namespace <name>] [remote...]
 ```
 
 #### Description
 
 Initialize writ repository configuration by resolving or minting a writer ID,
 verifying SSH signing key configuration, and adding fetch refspecs for git remotes.
+On a work tree with no writ.schema yet, also writes a starter one: --namespace names
+it explicitly, an interactive terminal is prompted for it, and a non-interactive run
+with neither refuses rather than choosing one for you — the namespace becomes part of
+every wire type the schema declares, so it is never derived from a directory name.
 
 #### Flags
 
 - `-C <dir>`: Run as if writ was started in <dir>
+- `-namespace <name>`: Namespace <name> for a starter writ.schema (required the first time one is written)
 
 #### Examples
 
 ```bash
 writ init
 writ init origin
+writ init --namespace acme
 ```
 
 ### `writ object create`

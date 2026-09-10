@@ -17,7 +17,7 @@ writ schema show [<type>] [--json]
 
 Writ hard-codes exactly one collaborative object type: `schema`. Every other object type — `review`, `comment`, `issue`, and anything a consumer declares — is data a `schema` object writes into the log. `writ.schema` is a human-editable, working-tree source form for that data, Prisma-style: the log stays the source of truth, and the file is a view onto it, not a second store of it. See the schema layer section of `ARCHITECTURE.md` and `spec/schema-source.md` for the full grammar.
 
-`writ init` writes a starter `writ.schema` — a namespace line and nothing else — for any repository with a working tree that doesn't already have one.
+`writ init` writes a starter `writ.schema` — a namespace line and nothing else — for any repository with a working tree that doesn't already have one, using the namespace `--namespace <name>` supplies (or an interactive prompt answers); see [`writ init`](../init/).
 
 ## `plan`
 

@@ -18,9 +18,11 @@ Writ stores all operations directly inside your git repository as signed
 commits under `refs/writ/*`.
 
 Create a project directory and initialize your git repository, then ensure
-your SSH signing key and identity are configured. `writ init` derives the
-starter schema's namespace from the directory name, so the name you choose
-here is the `my-project` you will see in step 2's output:
+your SSH signing key and identity are configured. Step 2 chooses a
+namespace explicitly with `--namespace`; this walkthrough uses
+`my-project`, but the namespace is independent of the directory name — it
+is the public name of every type your schema goes on to declare, so it is
+never derived from anything.
 
 ```bash
 mkdir my-project
@@ -44,10 +46,14 @@ git branch -M main
 ## 2. Initialize Writ
 
 Run `writ init` to mint a unique writer ID, configure Writ's remote fetch
-refspecs, and write a starter `writ.schema`:
+refspecs, and write a starter `writ.schema`. Writing a starter file needs a
+namespace, and `writ init` never derives one — it becomes the public name
+of every type your schema declares, so pass it explicitly with
+`--namespace` (an interactive terminal is prompted for it instead, but a
+script or agent running this non-interactively must pass the flag):
 
 ```bash
-writ init
+writ init --namespace my-project
 ```
 
 Output:
@@ -173,12 +179,16 @@ origin: pushed 8 ops
 
 ## 6. Collaborator Clones and Lists Objects
 
-On another machine or clone, your collaborator initializes Writ and syncs:
+On another machine or clone, your collaborator initializes Writ and syncs.
+The clone has no `writ.schema` either (it was never committed to git — see
+the note above), so their `writ init` needs a namespace too; it names the
+starter file `writ init` would write for *this* work tree, not anything
+that gets synced, so it need not even match yours:
 
 ```bash
 git clone git@github.com:example/repo.git collab
 cd collab
-writ init
+writ init --namespace my-project
 writ sync origin
 ```
 

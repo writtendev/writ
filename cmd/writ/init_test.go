@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,7 +29,7 @@ func TestInit_Idempotent(t *testing.T) {
 	addRemote(t, env.repoDir, "origin", "https://example.com/repo.git")
 
 	var stdout1, stderr1 bytes.Buffer
-	code1 := run(context.Background(), []string{"init", "-C", env.repoDir}, &stdout1, &stderr1)
+	code1 := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout1, &stderr1)
 	if code1 != 0 {
 		t.Fatalf("run init (first) exited with %d; stderr: %s", code1, stderr1.String())
 	}
@@ -214,7 +215,7 @@ func TestInit_PartialFailureIsReportedAndRecovers(t *testing.T) {
 	// Mint the IDs on a run with no remote to configure, so the failure below
 	// lands where the ticket found it: after identity is in config.
 	var stdout, stderr bytes.Buffer
-	if code := run(context.Background(), []string{"init", "-C", env.repoDir}, &stdout, &stderr); code != 0 {
+	if code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("first init exited with %d; stderr: %s", code, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "(minted)") {
@@ -306,7 +307,7 @@ func TestInit_AlreadyInitialisedIsACleanNoOp(t *testing.T) {
 	addRemote(t, env.repoDir, "origin", "https://example.com/repo.git")
 
 	var stdout, stderr bytes.Buffer
-	if code := run(context.Background(), []string{"init", "-C", env.repoDir}, &stdout, &stderr); code != 0 {
+	if code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("first init exited with %d; stderr: %s", code, stderr.String())
 	}
 	before := gitConfigSnapshot(t, env.repoDir)
@@ -358,7 +359,7 @@ func TestInit_DriftRepair(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	code := run(context.Background(), []string{"init", "-C", env.repoDir}, &stdout, &stderr)
+	code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("run init exited with %d; stderr: %s", code, stderr.String())
 	}
@@ -386,7 +387,7 @@ func TestInit_WriterIDPrecedence(t *testing.T) {
 		setGitConfig(t, env.repoDir, "writ.writerId", "1111111111111111")
 
 		var stdout, stderr bytes.Buffer
-		code := run(context.Background(), []string{"init", "-C", env.repoDir}, &stdout, &stderr)
+		code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr)
 		if code != 0 {
 			t.Fatalf("init exited with %d; stderr: %s", code, stderr.String())
 		}
@@ -403,7 +404,7 @@ func TestInit_WriterIDPrecedence(t *testing.T) {
 		env := setupTestCLIEnv(t)
 
 		var stdout, stderr bytes.Buffer
-		code := run(context.Background(), []string{"init", "-C", env.repoDir}, &stdout, &stderr)
+		code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr)
 		if code != 0 {
 			t.Fatalf("init exited with %d; stderr: %s", code, stderr.String())
 		}
@@ -422,7 +423,7 @@ func TestInit_WriterIDPrecedence(t *testing.T) {
 		setFileConfig(t, env.globalCfgPath, "writ.writerId", "2222222222222222")
 
 		var stdout, stderr bytes.Buffer
-		code := run(context.Background(), []string{"init", "-C", env.repoDir}, &stdout, &stderr)
+		code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr)
 		if code != 0 {
 			t.Fatalf("init exited with %d; stderr: %s", code, stderr.String())
 		}
@@ -448,7 +449,7 @@ func TestInit_RepoIDPrecedence(t *testing.T) {
 		setGitConfig(t, env.repoDir, "writ.repoId", "a1b2c3d4e5f60718293a4b5c6d7e8f90")
 
 		var stdout, stderr bytes.Buffer
-		code := run(context.Background(), []string{"init", "-C", env.repoDir}, &stdout, &stderr)
+		code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr)
 		if code != 0 {
 			t.Fatalf("init exited with %d; stderr: %s", code, stderr.String())
 		}
@@ -468,7 +469,7 @@ func TestInit_RepoIDPrecedence(t *testing.T) {
 		env := setupTestCLIEnv(t)
 
 		var stdout, stderr bytes.Buffer
-		code := run(context.Background(), []string{"init", "-C", env.repoDir}, &stdout, &stderr)
+		code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr)
 		if code != 0 {
 			t.Fatalf("init exited with %d; stderr: %s", code, stderr.String())
 		}
@@ -492,7 +493,7 @@ func TestInit_SigningKeyGuidance(t *testing.T) {
 	setGitConfig(t, env.repoDir, "user.email", "alice@example.com")
 
 	var stdout, stderr bytes.Buffer
-	code := run(context.Background(), []string{"init", "-C", env.repoDir}, &stdout, &stderr)
+	code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("init exited with %d (want 0 for missing signing key); stderr: %s", code, stderr.String())
 	}
@@ -525,7 +526,7 @@ func TestInit_GPGFormatSpellingAgreesWithTheWritePath(t *testing.T) {
 			setGitConfig(t, env.repoDir, "gpg.format", format)
 
 			var stdout, stderr bytes.Buffer
-			if code := run(context.Background(), []string{"init", "-C", env.repoDir}, &stdout, &stderr); code != 0 {
+			if code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr); code != 0 {
 				t.Fatalf("init exited with %d; stderr: %s", code, stderr.String())
 			}
 			if !strings.Contains(stdout.String(), "Signing key:") {
@@ -569,7 +570,7 @@ func TestInit_AuthorIdentityGuidance(t *testing.T) {
 			setGitConfig(t, env.repoDir, tc.key, "   ")
 
 			var stdout, stderr bytes.Buffer
-			if code := run(context.Background(), []string{"init", "-C", env.repoDir}, &stdout, &stderr); code != 0 {
+			if code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr); code != 0 {
 				t.Fatalf("init exited with %d; stderr: %s", code, stderr.String())
 			}
 
@@ -624,7 +625,7 @@ func TestInit_NeverAdvisesRunningInit(t *testing.T) {
 			tc.setup(t, env.repoDir)
 
 			var stdout, stderr bytes.Buffer
-			if code := run(context.Background(), []string{"init", "-C", env.repoDir}, &stdout, &stderr); code != 0 {
+			if code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr); code != 0 {
 				t.Fatalf("init exited with %d; stderr: %s", code, stderr.String())
 			}
 
@@ -691,7 +692,7 @@ func TestInit_UnconfiguredSigningReadsAsUnset(t *testing.T) {
 		setGitConfig(t, env.repoDir, "user.email", "alice@example.com")
 
 		var stdout, stderr bytes.Buffer
-		if code := run(context.Background(), []string{"init", "-C", env.repoDir}, &stdout, &stderr); code != 0 {
+		if code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr); code != 0 {
 			t.Fatalf("init exited with %d; stderr: %s", code, stderr.String())
 		}
 		got := stderr.String()
@@ -710,7 +711,7 @@ func TestInit_UnconfiguredSigningReadsAsUnset(t *testing.T) {
 		setGitConfig(t, env.repoDir, "gpg.format", "openpgp")
 
 		var stdout, stderr bytes.Buffer
-		if code := run(context.Background(), []string{"init", "-C", env.repoDir}, &stdout, &stderr); code != 0 {
+		if code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr); code != 0 {
 			t.Fatalf("init exited with %d; stderr: %s", code, stderr.String())
 		}
 		got := stderr.String()
@@ -830,7 +831,7 @@ func TestInit_E2E_PlainGitFetch(t *testing.T) {
 
 	// 4. In Clone B, run writ init
 	var stdoutB, stderrB bytes.Buffer
-	codeB := run(context.Background(), []string{"init", "-C", cloneBDir}, &stdoutB, &stderrB)
+	codeB := run(context.Background(), []string{"init", "-C", cloneBDir, "--namespace", "testns"}, &stdoutB, &stderrB)
 	if codeB != 0 {
 		t.Fatalf("writ init in clone B exited with %d; stderr: %s", codeB, stderrB.String())
 	}
@@ -877,7 +878,7 @@ func TestInit_MultiRemoteAndPositional(t *testing.T) {
 		addRemote(t, env.repoDir, "upstream", "https://example.com/upstream.git")
 
 		var stdout, stderr bytes.Buffer
-		code := run(context.Background(), []string{"init", "-C", env.repoDir}, &stdout, &stderr)
+		code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr)
 		if code != 0 {
 			t.Fatalf("init exited with %d; stderr: %s", code, stderr.String())
 		}
@@ -899,7 +900,7 @@ func TestInit_MultiRemoteAndPositional(t *testing.T) {
 		addRemote(t, env.repoDir, "upstream", "https://example.com/upstream.git")
 
 		var stdout, stderr bytes.Buffer
-		code := run(context.Background(), []string{"init", "-C", env.repoDir, "origin"}, &stdout, &stderr)
+		code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns", "origin"}, &stdout, &stderr)
 		if code != 0 {
 			t.Fatalf("init exited with %d; stderr: %s", code, stderr.String())
 		}
@@ -922,7 +923,7 @@ func TestInit_NoRemotes(t *testing.T) {
 	env := setupTestCLIEnv(t)
 
 	var stdout, stderr bytes.Buffer
-	code := run(context.Background(), []string{"init", "-C", env.repoDir}, &stdout, &stderr)
+	code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("init with no remotes exited with %d; stderr: %s", code, stderr.String())
 	}
@@ -952,10 +953,16 @@ func TestInit_BareRepository(t *testing.T) {
 	t.Setenv("GIT_CONFIG_SYSTEM", "/dev/null")
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 
+	// No --namespace: a bare repository writes no starter file, so it needs
+	// no namespace and must keep succeeding non-interactively with none
+	// supplied (dispatch decision on WRIT-220's plan).
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{"init", "-C", bareDir}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("init on bare repo failed with %d; stderr: %s", code, stderr.String())
+	}
+	if strings.Contains(stderr.String(), "--namespace") {
+		t.Errorf("bare repo init asked for a namespace it will never use:\n%s", stderr.String())
 	}
 
 	writerID := getGitConfigAll(t, bareDir, "writ.writerId")
@@ -978,7 +985,7 @@ func TestInit_WritesStarterSchemaFile(t *testing.T) {
 	env := setupTestCLIEnv(t)
 
 	var stdout, stderr bytes.Buffer
-	code := run(context.Background(), []string{"init", "-C", env.repoDir}, &stdout, &stderr)
+	code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("run init exited with %d; stderr: %s", code, stderr.String())
 	}
@@ -989,9 +996,9 @@ func TestInit_WritesStarterSchemaFile(t *testing.T) {
 		t.Fatalf("reading starter writ.schema: %v", err)
 	}
 
-	// setupTestCLIEnv names the work tree "repo", which is already a legal
-	// namespace, so the derivation should reproduce it verbatim.
-	if want := "namespace repo\n"; string(content) != want {
+	// The namespace is exactly the one supplied on the command line: writ
+	// init derives nothing (WRIT-220).
+	if want := "namespace testns\n"; string(content) != want {
 		t.Errorf("starter writ.schema = %q, want %q", string(content), want)
 	}
 	if !strings.Contains(stdout.String(), "Wrote starter") {
@@ -1110,7 +1117,7 @@ func TestRoot_Dispatch(t *testing.T) {
 		addRemote(t, env.repoDir, "origin", "https://example.com/repo.git")
 
 		var stdout, stderr bytes.Buffer
-		code := run(context.Background(), []string{"-C", env.repoDir, "init"}, &stdout, &stderr)
+		code := run(context.Background(), []string{"-C", env.repoDir, "init", "--namespace", "testns"}, &stdout, &stderr)
 		if code != 0 {
 			t.Fatalf("root -C flag exit code = %d, want 0; stderr: %s", code, stderr.String())
 		}
@@ -1150,7 +1157,7 @@ func TestInit_WorktreeConfigAndExtensions(t *testing.T) {
 		setGitConfig(t, env.repoDir, "extensions.worktreeConfig", "true")
 
 		var stdout, stderr bytes.Buffer
-		code := run(context.Background(), []string{"init", "-C", env.repoDir}, &stdout, &stderr)
+		code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr)
 		if code != 0 {
 			t.Fatalf("writ init failed on repo with extensions.worktreeConfig: exit code %d; stderr: %s", code, stderr.String())
 		}
@@ -1167,7 +1174,7 @@ func TestInit_WorktreeConfigAndExtensions(t *testing.T) {
 		}
 
 		var stdout, stderr bytes.Buffer
-		code := run(context.Background(), []string{"init", "-C", env.repoDir}, &stdout, &stderr)
+		code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr)
 		if code != 0 {
 			t.Fatalf("writ init failed on sparse-checkout repo: exit code %d; stderr: %s", code, stderr.String())
 		}
@@ -1185,7 +1192,7 @@ func TestInit_PersonID(t *testing.T) {
 		setGitConfig(t, env.repoDir, "user.email", "Alice@Example.COM")
 
 		var stdout, stderr bytes.Buffer
-		if code := run(context.Background(), []string{"init", "-C", env.repoDir}, &stdout, &stderr); code != 0 {
+		if code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr); code != 0 {
 			t.Fatalf("init exited with %d; stderr: %s", code, stderr.String())
 		}
 		if want := "Person ID: email:alice@example.com (derived from user.email)"; !strings.Contains(stdout.String(), want) {
@@ -1198,7 +1205,7 @@ func TestInit_PersonID(t *testing.T) {
 		setGitConfig(t, env.repoDir, "writ.personId", "  User:Alice  ")
 
 		var stdout, stderr bytes.Buffer
-		if code := run(context.Background(), []string{"init", "-C", env.repoDir}, &stdout, &stderr); code != 0 {
+		if code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr); code != 0 {
 			t.Fatalf("init exited with %d; stderr: %s", code, stderr.String())
 		}
 		if want := "Person ID: user:alice (from writ.personId)"; !strings.Contains(stdout.String(), want) {
@@ -1211,7 +1218,7 @@ func TestInit_PersonID(t *testing.T) {
 		setGitConfig(t, env.repoDir, "user.email", "   ")
 
 		var stdout, stderr bytes.Buffer
-		if code := run(context.Background(), []string{"init", "-C", env.repoDir}, &stdout, &stderr); code != 0 {
+		if code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr); code != 0 {
 			t.Fatalf("init exited with %d; stderr: %s", code, stderr.String())
 		}
 		if strings.Contains(stdout.String(), "Person ID:") {
@@ -1229,4 +1236,229 @@ func TestInit_PersonID(t *testing.T) {
 			t.Errorf("init should carry the wrapped example through, got stderr:\n%s", stderr.String())
 		}
 	})
+}
+
+// TestInit_NamespaceRequiredNonInteractive pins WRIT-220's core refusal: a
+// work tree with no writ.schema yet, run non-interactively with no
+// --namespace, refuses outright rather than deriving one — and refuses
+// before anything is written, leaving the repository exactly as it found
+// it (the ordering step 2.5 exists for).
+func TestInit_NamespaceRequiredNonInteractive(t *testing.T) {
+	env := setupTestCLIEnv(t)
+	addRemote(t, env.repoDir, "origin", "https://example.com/repo.git")
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"init", "-C", env.repoDir}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("init with no namespace exited with %d, want 1; stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "--namespace") {
+		t.Errorf("stderr does not name --namespace:\n%s", stderr.String())
+	}
+
+	if got := getGitConfigAll(t, env.repoDir, "writ.writerId"); len(got) != 0 {
+		t.Errorf("writ.writerId = %v, want nothing written by a run refused for lack of a namespace", got)
+	}
+	if got := getGitConfigAll(t, env.repoDir, "writ.repoId"); len(got) != 0 {
+		t.Errorf("writ.repoId = %v, want nothing written by a run refused for lack of a namespace", got)
+	}
+	for _, entry := range getGitConfigAll(t, env.repoDir, "remote.origin.fetch") {
+		if strings.Contains(entry, "writ") {
+			t.Errorf("writ fetch refspec %q was written by a run refused for lack of a namespace", entry)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(env.repoDir, "writ.schema")); !os.IsNotExist(err) {
+		t.Errorf("expected no writ.schema written by a refused run, stat err = %v", err)
+	}
+}
+
+// TestInit_NamespaceInteractivePrompt covers the middle path: no
+// --namespace, but stdin is a terminal. The prompt is shown once on
+// stderr with no suggested default, and the answer is used verbatim.
+func TestInit_NamespaceInteractivePrompt(t *testing.T) {
+	env := setupTestCLIEnv(t)
+
+	var stdout, stderr bytes.Buffer
+	code := runStdin(context.Background(), []string{"init", "-C", env.repoDir}, strings.NewReader("acme\n"), true, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("interactive init exited with %d; stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Namespace") {
+		t.Errorf("interactive init did not show a prompt:\n%s", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "acme") {
+		t.Errorf("prompt echoed a suggested namespace; WRIT-220 requires no default:\n%s", stderr.String())
+	}
+
+	content, err := os.ReadFile(filepath.Join(env.repoDir, "writ.schema"))
+	if err != nil {
+		t.Fatalf("reading starter writ.schema: %v", err)
+	}
+	if want := "namespace acme\n"; string(content) != want {
+		t.Errorf("starter writ.schema = %q, want %q", string(content), want)
+	}
+}
+
+// TestInit_NamespaceInteractiveRejections covers the three ways an
+// interactive prompt can fail to produce a namespace: an empty line, EOF
+// with nothing typed, and an answer that fails the grammar. None of them
+// retry — one bad answer is a refusal, exactly like a bad --namespace.
+func TestInit_NamespaceInteractiveRejections(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		input string
+	}{
+		{"empty_answer", "\n"},
+		{"eof_nothing_typed", ""},
+		{"invalid_answer", "Not-Legal\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := setupTestCLIEnv(t)
+
+			var stdout, stderr bytes.Buffer
+			code := runStdin(context.Background(), []string{"init", "-C", env.repoDir}, strings.NewReader(tc.input), true, &stdout, &stderr)
+			if code != 1 {
+				t.Fatalf("init exited with %d, want 1; stderr: %s", code, stderr.String())
+			}
+			if _, err := os.Stat(filepath.Join(env.repoDir, "writ.schema")); !os.IsNotExist(err) {
+				t.Errorf("expected no writ.schema written after a refused prompt, stat err = %v", err)
+			}
+			if got := getGitConfigAll(t, env.repoDir, "writ.writerId"); len(got) != 0 {
+				t.Errorf("writ.writerId = %v, want nothing written by a refused prompt", got)
+			}
+		})
+	}
+}
+
+// TestInit_NamespaceRejectionTable pins ValidateNamespace's grammar as
+// seen through the CLI: each of these fails --namespace with exit 1,
+// echoes the offending input rather than mangling it, and writes nothing.
+// The embedded-newline case is the injection guard WRIT-220's plan calls
+// out by name: validating by synthesizing "namespace "+name+"\n" and
+// parsing it back would let this exact input inject a second declaration
+// into the starter file instead of being refused.
+func TestInit_NamespaceRejectionTable(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		namespace string
+	}{
+		{"uppercase", "Api"},
+		{"leading_digit", "9x"},
+		{"reserved_keyword", "type"},
+		{"embedded_space", "a b"},
+		{"embedded_newline", "acme\ntype x {}"},
+		{"over_length_limit", strings.Repeat("a", 65)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := setupTestCLIEnv(t)
+
+			var stdout, stderr bytes.Buffer
+			code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", tc.namespace}, &stdout, &stderr)
+			if code != 1 {
+				t.Fatalf("init --namespace %q exited with %d, want 1; stderr: %s", tc.namespace, code, stderr.String())
+			}
+			// %q is how the refusal echoes the input back: verbatim for
+			// everything printable, %q-escaped (literal backslash-n, not a
+			// real newline) for the injection case, which is what keeps a
+			// multi-line refusal from reading as multiple lines of its own.
+			wantEcho := fmt.Sprintf("%q", tc.namespace)
+			if !strings.Contains(stderr.String(), wantEcho) {
+				t.Errorf("refusal for %q does not echo the input (want %s), got:\n%s", tc.namespace, wantEcho, stderr.String())
+			}
+			if _, err := os.Stat(filepath.Join(env.repoDir, "writ.schema")); !os.IsNotExist(err) {
+				t.Errorf("expected no writ.schema written for rejected namespace %q, stat err = %v", tc.namespace, err)
+			}
+			if got := getGitConfigAll(t, env.repoDir, "writ.writerId"); len(got) != 0 {
+				t.Errorf("writ.writerId = %v, want nothing written for rejected namespace %q", got, tc.namespace)
+			}
+		})
+	}
+
+	t.Run("empty", func(t *testing.T) {
+		env := setupTestCLIEnv(t)
+
+		var stdout, stderr bytes.Buffer
+		code := run(context.Background(), []string{"init", "-C", env.repoDir}, &stdout, &stderr)
+		if code != 1 {
+			t.Fatalf("init with an empty namespace exited with %d, want 1; stderr: %s", code, stderr.String())
+		}
+		if _, err := os.Stat(filepath.Join(env.repoDir, "writ.schema")); !os.IsNotExist(err) {
+			t.Errorf("expected no writ.schema written for an empty namespace, stat err = %v", err)
+		}
+	})
+}
+
+// TestInit_TwoRepositoriesSameBasenameRequireExplicitNamespaces is
+// WRIT-220's own acceptance case: two repositories that would previously
+// have derived the same namespace from a shared directory basename
+// ("api") no longer can without a human choosing it. Both refuse
+// non-interactively with no namespace; given two different explicit
+// namespaces, they produce two different starter files despite the
+// identical basename — the collision spec/identifiers.md used to describe
+// as reachable "with no writer ever choosing it" now requires exactly
+// that choice.
+func TestInit_TwoRepositoriesSameBasenameRequireExplicitNamespaces(t *testing.T) {
+	requireGit(t)
+	root := t.TempDir()
+
+	globalCfgPath := filepath.Join(root, "global_gitconfig")
+	if err := os.WriteFile(globalCfgPath, []byte(""), 0600); err != nil {
+		t.Fatalf("writing empty global config: %v", err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", globalCfgPath)
+	t.Setenv("GIT_CONFIG_SYSTEM", "/dev/null")
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+	aDir := filepath.Join(root, "a", "api")
+	bDir := filepath.Join(root, "b", "api")
+	for _, dir := range []string{aDir, bDir} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("creating %s: %v", dir, err)
+		}
+		cmd := exec.Command("git", "init")
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git init in %s: %v (%s)", dir, err, out)
+		}
+	}
+
+	// Same basename, no namespace, non-interactive: both refuse.
+	for _, dir := range []string{aDir, bDir} {
+		var stdout, stderr bytes.Buffer
+		if code := run(context.Background(), []string{"init", "-C", dir}, &stdout, &stderr); code != 1 {
+			t.Fatalf("init in %s with no namespace exited with %d, want 1; stderr: %s", dir, code, stderr.String())
+		}
+		if _, err := os.Stat(filepath.Join(dir, "writ.schema")); !os.IsNotExist(err) {
+			t.Errorf("expected no writ.schema written in %s without a namespace, stat err = %v", dir, err)
+		}
+	}
+
+	// Same basename, two different explicit namespaces: two different
+	// starter files, chosen rather than derived.
+	var stdoutA, stderrA bytes.Buffer
+	if code := run(context.Background(), []string{"init", "-C", aDir, "--namespace", "repo-a"}, &stdoutA, &stderrA); code != 0 {
+		t.Fatalf("init in %s with --namespace repo-a exited with %d; stderr: %s", aDir, code, stderrA.String())
+	}
+	var stdoutB, stderrB bytes.Buffer
+	if code := run(context.Background(), []string{"init", "-C", bDir, "--namespace", "repo-b"}, &stdoutB, &stderrB); code != 0 {
+		t.Fatalf("init in %s with --namespace repo-b exited with %d; stderr: %s", bDir, code, stderrB.String())
+	}
+
+	contentA, err := os.ReadFile(filepath.Join(aDir, "writ.schema"))
+	if err != nil {
+		t.Fatalf("reading %s/writ.schema: %v", aDir, err)
+	}
+	contentB, err := os.ReadFile(filepath.Join(bDir, "writ.schema"))
+	if err != nil {
+		t.Fatalf("reading %s/writ.schema: %v", bDir, err)
+	}
+	if want := "namespace repo-a\n"; string(contentA) != want {
+		t.Errorf("%s/writ.schema = %q, want %q", aDir, contentA, want)
+	}
+	if want := "namespace repo-b\n"; string(contentB) != want {
+		t.Errorf("%s/writ.schema = %q, want %q", bDir, contentB, want)
+	}
+	if bytes.Equal(contentA, contentB) {
+		t.Errorf("two repositories sharing basename %q converged on one namespace without a human typing the same string twice", "api")
+	}
 }
