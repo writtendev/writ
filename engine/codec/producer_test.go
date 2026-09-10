@@ -221,6 +221,15 @@ func TestBuildCommitRejectsKeyedLWWKeyColumns(t *testing.T) {
 			name: "key column value is JSON null",
 			body: `{"verdict":"approve","subject":null}`,
 		},
+		{
+			// WRIT-219 rule 5: a body writing a keyed-lww field must also
+			// carry every column of that field's declared key -- this differs
+			// from the cases above (a present-but-malformed value) in that the
+			// key column is missing from the body entirely, so the check that
+			// fires is the new presence pass, not validateKeyColumnValue.
+			name: "key column absent from body entirely",
+			body: `{"verdict":"approve"}`,
+		},
 	}
 
 	for _, tc := range cases {
@@ -960,6 +969,91 @@ func TestProducerOpTypesMatchShippedVocabularies(t *testing.T) {
 				objectType, file, inSchema, registered)
 		}
 	}
+}
+
+// TestBootstrapKeyedLWWKeyColumnsAreRequiredInSchemaOpsSchema is WRIT-219's
+// "check the bootstrap schema vocabulary's own op shapes against the new
+// rule" item, made permanent instead of checked once by hand. Rule 5's
+// presence check (validateFieldsAgainstRules) runs over
+// valueTypeRulesOnce(), which validateValueTypes filters spec.FieldRules()
+// down to: only rules declaring a value_type. define-field's own
+// enum/key/key_types/lattice rules declare none, so they never reach rule
+// 5's runtime check at the bootstrap tier -- not a live gap only because
+// spec/schemas/schema-ops.schema.json's own per-op-type "required" arrays
+// already list every key column those rules (and every other keyed-lww
+// bootstrap rule) declare, so the shipped JSON Schema enforces their
+// presence on its own. This test is what keeps that agreement from
+// drifting, rather than leaving it to be re-checked once by hand.
+func TestBootstrapKeyedLWWKeyColumnsAreRequiredInSchemaOpsSchema(t *testing.T) {
+	rules, err := spec.FieldRules()
+	if err != nil {
+		t.Fatalf("spec.FieldRules(): %v", err)
+	}
+
+	raw, err := spec.FS.ReadFile("schemas/schema-ops.schema.json")
+	if err != nil {
+		t.Fatalf("read schema-ops.schema.json: %v", err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("parse schema-ops.schema.json: %v", err)
+	}
+	required := requiredFieldsByOpType(t, doc)
+
+	checked := 0
+	for _, r := range rules {
+		if r.ObjectType != "schema" || r.Strategy != "keyed-lww" {
+			continue
+		}
+		checked++
+		req := required[r.OpType]
+		for _, col := range r.Key {
+			if !slices.Contains(req, col) {
+				t.Errorf("op_type %q field %q: schema-ops.schema.json's required list %v for this op_type does not include key column %q from spec/testdata/schema-ops/field-rules.json -- a define-field/define-op/define-type/deprecate-type/deprecate-field op omitting it would not be caught by rule 5 (its value_type is unset, so it never reaches validateFieldsAgainstRules at the bootstrap tier) nor by the shipped JSON Schema",
+					r.OpType, r.Field, req, col)
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no keyed-lww rules found for object type \"schema\" -- this test is not exercising anything")
+	}
+}
+
+// requiredFieldsByOpType extracts, from schema-ops.schema.json's top-level
+// if/then dispatch on op_type, the "required" array of the $defs body
+// schema each op_type's then-branch points body at.
+func requiredFieldsByOpType(t *testing.T, doc map[string]any) map[string][]string {
+	t.Helper()
+	defs, _ := doc["$defs"].(map[string]any)
+	then, _ := doc["then"].(map[string]any)
+	branches, _ := then["allOf"].([]any)
+
+	result := make(map[string][]string)
+	for _, b := range branches {
+		branch, _ := b.(map[string]any)
+		ifBlock, _ := branch["if"].(map[string]any)
+		ifProps, _ := ifBlock["properties"].(map[string]any)
+		opTypeConst, _ := ifProps["op_type"].(map[string]any)
+		opType, _ := opTypeConst["const"].(string)
+		if opType == "" {
+			continue
+		}
+		thenBlock, _ := branch["then"].(map[string]any)
+		thenProps, _ := thenBlock["properties"].(map[string]any)
+		bodyRef, _ := thenProps["body"].(map[string]any)
+		ref, _ := bodyRef["$ref"].(string)
+		defName := strings.TrimPrefix(ref, "#/$defs/")
+		bodySchema, _ := defs[defName].(map[string]any)
+		reqRaw, _ := bodySchema["required"].([]any)
+		req := make([]string, 0, len(reqRaw))
+		for _, v := range reqRaw {
+			if s, ok := v.(string); ok {
+				req = append(req, s)
+			}
+		}
+		result[opType] = req
+	}
+	return result
 }
 
 // TestShippedVocabulariesGateOnTheProducedOpVersion pins the assumption behind

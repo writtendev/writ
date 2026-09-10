@@ -163,6 +163,7 @@ func TestStoreSyncLifecycle(t *testing.T) {
 	if err := sB.Objects.Apply(ctx, widgetID, writ.NewOp{
 		Type: "approval",
 		Fields: map[string]any{
+			"subject":  "email:bob@example.com",
 			"revision": headHash,
 			"verdict":  "approve",
 			"message":  "Looks great from Bob!",
@@ -332,4 +333,3 @@ func TestStoreSync_PreReceiveHookFailureAndRetry(t *testing.T) {
 		t.Errorf("Bob Fields[title] = %v, want 'Hook Failure Widget'", objB.Fields["title"])
 	}
 }
-

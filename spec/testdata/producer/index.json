@@ -119,6 +119,23 @@
     "reader_disposition": "interpretable",
     "reason": "rule 3 (WRIT-214 round 5): \"2024-01-01T01:00:00+01:00\" names the same instant as \"2024-01-01T00:00:00Z\" but is a different byte string, and fold keys a keyed-lww register on the byte string (value.Normalize is the identity for timestamp), so admitting every RFC 3339 spelling of an instant would let two producers who mean the same key address registers that never converge. The producer now requires the canonical UTC spelling; the reader still only checks isString, so it folds the op with the non-canonical key component intact, the same asymmetry keyed-lww-key-column-int-non-canonical.json pins for int"
   },
+  "keyed-lww-key-column-absent.json": {
+    "producer_verdict": "reject",
+    "reason_code": "schema-violation",
+    "reader_disposition": "interpretable",
+    "reason": "rule 5 (WRIT-219): a body writing a keyed-lww field must carry every column of that field's declared key, or the op folds onto the empty key and the field's declared per-key partition silently degenerates to plain lww with no error at any layer -- a body carrying \"verdict\" alone, with its declared key column \"subject\" entirely absent, is now a producer rejection. The reader is unchanged (spec/fold.md §5.8's \"a key component the body omits entirely ... contributes the empty component\" still applies), so it folds the op, keying on the empty component, exactly as it did before this rule existed"
+  },
+  "keyed-lww-key-column-partially-absent.json": {
+    "producer_verdict": "reject",
+    "reason_code": "schema-violation",
+    "reader_disposition": "interpretable",
+    "reason": "rule 5 (WRIT-219): the same rule fires on a partially-absent key, not only a wholly-absent one -- \"verdict\" is keyed on (subject, revision) and the body carries \"subject\" but omits \"revision\", so the producer refuses it naming the missing column. The reader still folds the op, contributing the empty component for the column the body omits"
+  },
+  "keyed-lww-key-column-only-no-field.json": {
+    "producer_verdict": "accept",
+    "reader_disposition": "interpretable",
+    "reason": "rule 5 (WRIT-219) negative control: the body carries \"subject\", a keyed-lww key column, but never writes \"verdict\", the field it keys -- rule 5 binds a body that writes a keyed-lww field, not any body that merely mentions one of its key columns, so this is accepted exactly as rule 3 already allows (keyed-lww-key-column.json's sibling case with the field omitted)"
+  },
   "target-grammar-installs-no-rule.json": {
     "producer_verdict": "reject",
     "reason_code": "schema-violation",

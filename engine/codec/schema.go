@@ -412,6 +412,12 @@ func validateValueTypes(env Envelope, raw []byte) error {
 // (the log-sourced tier, where nothing else bounds "known fields" —
 // validateAgainstLogVocabulary's rules are every declared field).
 //
+// Before any of that, a presence pass enforces rule 5
+// (spec/op-envelope.md §Producer validation, WRIT-219): a body writing a
+// keyed-lww field must also carry every column of that field's declared
+// key, or the write is refused outright. See that pass's own comment
+// below for why it is keyed directly off each rule rather than byField.
+//
 // A keyed-lww field's key columns travel in the body but are not themselves
 // declared fields (spec/op-envelope.md §Producer validation rule 3): a body
 // key is also declared when it is a member of key on some keyed-lww rule in
@@ -496,6 +502,57 @@ func validateFieldsAgainstRules(rules []spec.FieldRule, body map[string]any, str
 				keyColumnTypes[col] = kt
 			}
 		}
+	}
+
+	// Rule 5 (spec/op-envelope.md §Producer validation): a body that writes
+	// a keyed-lww field MUST also carry every column of that field's
+	// declared key, or the op folds onto the empty key and the field's
+	// declared per-key partition silently degenerates to plain lww with no
+	// error at any layer (WRIT-219). This pass runs first and separately
+	// from the per-field loop below, over rules directly rather than
+	// byField, so a body missing a key column is refused for that reason
+	// rather than by whichever per-value check happens to fire first.
+	//
+	// Checked off each rule with Strategy == "keyed-lww" and a non-empty
+	// Key, not off a byField lookup: a body's own rule set can carry a
+	// second FieldRule for the very same field name with Strategy
+	// "keyed-lww" but no Key -- a key-column-only entry synthesized for a
+	// dual-role name, the way engine/projection/refresh_test.go's
+	// vocabulariesFrom does for its own test fixtures -- and byField's
+	// last-rule-wins map would let that vacuous entry win the lookup for
+	// such a name, so a check keyed off byField[field].Key would see an
+	// empty key list and pass vacuously. Filtering on len(r.Key) > 0 and
+	// reading Key straight off r sidesteps the map entirely.
+	type missingKeyColumn struct {
+		field  string
+		column string
+	}
+	var missing []missingKeyColumn
+	for _, r := range rules {
+		if r.Strategy != "keyed-lww" || len(r.Key) == 0 {
+			continue
+		}
+		if _, wrote := body[r.Field]; !wrote {
+			continue
+		}
+		for _, col := range r.Key {
+			if _, present := body[col]; !present {
+				// Only the first missing column per field, in Key's
+				// declared order -- the acceptance criterion is refusal
+				// naming the field and *a* missing column, not every one.
+				missing = append(missing, missingKeyColumn{field: r.Field, column: col})
+				break
+			}
+		}
+	}
+	if len(missing) > 0 {
+		// Sorted by field, the same determinism discipline the per-field
+		// loop below applies to body's keys: two conforming
+		// implementations -- and two runs of this one -- must name the
+		// same field and column first when more than one is missing.
+		sort.Slice(missing, func(i, j int) bool { return missing[i].field < missing[j].field })
+		m := missing[0]
+		return &RejectError{Reason: RejectSchemaViolation, Err: fmt.Errorf("field %q: keyed-lww requires key %q, which body omits", m.field, m.column)}
 	}
 
 	// Sorted rather than ranged directly: body is a JSON-decoded map, whose
