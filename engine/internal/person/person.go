@@ -32,6 +32,18 @@ const (
 	MaxLen       = MaxSchemeLen + 1 + MaxValueLen // 353
 )
 
+// MaxNonStarterRun is the largest number of consecutive non-starters — code
+// points with a non-zero Canonical_Combining_Class — a person-id value's NFD
+// may carry, per spec/identifiers.md §Value shape: Stream-Safe Text (UAX #15
+// §13's Stream-Safe Text Format, applied literally as a producer-side bound).
+//
+// Measured on NFD, not on the value as written or on its NFC form:
+// composition only ever removes non-starters, so this is the form that
+// actually bounds what a downstream implementation — including one that
+// applies Stream-Safe Text by default, the trap this document calls out
+// under "Stream-Safe Text is not applied" — has to handle.
+const MaxNonStarterRun = 30
+
 // UnicodeVersion is the Unicode version spec/identifiers.md pins the
 // normalization algorithm to.
 //
@@ -441,6 +453,39 @@ func ccc(r rune) uint8 {
 	return norm.NFC.Properties(buf[:n]).CCC()
 }
 
+// maxRunLen returns the length, in code points, of the longest run of
+// consecutive non-starters in s's NFD. It backs the Check branch enforcing
+// MaxNonStarterRun (spec/identifiers.md §Value shape: Stream-Safe Text).
+//
+// It decomposes s one rune at a time — the same discipline decompose (above)
+// follows, and for the same reason: asking x/text to decompose a whole string
+// applies Stream-Safe Text and inserts U+034F past 30 non-starters (see nfc,
+// defect 2), which would make this function unable to see the very runs it
+// exists to measure. A single rune's canonical decomposition is always far
+// shorter than MaxNonStarterRun, so decomposing rune by rune cannot itself
+// trigger the same defect.
+//
+// A run cannot cross a starter — ccc 0 is a fixed point canonical ordering
+// never moves a non-starter across — so no reordering is needed to find a
+// run's length: it is measured directly off decompose's rune-at-a-time output
+// order.
+func maxRunLen(s string) int {
+	run, max := 0, 0
+	for _, r := range s {
+		for _, d := range norm.NFD.String(string(r)) {
+			if ccc(d) == 0 {
+				run = 0
+				continue
+			}
+			run++
+			if run > max {
+				max = run
+			}
+		}
+	}
+	return max
+}
+
 // Problem names the ways a string can fail to be a conforming person
 // identifier. It is an enumeration rather than an error so that this package
 // stays free of anything the fold must not reach; callers turn it into a
@@ -468,6 +513,10 @@ const (
 	ForbiddenCodePoint
 	// ValueTooLong means the value exceeds MaxValueLen code points.
 	ValueTooLong
+	// ValueNotStreamSafe means the value's NFD carries a run of more than
+	// MaxNonStarterRun consecutive non-starters, violating
+	// spec/identifiers.md §Value shape: Stream-Safe Text (UAX #15 §13).
+	ValueNotStreamSafe
 )
 
 // String describes the problem for use in a caller's error message.
@@ -487,6 +536,8 @@ func (p Problem) String() string {
 		return "value contains a forbidden code point (control character, bidi control/isolate/override, or zero-width/invisible character; spec/identifiers.md §Value character repertoire)"
 	case ValueTooLong:
 		return "value is longer than 320 characters"
+	case ValueNotStreamSafe:
+		return "value carries more than 30 consecutive combining marks (Stream-Safe Text, UAX #15 §13; spec/identifiers.md §Value shape: Stream-Safe Text)"
 	}
 	return "unknown problem"
 }
@@ -537,6 +588,12 @@ func Check(s string) Problem {
 	}
 	if countRunes(value) > MaxValueLen {
 		return ValueTooLong
+	}
+	// Run last: decomposing every rune of the value to check its NFD
+	// non-starter run costs more than the scans above it, so it only runs on
+	// a value that has already cleared every cheaper check.
+	if maxRunLen(value) > MaxNonStarterRun {
+		return ValueNotStreamSafe
 	}
 	return Valid
 }

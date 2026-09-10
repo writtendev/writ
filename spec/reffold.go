@@ -410,6 +410,53 @@ func personCCC(r rune) uint8 {
 	return norm.NFC.Properties(buf[:n]).CCC()
 }
 
+// personMaxNonStarterRun mirrors engine/internal/person's MaxNonStarterRun
+// (spec/identifiers.md §Value shape: Stream-Safe Text). It sits outside the
+// block TestReffoldIsTheSameAlgorithmAsTheEngine compares source-for-source,
+// which stops at personCCC above, because the rule it backs is producer-side:
+// reffold.go is the reference fold, not a reference producer, and has no
+// Check of its own to mirror in full.
+const personMaxNonStarterRun = 30
+
+// personValueIsStreamSafe reports whether a person identifier's value
+// conforms to spec/identifiers.md §Value shape: Stream-Safe Text: its NFD
+// carries no run of more than personMaxNonStarterRun consecutive
+// non-starters.
+//
+// It exists solely so TestInvalidPersonVectors can check a testdata/persons
+// vector whose rejection is enforced only at the producer, never by the
+// person-id JSON Schema, which has no way to express a
+// Canonical_Combining_Class-run rule. It is deliberately narrower than a
+// reference Check: it names only this one rule, the one rule the schema
+// cannot already enforce, not the whole grammar.
+//
+// The decomposition discipline matches engine/internal/person's maxRunLen and
+// for the same reason: decomposing the whole value in one call would let
+// x/text apply Stream-Safe Text and insert U+034F past 30 non-starters,
+// hiding the very run this function exists to measure. A single rune's
+// canonical decomposition is always far shorter than the limit, so
+// decomposing rune by rune cannot trigger the same defect.
+func personValueIsStreamSafe(id string) bool {
+	_, value, ok := splitPerson(id)
+	if !ok {
+		value = id
+	}
+	run := 0
+	for _, r := range value {
+		for _, d := range norm.NFD.String(string(r)) {
+			if personCCC(d) == 0 {
+				run = 0
+				continue
+			}
+			run++
+			if run > personMaxNonStarterRun {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // EffectiveTimes computes the causality-monotone effective timestamp
 // t*(u) = max(u.time, max_{p in Parents_S(u)} t*(p))
 // for all ops in the restricted input set for target objectID.

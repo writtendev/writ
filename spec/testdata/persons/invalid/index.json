@@ -32,6 +32,14 @@
   "empty.json": {
     "reason": "empty string"
   },
+  "normalization-long-mark-run.json": {
+    "reason": "value composes to á followed by 30 U+0316, whose NFD is a followed by 31 consecutive non-starters (U+0301 plus the 30 U+0316) -- one past the 30-non-starter Stream-Safe Text bound (spec/identifiers.md section Value shape: Stream-Safe Text); not expressible as a schema pattern",
+    "enforced_by": "producer"
+  },
+  "normalization-mark-run-over-limit.json": {
+    "reason": "value's NFD carries 40 consecutive non-starters, well over the 30-non-starter Stream-Safe Text bound (spec/identifiers.md section Value shape: Stream-Safe Text); not expressible as a schema pattern",
+    "enforced_by": "producer"
+  },
   "scheme-leading-digit.json": {
     "reason": "scheme must begin with [a-z]"
   },

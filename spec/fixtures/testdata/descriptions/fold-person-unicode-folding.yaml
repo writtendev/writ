@@ -6,9 +6,12 @@ description: >
   repository's own log. Two spellings of the same name compose to one assignee;
   the dotted capital I folds to i plus a combining dot rather than to a bare i;
   both spellings of sharp s fold together; Cherokee folds up to its uppercase
-  fixed point; and a supplementary starter followed by a combining mark stays a
+  fixed point; a supplementary starter followed by a combining mark stays a
   different person from the Latin letter its truncated composition key would
-  have merged it with.
+  have merged it with; and a value carrying 31 consecutive NFD non-starters —
+  which WRIT-140 makes the producer refuse — still folds byte-for-byte intact
+  when a foreign or buggy client writes it, because the rule is producer-side
+  only and the fold does not consult it.
 
 refs:
   - name: refs/writ/0123456789abcdef/schema
@@ -344,6 +347,27 @@ refs:
                 choice: "no"
                 subject: "user:José"
                 note: "Updated under the precomposed spelling"
+            expect: accept
+
+          # WRIT-140: a value whose NFD carries 31 consecutive non-starters
+          # (spec/identifiers.md section Value shape: Stream-Safe Text) is
+          # now refused at the producer -- it is
+          # spec/testdata/persons/invalid/normalization-long-mark-run.json --
+          # but the rule is producer-side only (spec/fold.md section 7.1
+          # makes fold total), so a foreign or buggy client's op still folds
+          # it, byte-for-byte, exactly as before this rule existed. Fixture
+          # generation bypasses the producer, the way a hostile client would.
+          - id: alice-assign-stream-safe-boundary
+            parents: [alice-vote-precomposed]
+            author: alice
+            timestamp: 2026-01-01T00:09:00Z
+            op:
+              object_id: w-person-unicode
+              object_type: acme.widget
+              op_type: assign
+              op_version: 1
+              body:
+                add: ["user:á̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖"]
             expect: accept
 
   - name: refs/writ/fedcba9876543210/widget

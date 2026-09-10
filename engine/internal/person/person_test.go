@@ -184,6 +184,68 @@ func TestCheckForbiddenCodePointOrderedBeforeLength(t *testing.T) {
 	}
 }
 
+// TestCheckStreamSafeBoundary pins WRIT-140's producer-side Stream-Safe Text
+// rule (spec/identifiers.md §Value shape: Stream-Safe Text): Check rejects a
+// value once its NFD carries more than MaxNonStarterRun consecutive
+// non-starters, pinned at the exact boundary in both directions. Neither "a"
+// nor U+0316 composes with anything here, so the run length is exactly n --
+// unlike TestStreamSafeBoundaryRegression's composed spelling, which measures
+// n+1 for the reason its own comment explains.
+func TestCheckStreamSafeBoundary(t *testing.T) {
+	for n := person.MaxNonStarterRun - 2; n <= person.MaxNonStarterRun+2; n++ {
+		id := "user:a" + strings.Repeat("̖", n)
+		want := person.Valid
+		if n > person.MaxNonStarterRun {
+			want = person.ValueNotStreamSafe
+		}
+		if got := person.Check(id); got != want {
+			t.Errorf("n=%d: Check(%q) = %v, want %v", n, id, got, want)
+		}
+	}
+}
+
+// TestCheckStreamSafeInteriorBlockerResetsRun pins that the rule counts a
+// *run* of non-starters, not a value's total non-starter count. A ccc-0 code
+// point in the middle -- even one that combines backwards onto the base, like
+// the Tamil vowel sign nfc's own compose treats as a blocker -- resets the
+// run, so two runs of MaxNonStarterRun either side of it are still Valid even
+// though the value carries 2*MaxNonStarterRun non-starters in total.
+func TestCheckStreamSafeInteriorBlockerResetsRun(t *testing.T) {
+	half := strings.Repeat("̖", person.MaxNonStarterRun)
+	id := "user:a" + half + "ௗ" + half
+	if got := person.Check(id); got != person.Valid {
+		t.Errorf("Check(%q) = %v, want Valid (the ccc-0 blocker should reset the run)", id, got)
+	}
+}
+
+// TestCheckStreamSafeOrderedAfterLength pins the stated order in Check: the
+// non-starter-run check is the most expensive of its tests -- it decomposes
+// every rune of the value -- so it runs last, after ValueTooLong. A value
+// that is both too long and carries an over-long run is reported as
+// ValueTooLong.
+func TestCheckStreamSafeOrderedAfterLength(t *testing.T) {
+	id := "email:" + strings.Repeat("a", person.MaxValueLen) + strings.Repeat("̖", person.MaxNonStarterRun+1)
+	if got := person.Check(id); got != person.ValueTooLong {
+		t.Errorf("Check(over-long AND over-run) = %v, want ValueTooLong", got)
+	}
+}
+
+// TestFoldValueUnaffectedByStreamSafeRule pins that WRIT-140 changes nothing
+// about FoldValue: a value whose run Check now refuses still folds exactly as
+// it always has, because FoldValue never calls Check and the fold path is
+// untouched (spec/fold.md). None of these marks compose with "a" or with each
+// other, and they are already in canonical order, so FoldValue -- NFC, case
+// fold, NFC -- has nothing to change.
+func TestFoldValueUnaffectedByStreamSafeRule(t *testing.T) {
+	value := "a" + strings.Repeat("̖", person.MaxNonStarterRun+10)
+	if got := person.Check("user:" + value); got != person.ValueNotStreamSafe {
+		t.Fatalf("test setup: Check(%q) = %v, want ValueNotStreamSafe", value, got)
+	}
+	if got := person.FoldValue(value); got != value {
+		t.Errorf("FoldValue(%U) = %U, want unchanged", []rune(value), []rune(got))
+	}
+}
+
 func TestDerivedMaxLen(t *testing.T) {
 	if person.MaxLen != person.MaxSchemeLen+1+person.MaxValueLen {
 		t.Errorf("MaxLen = %d, want %d", person.MaxLen, person.MaxSchemeLen+1+person.MaxValueLen)

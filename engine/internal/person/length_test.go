@@ -54,6 +54,20 @@ func TestSegmentLenKeepsCompositionsWhole(t *testing.T) {
 // TestStreamSafeBoundaryRegression is the reported defect, pinned. Both
 // spellings are conforming identifiers well inside the 320-code-point bound,
 // and they name the same person.
+//
+// Its first two assertions are the PR #97 fold-level regression property and
+// hold for the whole n range unconditionally: two spellings of the same
+// person normalize identically, and normalization never inserts U+034F no
+// matter how long the run gets. WRIT-140's Stream-Safe Text run-length rule
+// cannot reach either \u2014 both test NormalizePerson, not Check.
+//
+// The third assertion tests Check, which is the producer, and producer
+// behaviour for a long non-starter run is exactly what WRIT-140 changed: a
+// value composes to "\u00e1" (one non-starter, U+0301) followed by n more
+// (U+0316), so its NFD carries a run of n+1 consecutive non-starters. Check
+// must accept it while that run is at or under person.MaxNonStarterRun and
+// refuse it once the run exceeds that \u2014 which pins the boundary itself across
+// the whole swept range, rather than only at one hand-picked value.
 func TestStreamSafeBoundaryRegression(t *testing.T) {
 	for n := 0; n <= 45; n++ {
 		a := "user:a" + strings.Repeat("\u0316", n) + "\u0301"
@@ -66,8 +80,14 @@ func TestStreamSafeBoundaryRegression(t *testing.T) {
 		if strings.ContainsRune(na, 0x034F) {
 			t.Fatalf("n=%d: normalization inserted U+034F, which was never in the input: %U", n, []rune(na))
 		}
-		if person.Check(na) != person.Valid {
-			t.Fatalf("n=%d: Check(%U) = %v", n, []rune(na), person.Check(na))
+		run := n + 1
+		want := person.Valid
+		if run > person.MaxNonStarterRun {
+			want = person.ValueNotStreamSafe
+		}
+		if got := person.Check(na); got != want {
+			t.Fatalf("n=%d: Check(%U) = %v, want %v (composed value's NFD carries a run of %d consecutive non-starters against the %d-run bound)",
+				n, []rune(na), got, want, run, person.MaxNonStarterRun)
 		}
 	}
 }

@@ -434,6 +434,52 @@ This is a **producer-side** rule. §[Rendering a person identifier](#rendering-a
 explains why a producer-side rule alone does not close the attack it exists
 to reduce.
 
+### Value shape: Stream-Safe Text
+
+A person identifier's **value**, decomposed to Normalization Form D (NFD),
+MUST NOT carry a run of more than **30** consecutive non-starters — code
+points with a non-zero `Canonical_Combining_Class` — evaluated against
+Unicode 15.0.0, the version §[The value folding algorithm](#the-value-folding-algorithm)
+pins. This is UAX #15 §13's Stream-Safe Text Format, applied literally as a
+constraint on what a conforming producer may mint.
+
+**Producers MUST reject** a value whose NFD carries such a run, never
+truncate or repair it, with a message stating what was wrong — the same
+"reject, never truncate" stance §[Length bounds](#length-bounds) rule 1
+already takes, and for the same reason: collapsing two distinct identifiers
+onto one is a worse failure than refusing a write.
+
+**Measured on NFD, not on the value as written or on its NFC form.**
+Composition only ever removes non-starters — it never adds one — so a value
+that is stream-safe in NFD is stream-safe under every normal form a
+downstream implementation might apply to it, including one that applies
+Stream-Safe Text by default (§[The value folding algorithm](#the-value-folding-algorithm)'s
+"Stream-Safe Text is not applied" note names this trap). A rule measured only
+on NFC does not deliver that: a value one mark below an NFC-measured bound
+can still decompose to a 31-non-starter run and trip a stream-safe-applying
+library, which is exactly the interoperability defect this document exists to
+foreclose.
+
+**Thirty consecutive combining marks stacked on one base is not a name.** In
+an identity field whose product is "this person approved this,
+cryptographically signed," there is no legitimate value this bound excludes —
+the same judgment §[Value character repertoire](#value-character-repertoire)
+makes about control characters and bidi overrides, applied to run length
+instead of to a fixed code point set.
+
+**This is a producer-side rule, on the same terms as §[Value character
+repertoire](#value-character-repertoire).** Fold does not consult it:
+[`spec/fold.md`](fold.md) §7.1 makes fold total by design, over whatever a
+foreign or buggy client writes, so a value with an unbounded non-starter run
+already in the log — or written by a client that does not enforce this rule —
+still folds exactly as it always has, and every implementation's fold path
+must still normalize such a value correctly. Tightening this rule refuses new
+writes only; nothing already folded is reclassified. This is also why the
+rule is stated as a sibling of §[Value character repertoire](#value-character-repertoire)
+rather than a rewrite of it: the two narrow the same value along independent
+axes — repertoire (which code points) and run length (how many non-starters
+in sequence) — and neither subsumes the other.
+
 ### Normalization rules
 
 To guarantee deterministic comparison, portable queries, and interoperability
@@ -527,10 +573,23 @@ non-starters — comfortably inside the 320-code-point bound — then folds to
 different bytes in different implementations, which is the one thing this
 format may not do.
 
+This rule about the fold holds regardless of run length: $\text{fold}(v) =
+\text{NFC}(\text{toCasefold}(\text{NFC}(v)))$ is unchanged, and no conforming
+implementation may insert U+034F or stop composing no matter how long a run
+it is asked to fold. §[Value shape: Stream-Safe Text](#value-shape-stream-safe-text)
+answers a different question — which values a producer may mint, not how two
+already-written values compare — and the two are deliberately separable:
+admissibility decides what gets written, normalization decides how two
+values already in the log compare. A value carrying more than 30 NFD
+non-starters that reached the log before this rule existed, or was written by
+a non-conforming producer, still folds under the algorithm above exactly as
+stated here.
+
 §[Value character repertoire](#value-character-repertoire) restricts which
-characters a value may contain. That is a producer-side constraint on what a
-conforming Writ producer mints, and it is deliberately separate from how a
-value is folded.
+characters a value may contain, and §[Value shape: Stream-Safe Text](#value-shape-stream-safe-text)
+restricts how many consecutive non-starters it may carry. Both are
+producer-side constraints on what a conforming Writ producer mints, and both
+are deliberately separate from how a value is folded.
 
 ### Comparison and equality
 
@@ -580,10 +639,11 @@ the consequence of the one that does.
 
 - **Producers MUST** emit normalized, scheme-prefixed person identifiers when
   writing operation payloads, and MUST reject — never truncate, never repair —
-  an identifier that violates the grammar, the bounds, or the value character
-  repertoire (§[Value character repertoire](#value-character-repertoire)),
-  naming the offending code point when the rejection is a repertoire
-  violation.
+  an identifier that violates the grammar, the bounds, the value character
+  repertoire (§[Value character repertoire](#value-character-repertoire)), or
+  the Stream-Safe Text run-length limit (§[Value shape: Stream-Safe
+  Text](#value-shape-stream-safe-text)), naming the offending code point when
+  the rejection is a repertoire violation.
 - **Producers MUST NOT** write a `writer-id` where a `person-id` is expected,
   nor derive one from the other
   (§[Relationship to `writer-id`](#relationship-to-writer-id)).
@@ -607,16 +667,23 @@ the consequence of the one that does.
 
 **What the schema can and cannot say.** The `person-id` definition in
 [`schemas/identifiers.schema.json`](schemas/identifiers.schema.json) enforces
-the grammar, the bounds, and now the value's character repertoire — the
+the grammar, the bounds, and the value's character repertoire — the
 scheme's charset and 32-character cap, a non-empty value, the forbidden code
 points named in §[Value character repertoire](#value-character-repertoire),
 and the derived 353 `maxLength`. It cannot enforce normalization of the
 *value*, because the value is opaque within its scheme and a
 whitespace-trimming rule is not expressible in a pattern that must also admit
 quoted local parts. `"email: alice@example.com"` is therefore a shape the schema
-accepts and a conforming producer never writes. Schema validation is a
-necessary check, not a sufficient one; §[Normalization rules](#normalization-rules)
-is the rest of the obligation.
+accepts and a conforming producer never writes. Nor can it enforce
+§[Value shape: Stream-Safe Text](#value-shape-stream-safe-text)'s
+non-starter-run limit: ECMA-262 has no `Canonical_Combining_Class` property
+escape, and `\p{Mn}` is not the same set, so a value whose NFD carries more
+than 30 consecutive non-starters is a shape the schema accepts and a
+conforming producer refuses — `testdata/persons/invalid/index.json` marks
+such a vector `enforced_by: "producer"` rather than expecting the schema to
+catch it. Schema validation is a necessary check, not a sufficient one;
+§[Normalization rules](#normalization-rules) and §[Value shape: Stream-Safe
+Text](#value-shape-stream-safe-text) are the rest of the obligation.
 
 ### Rendering a person identifier
 
@@ -656,22 +723,28 @@ the display that shows it escapes them.
 The normative cases live in [`testdata/persons/`](testdata/persons):
 `valid/` vectors carry the identifier, the scheme and value it splits into, its
 normalized form, and identifiers it must and must not compare equal to;
-`invalid/` vectors carry an identifier the grammar, the bounds, or the
-repertoire rejects, with `invalid/index.json` recording why. Between them
-they pin first-colon parsing with a quoted local part, cross-scheme
+`invalid/` vectors carry an identifier the grammar, the bounds, the
+repertoire, or the Stream-Safe Text run-length limit rejects, with
+`invalid/index.json` recording why — and, for a rejection only the producer
+can make (not the JSON Schema), an `enforced_by: "producer"` marker. Between
+them they pin first-colon parsing with a quoted local part, cross-scheme
 non-equality, case and whitespace normalization, unknown-scheme preservation,
 a maximal-length value and one code point more, a value that crosses the
 bound only *before* normalization, an over-long scheme, one vector per
 forbidden repertoire class (an interior C0 control, DEL, an interior C1
 control, a bidi override, a bidi isolate, a zero-width character, and the
-BOM), and what is deliberately still permitted despite the repertoire rule
-(an emoji value, an interior space, and unmarked right-to-left script).
+BOM), what is deliberately still permitted despite the repertoire rule
+(an emoji value, an interior space, and unmarked right-to-left script), and
+the Stream-Safe Text boundary: a value accepted at exactly 30 consecutive NFD
+non-starters, one refused at 31, and one refused well past the limit.
 
 Fold-level behaviour is pinned separately, by
 [`fixtures/testdata/descriptions/fold-person-schemes.yaml`](fixtures/testdata/descriptions/fold-person-schemes.yaml)
 (schemes never unify; an unknown scheme folds like any other),
 [`fold-person-unicode-folding.yaml`](fixtures/testdata/descriptions/fold-person-unicode-folding.yaml)
-(denormalized identifiers fold to one member), and
+(denormalized identifiers fold to one member, including a 31-NFD-non-starter
+value a producer now refuses but the fold still folds, unchanged, when a
+foreign client writes it), and
 [`fold-person-hostile-repertoire.yaml`](fixtures/testdata/descriptions/fold-person-hostile-repertoire.yaml)
 (a foreign client's op carrying a bidi override folds byte-for-byte intact —
 the proof that §[Value character repertoire](#value-character-repertoire) is

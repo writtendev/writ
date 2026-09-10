@@ -6,7 +6,7 @@
     },
     {
       "name": "refs/writ/0123456789abcdef/widget",
-      "commit": "576627a109e2bcfa4772e06e07d751e965c07406"
+      "commit": "f7bfaa78eb8e958f6ba66d44e4db36bb31577e5c"
     },
     {
       "name": "refs/writ/fedcba9876543210/widget",
@@ -227,6 +227,17 @@
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:07:00Z",
           "message": "writ: vote acme.widget/w-person-unicode\n",
+          "signed": true
+        },
+        {
+          "sha": "f7bfaa78eb8e958f6ba66d44e4db36bb31577e5c",
+          "tree": "d769d192005b06c60547ee02017e996d0b73a5c3",
+          "parents": [
+            "576627a109e2bcfa4772e06e07d751e965c07406"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:09:00Z",
+          "message": "writ: assign acme.widget/w-person-unicode\n",
           "signed": true
         }
       ]

@@ -333,9 +333,17 @@ func TestValidPersonVectors(t *testing.T) {
 	}
 }
 
-// TestInvalidPersonVectors checks that the shared person-id schema rejects
-// every testdata/persons/invalid vector, and that index.json accounts for each
-// one — a rejection nobody wrote a reason for is a rejection nobody checked.
+// TestInvalidPersonVectors checks that every testdata/persons/invalid vector
+// is rejected, and that index.json accounts for each one — a rejection nobody
+// wrote a reason for is a rejection nobody checked.
+//
+// A vector is rejected by the shared person-id JSON Schema by default. Some
+// rejections are not expressible as a schema pattern — spec/identifiers.md
+// §Value shape: Stream-Safe Text's non-starter-run limit needs
+// Canonical_Combining_Class, which ECMA-262 has no property escape for, and
+// \p{Mn} is not the same set — so index.json marks such a vector
+// `"enforced_by": "producer"` and this test checks the producer-side rule
+// instead of the schema for exactly those.
 func TestInvalidPersonVectors(t *testing.T) {
 	sch := compilePersonIDSchema(t)
 
@@ -344,7 +352,8 @@ func TestInvalidPersonVectors(t *testing.T) {
 		t.Fatal(err)
 	}
 	var index map[string]struct {
-		Reason string `json:"reason"`
+		Reason     string `json:"reason"`
+		EnforcedBy string `json:"enforced_by,omitempty"`
 	}
 	if err := json.Unmarshal(rawIndex, &index); err != nil {
 		t.Fatalf("decoding index.json: %v", err)
@@ -377,8 +386,17 @@ func TestInvalidPersonVectors(t *testing.T) {
 			if err := json.Unmarshal(raw, &vec); err != nil {
 				t.Fatalf("decoding vector: %v", err)
 			}
-			if err := personSchemaAccepts(sch, vec.Identifier); err == nil {
-				t.Errorf("schema accepted %q; expected rejection: %s", vec.Identifier, entry.Reason)
+			switch entry.EnforcedBy {
+			case "", "schema":
+				if err := personSchemaAccepts(sch, vec.Identifier); err == nil {
+					t.Errorf("schema accepted %q; expected rejection: %s", vec.Identifier, entry.Reason)
+				}
+			case "producer":
+				if spec.PersonValueIsStreamSafe(vec.Identifier) {
+					t.Errorf("producer check accepted %q; expected rejection: %s", vec.Identifier, entry.Reason)
+				}
+			default:
+				t.Fatalf("%s: index.json names unknown enforced_by %q", name, entry.EnforcedBy)
 			}
 		})
 	}
