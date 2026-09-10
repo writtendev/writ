@@ -477,16 +477,17 @@ individually clean applies that each bind one target from a different
 `(op_type, field)` class disagree only once their ops merge, by which
 point both are already signed and unremovable. Once a disagreement does
 reach the log by either route, the conflicting ops stay unremovable and
-every rule bound to the target is withheld — until a later
-`define-field` retargets one side onto a distinct target, its own
-`keyed-lww` register (`schema-ops.md` §8.1), which resolves the conflict
-and restores every withheld rule; dropping either rule instead of
-retargeting it is refused just the same, since nothing is ever removed
-from the log. What does not come back is round-tripping the log's
-conflicted state verbatim: a `writ.schema` naming both rules bound to
-the same target is exactly what `Compile` rejects — which is what makes
-`Compile` catching the version bump below, before any of that, the one
-that matters:
+every rule bound to the target is withheld — though not permanently: a
+later `define-field` that overwrites the disagreeing attribute
+registers into agreement — `value_type`, `enum`, `max_length`, `key`,
+`key_types`, `lattice`, and `target`, each its own independent
+`keyed-lww` register (`schema-ops.md` §8.1) — restores every withheld
+rule; dropping either rule is refused just the same, since nothing is
+ever removed from the log. What does not come back is round-tripping
+the log's conflicted state verbatim: a `writ.schema` naming both
+disagreeing rules bound to the same target is exactly what `Compile`
+rejects — which is what makes `Compile` catching the version bump
+below, before any of that, the one that matters:
 
 ```
 type ticket {
