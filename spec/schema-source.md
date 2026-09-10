@@ -462,21 +462,31 @@ to after signing: `writ schema plan` and `writ schema apply` run the
 resolver over the state an apply would actually produce and refuse a
 conflict the apply itself would introduce, before appending anything
 (`cmd/writ/schema.go`'s `conflictsIntroducedByApply`) — a property of
-writ's own CLI, not of this format, since a conforming implementation
-ships no such pre-flight (this document's preamble). Three routes still
-put a target conflict in the log regardless: the pre-flight refuses only
-a conflict newly introduced by the apply it is checking, so one already
-in the log is reported, not re-refused; a producer that appends schema
-ops directly, never running `writ schema apply`, meets no pre-flight to
-refuse it; and two individually clean applies that each bind one target
-from a different `(op_type, field)` class disagree only once their ops
-merge, by which point both are already signed and unremovable. Once a
-disagreement does reach the log by one of those routes, the target's
-rules stay withheld for good and the working tree can no longer express
-the schema at all — a file naming both rules is rejected by `Compile`,
-and one dropping either is refused, since nothing is ever removed from
-the log — which is what makes `Compile` catching the version bump
-below, before any of that, the one that matters:
+writ's own CLI, not of this format: the preamble licenses exactly this
+gap, granting that a conforming implementation need not parse
+`writ.schema` at all, so it need not ship any such pre-flight. That
+refusal is narrower than it looks: it catches only a conflict newly
+introduced by the apply it is checking, so one already in the log is
+reported, not re-refused — and for a target conflict specifically
+nothing new can enter through that gap anyway, since any file naming
+both disagreeing rules is exactly what `Compile` rejects before the
+pre-flight would ever run. Two routes still put a target conflict in
+the log regardless: a producer that appends schema ops directly, never
+running `writ schema apply`, meets no pre-flight to refuse it; and two
+individually clean applies that each bind one target from a different
+`(op_type, field)` class disagree only once their ops merge, by which
+point both are already signed and unremovable. Once a disagreement does
+reach the log by either route, the conflicting ops stay unremovable and
+every rule bound to the target is withheld — until a later
+`define-field` retargets one side onto a distinct target, its own
+`keyed-lww` register (`schema-ops.md` §8.1), which resolves the conflict
+and restores every withheld rule; dropping either rule instead of
+retargeting it is refused just the same, since nothing is ever removed
+from the log. What does not come back is round-tripping the log's
+conflicted state verbatim: a `writ.schema` naming both rules bound to
+the same target is exactly what `Compile` rejects — which is what makes
+`Compile` catching the version bump below, before any of that, the one
+that matters:
 
 ```
 type ticket {
