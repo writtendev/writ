@@ -1050,6 +1050,32 @@ func TestInit_WritesStarterSchemaFile(t *testing.T) {
 	}
 }
 
+// TestWriteStarterSchemaFile_PanicsOnEmptyNamespace pins the guard against a
+// TOCTOU window between step 2.5's stat (which decides a starter file is due
+// and resolves its namespace) and writeStarterSchemaFile's own stat: if
+// writ.schema is removed in between — a concurrent `git checkout`, `clean`,
+// or `stash` in the same work tree — namespace arrives here empty even
+// though a starter file is now (again) due. Writing "namespace \n" would
+// exit 0 having printed "Wrote starter" over a file every later `schema
+// plan`/`apply` refuses, so this is a programming error the function must
+// fail loudly on rather than silently normalize.
+func TestWriteStarterSchemaFile_PanicsOnEmptyNamespace(t *testing.T) {
+	workTree := t.TempDir()
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("writeStarterSchemaFile(namespace: \"\") did not panic")
+		}
+		if msg, ok := r.(string); !ok || !strings.Contains(msg, "namespace must not be empty") {
+			t.Errorf("panic value = %v, want a message naming the empty-namespace invariant", r)
+		}
+	}()
+
+	var stdout, stderr bytes.Buffer
+	_ = writeStarterSchemaFile(workTree, "", "", &stdout, &stderr)
+}
+
 func TestInit_NonRepo(t *testing.T) {
 	requireGit(t)
 	nonRepoDir := t.TempDir()

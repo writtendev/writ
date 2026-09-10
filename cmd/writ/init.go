@@ -74,22 +74,27 @@ func resolveNamespace(flagValue string, stdin io.Reader, interactive bool, stder
 	fmt.Fprint(stderr, "This repository has no writ.schema yet. Namespace for the starter file: ")
 	line, err := bufio.NewReader(stdin).ReadString('\n')
 	if line == "" && errors.Is(err, io.EOF) {
-		// Nothing could ever have answered this prompt — stdin was already
-		// at EOF, the shape cron, systemd, `docker run` without `-i`, and
-		// GitHub Actions `run:` steps all give a char-device-classified
-		// stdin (WRIT-220 review round 1). That is a different fact from a
-		// human pressing enter on an empty line, so it gets the same
+		// interactive is isTerminal(stdin) && isTerminal(stderr)
+		// (cmd/writ/main.go), so every non-terminal stdin — a pipe,
+		// /dev/null, or whatever cron, systemd, `docker run` without
+		// `-i`, and GitHub Actions `run:` steps attach — already took the
+		// !interactive branch above and never reaches this prompt at all.
+		// The only way to land here with line == "" and an immediate EOF
+		// is a human pressing Ctrl-D at the prompt above on a real
+		// terminal: input ended without the human answering. That is a
+		// different fact from the human pressing enter on an empty line
+		// (err == nil, line == "\n", handled below), so it gets the same
 		// message a non-interactive run would have produced instead of
-		// "no namespace entered", which reads as blaming a human who was
-		// never there.
+		// "no namespace entered", which would blame a human who did
+		// answer — by declining.
 		//
 		// The prompt above deliberately has no trailing newline (the
-		// answer is meant to be typed right after it), and this is the
+		// answer is meant to be typed right after it), and Ctrl-D is the
 		// only refusal path that returns with nothing having echoed one
 		// (the empty-answer and invalid-answer paths below both follow a
-		// human's own Return keypress) — so `writ init < /dev/null` prints
-		// the prompt and this refusal as one run-on line unless this path
-		// emits the newline itself (WRIT-220 review round 2).
+		// human's own Return keypress) — so without this Fprintln, a
+		// Ctrl-D would run the prompt and this refusal together on one
+		// line (WRIT-220 review round 2).
 		fmt.Fprintln(stderr)
 		return "", fmt.Errorf("writ.schema does not exist yet and no --namespace was given; pass --namespace <name>, matching %s", namespaceGrammar)
 	}
@@ -413,7 +418,9 @@ func runInit(ctx context.Context, defaultDir string, args []string, stdin io.Rea
 // overwrites a file that already exists. namespace is the value step 2.5
 // already resolved and validated when a starter file was due; it is empty
 // (and unused) when one was not, which is exactly the case where the file
-// already exists here too. flagValue is the raw --namespace the user
+// already exists here too — enforced below, since step 2.5's stat and this
+// function's own stat are two different moments and nothing stops the file
+// from being removed in between. flagValue is the raw --namespace the user
 // passed, if any, purely to report that it was ignored when there was
 // nothing for it to name.
 func writeStarterSchemaFile(workTree, namespace, flagValue string, stdout, stderr io.Writer) error {
@@ -427,6 +434,20 @@ func writeStarterSchemaFile(workTree, namespace, flagValue string, stdout, stder
 		return nil
 	} else if !os.IsNotExist(err) {
 		return err
+	}
+
+	// namespace is only ever empty when a starter file was not due (the
+	// stat above would then have found the file step 2.5 also saw and
+	// already returned). Reaching here with an empty namespace means the
+	// file was removed between step 2.5's stat and this one — a
+	// concurrent `git checkout`, `clean`, or `stash` in the same work
+	// tree — and writing it anyway would produce a writ.schema with an
+	// empty namespace that every later `schema plan`/`apply` refuses.
+	// That is a programming error, not a user error one more validation
+	// message would help with, so it fails loudly instead of printing
+	// "Wrote starter" over a file the caller cannot read back.
+	if namespace == "" {
+		panic("writ init: writeStarterSchemaFile: namespace must not be empty when a starter file is due")
 	}
 
 	content := "namespace " + namespace + "\n"
