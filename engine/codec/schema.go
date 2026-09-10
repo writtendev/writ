@@ -380,6 +380,26 @@ func validateAgainstLogVocabulary(env Envelope, raw []byte, voc Vocabulary) erro
 // value-typed rules at all is a no-op — this is additive to what the schema
 // already checks, not a replacement for it.
 //
+// rules below is valueTypeRulesOnce()'s filtered set — only rules declaring
+// a value_type — not the full bootstrap rule table, so validateFieldsAgainstRules'
+// rule 6 (WRIT-222, its own doc comment) never runs at all here for the four
+// untyped members of define-field's own rules: enum, key, key_types, and
+// lattice (spec/testdata/schema-ops/field-rules.json). That is not a live
+// gap in rule 6 only because spec/schemas/schema-ops.schema.json already
+// types those four members "array"/"object", and a JSON Schema type
+// constraint never admits null on its own — so a null there is refused by
+// the shipped schema before validateValueTypes would ever see the body, and
+// producer/reader lockstep holds regardless of whether rule 6 itself runs
+// for these names. This is a considered decision, not an oversight to
+// widen later: dispatch decided against extending this filter to the full
+// bootstrap rule table (that would let rule 6 run for these four names too,
+// but the shipped schema already closes the gap, so it would add coverage
+// with no behavior change). See
+// TestBootstrapDefineFieldRefusesNullForUntypedMembersViaShippedSchema
+// (engine/codec/producer_test.go) for the fixture pinning that all four
+// names are actually refused by the shipped schema, not merely by
+// construction.
+//
 // Nothing on the read path calls this: ValidateBody's contract ("the rules
 // bind producers only") is unchanged.
 func validateValueTypes(env Envelope, raw []byte) error {
@@ -420,12 +440,16 @@ func validateValueTypes(env Envelope, raw []byte) error {
 //
 // Separately, the per-field loop enforces rule 6 (spec/op-envelope.md
 // §Producer validation, WRIT-222): a declared field's own value MUST NOT
-// be JSON null, under every merge strategy. This is a different check from
-// rule 5's, keyed on a different thing -- rule 5 keys on a keyed-lww key
-// column being absent from the body, rule 6 keys on a declared field's
-// value being null -- and the two stay independent rather than merging
-// into one pass. See the val == nil check further down for the rule 6
-// rejection itself.
+// be JSON null, under every merge strategy, for every rule this function
+// receives in rules. This is a different check from rule 5's, keyed on a
+// different thing -- rule 5 keys on a keyed-lww key column being absent
+// from the body, rule 6 keys on a declared field's value being null -- and
+// the two stay independent rather than merging into one pass. See the
+// val == nil check further down for the rule 6 rejection itself, and
+// validateValueTypes's own doc comment for the one caller that hands this
+// function a deliberately narrowed rules -- the bootstrap tier's
+// value-typed subset, not the full rule table -- and why that narrowing
+// does not reopen this rule for the names it excludes.
 //
 // A keyed-lww field's key columns travel in the body but are not themselves
 // declared fields (spec/op-envelope.md §Producer validation rule 3): a body

@@ -1533,6 +1533,12 @@ func declaredFieldNullVocabulary() codec.Vocabularies {
 			Key: []string{"keyed_lww_field_subject"}, KeyTypes: map[string]string{"keyed_lww_field_subject": "person-ref"},
 			ValueType: "string",
 		},
+		// No ValueType: an untyped field (spec/value-types.md "value_type is
+		// optional") still MUST NOT hold null -- rule 6 binds off the field
+		// being declared at all, not off value_type, so this table's
+		// "untyped" case is the r.ValueType == "" branch the ordering
+		// unpinned-in-review would let slip through.
+		spec.FieldRule{OpType: "create", OpVersion: 1, Field: "untyped_field", Strategy: "lww"},
 	)
 }
 
@@ -1565,6 +1571,10 @@ func TestBuildCommitRejectsDeclaredFieldNullValue(t *testing.T) {
 		{strategy: "tombstone", field: "tombstone_field"},
 		{strategy: "lattice", field: "lattice_field"},
 		{strategy: "multi-value", field: "multi_value_field"},
+		// r.ValueType == "": pins that the val == nil check runs ahead of
+		// the ValueType == "" skip, not after it -- an untyped field
+		// typechecks nothing but must not additionally admit null.
+		{strategy: "lww (untyped)", field: "untyped_field"},
 		{
 			strategy: "keyed-lww",
 			field:    "keyed_lww_field",
@@ -1644,34 +1654,46 @@ func TestBuildCommitAcceptsNestedNullInStructuredValue(t *testing.T) {
 
 // TestBootstrapDefineFieldRefusesNullForUntypedMembersViaShippedSchema pins
 // this ticket's open question rather than leaving it to be re-discovered by
-// hand: rule 6 (validateFieldsAgainstRules) is reached at the bootstrap
-// tier through validateValueTypes, which indexes valueTypeRulesOnce() --
-// only rules declaring a value_type. define-field's own enum, key,
-// key_types, and lattice rules declare none (spec/value-types.md
-// §"value_type is optional"), so a null there never reaches rule 6's
-// runtime check. That is not a live gap only because
-// spec/schemas/schema-ops.schema.json already types those members as
-// "array"/"object", and a JSON Schema type constraint never admits null on
-// its own -- so producer/reader lockstep holds regardless of whether rule
-// 6's check itself ever runs for these four names. This test pins that
-// shipped-schema refusal directly instead of leaving the tier-1 filter's
-// safety to be re-verified by hand.
+// hand: rule 6 (validateFieldsAgainstRules) never runs at all, at the
+// bootstrap tier, for define-field's own enum, key, key_types, and lattice
+// rules (see validateValueTypes's doc comment for why that filtering is
+// safe). This test pins the shipped-schema refusal that safety rests on,
+// directly and for all four names, rather than leaving it to be
+// re-verified by hand -- loosening any one of the four "array"/"object"
+// type constraints in spec/schemas/schema-ops.schema.json would reopen the
+// hole with no test firing otherwise.
 func TestBootstrapDefineFieldRefusesNullForUntypedMembersViaShippedSchema(t *testing.T) {
-	_, err := codec.BuildCommit(codec.Envelope{
-		ObjectID:   testSchemaObjectID,
-		ObjectType: "schema",
-		OpType:     "define-field",
-		OpVersion:  1,
-		Body:       json.RawMessage(`{"type":"widget","op_type":"create","op_version":"1","field":"status","strategy":"lww","value_type":"string","enum":null}`),
-	}, testAuthor(), nil, nil)
-	if err == nil {
-		t.Fatal("BuildCommit accepted a define-field op with enum: null")
+	cases := []struct {
+		member string
+		// body is the full define-field op body, varying only which
+		// untyped member carries null.
+		body string
+	}{
+		{member: "enum", body: `{"type":"widget","op_type":"create","op_version":"1","field":"status","strategy":"lww","value_type":"string","enum":null}`},
+		{member: "key", body: `{"type":"widget","op_type":"create","op_version":"1","field":"status","strategy":"lww","value_type":"string","key":null}`},
+		{member: "key_types", body: `{"type":"widget","op_type":"create","op_version":"1","field":"status","strategy":"lww","value_type":"string","key_types":null}`},
+		{member: "lattice", body: `{"type":"widget","op_type":"create","op_version":"1","field":"status","strategy":"lww","value_type":"string","lattice":null}`},
 	}
-	var rejErr *codec.RejectError
-	if !errors.As(err, &rejErr) {
-		t.Fatalf("error is not a *codec.RejectError: %v", err)
-	}
-	if rejErr.Reason != codec.RejectSchemaViolation {
-		t.Errorf("reason = %q, want %q", rejErr.Reason, codec.RejectSchemaViolation)
+
+	for _, tc := range cases {
+		t.Run(tc.member, func(t *testing.T) {
+			_, err := codec.BuildCommit(codec.Envelope{
+				ObjectID:   testSchemaObjectID,
+				ObjectType: "schema",
+				OpType:     "define-field",
+				OpVersion:  1,
+				Body:       json.RawMessage(tc.body),
+			}, testAuthor(), nil, nil)
+			if err == nil {
+				t.Fatalf("BuildCommit accepted a define-field op with %s: null", tc.member)
+			}
+			var rejErr *codec.RejectError
+			if !errors.As(err, &rejErr) {
+				t.Fatalf("error is not a *codec.RejectError: %v", err)
+			}
+			if rejErr.Reason != codec.RejectSchemaViolation {
+				t.Errorf("reason = %q, want %q", rejErr.Reason, codec.RejectSchemaViolation)
+			}
+		})
 	}
 }
