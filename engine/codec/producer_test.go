@@ -28,12 +28,13 @@ func testAuthor() codec.Identity {
 const testSchemaObjectID = "sch-acme"
 
 // declareVocabulary builds the log-sourced declaration for one object type:
-// the (op_type, op_version) pairs rule 4 accepts and the field rules rule 3
-// checks, both read off the rules given. It stands in for what
-// writ.VocabulariesFromSchemas resolves out of a repo's own log, so a codec
-// test can pin tier 2 of spec/op-envelope.md's producer precedence without a
-// repository — and, like spec/schema-ops.md §4.2's generosity, a field rule
-// alone is enough to declare the op type it names.
+// the (op_type, op_version) pairs rule 4 accepts and the field rules rules
+// 3, 5, and 6 are checked against, both read off the rules given. It stands
+// in for what writ.VocabulariesFromSchemas resolves out of a repo's own
+// log, so a codec test can pin tier 2 of spec/op-envelope.md's producer
+// precedence without a repository — and, like spec/schema-ops.md §4.2's
+// generosity, a field rule alone is enough to declare the op type it
+// names.
 func declareVocabulary(objectType string, rules ...spec.FieldRule) codec.Vocabularies {
 	voc := codec.Vocabulary{
 		Declared:       true,
@@ -835,24 +836,32 @@ func TestBuildCommitAcceptsUnknownFieldsInEveryVocabulary(t *testing.T) {
 //
 // The old rationale — "a reader has to tolerate it and writ's own producer
 // never emits one" — rested on writ's producer only ever emitting types it
-// embedded itself. It emits consumer-declared types instead, and rules 3/4
-// ("the op_type and op_version are ones the producer itself defines") stop
-// being satisfiable for a type nothing declares at all: an op of a truly
-// foreign object type is exactly the un-withdrawable mistake those rules
-// exist to prevent, so it is refused rather than let through. This is
-// deliberately scoped to the *genuine* absence case — a *contested* object
-// type (two schema objects binding one bare type) is a different tier and
-// stays writable (TestContestedObjectTypeStaysWritable in
-// engine/schema_test.go).
+// embedded itself. It emits consumer-declared types instead, and for a
+// type nothing declares at all, tier 4 is the only tier that ever
+// applies: there is no vocabulary to validate the body against, so the op
+// is refused outright rather than let through. An op of a truly foreign
+// object type is exactly the un-withdrawable mistake producer validation
+// exists to prevent.
+// This is deliberately scoped to the *genuine* absence case — a
+// *contested* object type (two schema objects binding one bare type) is a
+// different tier and stays writable (TestContestedObjectTypeStaysWritable
+// in engine/schema_test.go).
 func TestBuildCommitRefusesUndeclaredObjectTypes(t *testing.T) {
-	if _, err := codec.BuildCommit(codec.Envelope{
+	_, err := codec.BuildCommit(codec.Envelope{
 		ObjectID:   "g-1",
 		ObjectType: "gadget",
 		OpType:     "sprocket",
 		OpVersion:  7,
 		Body:       json.RawMessage(`{"anything":[1,2,3]}`),
-	}, testAuthor(), nil, widgetVocabulary()); err == nil {
+	}, testAuthor(), nil, widgetVocabulary())
+	if err == nil {
 		t.Fatal("BuildCommit accepted an object_type no schema in the log declares")
+	}
+	if !strings.Contains(err.Error(), `"gadget"`) {
+		t.Errorf("rejection message %q does not name object_type %q", err.Error(), "gadget")
+	}
+	if !strings.Contains(err.Error(), "§Producer validation tier 4") {
+		t.Errorf("rejection message %q does not cite §Producer validation tier 4", err.Error())
 	}
 }
 

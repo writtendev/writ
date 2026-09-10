@@ -196,9 +196,14 @@ func TestDecodeCommitRejections(t *testing.T) {
 
 // TestValidateBody walks the tiers of spec/op-envelope.md §Producer
 // validation from the outside: the bootstrap vocabulary writ embeds for
-// `schema` (tier 1), a log-declared one (tier 2, where rules 3 and 4 are
-// checked against the declaration rather than a JSON Schema), and the
-// absence of both (tier 4, a refusal naming object_type).
+// `schema` (tier 1), a log-declared one (tier 2, where rules 3, 4, 5, and
+// 6 are checked against the declaration rather than a JSON Schema), and the
+// absence of both (tier 4, a refusal naming object_type). Only rules 3 and
+// 4 are walked below — widgetVocabulary() has no keyed-lww rule for rule 5
+// to bind to, and no subtest sends a null body value for rule 6; those two
+// are pinned instead in producer_test.go's
+// TestBuildCommitRejectsKeyedLWWKeyColumns and
+// TestBuildCommitRejectsDeclaredFieldNullValue.
 func TestValidateBody(t *testing.T) {
 	t.Run("valid schema op body", func(t *testing.T) {
 		env := codec.Envelope{

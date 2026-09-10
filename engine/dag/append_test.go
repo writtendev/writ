@@ -26,10 +26,10 @@ const testSchemaObjectID = "sch-acme"
 
 // declaredType is one object type's entry in a resolved Vocabularies: the
 // (op_type, op_version) pairs producer rule 4 accepts and the field rules
-// rule 3 checks, both read off the rules given — the same derivation
-// writ.VocabulariesFromSchemas makes from a folded schema object, and, like
-// spec/schema-ops.md §4.2's generosity, a field rule alone declares the op
-// type it names.
+// rules 3, 5, and 6 are checked against, both read off the rules given —
+// the same derivation writ.VocabulariesFromSchemas makes from a folded
+// schema object, and, like spec/schema-ops.md §4.2's generosity, a field
+// rule alone declares the op type it names.
 func declaredType(objectType string, rules ...spec.FieldRule) codec.Vocabulary {
 	voc := codec.Vocabulary{
 		Declared:       true,
