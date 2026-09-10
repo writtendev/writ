@@ -1,0 +1,34 @@
+{
+  "schemas": [
+    {
+      "object_id": "sch-widget",
+      "ops": [
+        { "op_type": "create", "body": { "namespace": "acme" } },
+        { "op_type": "define-type", "body": { "type": "acme.widget" } },
+        { "op_type": "define-op", "body": { "type": "acme.widget", "op_type": "create", "op_version": "1" } },
+        {
+          "op_type": "define-field",
+          "body": { "type": "acme.widget", "op_type": "create", "op_version": "1", "field": "anchor_field", "value_type": "anchor", "strategy": "lww" }
+        }
+      ]
+    }
+  ],
+  "envelope": {
+    "object_id": "widget-1",
+    "object_type": "acme.widget",
+    "op_type": "create",
+    "op_version": 1,
+    "body": {
+      "anchor_field": {
+        "version": 1,
+        "new": {
+          "commit": "1111111111111111111111111111111111111111",
+          "path": "main.go",
+          "blob": "2222222222222222222222222222222222222222",
+          "range": null,
+          "context": null
+        }
+      }
+    }
+  }
+}

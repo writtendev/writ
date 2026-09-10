@@ -600,6 +600,52 @@ func TestObjectCLI_FieldJSON_UndeclaredField(t *testing.T) {
 	}
 }
 
+// TestObjectCLI_FieldJSON_DeclaredFieldNullIsRefused is WRIT-222's
+// acceptance criterion, run end to end against a real binary: -field-json
+// is the one route that can put a literal JSON null on a declared field's
+// wire value at all (-field's own conversion never produces one), and the
+// producer now refuses it outright rather than signing an op every
+// conforming reader would quarantine. The rejection must not mention "key
+// column": renderObjectMutationErr (this package) appends a "use
+// -field-json" hint on exactly that substring, and that hint would be
+// actively wrong here -- -field-json <field>=null is how this rejection is
+// reached in the first place, not a way around it.
+func TestObjectCLI_FieldJSON_DeclaredFieldNullIsRefused(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, fullTestSchema)
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code := run(context.Background(), []string{
+		"object", "create", "-C", env.repoDir, "acme.standup", "create",
+		"-field-json", "title=null",
+	}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatal("object create accepted a declared field's value given as JSON null")
+	}
+	if !strings.Contains(stderr.String(), "title") {
+		t.Errorf("stderr = %q, want it to name the field \"title\"", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "-field-json") {
+		t.Errorf("stderr = %q, want no -field-json hint: this rejection is not a key-column error", stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"object", "list", "-C", env.repoDir, "acme.standup", "--json"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("object list failed: %s", stderr.String())
+	}
+	var results []wire.ObjectSummary
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectList, &results)
+	if len(results) != 0 {
+		t.Fatalf("expected nothing appended after the refused create, got %d objects", len(results))
+	}
+}
+
 // TestObjectCLI_FieldJSON_MixedWithField pins the refusal of giving the same
 // field key to both -field and -field-json, which would otherwise silently
 // pick one interpretation over the other depending on flag order.

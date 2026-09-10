@@ -70,6 +70,13 @@ default merge behaviors for undeclared fields"). This is not a compatibility
 shim tolerating an old form — every rule table here is new — it is the
 existing idiom applied to the second axis.
 
+Untyped narrows what is *checked*, never what is *accepted*: an untyped
+field still MUST NOT hold JSON `null` (`spec/op-envelope.md` producer
+validation rule 6). Rule 6 binds off the field being declared at all, not
+off its `value_type`, so leaving a field untyped skips its own
+catalogue-shaped validation but does not additionally admit `null` —
+"untyped" is not a fourth spelling of "no rule".
+
 Exactly four rules in the shipped `field-rules.json` table are untyped, and
 each is named so the exception cannot quietly spread:
 
@@ -157,6 +164,17 @@ field's value is checked against comes from that schema object — the
 folded `field_value_type` register a `define-field` op wrote — not from a
 per-type JSON schema in `spec/schemas/`: there is no such file for a
 consumer-declared type, and there never will be.
+
+A declared field's own top-level value additionally MUST NOT be JSON
+`null`, whatever its `value_type` — an untyped field included — under
+every merge strategy (`spec/op-envelope.md`'s producer validation rule 6,
+WRIT-222). This binds independently of the `value_type` check above: `null`
+is refused before any catalogue-specific validation runs, not as one more
+`value_type` to reject. The rule reaches only the field's own top-level
+value, never a `null` nested *inside* a structured value a `value_type`
+itself permits (an `anchor`'s interior, an object written via
+`-field-json`) — that stays this document's own business, unaffected by
+the envelope-level rule.
 
 ## Length units
 
