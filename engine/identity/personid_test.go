@@ -249,3 +249,25 @@ func TestDerivePersonIDForbiddenCodePointNamed(t *testing.T) {
 		t.Errorf("error = %v, want it to name U+202E", err)
 	}
 }
+
+// TestDerivePersonIDSchemeProblemNotCodePointDecorated pins a round-1 review
+// finding on WRIT-137's PR: the (U+XXXX) suffix must be attached only when
+// person.Check's returned Problem is actually ForbiddenCodePoint, not
+// whenever the value happens to contain a forbidden code point somewhere. A
+// writ.personId carrying both an invalid scheme and a forbidden code point in
+// its value must report the scheme problem alone, for both DerivePersonID
+// arms that format it.
+func TestDerivePersonIDSchemeProblemNotCodePointDecorated(t *testing.T) {
+	_, err := identity.DerivePersonID(map[string]string{
+		"writ.personid": "my_scheme:ali" + string(rune(0x202E)) + "ce",
+	})
+	if err == nil {
+		t.Fatal("DerivePersonID: want an error")
+	}
+	if !strings.Contains(err.Error(), "scheme must match") {
+		t.Errorf("error = %v, want it to report the scheme problem", err)
+	}
+	if strings.Contains(err.Error(), "U+202E") || strings.Contains(err.Error(), "(U+") {
+		t.Errorf("error = %v, wrongly decorates a scheme problem with a forbidden-code-point suffix", err)
+	}
+}

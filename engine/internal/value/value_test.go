@@ -172,6 +172,28 @@ func TestPersonRefRejectionQuotesValueSafely(t *testing.T) {
 	}
 }
 
+// TestPersonRefSchemeProblemNotCodePointDecorated pins a round-1 review
+// finding on WRIT-137's PR: the (U+XXXX) suffix must be attached only when
+// person.Check's returned Problem is actually ForbiddenCodePoint, not
+// whenever the value happens to contain a forbidden code point somewhere.
+// A scheme-shaped failure (SchemeCharset here) on a value whose *value* half
+// also carries a forbidden code point must report the scheme problem alone --
+// naming a code point that is not the reported problem is misleading, not
+// merely decorative.
+func TestPersonRefSchemeProblemNotCodePointDecorated(t *testing.T) {
+	hostile := "my_scheme:ali" + string(rune(0x202E)) + "ce"
+	err := value.Validate("person-ref", value.Params{}, hostile)
+	if err == nil {
+		t.Fatal("value.Validate accepted a person-ref value with an invalid scheme")
+	}
+	if !strings.Contains(err.Error(), "scheme must match") {
+		t.Errorf("error %q does not report the scheme problem", err.Error())
+	}
+	if strings.Contains(err.Error(), "U+202E") || strings.Contains(err.Error(), "(U+") {
+		t.Errorf("error %q wrongly decorates a scheme problem with a forbidden-code-point suffix", err.Error())
+	}
+}
+
 // TestValueTypeUnknownRejected pins that an undeclared value type is not
 // silently accepted.
 func TestValueTypeUnknownRejected(t *testing.T) {
