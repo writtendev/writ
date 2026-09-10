@@ -1,0 +1,6 @@
+{
+  "identifier": "user:alice bob",
+  "scheme": "user",
+  "value": "alice bob",
+  "normalized": "user:alice bob"
+}

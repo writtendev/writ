@@ -5,6 +5,24 @@
   "bare-handle.json": {
     "reason": "a bare handle carries no scheme"
   },
+  "bidi-isolate.json": {
+    "reason": "a bidi isolate (U+2066 LEFT-TO-RIGHT ISOLATE) is forbidden"
+  },
+  "bidi-override.json": {
+    "reason": "a bidi override (U+202E RIGHT-TO-LEFT OVERRIDE) is forbidden -- this is the ticket's own repro character"
+  },
+  "bom.json": {
+    "reason": "the byte-order mark / zero-width no-break space (U+FEFF) is forbidden"
+  },
+  "control-c0-interior.json": {
+    "reason": "an interior C0 control character (U+0001) is forbidden (spec/identifiers.md section Value character repertoire)"
+  },
+  "control-c1.json": {
+    "reason": "an interior C1 control character (U+0080) is forbidden"
+  },
+  "control-del.json": {
+    "reason": "DEL (U+007F) is forbidden"
+  },
   "empty-scheme.json": {
     "reason": "scheme must match [a-z][a-z0-9+.-]* and so cannot be empty"
   },
@@ -34,5 +52,8 @@
   },
   "value-over-limit.json": {
     "reason": "value is 321 code points, over the 320-code-point bound; rejected, never truncated"
+  },
+  "zero-width.json": {
+    "reason": "a zero-width space (U+200B) is forbidden"
   }
 }

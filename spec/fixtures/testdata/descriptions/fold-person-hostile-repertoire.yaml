@@ -1,0 +1,135 @@
+name: fold-person-hostile-repertoire
+description: >
+  WRIT-137's fold-purity proof. This op's person-ref value carries a bidi
+  override (U+202E RIGHT-TO-LEFT OVERRIDE) that engine/internal/person.Check
+  now refuses at the producer -- but the generator that builds this fixture
+  canonicalizes op payloads directly and never runs codec.BuildCommit, so it
+  needs no producer bypass to construct exactly what a foreign or buggy
+  client would have written before this change landed, or would still write
+  today by ignoring the rule. spec/fold.md 7.1 makes fold total by design:
+  "fold reads whatever is in the log, including operations written by a
+  foreign or buggy client, and what is in the log is permanent." The op is
+  expected to fold byte-for-byte intact, proving the producer rule is
+  hygiene, not the security boundary -- the boundary is the escape applied
+  at display (spec/identifiers.md section Rendering a person identifier),
+  which is pinned separately by cmd/writ's own tests, since this corpus
+  states folded data, not rendering.
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: schema-create
+            author: alice
+            timestamp: 2025-12-01T00:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: schema-define-type
+            parents: [schema-create]
+            author: alice
+            timestamp: 2025-12-01T00:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "acme.widget"
+            expect: accept
+
+          - id: schema-define-title
+            parents: [schema-define-type]
+            author: alice
+            timestamp: 2025-12-01T00:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: schema-define-assign-add
+            parents: [schema-define-title]
+            author: alice
+            timestamp: 2025-12-01T00:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "assign"
+                op_version: "1"
+                field: "add"
+                target: "assignees"
+                value_type: "person-ref"
+                strategy: "set-observed-remove"
+            expect: accept
+
+          - id: schema-define-assign-remove
+            parents: [schema-define-assign-add]
+            author: alice
+            timestamp: 2025-12-01T00:04:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "assign"
+                op_version: "1"
+                field: "remove"
+                target: "assignees"
+                value_type: "person-ref"
+                strategy: "set-observed-remove"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/widget
+    history:
+      - commits:
+          - id: alice-create
+            author: alice
+            timestamp: 2026-03-01T00:00:00Z
+            op:
+              object_id: w-hostile-repertoire
+              object_type: acme.widget
+              op_type: create
+              op_version: 1
+              body:
+                title: "Hostile Repertoire Test"
+            expect: accept
+
+          # A foreign client's op: a bidi override inside a person-ref
+          # OR-set member. A conforming producer now refuses this
+          # (engine/internal/person.Check, WRIT-137); the fold does not call
+          # Check, so this op lands in the log exactly as a non-conforming
+          # peer would write it, and folds unchanged.
+          - id: alice-assign-hostile
+            parents: [alice-create]
+            author: alice
+            timestamp: 2026-03-01T00:01:00Z
+            op:
+              object_id: w-hostile-repertoire
+              object_type: acme.widget
+              op_type: assign
+              op_version: 1
+              body:
+                add:
+                  - "email:mallory‮@evil.com"
+            expect: accept

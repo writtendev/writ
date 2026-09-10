@@ -114,6 +114,18 @@ func TestDerivePersonIDErrors(t *testing.T) {
 			wantErr: identity.ErrInvalid,
 		},
 		{
+			name:    "writ.personId with a forbidden code point",
+			cfg:     map[string]string{"writ.personid": "user:ali" + string(rune(0x202E)) + "ce"},
+			wantKey: identity.PersonIDKey,
+			wantErr: identity.ErrInvalid,
+		},
+		{
+			name:    "user.email with a forbidden code point",
+			cfg:     map[string]string{"user.email": "ali" + string(rune(0x202E)) + "ce@example.com"},
+			wantKey: "user.email",
+			wantErr: identity.ErrInvalid,
+		},
+		{
 			// WRIT-144, the other half: with the override blank and nothing to
 			// fall back to, the refusal is about configuration that is
 			// missing, not about an identifier that is malformed. It used to
@@ -208,5 +220,54 @@ func TestDerivePersonIDInvalidOverrideQuotesRawValue(t *testing.T) {
 	}
 	if cfgErr.Value != raw {
 		t.Errorf("ConfigError.Value = %q, want the raw configured value %q", cfgErr.Value, raw)
+	}
+}
+
+// TestDerivePersonIDForbiddenCodePointNamed pins WRIT-137's acceptance
+// criterion for the producer-side repertoire rule -- a person identifier
+// carrying a forbidden code point is refused with a message naming it --
+// for both DerivePersonID arms: an explicit writ.personId override, and the
+// email:<user.email> derivation.
+func TestDerivePersonIDForbiddenCodePointNamed(t *testing.T) {
+	_, err := identity.DerivePersonID(map[string]string{
+		"writ.personid": "user:ali" + string(rune(0x202E)) + "ce",
+	})
+	if err == nil {
+		t.Fatal("DerivePersonID: want an error")
+	}
+	if !strings.Contains(err.Error(), "U+202E") {
+		t.Errorf("error = %v, want it to name U+202E", err)
+	}
+
+	_, err = identity.DerivePersonID(map[string]string{
+		"user.email": "ali" + string(rune(0x202E)) + "ce@example.com",
+	})
+	if err == nil {
+		t.Fatal("DerivePersonID: want an error")
+	}
+	if !strings.Contains(err.Error(), "U+202E") {
+		t.Errorf("error = %v, want it to name U+202E", err)
+	}
+}
+
+// TestDerivePersonIDSchemeProblemNotCodePointDecorated pins a round-1 review
+// finding on WRIT-137's PR: the (U+XXXX) suffix must be attached only when
+// person.Check's returned Problem is actually ForbiddenCodePoint, not
+// whenever the value happens to contain a forbidden code point somewhere. A
+// writ.personId carrying both an invalid scheme and a forbidden code point in
+// its value must report the scheme problem alone, for both DerivePersonID
+// arms that format it.
+func TestDerivePersonIDSchemeProblemNotCodePointDecorated(t *testing.T) {
+	_, err := identity.DerivePersonID(map[string]string{
+		"writ.personid": "my_scheme:ali" + string(rune(0x202E)) + "ce",
+	})
+	if err == nil {
+		t.Fatal("DerivePersonID: want an error")
+	}
+	if !strings.Contains(err.Error(), "scheme must match") {
+		t.Errorf("error = %v, want it to report the scheme problem", err)
+	}
+	if strings.Contains(err.Error(), "U+202E") || strings.Contains(err.Error(), "(U+") {
+		t.Errorf("error = %v, wrongly decorates a scheme problem with a forbidden-code-point suffix", err)
 	}
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/writtendev/writ/engine/schemasrc"
 	"github.com/writtendev/writ/engine/state"
 	"github.com/writtendev/writ/internal/textdiff"
+	"github.com/writtendev/writ/internal/textsafe"
 )
 
 // schemaSourceFileName is the one working-tree file this command family
@@ -416,6 +417,24 @@ func buildSchemaPlan(ctx context.Context, store *writ.Store, dir string) (*schem
 	// namespacePattern, which "" never does. Render only what actually
 	// exists in the log; an empty current_source reads correctly as a diff
 	// against nothing, which is exactly what creating an object is.
+	//
+	// currentSource and plannedSource are Render's raw output: no textsafe
+	// pass runs here. docs/cli-json.md promises current_source and
+	// planned_source are "writ.schema source text rendered from the log's
+	// own folded state", and toWirePlan below hands these bytes to
+	// emitJSON verbatim -- which already escapes every forbidden code
+	// point in the whole marshalled document losslessly (a \uXXXX escape
+	// sequence sitting inside an otherwise-valid JSON string decodes back
+	// to the exact original rune; the same property object show --json
+	// already relies on). Escaping a description here, before Render
+	// quotes it, was round 4's finding 2 on PR #185: schemasrc.quoteString
+	// backslash-escapes any backslash a prior escape pass introduced,
+	// which both breaks losslessness for --json and collapses two
+	// distinct descriptions onto the same rendered text, so a real change
+	// could diff as empty. The human-readable diff has no JSON layer to
+	// lean on for its own escaping, so renderSchemaPlanPorcelain below
+	// escapes a local copy of these bytes -- after Render has already
+	// quoted every description -- immediately before diffing them.
 	var currentSource []byte
 	if !created {
 		currentSource, err = schemasrc.Render(current)
@@ -606,14 +625,23 @@ func conflictKey(c writ.SchemaConflict) string {
 // describeSchemaConflict renders one SchemaConflict as a refusal line,
 // naming whichever of object_type/namespace the conflict carries, its
 // reason, and the schema object(s) involved.
+//
+// c.Reason carries the same risk renderSchemaPlanPorcelain's "conflict: %s\n"
+// line does (see that call site's comment): RulesFromSchemas can format a
+// value straight out of a foreign client's non-conforming op body into
+// Reason with a bare %s, with no repertoire gate of its own. This is a
+// rendering chokepoint like any other and needs the same escape (round 5
+// review of PR #185 found it and routed it to WRIT-226 as unreachable in
+// practice; closed here instead of relying on that argument holding).
 func describeSchemaConflict(c writ.SchemaConflict) string {
+	reason := textsafe.EscapeForbidden(c.Reason)
 	switch {
 	case c.ObjectType != "":
-		return fmt.Sprintf("object_type %q: %s (schema object(s): %s)", c.ObjectType, c.Reason, strings.Join(c.ObjectIDs, ", "))
+		return fmt.Sprintf("object_type %q: %s (schema object(s): %s)", c.ObjectType, reason, strings.Join(c.ObjectIDs, ", "))
 	case c.Namespace != "":
-		return fmt.Sprintf("namespace %q: %s (schema object(s): %s)", c.Namespace, c.Reason, strings.Join(c.ObjectIDs, ", "))
+		return fmt.Sprintf("namespace %q: %s (schema object(s): %s)", c.Namespace, reason, strings.Join(c.ObjectIDs, ", "))
 	default:
-		return c.Reason
+		return reason
 	}
 }
 
@@ -1097,8 +1125,17 @@ func stringMapsEqual(a, b map[string]string) bool {
 // diff of the current-vs-planned renderings (both folded state, never
 // source text), a one-line op-count summary, and the next step.
 func renderSchemaPlanPorcelain(w io.Writer, r *schemaPlanResult) {
+	// c.Reason can name a value straight out of a foreign client's
+	// non-conforming op body, with no repertoire gate at all: a
+	// define-field's field, for instance, on the path
+	// spec.ValidateFieldRule has just refused it over --
+	// engine/schema.go's SchemaConflict construction for that case formats
+	// the field verbatim into Reason to explain the rejection, not to
+	// re-validate it. This is a rendering chokepoint exactly like
+	// fieldDisplay/authorDisplay and needs the same escape (round 4 review
+	// of PR #185, finding 1).
 	for _, c := range r.conflicts {
-		fmt.Fprintf(w, "conflict: %s\n", c.Reason)
+		fmt.Fprintf(w, "conflict: %s\n", textsafe.EscapeForbidden(c.Reason))
 	}
 
 	if r.upToDate {
@@ -1106,7 +1143,16 @@ func renderSchemaPlanPorcelain(w io.Writer, r *schemaPlanResult) {
 		return
 	}
 
-	diff := textdiff.DiffText("schema in the log", string(r.currentSource), "writ.schema", string(r.plannedSource))
+	// escapeRenderedSchemaSource runs on a local copy of r.currentSource
+	// and r.plannedSource here, not on those fields themselves and not
+	// before schemasrc.Render assembles them -- see buildSchemaPlan's
+	// comment for why, and escapeRenderedSchemaSource's own comment for
+	// why running after Render is what keeps this both correct and
+	// injective (round 4 review of PR #185, finding 2).
+	diff := textdiff.DiffText(
+		"schema in the log", escapeRenderedSchemaSource(r.currentSource),
+		"writ.schema", escapeRenderedSchemaSource(r.plannedSource),
+	)
 	if diff != "" {
 		fmt.Fprint(w, diff)
 	}
@@ -1129,4 +1175,67 @@ func renderSchemaPlanPorcelain(w io.Writer, r *schemaPlanResult) {
 		fmt.Fprintf(w, "%d op(s) to append: %s\n", len(r.ops), strings.Join(parts, ", "))
 	}
 	fmt.Fprintln(w, "run `writ schema apply` to sign and append them")
+}
+
+// escapeRenderedSchemaSource returns src -- schemasrc.Render's output --
+// with every textsafe.Forbidden code point escaped as \uXXXX, except
+// U+000A. It exists only for renderSchemaPlanPorcelain's local diff-display
+// copy of currentSource/plannedSource: buildSchemaPlan calls Render on the
+// unescaped schema deliberately, so r.currentSource and r.plannedSource
+// themselves -- what toWirePlan hands emitJSON for --json -- stay Render's
+// raw, faithful output (docs/cli-json.md's promise for current_source and
+// planned_source). This function's job is display-only, for the one path
+// (the human-readable diff) with no JSON layer underneath to fall back on
+// for its own escaping.
+//
+// Running after Render, not before, is what round 4's finding 2 on PR #185
+// requires. An earlier version of this fix escaped each description before
+// handing it to Render, which made schemasrc.quoteString backslash-escape
+// the literal '\' that escape had just introduced: the rendered text came
+// out double-escaped, and -- because two different descriptions could
+// collide onto the same double-escaped text -- lost injectivity, so a real
+// description change could diff as empty. Escaping the already-rendered,
+// already-quoted output introduces no new backslash for anything
+// downstream to re-escape, and nothing runs after this to corrupt it
+// either.
+//
+// Excluding U+000A is what keeps the diff line-structured. quoteString
+// already turns every data newline inside a description into the literal
+// two characters `\n` (its own case '\n'), so by the time Render's output
+// reaches here, the only raw U+000A bytes left are the real line breaks
+// Render's own Fprintf format strings write between declarations --
+// structure, not data. Escaping those too, as WRIT-137 round 2 once did
+// over the whole assembled document, collapses the diff onto one line for
+// every schema, benign or hostile (round 3 review of PR #185, finding 1).
+// No other Forbidden code point can occur structurally -- every literal
+// byte Render itself writes is plain ASCII -- so U+000A is the only
+// exclusion needed, not one case among several still to find.
+//
+// The result is injective. A description whose literal text already
+// spells out the six ASCII characters backslash, u, 2, 0, 2, e (ordinary
+// text, no Forbidden rune among them) quotes to two backslashes followed
+// by u202e: quoteString escapes the data backslash, and this pass leaves
+// the result alone, since backslash is not Forbidden. A description
+// containing the actual U+202E code point quotes to a raw rune
+// (quoteString's default case passes it through unescaped), which this
+// pass turns into a single backslash followed by u202e. One backslash
+// versus two keeps the renderings visibly distinct.
+func escapeRenderedSchemaSource(src []byte) string {
+	s := string(src)
+	hasForbidden := strings.ContainsFunc(s, func(r rune) bool {
+		return r != '\n' && textsafe.Forbidden(r)
+	})
+	if !hasForbidden {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if r == '\n' || !textsafe.Forbidden(r) {
+			b.WriteRune(r)
+			continue
+		}
+		fmt.Fprintf(&b, `\u%04x`, r)
+	}
+	return b.String()
 }

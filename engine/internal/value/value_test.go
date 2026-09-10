@@ -2,6 +2,7 @@ package value_test
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -142,6 +143,54 @@ func TestValueTypeCoversWholeCatalogue(t *testing.T) {
 		if !invalidCovered[vt] {
 			t.Errorf("value type %q has no invalid vector under testdata/value-types/invalid", vt)
 		}
+	}
+}
+
+// TestPersonRefRejectionQuotesValueSafely is WRIT-137's pinning test for the
+// premise check its plan recorded: strconv.IsPrint is false for every
+// forbidden code point (spec/identifiers.md §Value character repertoire), so
+// %q already escapes all of them via strconv.Quote -- this is a pin, not a
+// change, guarding against a future switch from %q to %s in the person-ref
+// rejection message going unnoticed. It also checks the message names the
+// offending code point.
+func TestPersonRefRejectionQuotesValueSafely(t *testing.T) {
+	hostile := "email:alice" + string(rune(0x202E)) + "@evil.com"
+	err := value.Validate("person-ref", value.Params{}, hostile)
+	if err == nil {
+		t.Fatal("value.Validate accepted a person-ref value carrying a bidi override")
+	}
+	wantQuoted := strconv.Quote(hostile)
+	if !strings.Contains(err.Error(), wantQuoted) {
+		t.Errorf("error %q does not contain the %%q-quoted value %q", err.Error(), wantQuoted)
+	}
+	// strconv.Quote escapes a non-printable rune as lowercase \uXXXX.
+	if !strings.Contains(err.Error(), "\\u202e") {
+		t.Errorf("error %q does not contain the escaped hostile code point", err.Error())
+	}
+	if !strings.Contains(err.Error(), "U+202E") {
+		t.Errorf("error %q does not name the offending code point", err.Error())
+	}
+}
+
+// TestPersonRefSchemeProblemNotCodePointDecorated pins a round-1 review
+// finding on WRIT-137's PR: the (U+XXXX) suffix must be attached only when
+// person.Check's returned Problem is actually ForbiddenCodePoint, not
+// whenever the value happens to contain a forbidden code point somewhere.
+// A scheme-shaped failure (SchemeCharset here) on a value whose *value* half
+// also carries a forbidden code point must report the scheme problem alone --
+// naming a code point that is not the reported problem is misleading, not
+// merely decorative.
+func TestPersonRefSchemeProblemNotCodePointDecorated(t *testing.T) {
+	hostile := "my_scheme:ali" + string(rune(0x202E)) + "ce"
+	err := value.Validate("person-ref", value.Params{}, hostile)
+	if err == nil {
+		t.Fatal("value.Validate accepted a person-ref value with an invalid scheme")
+	}
+	if !strings.Contains(err.Error(), "scheme must match") {
+		t.Errorf("error %q does not report the scheme problem", err.Error())
+	}
+	if strings.Contains(err.Error(), "U+202E") || strings.Contains(err.Error(), "(U+") {
+		t.Errorf("error %q wrongly decorates a scheme problem with a forbidden-code-point suffix", err.Error())
 	}
 }
 

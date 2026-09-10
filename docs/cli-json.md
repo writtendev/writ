@@ -42,6 +42,7 @@ All plumbing commands emit a single top-level JSON document on `stdout` adhering
 6. **No Null Collections:** Empty collections serialize as `[]`, never `null`.
 7. **Deterministic Formatting & Ordering:** Timestamps are formatted as ISO 8601 / RFC 3339 UTC with a trailing `Z` (e.g. `2026-01-01T00:00:00Z`). All list responses have a deterministic total order, using object ID ascending as a tiebreaker.
 8. **Pre-v0.1.0 exception to rule 1:** WRIT-195 removed the `review.*`, `issue.*`, `comment.*`, `label.*`, `state.*`, `settings`, and `doc.*` kinds (and their payload shapes) from this same `schema_version: 1` envelope, replacing them with the generic `object.*`/`schema.*` verbs below. Nothing has shipped yet (`AGENTS.md`: "Nothing has shipped: no tags, no users, no external implementations"), so this is a deliberate pre-v0.1.0 break, not a violation of rule 1 going forward — additive-only evolution is the promise from here on, not a retroactive one.
+9. **Person-identifier rendering is escaped:** `--json` output escapes bidi-control and zero-width code points (spec/identifiers.md §Rendering a person identifier) as `\uXXXX` at the JSON level, over the whole encoded document rather than only fields known to be `person-ref`. This is lossless: decoding the output recovers the exact value that was folded, unchanged.
 
 ---
 
