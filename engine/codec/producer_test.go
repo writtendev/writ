@@ -211,13 +211,18 @@ func TestBuildCommitRejectsKeyedLWWKeyColumns(t *testing.T) {
 			body: `{"verdict":"approve","subject":"not-a-person-ref"}`,
 		},
 		{
-			// Round-1 review finding: JSON null took the same "no write"
-			// `continue` a declared field's absent-shaped null gets, even
-			// though a key column addresses a register rather than
-			// carrying a value of its own and fold's keyed-lww strategy
+			// Round-1 review finding, from before WRIT-222 existed: JSON
+			// null took the same "no write" `continue` a declared
+			// field's null value got back then, even though a key
+			// column addresses a register rather than carrying a value
+			// of its own and fold's keyed-lww strategy
 			// (engine/internal/fold/reject.go's isString(nil) == false)
 			// does not tolerate null there either — this pinned the
-			// producer accept a reader quarantines forever.
+			// producer accept a reader quarantines forever. WRIT-222
+			// later closed the same hole for an ordinary declared
+			// field's own value (rule 6); this key column case stays
+			// pinned here independently, since a key column is refused
+			// by its own JSON-string floor, not by rule 6.
 			name: "key column value is JSON null",
 			body: `{"verdict":"approve","subject":null}`,
 		},
@@ -1506,4 +1511,189 @@ func sortedKeys(m map[string]any) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// declaredFieldNullVocabulary declares one field per merge strategy in the
+// closed catalogue (spec/fold.md §5, all nine members) so
+// TestBuildCommitRejectsDeclaredFieldNullValue can exercise WRIT-222's rule
+// across every strategy from a single vocabulary, not only the six the
+// ticket names by example.
+func declaredFieldNullVocabulary() codec.Vocabularies {
+	return declareVocabulary("widget",
+		spec.FieldRule{OpType: "create", OpVersion: 1, Field: "lww_field", Strategy: "lww", ValueType: "string"},
+		spec.FieldRule{OpType: "create", OpVersion: 1, Field: "create_once_field", Strategy: "create-once", ValueType: "string"},
+		spec.FieldRule{OpType: "create", OpVersion: 1, Field: "append_field", Strategy: "append", ValueType: "string"},
+		spec.FieldRule{OpType: "create", OpVersion: 1, Field: "set_union_field", Strategy: "set-union", ValueType: "string"},
+		spec.FieldRule{OpType: "create", OpVersion: 1, Field: "set_observed_remove_field", Strategy: "set-observed-remove", ValueType: "string"},
+		spec.FieldRule{OpType: "create", OpVersion: 1, Field: "tombstone_field", Strategy: "tombstone", ValueType: "bool"},
+		spec.FieldRule{OpType: "create", OpVersion: 1, Field: "lattice_field", Strategy: "lattice", ValueType: "enum", Enum: []string{"draft", "final"}, Lattice: []string{"draft", "final"}},
+		spec.FieldRule{OpType: "create", OpVersion: 1, Field: "multi_value_field", Strategy: "multi-value", ValueType: "text"},
+		spec.FieldRule{
+			OpType: "create", OpVersion: 1, Field: "keyed_lww_field", Strategy: "keyed-lww",
+			Key: []string{"keyed_lww_field_subject"}, KeyTypes: map[string]string{"keyed_lww_field_subject": "person-ref"},
+			ValueType: "string",
+		},
+		// No ValueType: an untyped field (spec/value-types.md "value_type is
+		// optional") still MUST NOT hold null -- rule 6 binds off the field
+		// being declared at all, not off value_type, so this table's
+		// "untyped" case is the r.ValueType == "" branch the ordering
+		// unpinned-in-review would let slip through.
+		spec.FieldRule{OpType: "create", OpVersion: 1, Field: "untyped_field", Strategy: "lww"},
+	)
+}
+
+// TestBuildCommitRejectsDeclaredFieldNullValue pins WRIT-222: a declared
+// field's own top-level value MUST NOT be JSON null, under every merge
+// strategy in the closed catalogue (spec/fold.md §5's nine members), with
+// no per-strategy carve-out. The fix in validateFieldsAgainstRules runs
+// ahead of any strategy dispatch, so this table exercises the whole
+// catalogue rather than only the six strategies the ticket names by
+// example -- "one rule, no per-strategy carve-outs" is only falsifiable
+// checked against every member.
+//
+// Before this fix, engine/internal/fold/reject.go's ruleAccepts already
+// quarantined a null value for every one of these strategies (the
+// producer/reader lockstep break WRIT-222 exists to close): the producer
+// accepted what every conforming reader was already refusing to interpret.
+func TestBuildCommitRejectsDeclaredFieldNullValue(t *testing.T) {
+	cases := []struct {
+		strategy string
+		field    string
+		// extra is additional body content the field's own rule needs
+		// alongside the null value.
+		extra string
+	}{
+		{strategy: "lww", field: "lww_field"},
+		{strategy: "create-once", field: "create_once_field"},
+		{strategy: "append", field: "append_field"},
+		{strategy: "set-union", field: "set_union_field"},
+		{strategy: "set-observed-remove", field: "set_observed_remove_field"},
+		{strategy: "tombstone", field: "tombstone_field"},
+		{strategy: "lattice", field: "lattice_field"},
+		{strategy: "multi-value", field: "multi_value_field"},
+		// r.ValueType == "": pins that the val == nil check runs ahead of
+		// the ValueType == "" skip, not after it -- an untyped field
+		// typechecks nothing but must not additionally admit null.
+		{strategy: "lww (untyped)", field: "untyped_field"},
+		{
+			strategy: "keyed-lww",
+			field:    "keyed_lww_field",
+			// The key column travels alongside the null field, present and
+			// valid, so this case isolates WRIT-222's rule from WRIT-219's
+			// rule 5 (a keyed-lww body must also carry every column of its
+			// declared key) -- the two are different rules keyed on
+			// different things and must not collide in the same fixture.
+			extra: `,"keyed_lww_field_subject":"email:alice@example.com"`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.strategy, func(t *testing.T) {
+			body := fmt.Sprintf(`{"%s":null%s}`, tc.field, tc.extra)
+			_, err := codec.BuildCommit(codec.Envelope{
+				ObjectID:   "w-1",
+				ObjectType: "widget",
+				OpType:     "create",
+				OpVersion:  1,
+				Body:       json.RawMessage(body),
+			}, testAuthor(), nil, declaredFieldNullVocabulary())
+			if err == nil {
+				t.Fatalf("BuildCommit accepted a %s field carrying JSON null", tc.strategy)
+			}
+			var rejErr *codec.RejectError
+			if !errors.As(err, &rejErr) {
+				t.Fatalf("error is not a *codec.RejectError: %v", err)
+			}
+			if rejErr.Reason != codec.RejectSchemaViolation {
+				t.Errorf("reason = %q, want %q", rejErr.Reason, codec.RejectSchemaViolation)
+			}
+			if !strings.Contains(rejErr.Error(), tc.field) {
+				t.Errorf("rejection message %q does not name field %q", rejErr.Error(), tc.field)
+			}
+			// cmd/writ/object.go's renderObjectMutationErr appends a
+			// "use -field-json" hint on exactly the substring "key
+			// column", which would be actively wrong here: -field-json
+			// <field>=null is the one way to produce this rejection, not
+			// a way around it.
+			if strings.Contains(rejErr.Error(), "key column") {
+				t.Errorf("rejection message %q contains \"key column\": renderObjectMutationErr would append a misleading -field-json hint", rejErr.Error())
+			}
+		})
+	}
+}
+
+// TestBuildCommitAcceptsNestedNullInStructuredValue pins WRIT-222's scope
+// boundary: rule 6 refuses a declared field's own top-level value being
+// null, never a null appearing inside a structured value the field's
+// value_type itself permits. An anchor's range/context collar pairs on
+// presence only (engine/internal/value's validateAnchorSide), so a
+// well-formed anchor may carry null on both once both are present --
+// exactly the shape engine/internal/fold/reject.go's own doc comment
+// blesses ("an anchor whose context collar is null is well formed"). This
+// is the falsifiable half of the scope boundary the ticket's acceptance
+// criteria ask for: the rule is not "no null anywhere in a body".
+func TestBuildCommitAcceptsNestedNullInStructuredValue(t *testing.T) {
+	body := `{"anchor_field":{"version":1,"new":{` +
+		`"commit":"1111111111111111111111111111111111111111",` +
+		`"path":"main.go",` +
+		`"blob":"2222222222222222222222222222222222222222",` +
+		`"range":null,"context":null}}}`
+	_, err := codec.BuildCommit(codec.Envelope{
+		ObjectID:   "w-1",
+		ObjectType: "widget",
+		OpType:     "create",
+		OpVersion:  1,
+		Body:       json.RawMessage(body),
+	}, testAuthor(), nil, declareVocabulary("widget",
+		spec.FieldRule{OpType: "create", OpVersion: 1, Field: "anchor_field", Strategy: "lww", ValueType: "anchor"},
+	))
+	if err != nil {
+		t.Fatalf("BuildCommit rejected an anchor value whose interior range/context collar is null: %v", err)
+	}
+}
+
+// TestBootstrapDefineFieldRefusesNullForUntypedMembersViaShippedSchema pins
+// this ticket's open question rather than leaving it to be re-discovered by
+// hand: rule 6 (validateFieldsAgainstRules) never runs at all, at the
+// bootstrap tier, for define-field's own enum, key, key_types, and lattice
+// rules (see validateValueTypes's doc comment for why that filtering is
+// safe). This test pins the shipped-schema refusal that safety rests on,
+// directly and for all four names, rather than leaving it to be
+// re-verified by hand -- loosening any one of the four "array"/"object"
+// type constraints in spec/schemas/schema-ops.schema.json would reopen the
+// hole with no test firing otherwise.
+func TestBootstrapDefineFieldRefusesNullForUntypedMembersViaShippedSchema(t *testing.T) {
+	cases := []struct {
+		member string
+		// body is the full define-field op body, varying only which
+		// untyped member carries null.
+		body string
+	}{
+		{member: "enum", body: `{"type":"widget","op_type":"create","op_version":"1","field":"status","strategy":"lww","value_type":"string","enum":null}`},
+		{member: "key", body: `{"type":"widget","op_type":"create","op_version":"1","field":"status","strategy":"lww","value_type":"string","key":null}`},
+		{member: "key_types", body: `{"type":"widget","op_type":"create","op_version":"1","field":"status","strategy":"lww","value_type":"string","key_types":null}`},
+		{member: "lattice", body: `{"type":"widget","op_type":"create","op_version":"1","field":"status","strategy":"lww","value_type":"string","lattice":null}`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.member, func(t *testing.T) {
+			_, err := codec.BuildCommit(codec.Envelope{
+				ObjectID:   testSchemaObjectID,
+				ObjectType: "schema",
+				OpType:     "define-field",
+				OpVersion:  1,
+				Body:       json.RawMessage(tc.body),
+			}, testAuthor(), nil, nil)
+			if err == nil {
+				t.Fatalf("BuildCommit accepted a define-field op with %s: null", tc.member)
+			}
+			var rejErr *codec.RejectError
+			if !errors.As(err, &rejErr) {
+				t.Fatalf("error is not a *codec.RejectError: %v", err)
+			}
+			if rejErr.Reason != codec.RejectSchemaViolation {
+				t.Errorf("reason = %q, want %q", rejErr.Reason, codec.RejectSchemaViolation)
+			}
+		})
+	}
 }

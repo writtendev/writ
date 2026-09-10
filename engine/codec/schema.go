@@ -380,6 +380,26 @@ func validateAgainstLogVocabulary(env Envelope, raw []byte, voc Vocabulary) erro
 // value-typed rules at all is a no-op — this is additive to what the schema
 // already checks, not a replacement for it.
 //
+// rules below is valueTypeRulesOnce()'s filtered set — only rules declaring
+// a value_type — not the full bootstrap rule table, so validateFieldsAgainstRules'
+// rule 6 (WRIT-222, its own doc comment) never runs at all here for the four
+// untyped members of define-field's own rules: enum, key, key_types, and
+// lattice (spec/testdata/schema-ops/field-rules.json). That is not a live
+// gap in rule 6 only because spec/schemas/schema-ops.schema.json already
+// types those four members "array"/"object", and a JSON Schema type
+// constraint never admits null on its own — so a null there is refused by
+// the shipped schema before validateValueTypes would ever see the body, and
+// producer/reader lockstep holds regardless of whether rule 6 itself runs
+// for these names. This is a considered decision, not an oversight to
+// widen later: dispatch decided against extending this filter to the full
+// bootstrap rule table (that would let rule 6 run for these four names too,
+// but the shipped schema already closes the gap, so it would add coverage
+// with no behavior change). See
+// TestBootstrapDefineFieldRefusesNullForUntypedMembersViaShippedSchema
+// (engine/codec/producer_test.go) for the fixture pinning that all four
+// names are actually refused by the shipped schema, not merely by
+// construction.
+//
 // Nothing on the read path calls this: ValidateBody's contract ("the rules
 // bind producers only") is unchanged.
 func validateValueTypes(env Envelope, raw []byte) error {
@@ -418,6 +438,19 @@ func validateValueTypes(env Envelope, raw []byte) error {
 // key, or the write is refused outright. See that pass's own comment
 // below for why it is keyed directly off each rule rather than byField.
 //
+// Separately, the per-field loop enforces rule 6 (spec/op-envelope.md
+// §Producer validation, WRIT-222): a declared field's own value MUST NOT
+// be JSON null, under every merge strategy, for every rule this function
+// receives in rules. This is a different check from rule 5's, keyed on a
+// different thing -- rule 5 keys on a keyed-lww key column being absent
+// from the body, rule 6 keys on a declared field's value being null -- and
+// the two stay independent rather than merging into one pass. See the
+// val == nil check further down for the rule 6 rejection itself, and
+// validateValueTypes's own doc comment for the one caller that hands this
+// function a deliberately narrowed rules -- the bootstrap tier's
+// value-typed subset, not the full rule table -- and why that narrowing
+// does not reopen this rule for the names it excludes.
+//
 // A keyed-lww field's key columns travel in the body but are not themselves
 // declared fields (spec/op-envelope.md §Producer validation rule 3): a body
 // key is also declared when it is a member of key on some keyed-lww rule in
@@ -427,12 +460,13 @@ func validateValueTypes(env Envelope, raw []byte) error {
 // MUST be a JSON string regardless of key_types, because fold's keyed-lww
 // strategy treats a non-string key component as uninterpretable
 // (spec/fold.md §5's "Key components are strings", enforced via §7.1;
-// engine/internal/fold/reject.go). Unlike a declared field's value, a JSON
-// null key column is not tolerated as "no write": a key column addresses a
-// register rather than carrying a value of its own, and fold's keyed-lww
-// strategy does not tolerate null there either (isString(nil) is false, so
-// fold.ruleAccepts rejects it) — validateKeyColumnValue runs on every key
-// column value unconditionally, null included.
+// engine/internal/fold/reject.go). A JSON null key column is refused here
+// the same way a declared field's null value is refused below (WRIT-222,
+// rule 6): a key column addresses a register rather than carrying a value
+// of its own, and fold's keyed-lww strategy does not tolerate null there
+// either (isString(nil) is false, so fold.ruleAccepts rejects it) —
+// validateKeyColumnValue runs on every key column value unconditionally,
+// null included, independently of the field-value check below.
 //
 // Where a name is both a declared field and a key column of some rule
 // (writ's own "schema" vocabulary's define-field's "field" does this, and so
@@ -584,9 +618,13 @@ func validateFieldsAgainstRules(rules []spec.FieldRule, body map[string]any, str
 		// rule above governs its declared type, but fold.ruleAccepts checks
 		// every key column present in the body regardless of whether the
 		// name also carries a field rule, so the bare JSON-string floor
-		// applies here too, unconditionally — including when val is nil,
-		// the one case the field branch below tolerates as "no write" but a
-		// key column never does.
+		// applies here too, unconditionally — including when val is nil.
+		// The field branch below refuses a null field value too (WRIT-222,
+		// rule 6), but for a different, field-scoped reason and with a
+		// different message naming the field rather than the key-column
+		// floor -- this key-column check runs first, so a name playing both
+		// roles is refused here, before that later check ever sees the
+		// value.
 		_, isKeyColumn := keyColumnTypes[field]
 		if isKeyColumn {
 			if _, isStr := val.(string); !isStr {
@@ -608,7 +646,25 @@ func validateFieldsAgainstRules(rules []spec.FieldRule, body map[string]any, str
 				return &RejectError{Reason: RejectSchemaViolation, Err: fmt.Errorf("field %q: a tombstone field cannot also be a keyed-lww key column of another rule: tombstone's reducer requires a raw JSON boolean (engine/internal/fold/reject.go), which is never the JSON string a keyed-lww key column's value must be (spec/fold.md §5) -- no value ever satisfies both, so every write to this field is refused", field)}
 			}
 		}
-		if val == nil || r.ValueType == "" {
+		// A declared field's value MUST NOT be JSON null, under every merge
+		// strategy, no carve-outs (spec/op-envelope.md §Producer validation
+		// rule 6, WRIT-222): omitting the field already means "this op
+		// asserts nothing about this field", so null would only be a second
+		// spelling of the same absence, and engine/internal/fold/reject.go
+		// quarantines a null field value for every one of the nine
+		// catalogue strategies -- an accept here is a producer/reader
+		// lockstep break, not a value a reader can fold. This binds an
+		// untyped field too (r.ValueType == ""), which is why it runs ahead
+		// of that skip rather than after it: a rule with no declared
+		// value_type typechecks nothing, but "untyped" must not mean "null
+		// accepted". It does not reach a null nested *inside* a structured
+		// value (an anchor's interior, an object written via -field-json)
+		// -- that is the value type's own business, checked by
+		// value.Validate below, not this field-level presence check.
+		if val == nil {
+			return &RejectError{Reason: RejectSchemaViolation, Err: fmt.Errorf("field %q: value must not be JSON null; omit the field instead to write nothing (spec/op-envelope.md §Producer validation rule 6)", field)}
+		}
+		if r.ValueType == "" {
 			continue
 		}
 		// val is confirmed a JSON string above by the key-column floor. When

@@ -146,5 +146,70 @@
     "reason_code": "schema-violation",
     "reader_disposition": "interpretable",
     "reason": "WRIT-203: a define-field whose target fails the identifier grammar (^[a-z][a-z0-9_]*$) is dropped by spec.ValidateFieldRule inside the same resolution both the producer and the reader consult (spec/schema-ops.md §11), so it installs no rule at all -- indistinguishable, from here, from a field the schema never declared in the first place (undeclared-field.json). Rule 3 refuses the write; a reader tolerates it, folding title normally and ignoring the unrecognized owner field"
+  },
+  "declared-field-null-lww.json": {
+    "producer_verdict": "reject",
+    "reason_code": "schema-violation",
+    "reader_disposition": "unknown-op",
+    "reason": "rule 6 (WRIT-222): a declared field's own value MUST NOT be JSON null, under every merge strategy in the closed catalogue (spec/fold.md §5), no per-strategy carve-outs -- omitting the field already means \"this op asserts nothing about this field\", so null would only be a second spelling of the same absence. Before this rule, the producer accepted this body and every conforming reader's engine/internal/fold/reject.go quarantined it (ruleAccepts refuses a null value for this strategy), the producer/reader lockstep break this ticket closes (lww: `v != nil`)"
+  },
+  "declared-field-null-create-once.json": {
+    "producer_verdict": "reject",
+    "reason_code": "schema-violation",
+    "reader_disposition": "unknown-op",
+    "reason": "rule 6 (WRIT-222): a declared field's own value MUST NOT be JSON null, under every merge strategy in the closed catalogue (spec/fold.md §5), no per-strategy carve-outs -- omitting the field already means \"this op asserts nothing about this field\", so null would only be a second spelling of the same absence. Before this rule, the producer accepted this body and every conforming reader's engine/internal/fold/reject.go quarantined it (ruleAccepts refuses a null value for this strategy), the producer/reader lockstep break this ticket closes (create-once: `v != nil`, the same check lww's rule gets)"
+  },
+  "declared-field-null-append.json": {
+    "producer_verdict": "reject",
+    "reason_code": "schema-violation",
+    "reader_disposition": "unknown-op",
+    "reason": "rule 6 (WRIT-222): a declared field's own value MUST NOT be JSON null, under every merge strategy in the closed catalogue (spec/fold.md §5), no per-strategy carve-outs -- omitting the field already means \"this op asserts nothing about this field\", so null would only be a second spelling of the same absence. Before this rule, the producer accepted this body and every conforming reader's engine/internal/fold/reject.go quarantined it (ruleAccepts refuses a null value for this strategy), the producer/reader lockstep break this ticket closes (append: appendAccepts refuses a null field value the same way it refuses a null array entry)"
+  },
+  "declared-field-null-set-union.json": {
+    "producer_verdict": "reject",
+    "reason_code": "schema-violation",
+    "reader_disposition": "unknown-op",
+    "reason": "rule 6 (WRIT-222): a declared field's own value MUST NOT be JSON null, under every merge strategy in the closed catalogue (spec/fold.md §5), no per-strategy carve-outs -- omitting the field already means \"this op asserts nothing about this field\", so null would only be a second spelling of the same absence. Before this rule, the producer accepted this body and every conforming reader's engine/internal/fold/reject.go quarantined it (ruleAccepts refuses a null value for this strategy), the producer/reader lockstep break this ticket closes (set-union: isStringOrStringSlice(nil) is false)"
+  },
+  "declared-field-null-set-observed-remove.json": {
+    "producer_verdict": "reject",
+    "reason_code": "schema-violation",
+    "reader_disposition": "unknown-op",
+    "reason": "rule 6 (WRIT-222): a declared field's own value MUST NOT be JSON null, under every merge strategy in the closed catalogue (spec/fold.md §5), no per-strategy carve-outs -- omitting the field already means \"this op asserts nothing about this field\", so null would only be a second spelling of the same absence. Before this rule, the producer accepted this body and every conforming reader's engine/internal/fold/reject.go quarantined it (ruleAccepts refuses a null value for this strategy), the producer/reader lockstep break this ticket closes (set-observed-remove: orSetAccepts's sideOK treats a present null side as a write claimed with no value in it, distinct from an absent side)"
+  },
+  "declared-field-null-tombstone.json": {
+    "producer_verdict": "reject",
+    "reason_code": "schema-violation",
+    "reader_disposition": "unknown-op",
+    "reason": "rule 6 (WRIT-222): a declared field's own value MUST NOT be JSON null, under every merge strategy in the closed catalogue (spec/fold.md §5), no per-strategy carve-outs -- omitting the field already means \"this op asserts nothing about this field\", so null would only be a second spelling of the same absence. Before this rule, the producer accepted this body and every conforming reader's engine/internal/fold/reject.go quarantined it (ruleAccepts refuses a null value for this strategy), the producer/reader lockstep break this ticket closes (tombstone: `v.(bool)` fails for nil)"
+  },
+  "declared-field-null-lattice.json": {
+    "producer_verdict": "reject",
+    "reason_code": "schema-violation",
+    "reader_disposition": "unknown-op",
+    "reason": "rule 6 (WRIT-222): a declared field's own value MUST NOT be JSON null, under every merge strategy in the closed catalogue (spec/fold.md §5), no per-strategy carve-outs -- omitting the field already means \"this op asserts nothing about this field\", so null would only be a second spelling of the same absence. Before this rule, the producer accepted this body and every conforming reader's engine/internal/fold/reject.go quarantined it (ruleAccepts refuses a null value for this strategy), the producer/reader lockstep break this ticket closes (lattice: isString(nil) is false -- null has no position in the semilattice ordering)"
+  },
+  "declared-field-null-multi-value.json": {
+    "producer_verdict": "reject",
+    "reason_code": "schema-violation",
+    "reader_disposition": "unknown-op",
+    "reason": "rule 6 (WRIT-222): a declared field's own value MUST NOT be JSON null, under every merge strategy in the closed catalogue (spec/fold.md §5), no per-strategy carve-outs -- omitting the field already means \"this op asserts nothing about this field\", so null would only be a second spelling of the same absence. Before this rule, the producer accepted this body and every conforming reader's engine/internal/fold/reject.go quarantined it (ruleAccepts refuses a null value for this strategy), the producer/reader lockstep break this ticket closes (multi-value: isString(nil) is false)"
+  },
+  "declared-field-null-keyed-lww.json": {
+    "producer_verdict": "reject",
+    "reason_code": "schema-violation",
+    "reader_disposition": "unknown-op",
+    "reason": "rule 6 (WRIT-222): a declared field's own value MUST NOT be JSON null, under every merge strategy including keyed-lww (`v != nil`, the same check lww's and create-once's rules get) -- the key column \"subject\" is present and valid alongside the null \"verdict\" field specifically so this case isolates rule 6 from WRIT-219's rule 5 (a keyed-lww body must also carry every column of its declared key), which is a different rule keyed on a different thing (a key column's absence, not a field's null value) and must not collide with this fixture"
+  },
+  "declared-field-null-untyped.json": {
+    "producer_verdict": "reject",
+    "reason_code": "schema-violation",
+    "reader_disposition": "unknown-op",
+    "reason": "rule 6 (WRIT-222): a declared field's own value MUST NOT be JSON null, under every merge strategy, and binds off the field being declared at all rather than off value_type -- \"untyped\" (spec/value-types.md \"value_type is optional\") is not a fourth spelling of \"no rule\" and does not additionally admit null. The field \"note\" declares strategy lww with no value_type, so this fixture is the falsifiable case behind spec/value-types.md's \"an untyped field still MUST NOT hold JSON null\": before this rule, the producer accepted this body and every conforming reader's engine/internal/fold/reject.go quarantined it (lww's ruleAccepts: `v != nil`), the producer/reader lockstep break this ticket closes"
+  },
+  "declared-field-nested-null.json": {
+    "producer_verdict": "accept",
+    "reader_disposition": "interpretable",
+    "reason": "rule 6 (WRIT-222) scope boundary, the falsifiable half of the acceptance criteria: rule 6 refuses a declared field's own top-level value being null, never a null nested inside a structured value the field's value_type itself permits. An anchor's range/context collar pairs on presence only (engine/internal/value's validateAnchorSide), so a well-formed anchor may carry null on both once both are present -- exactly the shape engine/internal/fold/reject.go's own doc comment blesses (\"an anchor whose context collar is null is well formed\"). The producer accepts it and the reader folds it normally, both because rule 6 and fold's own uninterpretability check stop at the field's own value, never recursing into a structured payload's interior (spec/fold.md §6)"
   }
 }

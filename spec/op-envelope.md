@@ -210,6 +210,13 @@ invalid. Before the op commit is built, the producer MUST verify that:
 5. Every column of `key` on a `keyed-lww` rule of that same `(op_type,
    op_version)` whose `field` the body carries MUST itself be present in
    `body`.
+6. A declared field's value MUST NOT be JSON `null`, under every merge
+   strategy the field's schema declares — no per-strategy carve-outs. This
+   rule constrains the field's own top-level value only: it says nothing
+   about a `null` appearing *inside* a structured value (an `anchor`'s
+   interior, or an object-shaped value written via `-field-json`), which
+   remains that value type's own business
+   ([`spec/value-types.md`](value-types.md)).
 
 Rule 5 is a different kind of obligation from rule 3, which is why it is
 its own rule rather than a clause on it: rule 3 constrains what a body
@@ -249,11 +256,53 @@ empty key-column value across every type — rather than leaving it to each
 column's own `key_types` — would be a wider rule than this one and is not
 what rule 5 does.
 
+Rule 6 is a different rule from rule 5, keyed on a different thing, and
+deliberately not folded into it: rule 5 keys on a `keyed-lww` field's
+declared key column being *absent* from `body`; rule 6 keys on a declared
+field's value, present in `body`, being JSON `null` — under every merge
+strategy in the closed catalogue ([`spec/fold.md`](fold.md) §5, all nine
+members). Omitting a field's key from `body` already means "this op
+asserts nothing about this field" (the "required fields are not checked"
+paragraph below); a body that instead writes the key with value `null` is
+not a claim about a value at all, it is the same absence spelled a second
+way. Two spellings of one logical fact is the defect class WRIT-214 round
+3 closed at the key-column level, when `"7"` / `"7.0"` / `" 7"` / `"1e3"`
+stood for four distinct wire spellings of one key: every implementation
+would have to handle both `null` and omission, every fixture would need
+to cover both, and two producers meaning the same thing would sign
+different bytes. Nor is `null` available as a way to *clear* a field's
+value instead: field attributes cannot be cleared once declared
+([`spec/schema-ops.md`](schema-ops.md) §8.1), and treating a body's
+`null` as "clear this register" would be the same kind of addition at the
+value level — a new merge semantic, not a validation rule — well outside
+a schema DSL that declares types, value types, merge strategies, and
+relations and nothing else. No strategy in the closed catalogue needs
+`null` to mean anything: `lattice` has no position for it in an ordering,
+`append` and `set-union` treat it as a malformed list element, and
+`lww`/`create-once`/`keyed-lww`/`tombstone`/`set-observed-remove`/`multi-value`
+already read an absent field the same way a `null` field would have to be
+read if it meant anything at all — which is why rejecting it uniformly,
+with no per-strategy carve-out, costs no strategy an expressive case it
+had before.
+
+Rule 6 constrains the field's own top-level value, not a value nested
+inside it: a `null` appearing *inside* a structured value the field's
+`value_type` catalogue member itself permits — an object written via
+`-field-json`, or an `anchor`'s own interior collar — is that value
+type's own business ([`spec/value-types.md`](value-types.md)), not this
+rule's. An `anchor` whose `context` collar is `null` is well-formed
+(`engine/internal/fold/reject.go`'s own doc comment; [`spec/fold.md`](fold.md)
+§6 treats a structured payload as opaque data once its own shape is
+satisfied, never recursing into it), and rule 6 does not reach it.
+
 A `keyed-lww` key column's value MUST be a JSON string regardless of what
-its `key_types` entry says — JSON `null` included, which is not tolerated
-here the way it is for an ordinary field's absent-shaped "no write" —
-because fold's `keyed-lww` strategy treats a non-string key component,
-`null` included, as uninterpretable ([`spec/fold.md`](fold.md) §5's "Key
+its `key_types` entry says — JSON `null` included, exactly as rule 6
+above already refuses for a declared field, and this floor refuses it
+again independently for a key column, which addresses a register rather
+than carrying a value of its own and is not itself a declared field
+(rule 3's key-column exception above) — because fold's `keyed-lww`
+strategy treats a non-string key component, `null` included, as
+uninterpretable ([`spec/fold.md`](fold.md) §5's "Key
 components are strings", enforced via §7.1). This floor binds a key column
 unconditionally, including one that is also a declared field: the field
 rule governs the value's type (rule 3 above), but does not exempt the same
@@ -470,7 +519,7 @@ can do is tombstone it in a local projection. A producer that refuses to
 write one costs its caller an error message. Be maximally strict where
 failure is free.
 
-Rules 3, 4, and 5 bind producers only, and "producer" means the act of
+Rules 3, 4, 5, and 6 bind producers only, and "producer" means the act of
 authoring a new op. They do not extend to re-encoding an op read from
 the log: an implementation that decodes an op it fetched and
 re-serializes it — to cache it, relay it, or project it — is acting as a
@@ -480,7 +529,7 @@ object types, unknown op types, unknown op versions, and unknown fields
 pass through untouched on that path.
 
 The line is the signature, not the intent. **Re-signing an op under a
-new key is authoring, and is bound by rules 3, 4, and 5** — a bridge that
+new key is authoring, and is bound by rules 3, 4, 5, and 6** — a bridge that
 reads an op from elsewhere and commits it onto its own writer chain has
 produced a new op, whatever it calls the activity, and it vouches for
 that op with its own identity. The tolerated case above is the one where
