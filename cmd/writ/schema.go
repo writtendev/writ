@@ -795,12 +795,16 @@ func rawFieldString(raw map[string]json.RawMessage, key string) string {
 // attribute case) a define-field op that folds against the log's real
 // history to a state the file itself no longer describes.
 //
-// A namespace change never reaches this function with a current to compare
-// removals against: resolveSchemaTarget resolves an edited namespace to a
-// fresh target object id — it mints, it no longer refuses (WRIT-217 deleted
-// the refusal that used to sit here) — so current is the zero state.Schema{}
-// for that apply, and there is nothing to compare planned against, not
-// because the change itself is refused.
+// resolveSchemaTarget picks the target object by matching f.Namespace
+// against the namespaces of the schema objects already in the log, not by
+// continuity with a prior apply's object id. A namespace the log has not
+// seen before matches no schema object, so resolveSchemaTarget mints a
+// fresh object id and current is the zero state.Schema{} for that apply —
+// there is nothing to compare planned against. A namespace the log
+// already holds — including one an earlier edit moved away from and this
+// one moves back to — matches that object and reuses it, so current is
+// whatever the log folds to for it, non-zero, and the comparison below
+// runs normally.
 //
 // Comparison is always compiled declarations (planned, compiled) against
 // folded state (current), never source text — comments, spacing, and
