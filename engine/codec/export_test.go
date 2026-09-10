@@ -6,9 +6,9 @@ import "fmt"
 //
 // They exist so the two halves this package deliberately keeps apart can be
 // pinned apart: what a vocabulary schema accepts is reader safety, and what
-// BuildCommit writes is producer rules 3 and 4 (spec/op-envelope.md §Producer
-// validation). Going through ValidateBody could not tell them apart, because
-// ValidateBody enforces both.
+// BuildCommit writes is producer rules 3, 4, 5, and 6 (spec/op-envelope.md
+// §Producer validation). Going through ValidateBody could not tell them
+// apart, because ValidateBody enforces both.
 
 // VocabularyOpTypes is the producer's op-type registry, keyed by object type.
 var VocabularyOpTypes = vocabularyOpTypes
