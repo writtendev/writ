@@ -13,17 +13,6 @@ func NormalizePerson(s string) string {
 	return person.NormalizePerson(s)
 }
 
-// PersonValueIsStreamSafe reports whether a person identifier's value
-// conforms to spec/identifiers.md §Value shape: Stream-Safe Text. The rule
-// itself lives in engine/internal/person; it is exposed here on the same
-// terms as NormalizePerson above, so that spec/reffold_test.go — which
-// cannot reach engine/internal/person directly — can bind the reference
-// copy of this rule (spec.PersonValueIsStreamSafe) to the engine's one
-// definition of it, the way it already does for normalization.
-func PersonValueIsStreamSafe(s string) bool {
-	return person.IsStreamSafe(s)
-}
-
 // Anchor is a content-based position in code (v1), a value type any
 // schema-declared object can carry (spec/anchors.md).
 // Fold carries anchors verbatim as data per spec/fold.md §6.

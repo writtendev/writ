@@ -19,11 +19,3 @@ var SplitPerson = splitPerson
 // the normalization rule is pinned to, so the test binding it to the tables
 // x/text actually compiled in can live beside the drift test.
 const PersonUnicodeVersion = personUnicodeVersion
-
-// PersonValueIsStreamSafe exposes reffold.go's unexported
-// personValueIsStreamSafe on the same terms as NormalizePerson and
-// SplitPerson above: TestInvalidPersonVectors needs it to check a vector
-// whose rejection spec/identifiers.md §Value shape: Stream-Safe Text places
-// on the producer rather than on the person-id JSON Schema. The helper itself
-// stays unexported.
-var PersonValueIsStreamSafe = personValueIsStreamSafe

@@ -418,17 +418,22 @@ func personCCC(r rune) uint8 {
 // Check of its own to mirror in full.
 const personMaxNonStarterRun = 30
 
-// personValueIsStreamSafe reports whether a person identifier's value
+// PersonValueIsStreamSafe reports whether a person identifier's value
 // conforms to spec/identifiers.md §Value shape: Stream-Safe Text: its NFD
 // carries no run of more than personMaxNonStarterRun consecutive
 // non-starters.
 //
-// It exists solely so TestInvalidPersonVectors can check a testdata/persons
-// vector whose rejection is enforced only at the producer, never by the
-// person-id JSON Schema, which has no way to express a
-// Canonical_Combining_Class-run rule. It is deliberately narrower than a
-// reference Check: it names only this one rule, the one rule the schema
-// cannot already enforce, not the whole grammar.
+// It exists for two callers. TestInvalidPersonVectors uses it to check a
+// testdata/persons vector whose rejection is enforced only at the producer,
+// never by the person-id JSON Schema, which has no way to express a
+// Canonical_Combining_Class-run rule — for that it is deliberately narrower
+// than a reference Check, naming only this one rule, not the whole grammar.
+// And engine/internal/person's own tests bind it to the engine's one
+// definition of the same rule (IsStreamSafe), reaching across the package
+// boundary from that side rather than through engine/state: api/engine.txt
+// is generated from ./engine only, so an export here never lands on the
+// engine's public API baseline, and engine/internal/person can import spec
+// with no cycle — spec has no engine imports at all.
 //
 // The decomposition discipline matches engine/internal/person's maxRunLen and
 // for the same reason: decomposing the whole value in one call would let
@@ -436,7 +441,7 @@ const personMaxNonStarterRun = 30
 // hiding the very run this function exists to measure. A single rune's
 // canonical decomposition is always far shorter than the limit, so
 // decomposing rune by rune cannot trigger the same defect.
-func personValueIsStreamSafe(id string) bool {
+func PersonValueIsStreamSafe(id string) bool {
 	_, value, ok := splitPerson(id)
 	if !ok {
 		value = id

@@ -971,7 +971,6 @@ func Fold(ops []codec.Op, rules []Rule) (ObjectState, error)
 func FoldSchema(ops []codec.Op) (Schema, error)
 func NormalizePerson(s string) string
 func ParseReference(ref string) (designator string, objectID string, err error)
-func PersonValueIsStreamSafe(s string) bool
 func SchemaRules() []Rule
 
 type Anchor = resolve.Anchor

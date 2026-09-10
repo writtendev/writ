@@ -605,12 +605,15 @@ func Check(s string) Problem {
 // same thing inline; this is not a second implementation, just the one
 // exported so a test can reach it.
 //
-// It exists so spec/reffold_test.go's differential test can bind
-// spec.PersonValueIsStreamSafe — the reference copy of this rule — to this
-// package's definition of the same rule, the way
-// TestReffoldNormalizePersonMatchesEngine already binds spec.NormalizePerson
-// to NormalizePerson. Nothing in engine calls it outside tests: a real
-// caller wants Check's full verdict, not this one axis of it.
+// It exists so a differential test in this package (person_test) can bind
+// this package's definition of the rule to the reference copy,
+// spec.PersonValueIsStreamSafe, the way TestReffoldNormalizePersonMatchesEngine
+// binds NormalizePerson to spec.NormalizePerson. That test imports spec
+// directly rather than reaching it through engine/state, on purpose:
+// api/engine.txt is generated from ./engine only, so nothing this package
+// exports for that binding — on either side of it — reaches the engine's
+// public API baseline. Nothing in engine calls IsStreamSafe outside tests: a
+// real caller wants Check's full verdict, not this one axis of it.
 func IsStreamSafe(id string) bool {
 	_, value, ok := Split(id)
 	if !ok {
