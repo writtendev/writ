@@ -251,6 +251,41 @@ func TestSchemaPlanPorcelain_HostileConflictReasonRendersEscaped(t *testing.T) {
 	}
 }
 
+// TestDescribeSchemaConflict_EscapesForbiddenCodePoints is round 5's finding
+// on PR #185: describeSchemaConflict, the *other* SchemaConflict.Reason
+// render site (buildSchemaPlan's "refusing to apply (this would introduce a
+// new schema conflict...)" message, printed by renderSchemaError for
+// `schema apply`), still formatted Reason with a bare %s -- the identical
+// hole TestSchemaPlanPorcelain_HostileConflictReasonRendersEscaped above
+// pins at the other site. Round 5 judged this site unreachable in practice
+// (conflictsIntroducedByApply only ever calls describeSchemaConflict on a
+// conflict RulesFromSchemas classifies as newly introduced by the apply,
+// and the one Reason shape that can carry ungated text is a property of a
+// single schema object's own field rule -- always present in `before` and
+// so never "introduced" by an append-only apply) and routed it to WRIT-226
+// rather than fixing it. That argument is not exercised here: the point of
+// fixing this site is to stop relying on it, so this test calls
+// describeSchemaConflict directly rather than trying to drive a real
+// conflictsIntroducedByApply conflict through `schema apply`.
+func TestDescribeSchemaConflict_EscapesForbiddenCodePoints(t *testing.T) {
+	hostile := "field rule (create, 1, ali" + string(rune(0x202E)) + "ce) is invalid and was not installed: field \"ali" + string(rune(0x202E)) + "ce\" must match ^[a-z][a-z0-9_]*$"
+
+	for _, c := range []writ.SchemaConflict{
+		{ObjectType: "acme.standup", Reason: hostile, ObjectIDs: []string{"obj1"}},
+		{Namespace: "acme", Reason: hostile, ObjectIDs: []string{"obj1", "obj2"}},
+		{Reason: hostile},
+	} {
+		got := describeSchemaConflict(c)
+		if strings.ContainsRune(got, 0x202E) {
+			t.Errorf("describeSchemaConflict(%+v) = %q, contains a raw U+202E byte sequence", c, got)
+		}
+		escapeSeq := fmt.Sprintf("\\u%04x", 0x202E)
+		if !strings.Contains(got, escapeSeq) {
+			t.Errorf("describeSchemaConflict(%+v) = %q, want it to contain the %s escape", c, got, escapeSeq)
+		}
+	}
+}
+
 // hostileDescriptionSchema returns a writ.schema source declaring one type
 // whose type-level and op-level descriptions both carry hostile. The raw
 // code point is written into the string via rune concatenation, never a Go

@@ -625,14 +625,23 @@ func conflictKey(c writ.SchemaConflict) string {
 // describeSchemaConflict renders one SchemaConflict as a refusal line,
 // naming whichever of object_type/namespace the conflict carries, its
 // reason, and the schema object(s) involved.
+//
+// c.Reason carries the same risk renderSchemaPlanPorcelain's "conflict: %s\n"
+// line does (see that call site's comment): RulesFromSchemas can format a
+// value straight out of a foreign client's non-conforming op body into
+// Reason with a bare %s, with no repertoire gate of its own. This is a
+// rendering chokepoint like any other and needs the same escape (round 5
+// review of PR #185 found it and routed it to WRIT-226 as unreachable in
+// practice; closed here instead of relying on that argument holding).
 func describeSchemaConflict(c writ.SchemaConflict) string {
+	reason := textsafe.EscapeForbidden(c.Reason)
 	switch {
 	case c.ObjectType != "":
-		return fmt.Sprintf("object_type %q: %s (schema object(s): %s)", c.ObjectType, c.Reason, strings.Join(c.ObjectIDs, ", "))
+		return fmt.Sprintf("object_type %q: %s (schema object(s): %s)", c.ObjectType, reason, strings.Join(c.ObjectIDs, ", "))
 	case c.Namespace != "":
-		return fmt.Sprintf("namespace %q: %s (schema object(s): %s)", c.Namespace, c.Reason, strings.Join(c.ObjectIDs, ", "))
+		return fmt.Sprintf("namespace %q: %s (schema object(s): %s)", c.Namespace, reason, strings.Join(c.ObjectIDs, ", "))
 	default:
-		return c.Reason
+		return reason
 	}
 }
 
