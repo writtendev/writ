@@ -275,12 +275,14 @@ Comments are never data — `description "..."` is (§6).
   key column becomes part of a generated SQL identifier once a consumer's
   projection reads it, the same reason `target` does.
 * `target(name)` — the state key this field's register lands under
-  (`fold.md` §5). Optional on every field; required in practice exactly
-  when a version bump would otherwise reuse the default target while
-  disagreeing with a prior version on `strategy` or `lattice` (§7). `name`
-  follows the field-name
-  reservation rule (§2), not the closed one: only `deprecated` is off
-  limits, so `target(description)` and `target(type)` are both legal.
+  (`fold.md` §5). Optional on every field; needed whenever leaving it
+  unset would let this field's target collide with a rule it disagrees
+  with, under `schema-ops.md` §8's shared-target agreement relation
+  (§5) — a version bump disagreeing on `strategy` or `lattice` within
+  its own `(op_type, field)` class (§7) is one instance of that, not
+  the whole rule. `name` follows the field-name reservation rule (§2),
+  not the closed one: only `deprecated` is off limits, so
+  `target(description)` and `target(type)` are both legal.
 * `deprecated` — marks the field discouraged for new writes without
   removing it (`schema-ops.md` §4, tombstone-style). A type takes the
   same trailing keyword: `type old-thing deprecated { ... }`.
@@ -338,12 +340,38 @@ function the bootstrap `field-rules.json` is validated through —
 before `Compile` returns, so a file that would produce a rule
 `RulesFromSchemas` later drops (a lattice element outside its enum, a
 `key_types` mismatch, and so on) is rejected at compile time, with a line
-and column, instead of silently vanishing at resolve time. One rule
+and column, instead of silently vanishing at resolve time. One check
 `ValidateFieldRule` cannot see on its own, because it validates a single
-rule at a time, is checked alongside it across the whole type: two
-define-fields whose `TargetKey()` collides while their strategies differ
-(§7) are rejected the same way, at the same time, rather than only at
-resolve time.
+rule at a time, is checked alongside it across the whole type:
+`schema-ops.md` §8's and `fold.md` §5's shared-target agreement relation,
+run through the very same `spec.CheckTargetAgreement` the resolver and
+writ's own bootstrap tables use — one relation, three sites, not a
+compiler-local approximation of it. Every `define-field` in the type binds
+to its `TargetKey()` — its declared `target`, or its field name when
+undeclared — and each target's whole rule set is checked at once, after
+every field of the type has been compiled, not incrementally against
+whatever was bound so far: that incremental form is what WRIT-211
+replaced, because which rule survived a violation depended on which
+prior a candidate happened to be compared against first
+(`schema-ops.md` §8) — itself a function of canonical `(op_type,
+op_version, field)` order, derived from `op_type` and `field` names,
+not of how the author arranged the source file. The relation itself,
+in one sentence:
+within one `(op_type, field)` version-bump class (§7), rules sharing a
+target must agree on `strategy` and `lattice` and may differ on
+`value_type`, `enum`, `max_length`, `key` and `key_types`; the moment more
+than one class binds the target that carve-out is void for every rule
+bound to it, and all seven attributes must agree (`schema-ops.md` §8 is
+the normative statement this borrows, not a second copy of it). `Compile`
+diverges from the resolver here on purpose — a source file is authored,
+not folded — and **rejects the file**: a `*SyntaxError` with a line and
+column, naming the later of the disagreeing pair in canonical
+`(op_type, op_version, field)` order, where the resolver instead
+withholds every rule bound to the target as a `SchemaConflict`.
+`schema-ops.md` §8's other set-level check, key-column agreement within
+one `(op_type, op_version)`, has no compile-time twin here: a
+`writ.schema` file with that shape compiles, and the conflict surfaces
+only once the resolver sees it (§8 already states this asymmetry).
 
 `objectID` is an explicit, required parameter with no default; `Compile`
 itself derives nothing from `namespace`. Reusing it across successive
@@ -416,14 +444,21 @@ new version fold under the new ones. A version bump that changes
 fold groups matched rules by target key alone and instantiates one
 accumulator from whichever rule a caller's slice lists first — and
 `engine/schemasrc.Compile` rejects both at compile time, with a line and
-column, rather than deferring to the resolver: `compileType` already
-holds the whole type when a field is compiled, so nothing about this
-check needs to wait until the type's rules are assembled elsewhere.
-Left unchecked here, the same disagreement is still caught later —
-`RulesFromSchemas` withholds every rule bound to the target as a
-`SchemaConflict`, not only the rule that introduced the disagreement —
-but only after the ops are signed into the log and unremovable, which
-is what makes catching it at `Compile` time the one that matters:
+column, rather than deferring to the resolver: `compileType` runs this
+check once every field of the type has been compiled, after the field
+loop, so nothing about it needs to wait until the type's rules are
+assembled elsewhere. A version bump is only the within-class half of that
+check (§5): if the reused target is also bound from outside the bumping
+class — another `op_type`, or another `field`, regardless of whether
+that binding is `target`'s default or an explicit `target(...)` — the
+carve-out is void for every rule bound to it, and `value_type`,
+`enum`, `max_length`, `key` and `key_types` must agree too
+(`schema-ops.md` §8). Left unchecked here, the same disagreement is still
+caught later — `RulesFromSchemas` withholds every rule bound to the
+target as a `SchemaConflict`, not only the rule that introduced the
+disagreement — but only after the ops are signed into the log and
+unremovable, which is what makes catching it at `Compile` time the one
+that matters:
 
 ```
 type ticket {
