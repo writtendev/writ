@@ -855,7 +855,7 @@ never handed to `Fold`. This is why the resolver lives in package
 
 ## 11. Producer Validation
 
-`spec/op-envelope.md` §Producer validation's rules 3 and 4 resolve
+`spec/op-envelope.md` §Producer validation's rules 3, 4, 5, and 6 resolve
 "the schema object governing `object_type`" through a four-tier
 precedence; this section states what that means for the resolver this
 document already specifies (§7's bootstrap, §6's collision pass) rather
@@ -863,9 +863,9 @@ than restating the precedence itself (WRIT-188).
 
 - **The same resolved rules drive the write path.** §7 already resolves
   every folded `schema` object into a per-`object_type` rule index for
-  reading; the producer path (`spec/op-envelope.md` rule 3/4) is driven
-  from the same resolution — not a second, independently derived one —
-  so the two can never disagree about what a repository's schema
+  reading; the producer path (`spec/op-envelope.md` rules 3, 4, 5, and 6)
+  is driven from the same resolution — not a second, independently derived
+  one — so the two can never disagree about what a repository's schema
   declares. A field the log schema does not declare is refused, loudly,
   naming the schema object responsible. That is intended, not a bug to
   route around — a caller-visible shape sourced from a table writ ships
