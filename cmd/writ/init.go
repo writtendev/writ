@@ -82,6 +82,15 @@ func resolveNamespace(flagValue string, stdin io.Reader, interactive bool, stder
 		// message a non-interactive run would have produced instead of
 		// "no namespace entered", which reads as blaming a human who was
 		// never there.
+		//
+		// The prompt above deliberately has no trailing newline (the
+		// answer is meant to be typed right after it), and this is the
+		// only refusal path that returns with nothing having echoed one
+		// (the empty-answer and invalid-answer paths below both follow a
+		// human's own Return keypress) — so `writ init < /dev/null` prints
+		// the prompt and this refusal as one run-on line unless this path
+		// emits the newline itself (WRIT-220 review round 2).
+		fmt.Fprintln(stderr)
 		return "", fmt.Errorf("writ.schema does not exist yet and no --namespace was given; pass --namespace <name>, matching %s", namespaceGrammar)
 	}
 	line = strings.TrimSpace(line)

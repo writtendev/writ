@@ -180,10 +180,15 @@ origin: pushed 8 ops
 ## 6. Collaborator Clones and Lists Objects
 
 On another machine or clone, your collaborator initializes Writ and syncs.
-The clone has no `writ.schema` either (it was never committed to git — see
-the note above), so their `writ init` needs a namespace too; it names the
-starter file `writ init` would write for *this* work tree, not anything
-that gets synced, so it need not even match yours:
+This walkthrough never `git add`s `writ.schema` (step 1 commits only
+`README.md`), so the clone has no `writ.schema` either, and their
+`writ init` needs a namespace too; it names the starter file `writ init`
+would write for *this* work tree, not anything that gets synced, so it
+need not even match yours. (If you do commit `writ.schema` — it is a
+working-tree source file meant to be shared, the same way a `package.json`
+is — a collaborator's clone already has one, and their `writ init` needs
+no `--namespace` at all: it reports the file already exists and leaves it
+unchanged.)
 
 ```bash
 git clone git@github.com:example/repo.git collab

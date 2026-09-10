@@ -1330,6 +1330,69 @@ func TestInit_NamespaceInteractiveRejections(t *testing.T) {
 	}
 }
 
+// TestIsTerminal_DevNullIsNotATerminal pins the round-2 review fix directly:
+// /dev/null is itself a character device (crw-rw-rw-), so the old
+// os.ModeCharDevice-based check could not tell it apart from a real
+// terminal, and `writ init >/dev/null 2>&1` run from a terminal classified
+// as interactive and then blocked forever reading an answer nobody could
+// see. isTerminal (cmd/writ/main.go) now answers this with
+// golang.org/x/term's IsTerminal, which performs the ioctl a character-
+// device flag alone cannot.
+func TestIsTerminal_DevNullIsNotATerminal(t *testing.T) {
+	devNull, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatalf("open %s: %v", os.DevNull, err)
+	}
+	defer devNull.Close()
+
+	if isTerminal(devNull) {
+		t.Errorf("isTerminal(%s) = true, want false", os.DevNull)
+	}
+}
+
+// blockingReader stands in for a real terminal's stdin in a test that must
+// not allocate a pty: reading from an actual, unattended terminal blocks
+// until a human types something, and Read never returns.
+type blockingReader struct{}
+
+func (blockingReader) Read(_ []byte) (int, error) {
+	select {}
+}
+
+// TestInit_NonInteractiveDoesNotBlockOnStdin reproduces the shape of the
+// round-2 hang without a pty: `writ init >/dev/null 2>&1` run from a real
+// terminal has a stdin a human could in principle answer, but a stderr
+// that cannot show the prompt (WRIT-220 review round 2). The fix lives in
+// main.go's isTerminal, above `runStdin`'s seam — by the time `interactive`
+// reaches here it is already false, exactly as main() would compute it for
+// that shape — so this pins the consequence the fix exists for: passed a
+// stdin that would hang forever if anything tried to read it, runInit must
+// still refuse promptly rather than prompt. If a future change moved the
+// terminal check below this seam, or made the non-interactive path read
+// stdin regardless, this test would hang instead of merely failing.
+func TestInit_NonInteractiveDoesNotBlockOnStdin(t *testing.T) {
+	env := setupTestCLIEnv(t)
+	addRemote(t, env.repoDir, "origin", "https://example.com/repo.git")
+
+	done := make(chan int, 1)
+	var stdout, stderr bytes.Buffer
+	go func() {
+		done <- runStdin(context.Background(), []string{"init", "-C", env.repoDir}, blockingReader{}, false, &stdout, &stderr)
+	}()
+
+	select {
+	case code := <-done:
+		if code != 1 {
+			t.Fatalf("init exited with %d, want 1; stderr: %s", code, stderr.String())
+		}
+		if !strings.Contains(stderr.String(), "--namespace") {
+			t.Errorf("stderr does not name --namespace:\n%s", stderr.String())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("runInit blocked reading stdin instead of refusing — regression of the `writ init >/dev/null 2>&1` hang (WRIT-220 review round 2)")
+	}
+}
+
 // TestInit_NamespaceRejectionTable pins ValidateNamespace's grammar as
 // seen through the CLI: each of these fails --namespace with exit 1,
 // echoes the offending input rather than mangling it, and writes nothing.
