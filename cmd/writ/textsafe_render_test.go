@@ -202,3 +202,106 @@ func TestObjectShow_HostilePersonRefRendersEscaped(t *testing.T) {
 		t.Errorf("decoded author field = %q, want the original hostile value %q", got, hostile)
 	}
 }
+
+// hostileDescriptionSchema returns a writ.schema source declaring one type
+// whose type-level and op-level descriptions both carry hostile. The raw
+// code point is written into the string via rune concatenation, never a Go
+// string literal in source, and the schema grammar itself imposes no
+// repertoire gate on description text (only on names) -- schemasrc's string
+// literal lexer (lexString) accepts any rune but a bare newline, unescaped
+// quote, or invalid UTF-8, so hostile reaches writ.schema, and from there
+// `writ schema apply`, completely unmodified.
+func hostileDescriptionSchema(hostile string) string {
+	return "namespace acme\n" +
+		"description \"Acme's vocabulary\"\n\n" +
+		"type standup {\n" +
+		"  description \"" + hostile + "\"\n\n" +
+		"  op create 1 {\n" +
+		"    description \"" + hostile + "\"\n" +
+		"    title string(200) lww\n" +
+		"  }\n" +
+		"}\n"
+}
+
+// TestSchemaShow_HostileDescriptionRendersEscaped is round 2's finding on
+// PR #185: unlike a person-ref value, a schema type's or op's `description`
+// reaches the log through the ordinary, conforming `writ schema apply`
+// path -- no foreign client needed, because nothing gates description
+// content (spec/schema-ops.md never restricts it, only identifiers). It
+// must still come out escaped on both of `schema show`'s rendering paths,
+// exactly as a person-ref value does on `object show`'s.
+func TestSchemaShow_HostileDescriptionRendersEscaped(t *testing.T) {
+	env := initTestRepo(t)
+
+	hostile := "Owned by email:alice" + string(rune(0x202E)) + "@good.com"
+	writeSchemaFile(t, env.repoDir, hostileDescriptionSchema(hostile))
+
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	escapeSeq := []byte(fmt.Sprintf("\\u%04x", 0x202E))
+	assertNoRawOverride := func(label string, out []byte) {
+		t.Helper()
+		if bytes.ContainsRune(out, 0x202E) {
+			t.Errorf("%s contains a raw U+202E byte sequence: %s", label, out)
+		}
+		if !bytes.Contains(out, escapeSeq) {
+			t.Errorf("%s = %s, want it to contain the %s escape", label, out, escapeSeq)
+		}
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"schema", "show", "-C", env.repoDir, "acme.standup"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema show failed with %d; stderr: %s", code, stderr.String())
+	}
+	assertNoRawOverride("schema show", stdout.Bytes())
+
+	// schema show --json already goes through emitJSON (json.go), which
+	// WRIT-137's half 2 already covers -- confirmed clean here too, plus a
+	// lossless round trip, so a regression in emitJSON's own pass would
+	// still be caught by this test.
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"schema", "show", "-C", env.repoDir, "acme.standup", "--json"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema show --json failed with %d; stderr: %s", code, stderr.String())
+	}
+	if bytes.ContainsRune(stdout.Bytes(), 0x202E) {
+		t.Errorf("schema show --json contains a raw U+202E byte sequence: %s", stdout.Bytes())
+	}
+
+	var typeInfo wire.SchemaTypeInfo
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindSchemaShow, &typeInfo)
+	if typeInfo.Description != hostile {
+		t.Errorf("decoded type description = %q, want the original hostile value %q", typeInfo.Description, hostile)
+	}
+	if len(typeInfo.Ops) != 1 || typeInfo.Ops[0].Description != hostile {
+		t.Errorf("decoded op description = %+v, want exactly one op with description %q", typeInfo.Ops, hostile)
+	}
+}
+
+// TestSchemaPlanPorcelain_HostileDescriptionRendersEscaped covers the third
+// rendering chokepoint round 2 named alongside schema show: `schema plan`'s
+// human-readable unified diff, which renders schemasrc.Render output built
+// straight from a schema object's own (also ungated) description text.
+func TestSchemaPlanPorcelain_HostileDescriptionRendersEscaped(t *testing.T) {
+	env := initTestRepo(t)
+
+	hostile := "Owned by email:alice" + string(rune(0x202E)) + "@good.com"
+	writeSchemaFile(t, env.repoDir, hostileDescriptionSchema(hostile))
+
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "plan"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema plan failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	if bytes.ContainsRune(stdout.Bytes(), 0x202E) {
+		t.Errorf("schema plan diff contains a raw U+202E byte sequence: %s", stdout.Bytes())
+	}
+	escapeSeq := []byte(fmt.Sprintf("\\u%04x", 0x202E))
+	if !bytes.Contains(stdout.Bytes(), escapeSeq) {
+		t.Errorf("schema plan diff = %s, want it to contain the %s escape", stdout.Bytes(), escapeSeq)
+	}
+}

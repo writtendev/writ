@@ -19,6 +19,7 @@ import (
 	"github.com/writtendev/writ/engine/schemasrc"
 	"github.com/writtendev/writ/engine/state"
 	"github.com/writtendev/writ/internal/textdiff"
+	"github.com/writtendev/writ/internal/textsafe"
 )
 
 // schemaSourceFileName is the one working-tree file this command family
@@ -1106,7 +1107,19 @@ func renderSchemaPlanPorcelain(w io.Writer, r *schemaPlanResult) {
 		return
 	}
 
-	diff := textdiff.DiffText("schema in the log", string(r.currentSource), "writ.schema", string(r.plannedSource))
+	// Both sides are escaped before diffing, not after: currentSource and
+	// plannedSource are schemasrc.Render output, which folds a schema
+	// object's own free-form description text (type, op) straight into
+	// the rendered source with no repertoire gate (spec/schema-ops.md
+	// never gates description content, only identifiers). Escaping here
+	// is display, not data, for the same reason fieldDisplay's and
+	// authorDisplay's doc comments give (cmd/writ/object.go): the escape
+	// never changes line boundaries, so diffing escaped text against
+	// escaped text is the same diff a human would see either way.
+	diff := textdiff.DiffText(
+		"schema in the log", textsafe.EscapeForbidden(string(r.currentSource)),
+		"writ.schema", textsafe.EscapeForbidden(string(r.plannedSource)),
+	)
 	if diff != "" {
 		fmt.Fprint(w, diff)
 	}

@@ -1015,6 +1015,12 @@ func runSchemaShow(ctx context.Context, defaultDir string, args []string, stdout
 		return 0
 	}
 
+	// found.Description and each op's Description are schema-object free
+	// text (state.Schema, folded from define-type/define-op op bodies)
+	// with no repertoire gate -- unlike a type/op/field name, which the
+	// schema grammar already constrains. Escaped for the same reason
+	// fieldDisplay's and authorDisplay's doc comments give, below: the
+	// escape is display, not data.
 	tw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintf(tw, "type\t%s\n", found.Name)
 	// resolveSchemaTypes qualifies every installed type as
@@ -1025,7 +1031,7 @@ func runSchemaShow(ctx context.Context, defaultDir string, args []string, stdout
 		fmt.Fprintf(tw, "namespace\t%s\n", namespace)
 	}
 	if found.Description != "" {
-		fmt.Fprintf(tw, "description\t%s\n", found.Description)
+		fmt.Fprintf(tw, "description\t%s\n", textsafe.EscapeForbidden(found.Description))
 	}
 	if found.Deprecated {
 		fmt.Fprintf(tw, "deprecated\t%v\n", found.Deprecated)
@@ -1036,7 +1042,7 @@ func runSchemaShow(ctx context.Context, defaultDir string, args []string, stdout
 		fmt.Fprintln(stdout, "Ops:")
 		otw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
 		for _, o := range found.Ops {
-			fmt.Fprintf(otw, "  %s\tv%d\t%s\n", o.OpType, o.OpVersion, o.Description)
+			fmt.Fprintf(otw, "  %s\tv%d\t%s\n", o.OpType, o.OpVersion, textsafe.EscapeForbidden(o.Description))
 		}
 		_ = otw.Flush()
 	}
