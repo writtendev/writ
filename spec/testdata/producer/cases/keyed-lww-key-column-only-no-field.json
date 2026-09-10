@@ -15,8 +15,8 @@
             "field": "verdict",
             "value_type": "string",
             "strategy": "keyed-lww",
-            "key": ["subject"],
-            "key_types": { "subject": "person-ref" }
+            "key": ["subject", "revision"],
+            "key_types": { "subject": "person-ref", "revision": "git-oid" }
           }
         }
       ]

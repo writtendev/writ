@@ -134,7 +134,7 @@
   "keyed-lww-key-column-only-no-field.json": {
     "producer_verdict": "accept",
     "reader_disposition": "interpretable",
-    "reason": "rule 5 (WRIT-219) negative control: the body carries \"subject\", a keyed-lww key column, but never writes \"verdict\", the field it keys -- rule 5 binds a body that writes a keyed-lww field, not any body that merely mentions one of its key columns, so this is accepted exactly as rule 3 already allows (keyed-lww-key-column.json's sibling case with the field omitted)"
+    "reason": "rule 5 (WRIT-219) negative control: \"verdict\" is keyed on (subject, revision), and the body carries \"subject\" -- one of those two columns -- but never writes \"verdict\", the field they key. rule 5 binds a body that writes a keyed-lww field, not any body that merely mentions one of its key columns, so this is accepted exactly as rule 3 already allows. The single-column-key version of this fixture passed vacuously: its one key column doubled as the very column a wrongly-scoped rule 5 would already find present, so it stayed green even with the body[r.Field] guard removed. A two-column key with the field absent and only one column present discriminates: an implementation that checked every keyed-lww rule's columns unconditionally, instead of scoping to rules whose field the body writes, would refuse this body for lacking \"revision\" -- so this fixture only passes when rule 5 is scoped correctly"
   },
   "target-grammar-installs-no-rule.json": {
     "producer_verdict": "reject",

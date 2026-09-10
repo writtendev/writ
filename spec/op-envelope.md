@@ -229,8 +229,14 @@ omits entirely is a different case and is not rejected: it contributes
 the empty component" stays exactly as written, unconditionally — fold
 stays total, and an empty-key op already in the log, or one written by a
 producer that never enforced rule 5, still folds exactly as it always
-has. Rule 5 only closes the door on writing a *new* one through a
-conforming producer.
+has. Rule 5 only closes the door on *omitting* a key column — a body
+that supplies one, even as an empty string, still addresses the same
+anonymous register ([`spec/fold.md`](fold.md) §"Not skipping") that an
+absent column would, and rule 5 does not reach that: a present-but-empty
+key column is producer-accepted, because rule 5 keys on the column's
+absence from `body`, not on the value's content. Refusing an empty
+key-column value would be a wider rule than this one and is not what
+rule 5 does.
 
 A `keyed-lww` key column's value MUST be a JSON string regardless of what
 its `key_types` entry says — JSON `null` included, which is not tolerated
@@ -403,10 +409,11 @@ framework-building and out of bounds.
 Rule 5 does not reopen that door, even though it too refuses a body for
 something absent. A `keyed-lww` key column carries no value of its own and
 is not a field — rule 3 already says so — it is the register address the
-`keyed-lww` strategy the field's own schema declaration already commits
-it to; refusing a body that omits one enforces a choice the schema author
-already made by writing `keyed-lww key(...)`, not a new one rule 5 asks
-them to make. Requiring it adds nothing to the schema DSL: no
+`keyed-lww` strategy the schema already declares cannot be applied
+without: a keyed strategy is inapplicable without its key, so refusing a
+body that omits one enforces a choice the schema author already made by
+writing `keyed-lww key(...)`, not a new one rule 5 asks them to make.
+Requiring it adds nothing to the schema DSL: no
 requiredness, no new declaration surface, nothing a schema author writes
 differently — the field's existing `key(subject person-ref)` is the only
 declaration involved, and rule 5 only makes the producer live up to what
