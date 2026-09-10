@@ -15,6 +15,8 @@ import (
 	"github.com/writtendev/writ/cmd/writ/internal/wire"
 	"github.com/writtendev/writ/engine/codec"
 	"github.com/writtendev/writ/engine/codec/canonicaljson"
+	"github.com/writtendev/writ/engine/schemasrc"
+	"github.com/writtendev/writ/engine/state"
 )
 
 // TestEmitJSON_EscapesForbiddenCodePoints is the unit-level half of WRIT-137's
@@ -286,6 +288,18 @@ func TestSchemaShow_HostileDescriptionRendersEscaped(t *testing.T) {
 // rendering chokepoint round 2 named alongside schema show: `schema plan`'s
 // human-readable unified diff, which renders schemasrc.Render output built
 // straight from a schema object's own (also ungated) description text.
+//
+// This is also the regression pin for round 3's finding 1: an earlier
+// version of the escape (WRIT-137 round 2, PR #185 commit 0f2ba7e) ran
+// textsafe.EscapeForbidden over the whole assembled diff document rather
+// than over each description value before rendering, which escapes
+// U+000A right along with the bidi override -- collapsing this entire
+// multi-line diff onto one line. The two assertions this test had before
+// (no raw override present, the escape sequence appears somewhere) both
+// still pass against that collapsed single line, which is exactly how the
+// regression shipped unnoticed; the exact-line assertions below are what
+// actually distinguishes "escaped bidi override, normal line structure"
+// from "escaped bidi override, everything on one line".
 func TestSchemaPlanPorcelain_HostileDescriptionRendersEscaped(t *testing.T) {
 	env := initTestRepo(t)
 
@@ -303,5 +317,107 @@ func TestSchemaPlanPorcelain_HostileDescriptionRendersEscaped(t *testing.T) {
 	escapeSeq := []byte(fmt.Sprintf("\\u%04x", 0x202E))
 	if !bytes.Contains(stdout.Bytes(), escapeSeq) {
 		t.Errorf("schema plan diff = %s, want it to contain the %s escape", stdout.Bytes(), escapeSeq)
+	}
+
+	// The benign structure of this diff -- a namespace line, a blank line,
+	// a type block with its own blank line, an op block, a field line, two
+	// closing braces -- must survive escaping intact: one changed line per
+	// source line, exactly as a human reads any other diff they are about
+	// to sign into the log. Assert a representative sample of that
+	// structure as exact, standalone lines (not substrings of one another
+	// or of a collapsed blob) rather than merely checking they occur
+	// somewhere in the output.
+	lines := make(map[string]bool)
+	for _, l := range strings.Split(stdout.String(), "\n") {
+		lines[l] = true
+	}
+	wantLines := []string{
+		"--- schema in the log",
+		"+++ writ.schema",
+		"+namespace acme",
+		"+",
+		"+type standup {",
+		"+  op create 1 {",
+		"+    title string(200) lww",
+		"+  }",
+		"+}",
+	}
+	for _, w := range wantLines {
+		if !lines[w] {
+			t.Errorf("schema plan diff missing expected standalone line %q -- line structure did not survive escaping; full output:\n%s", w, stdout.String())
+		}
+	}
+}
+
+// TestSchemaPlanPorcelain_HostileNewlineInDescriptionCannotForgeDiffLine is
+// round 3's finding 1's other required test: the reason the "just stop
+// escaping U+000A" fix is wrong. A description carries no repertoire gate
+// at all (spec/schema-ops.md never restricts description content), so a
+// raw newline inside one reaches state.Schema the same way a bidi override
+// does -- schemasrc.Parse's own lexer rejects a bare newline inside a
+// quoted string literal, so this can never come from a real writ.schema
+// file, only from data already folded into the log (a foreign or
+// non-conforming client's op, exactly like TestObjectShow_
+// HostilePersonRefRendersEscaped's foreign write). Exercised directly
+// against escapeSchemaDescriptions and schemasrc.Render -- the same two
+// calls buildSchemaPlan makes -- rather than through a full schema-apply
+// round trip, because there is no conforming path that plants the raw
+// newline in the first place.
+func TestSchemaPlanPorcelain_HostileNewlineInDescriptionCannotForgeDiffLine(t *testing.T) {
+	sentinel := "forged addition"
+	// hostile is built from rune concatenation, not a literal newline in
+	// this file's source, per the same discipline as the bidi vectors
+	// above.
+	hostile := "line one" + string(rune(0x0A)) + sentinel
+
+	current := state.Schema{
+		Namespace: "acme",
+		Types: []state.SchemaType{{
+			Name:        "acme.standup",
+			Description: hostile,
+			Ops:         []state.SchemaOp{{OpType: "create", OpVersion: 1, Description: "Create a standup"}},
+			Fields:      []state.SchemaField{{Name: "title", OpType: "create", OpVersion: 1, ValueType: "string", MaxLength: 200, Strategy: "lww"}},
+		}},
+	}
+	planned := current
+	planned.Types = []state.SchemaType{{
+		Name:        "acme.standup",
+		Description: "line one",
+		Ops:         current.Types[0].Ops,
+		Fields:      current.Types[0].Fields,
+	}}
+
+	currentSource, err := schemasrc.Render(escapeSchemaDescriptions(current))
+	if err != nil {
+		t.Fatalf("render current: %v", err)
+	}
+	plannedSource, err := schemasrc.Render(escapeSchemaDescriptions(planned))
+	if err != nil {
+		t.Fatalf("render planned: %v", err)
+	}
+
+	var buf bytes.Buffer
+	renderSchemaPlanPorcelain(&buf, &schemaPlanResult{
+		currentSource: currentSource,
+		plannedSource: plannedSource,
+	})
+	out := buf.String()
+
+	if !strings.Contains(out, sentinel) {
+		t.Fatalf("schema plan diff = %q, want it to still contain %q somewhere (lossless)", out, sentinel)
+	}
+
+	var sawSentinelWithLineOne bool
+	for _, l := range strings.Split(out, "\n") {
+		trimmed := strings.TrimPrefix(strings.TrimPrefix(l, "+"), "-")
+		if trimmed == sentinel || strings.TrimSpace(trimmed) == sentinel {
+			t.Errorf("schema plan diff = %q, contains %q as its own diff line -- the embedded raw newline forged an extra line", out, l)
+		}
+		if strings.Contains(l, "line one") && strings.Contains(l, sentinel) {
+			sawSentinelWithLineOne = true
+		}
+	}
+	if !sawSentinelWithLineOne {
+		t.Errorf("schema plan diff = %q, want %q and %q on the same rendered line (the newline between them escaped, not real)", out, "line one", sentinel)
 	}
 }

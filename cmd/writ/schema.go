@@ -417,14 +417,27 @@ func buildSchemaPlan(ctx context.Context, store *writ.Store, dir string) (*schem
 	// namespacePattern, which "" never does. Render only what actually
 	// exists in the log; an empty current_source reads correctly as a diff
 	// against nothing, which is exactly what creating an object is.
+	//
+	// escapeSchemaDescriptions runs on current/planned before Render, not
+	// on Render's output afterward: a description is the interpolated
+	// value here (free-form text the log carries with no repertoire gate,
+	// spec/schema-ops.md never restricts description content, only
+	// identifiers), while the blank lines and brace structure Render
+	// writes around it are source structure, not log data. Escaping the
+	// value first keeps that structure's own newlines real, which is what
+	// lets renderSchemaPlanPorcelain diff line-by-line below (round 3
+	// review of PR #185, finding 1). Escaping the assembled document after
+	// Render, as WRIT-137 round 2 once did, escapes every structural
+	// newline right along with the data, collapsing the diff onto a
+	// single line for every schema, benign or hostile.
 	var currentSource []byte
 	if !created {
-		currentSource, err = schemasrc.Render(current)
+		currentSource, err = schemasrc.Render(escapeSchemaDescriptions(current))
 		if err != nil {
 			return nil, fmt.Errorf("writ schema: render current schema: %w", err)
 		}
 	}
-	plannedSource, err := schemasrc.Render(planned)
+	plannedSource, err := schemasrc.Render(escapeSchemaDescriptions(planned))
 	if err != nil {
 		return nil, fmt.Errorf("writ schema: render planned schema: %w", err)
 	}
@@ -465,6 +478,38 @@ func schemaNamespaces(schemas []state.Schema, extra string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// escapeSchemaDescriptions returns a copy of s with every description --
+// the schema's own, each type's, and each op's -- passed through
+// textsafe.EscapeForbidden, so a bidi override or zero-width character a
+// hostile-but-conforming `schema apply` wrote into free-form description
+// text (spec/schema-ops.md never gates description content, only
+// identifiers) never reaches schemasrc.Render's output raw. s's own Types
+// and each Type's Ops are copied rather than mutated in place: current and
+// planned still have their un-escaped form read elsewhere in
+// buildSchemaPlan (schemaDelta, schemaRemovals, conflictsIntroducedByApply
+// all need the real value, not a display copy).
+func escapeSchemaDescriptions(s state.Schema) state.Schema {
+	s.Description = textsafe.EscapeForbidden(s.Description)
+	if len(s.Types) == 0 {
+		return s
+	}
+	types := make([]state.SchemaType, len(s.Types))
+	for i, t := range s.Types {
+		t.Description = textsafe.EscapeForbidden(t.Description)
+		if len(t.Ops) > 0 {
+			ops := make([]state.SchemaOp, len(t.Ops))
+			for j, o := range t.Ops {
+				o.Description = textsafe.EscapeForbidden(o.Description)
+				ops[j] = o
+			}
+			t.Ops = ops
+		}
+		types[i] = t
+	}
+	s.Types = types
+	return s
 }
 
 // resolveSchemaTarget implements the one decision this ticket owns: which
@@ -1107,18 +1152,20 @@ func renderSchemaPlanPorcelain(w io.Writer, r *schemaPlanResult) {
 		return
 	}
 
-	// Both sides are escaped before diffing, not after: currentSource and
-	// plannedSource are schemasrc.Render output, which folds a schema
-	// object's own free-form description text (type, op) straight into
-	// the rendered source with no repertoire gate (spec/schema-ops.md
-	// never gates description content, only identifiers). Escaping here
-	// is display, not data, for the same reason fieldDisplay's and
-	// authorDisplay's doc comments give (cmd/writ/object.go): the escape
-	// never changes line boundaries, so diffing escaped text against
-	// escaped text is the same diff a human would see either way.
+	// currentSource and plannedSource already come out of buildSchemaPlan
+	// with every description's forbidden code points escaped
+	// (escapeSchemaDescriptions, run before schemasrc.Render — see that
+	// call site's comment). Nothing here escapes the assembled diff text
+	// itself: unlike a JSON document, where encoding/json has already
+	// turned every raw structural byte into an escaped one, this is
+	// line-structured plaintext, and re-escaping the whole thing would
+	// escape Render's own structural newlines -- the U+000A each `\n` in
+	// one of Render's own Fprintf format strings produces -- right along
+	// with the data, collapsing the diff onto one line for every schema,
+	// benign or hostile (round 3 review of PR #185, finding 1).
 	diff := textdiff.DiffText(
-		"schema in the log", textsafe.EscapeForbidden(string(r.currentSource)),
-		"writ.schema", textsafe.EscapeForbidden(string(r.plannedSource)),
+		"schema in the log", string(r.currentSource),
+		"writ.schema", string(r.plannedSource),
 	)
 	if diff != "" {
 		fmt.Fprint(w, diff)
