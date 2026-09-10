@@ -338,12 +338,34 @@ function the bootstrap `field-rules.json` is validated through —
 before `Compile` returns, so a file that would produce a rule
 `RulesFromSchemas` later drops (a lattice element outside its enum, a
 `key_types` mismatch, and so on) is rejected at compile time, with a line
-and column, instead of silently vanishing at resolve time. One rule
+and column, instead of silently vanishing at resolve time. One check
 `ValidateFieldRule` cannot see on its own, because it validates a single
-rule at a time, is checked alongside it across the whole type: two
-define-fields whose `TargetKey()` collides while their strategies differ
-(§7) are rejected the same way, at the same time, rather than only at
-resolve time.
+rule at a time, is checked alongside it across the whole type:
+`schema-ops.md` §8's and `fold.md` §5's shared-target agreement relation,
+run through the very same `spec.CheckTargetAgreement` the resolver and
+writ's own bootstrap tables use — one relation, three sites, not a
+compiler-local approximation of it. Every `define-field` in the type binds
+to its `TargetKey()` — its declared `target`, or its field name when
+undeclared — and each target's whole rule set is checked at once, after
+every field of the type has been compiled, not incrementally against
+whatever was bound so far: that incremental form is what WRIT-211
+replaced, because which pair a violation was reported against then
+depended on declaration order. The relation itself, in one sentence:
+within one `(op_type, field)` version-bump class (§7), rules sharing a
+target must agree on `strategy` and `lattice` and may differ on
+`value_type`, `enum`, `max_length`, `key` and `key_types`; the moment more
+than one class binds the target that carve-out is void for every rule
+bound to it, and all seven attributes must agree (`schema-ops.md` §8 is
+the normative statement this borrows, not a second copy of it). `Compile`
+diverges from the resolver here on purpose — a source file is authored,
+not folded — and **rejects the file**: a `*SyntaxError` with a line and
+column, naming the later of the disagreeing pair in canonical
+`(op_type, op_version, field)` order, where the resolver instead
+withholds every rule bound to the target as a `SchemaConflict`.
+`schema-ops.md` §8's other set-level check, key-column agreement within
+one `(op_type, op_version)`, has no compile-time twin here: a
+`writ.schema` file with that shape compiles, and the conflict surfaces
+only once the resolver sees it (§8 already states this asymmetry).
 
 `objectID` is an explicit, required parameter with no default; `Compile`
 itself derives nothing from `namespace`. Reusing it across successive
@@ -416,14 +438,20 @@ new version fold under the new ones. A version bump that changes
 fold groups matched rules by target key alone and instantiates one
 accumulator from whichever rule a caller's slice lists first — and
 `engine/schemasrc.Compile` rejects both at compile time, with a line and
-column, rather than deferring to the resolver: `compileType` already
-holds the whole type when a field is compiled, so nothing about this
-check needs to wait until the type's rules are assembled elsewhere.
-Left unchecked here, the same disagreement is still caught later —
-`RulesFromSchemas` withholds every rule bound to the target as a
-`SchemaConflict`, not only the rule that introduced the disagreement —
-but only after the ops are signed into the log and unremovable, which
-is what makes catching it at `Compile` time the one that matters:
+column, rather than deferring to the resolver: `compileType` runs this
+check once every field of the type has been compiled, after the field
+loop, so nothing about it needs to wait until the type's rules are
+assembled elsewhere. A version bump is only the within-class half of that
+check (§5): if the reused target is also bound from outside the bumping
+class — another `op_type`, another `field`, or an explicit `target(...)`
+aimed at it — the carve-out is void for every rule bound to it, and
+`value_type`, `enum`, `max_length`, `key` and `key_types` must agree too
+(`schema-ops.md` §8). Left unchecked here, the same disagreement is still
+caught later — `RulesFromSchemas` withholds every rule bound to the
+target as a `SchemaConflict`, not only the rule that introduced the
+disagreement — but only after the ops are signed into the log and
+unremovable, which is what makes catching it at `Compile` time the one
+that matters:
 
 ```
 type ticket {
