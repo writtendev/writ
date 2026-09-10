@@ -275,12 +275,14 @@ Comments are never data — `description "..."` is (§6).
   key column becomes part of a generated SQL identifier once a consumer's
   projection reads it, the same reason `target` does.
 * `target(name)` — the state key this field's register lands under
-  (`fold.md` §5). Optional on every field; required in practice exactly
-  when a version bump would otherwise reuse the default target while
-  disagreeing with a prior version on `strategy` or `lattice` (§7). `name`
-  follows the field-name
-  reservation rule (§2), not the closed one: only `deprecated` is off
-  limits, so `target(description)` and `target(type)` are both legal.
+  (`fold.md` §5). Optional on every field; needed whenever leaving it
+  unset would let this field's target collide with a rule it disagrees
+  with, under `schema-ops.md` §8's shared-target agreement relation
+  (§5) — a version bump disagreeing on `strategy` or `lattice` within
+  its own `(op_type, field)` class (§7) is one instance of that, not
+  the whole rule. `name` follows the field-name reservation rule (§2),
+  not the closed one: only `deprecated` is off limits, so
+  `target(description)` and `target(type)` are both legal.
 * `deprecated` — marks the field discouraged for new writes without
   removing it (`schema-ops.md` §4, tombstone-style). A type takes the
   same trailing keyword: `type old-thing deprecated { ... }`.
@@ -349,8 +351,9 @@ to its `TargetKey()` — its declared `target`, or its field name when
 undeclared — and each target's whole rule set is checked at once, after
 every field of the type has been compiled, not incrementally against
 whatever was bound so far: that incremental form is what WRIT-211
-replaced, because which pair a violation was reported against then
-depended on declaration order. The relation itself, in one sentence:
+replaced, because it let declaration order change whether a
+disagreement was found at all, not only which pair it was reported
+against. The relation itself, in one sentence:
 within one `(op_type, field)` version-bump class (§7), rules sharing a
 target must agree on `strategy` and `lattice` and may differ on
 `value_type`, `enum`, `max_length`, `key` and `key_types`; the moment more
@@ -443,9 +446,10 @@ check once every field of the type has been compiled, after the field
 loop, so nothing about it needs to wait until the type's rules are
 assembled elsewhere. A version bump is only the within-class half of that
 check (§5): if the reused target is also bound from outside the bumping
-class — another `op_type`, another `field`, or an explicit `target(...)`
-aimed at it — the carve-out is void for every rule bound to it, and
-`value_type`, `enum`, `max_length`, `key` and `key_types` must agree too
+class — another `op_type`, or another `field`, regardless of whether
+that binding is `target`'s default or an explicit `target(...)` — the
+carve-out is void for every rule bound to it, and `value_type`,
+`enum`, `max_length`, `key` and `key_types` must agree too
 (`schema-ops.md` §8). Left unchecked here, the same disagreement is still
 caught later — `RulesFromSchemas` withholds every rule bound to the
 target as a `SchemaConflict`, not only the rule that introduced the
