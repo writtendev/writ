@@ -326,7 +326,7 @@ func validateProducerOp(env Envelope, raw []byte, vocabularies Vocabularies) err
 		// make.
 		return nil
 	}
-	return fmt.Errorf("codec: object_type %q is not declared by any schema in the log: spec/op-envelope.md §Producer validation rule 3/4", env.ObjectType)
+	return fmt.Errorf("codec: object_type %q is not declared by any schema in the log: spec/op-envelope.md §Producer validation tier 4", env.ObjectType)
 }
 
 // validateAgainstBootstrap is tier 1: `schema` ops are validated against
@@ -348,11 +348,12 @@ func validateAgainstBootstrap(env Envelope, raw []byte) error {
 }
 
 // validateAgainstLogVocabulary is tier 2: rule 4 (op_type/op_version
-// declared) and rule 3 (every body field declared, and value-typed ones
-// valid) checked against a log-sourced Vocabulary rather than a shipped
-// JSON Schema. There is no per-vocabulary schema bounding "known fields"
-// for a consumer-declared type, so — unlike validateValueTypes below — an
-// undeclared field is itself a rejection, not a silent skip.
+// declared) plus rules 3, 5, and 6 (every body field declared, value-typed
+// ones valid, and the rest of the field rules satisfied) checked against a
+// log-sourced Vocabulary rather than a shipped JSON Schema. There is no
+// per-vocabulary schema bounding "known fields" for a consumer-declared
+// type, so — unlike validateValueTypes below — an undeclared field is
+// itself a rejection, not a silent skip.
 func validateAgainstLogVocabulary(env Envelope, raw []byte, voc Vocabulary) error {
 	key := OpVersionKey{OpType: env.OpType, OpVersion: env.OpVersion}
 	if !voc.OpTypes[key] {

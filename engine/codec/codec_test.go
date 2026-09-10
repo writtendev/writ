@@ -196,8 +196,8 @@ func TestDecodeCommitRejections(t *testing.T) {
 
 // TestValidateBody walks the tiers of spec/op-envelope.md §Producer
 // validation from the outside: the bootstrap vocabulary writ embeds for
-// `schema` (tier 1), a log-declared one (tier 2, where rules 3 and 4 are
-// checked against the declaration rather than a JSON Schema), and the
+// `schema` (tier 1), a log-declared one (tier 2, where rules 3, 4, 5, and
+// 6 are checked against the declaration rather than a JSON Schema), and the
 // absence of both (tier 4, a refusal naming object_type).
 func TestValidateBody(t *testing.T) {
 	t.Run("valid schema op body", func(t *testing.T) {
