@@ -250,8 +250,8 @@ type Vocabularies map[string]Vocabulary
 // its object type under the four-tier precedence validateProducerOp
 // implements (spec/op-envelope.md §Producer validation): its op_type and
 // op_version are ones that tier defines (rule 4) and its payload satisfies
-// that tier's field rules (rule 3). BuildCommit calls it, so no op writ
-// appends is signed without passing through here.
+// that tier's field rules (rules 3, 5, and 6). BuildCommit calls it, so no
+// op writ appends is signed without passing through here.
 //
 // vocabularies is the log-sourced declarations resolved once per Append
 // (engine/dag's WithProducerVocabularies); nil means the log declares

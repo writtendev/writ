@@ -66,11 +66,11 @@ func EncodePayload(env Envelope) ([]byte, error) {
 // against the vocabulary that applies to its object type under the
 // four-tier precedence spec/op-envelope.md §Producer validation defines:
 // its op_type and op_version are ones that tier defines (rule 4), and its
-// payload satisfies that tier's field rules (rule 3). The check belongs
-// here and not in EncodePayload: EncodePayload is also on the read path —
-// the projection re-encodes ops it fetched from the log whose raw bytes it
-// did not keep — and a foreign op writ reads perfectly well today must
-// keep projecting.
+// payload satisfies that tier's field rules (rules 3, 5, and 6). The check
+// belongs here and not in EncodePayload: EncodePayload is also on the read
+// path — the projection re-encodes ops it fetched from the log whose raw
+// bytes it did not keep — and a foreign op writ reads perfectly well today
+// must keep projecting.
 //
 // vocabularies is the log-sourced declarations resolved once per
 // dag.Store.Append, before its CAS retry loop — not once per BuildCommit,
