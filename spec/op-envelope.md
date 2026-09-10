@@ -207,8 +207,9 @@ invalid. Before the op commit is built, the producer MUST verify that:
    type or an op version it cannot interpret; where it appears to, the
    cause is a typo, and the op it would write is one no reader will ever
    interpret either.
-5. Every column of `key` on a `keyed-lww` rule whose `field` the body
-   carries MUST itself be present in `body`.
+5. Every column of `key` on a `keyed-lww` rule of that same `(op_type,
+   op_version)` whose `field` the body carries MUST itself be present in
+   `body`.
 
 Rule 5 is a different kind of obligation from rule 3, which is why it is
 its own rule rather than a clause on it: rule 3 constrains what a body
@@ -232,11 +233,21 @@ producer that never enforced rule 5, still folds exactly as it always
 has. Rule 5 only closes the door on *omitting* a key column — a body
 that supplies one, even as an empty string, still addresses the same
 anonymous register ([`spec/fold.md`](fold.md) §"Not skipping") that an
-absent column would, and rule 5 does not reach that: a present-but-empty
-key column is producer-accepted, because rule 5 keys on the column's
-absence from `body`, not on the value's content. Refusing an empty
-key-column value would be a wider rule than this one and is not what
-rule 5 does.
+absent column would, and rule 5 does not reach that: it keys on the
+column's absence from `body`, not on the value's content, so a
+present-but-empty key column passes rule 5 regardless of type. Whether
+that value is then producer-accepted is a question rule 5 has nothing to
+say about — it is decided by the key-column content rule below,
+according to that column's `key_types` entry, exactly as it would for
+any other value. A `string` or `text` column admits the empty string, so a
+present-but-empty value there is accepted and reaches the anonymous
+register. Most catalogue members do not: `person-ref`, this section's own
+running example, requires a scheme, so `{"verdict": "approve", "subject":
+""}` under `key(subject person-ref)` is refused by that content rule, the
+same way any other malformed `person-ref` value would be. Refusing an
+empty key-column value across every type — rather than leaving it to each
+column's own `key_types` — would be a wider rule than this one and is not
+what rule 5 does.
 
 A `keyed-lww` key column's value MUST be a JSON string regardless of what
 its `key_types` entry says — JSON `null` included, which is not tolerated
@@ -409,15 +420,21 @@ framework-building and out of bounds.
 Rule 5 does not reopen that door, even though it too refuses a body for
 something absent. A `keyed-lww` key column carries no value of its own and
 is not a field — rule 3 already says so — it is the register address the
-`keyed-lww` strategy the schema already declares cannot be applied
-without: a keyed strategy is inapplicable without its key, so refusing a
-body that omits one enforces a choice the schema author already made by
-writing `keyed-lww key(...)`, not a new one rule 5 asks them to make.
-Requiring it adds nothing to the schema DSL: no
-requiredness, no new declaration surface, nothing a schema author writes
-differently — the field's existing `key(subject person-ref)` is the only
-declaration involved, and rule 5 only makes the producer live up to what
-it already says.
+field's declared `keyed-lww key(...)` partitions on. A body that omits
+the key column does not make the strategy fail to apply — rule 5's own
+paragraph above already says fold is total: it contributes the empty
+component to whatever address the body gives it, unconditionally. What
+the omission does is give the register no address the schema author
+named, so the field's declared per-key partition is not applied *as
+declared* — a silent, permanent addressing of a register the author never
+wrote down, which is the defect this rule exists to close, not something
+the rule invents. Refusing a body that omits one enforces the partition
+choice the schema author already made by writing `keyed-lww key(...)`,
+not a new one rule 5 asks them to make. Requiring it adds nothing to the
+schema DSL: no requiredness, no new declaration surface, nothing a schema
+author writes differently — the field's existing
+`key(subject person-ref)` is the only declaration involved, and rule 5
+only makes the producer live up to what it already says.
 
 Rule 3 is the one this document previously left unstated, and the gap is
 not academic: the reader rules below

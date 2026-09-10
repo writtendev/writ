@@ -136,6 +136,11 @@
     "reader_disposition": "interpretable",
     "reason": "rule 5 (WRIT-219) negative control: \"verdict\" is keyed on (subject, revision), and the body carries \"subject\" -- one of those two columns -- but never writes \"verdict\", the field they key. rule 5 binds a body that writes a keyed-lww field, not any body that merely mentions one of its key columns, so this is accepted exactly as rule 3 already allows. The single-column-key version of this fixture passed vacuously: its one key column doubled as the very column a wrongly-scoped rule 5 would already find present, so it stayed green even with the body[r.Field] guard removed. A two-column key with the field absent and only one column present discriminates: an implementation that checked every keyed-lww rule's columns unconditionally, instead of scoping to rules whose field the body writes, would refuse this body for lacking \"revision\" -- so this fixture only passes when rule 5 is scoped correctly"
   },
+  "keyed-lww-rule-scoped-by-op-type.json": {
+    "producer_verdict": "accept",
+    "reader_disposition": "interpretable",
+    "reason": "rule 5 (WRIT-219 round 2) negative control: \"verdict\" is keyed-lww key(subject) under op_type \"review\", but this envelope writes op_type \"approve\", whose own \"verdict\" rule is plain lww with no key at all -- cross-op-type field-name reuse is ordinary (WRIT-198). The two rules declare distinct targets (review_verdict, approve_verdict) so they resolve independently despite disagreeing on strategy, the same way any two unrelated fields would; a shared field name across op types is not itself a shared target. The body carries \"verdict\" alone and is accepted, because rule 5 draws its rule set from the op's own (op_type, op_version) the way rule 3 already does, not from every keyed-lww rule the schema declares anywhere; a reading of rule 5 as \"any keyed-lww rule this schema declares\" would wrongly refuse this body for lacking \"subject\", a key column belonging to a different op type's rule entirely"
+  },
   "target-grammar-installs-no-rule.json": {
     "producer_verdict": "reject",
     "reason_code": "schema-violation",

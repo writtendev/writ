@@ -255,6 +255,58 @@ func TestBuildCommitRejectsKeyedLWWKeyColumns(t *testing.T) {
 	}
 }
 
+// TestBuildCommitRejectsKeyColumnAbsentDespiteSynthesizedNoKeyRuleForSameField
+// pins the WRIT-219 round-2 review finding on validateFieldsAgainstRules's
+// rule-5 presence check: reading Key straight off each rule with Strategy
+// "keyed-lww", rather than through a byField[field]-style lookup, is
+// load-bearing, not incidental. A rule set can carry two spec.FieldRule
+// entries for the very same field name, one the real declaration (Key
+// non-empty) and one a key-column-only entry with Strategy "keyed-lww" but
+// no Key -- the shape engine/projection/refresh_test.go's vocabulariesFrom
+// synthesizes for a dual-role key-column name, and any caller of the public
+// dag.WithProducerVocabularies can build directly, as this test does over a
+// hand-built codec.Vocabularies via declareVocabulary. Every other fixture
+// and test in this package and the spec/testdata/producer/ corpus uses one
+// rule per field name, so none of them would catch a rewrite of the
+// presence check to byField[r.Field].Key: the synthesized no-Key entry,
+// appended after the real one, would win that last-rule-wins lookup, the
+// check would see an empty key list, and the body below -- which omits
+// "verdict"'s declared key column "subject" -- would be vacuously accepted,
+// silently reintroducing the empty-key collapse WRIT-219 exists to close.
+func TestBuildCommitRejectsKeyColumnAbsentDespiteSynthesizedNoKeyRuleForSameField(t *testing.T) {
+	vocabularies := declareVocabulary("widget",
+		spec.FieldRule{
+			OpType: "approve", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww",
+			Key: []string{"subject"}, KeyTypes: map[string]string{"subject": "person-ref"},
+			ValueType: "string",
+		},
+		// The dual-role hazard: a second rule for the same field name,
+		// carrying Strategy "keyed-lww" but no Key -- the shape a
+		// synthesized key-column-only entry takes -- appended after the
+		// real rule so it would win a last-rule-wins byField[field] lookup.
+		spec.FieldRule{OpType: "approve", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww"},
+	)
+
+	_, err := codec.BuildCommit(codec.Envelope{
+		ObjectID:   "w-1",
+		ObjectType: "widget",
+		OpType:     "approve",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"verdict":"approve"}`),
+	}, testAuthor(), nil, vocabularies)
+	if err == nil {
+		t.Fatal("BuildCommit accepted a body omitting verdict's declared key column \"subject\" -- " +
+			"a same-named no-Key rule appended after the real one must not make rule 5 pass vacuously")
+	}
+	var rejErr *codec.RejectError
+	if !errors.As(err, &rejErr) {
+		t.Fatalf("error is not a *codec.RejectError: %v", err)
+	}
+	if rejErr.Reason != codec.RejectSchemaViolation {
+		t.Errorf("reason = %q, want %q", rejErr.Reason, codec.RejectSchemaViolation)
+	}
+}
+
 // TestBuildCommitFieldRuleWinsOverKeyColumn pins the one ambiguity
 // validateFieldsAgainstRules resolves rather than leaving undefined: where a
 // name is both a declared field and a keyed-lww key column of another rule
