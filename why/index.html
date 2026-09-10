@@ -68,7 +68,7 @@ each object of one is a <strong>collaborative object</strong>: a DAG of small, s
 immutable <strong>operations</strong>, each stored as an ordinary git commit under
 <code>refs/writ/*</code>. Current state is never stored authoritatively. It is derived, by
 deterministically folding an object&rsquo;s operations in causal order.</p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-console" data-lang="console"><span class="line"><span class="cl"><span class="gp">$</span> writ init                        <span class="c1"># fetch refspecs, plus a starter writ.schema</span>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-console" data-lang="console"><span class="line"><span class="cl"><span class="gp">$</span> writ init --namespace acme        <span class="c1"># fetch refspecs, plus a starter writ.schema</span>
 </span></span><span class="line"><span class="cl"><span class="gp">$</span> cat &gt; writ.schema &lt;&lt;<span class="s1">&#39;EOF&#39;</span>         <span class="c1"># replace the starter: your vocabulary, as data</span>
 </span></span><span class="line"><span class="cl"><span class="go">namespace acme
 </span></span></span><span class="line"><span class="cl"><span class="go">type ticket {
