@@ -13,10 +13,9 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/writtendev/writ/cmd/writ/internal/wire"
+	"github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/engine/codec"
 	"github.com/writtendev/writ/engine/codec/canonicaljson"
-	"github.com/writtendev/writ/engine/schemasrc"
-	"github.com/writtendev/writ/engine/state"
 )
 
 // TestEmitJSON_EscapesForbiddenCodePoints is the unit-level half of WRIT-137's
@@ -205,6 +204,53 @@ func TestObjectShow_HostilePersonRefRendersEscaped(t *testing.T) {
 	}
 }
 
+// TestSchemaPlanPorcelain_HostileConflictReasonRendersEscaped is round 4's
+// finding 1 on PR #185: SchemaConflict.Reason can carry a value straight
+// out of a foreign client's op body with no repertoire gate and no %q
+// quoting. engine/schema.go's RulesFromSchemas formats a define-field's
+// field into Reason with %s once spec.ValidateFieldRule has already
+// rejected it -- the field name is exactly what failed that check, not
+// something this rejection path re-validates -- so a hostile field name
+// reaches Reason unescaped. renderSchemaPlanPorcelain's "conflict: %s\n"
+// is a rendering chokepoint like any other and must escape it.
+//
+// The foreign define-field op is appended directly (writeForeignOp),
+// bypassing engine/codec.BuildCommit entirely, to the same schema object
+// `schema apply` below just created: RulesFromSchemas folds every schema
+// object's ops together regardless of which writer ref they came in on,
+// so this is exactly what a non-conforming second writer contesting a
+// legitimate schema object looks like.
+func TestSchemaPlanPorcelain_HostileConflictReasonRendersEscaped(t *testing.T) {
+	// hostile stands in for what engine/schema.go's RulesFromSchemas
+	// actually builds at the site round 4 traced: a define-field's field
+	// name, formatted into Reason with %s once spec.ValidateFieldRule has
+	// already rejected it for containing exactly this code point --
+	// RulesFromSchemas itself does no further quoting or gating of its
+	// own, so this is the literal shape a real conflict's Reason takes.
+	hostile := "field rule (create, 1, ali" + string(rune(0x202E)) + "ce) is invalid and was not installed: field \"ali" + string(rune(0x202E)) + "ce\" must match ^[a-z][a-z0-9_]*$"
+
+	var buf bytes.Buffer
+	renderSchemaPlanPorcelain(&buf, &schemaPlanResult{
+		upToDate: true,
+		conflicts: []writ.SchemaConflict{{
+			ObjectType: "acme.standup",
+			Reason:     hostile,
+		}},
+	})
+	out := buf.Bytes()
+
+	if !bytes.Contains(out, []byte("conflict: ")) {
+		t.Fatalf("renderSchemaPlanPorcelain output = %s, want a conflict: line", out)
+	}
+	if bytes.ContainsRune(out, 0x202E) {
+		t.Errorf("renderSchemaPlanPorcelain output contains a raw U+202E byte sequence: %s", out)
+	}
+	escapeSeq := []byte(fmt.Sprintf("\\u%04x", 0x202E))
+	if !bytes.Contains(out, escapeSeq) {
+		t.Errorf("renderSchemaPlanPorcelain output = %s, want the conflict line to contain the %s escape", out, escapeSeq)
+	}
+}
+
 // hostileDescriptionSchema returns a writ.schema source declaring one type
 // whose type-level and op-level descriptions both carry hostile. The raw
 // code point is written into the string via rune concatenation, never a Go
@@ -349,75 +395,179 @@ func TestSchemaPlanPorcelain_HostileDescriptionRendersEscaped(t *testing.T) {
 	}
 }
 
-// TestSchemaPlanPorcelain_HostileNewlineInDescriptionCannotForgeDiffLine is
-// round 3's finding 1's other required test: the reason the "just stop
-// escaping U+000A" fix is wrong. A description carries no repertoire gate
-// at all (spec/schema-ops.md never restricts description content), so a
-// raw newline inside one reaches state.Schema the same way a bidi override
-// does -- schemasrc.Parse's own lexer rejects a bare newline inside a
-// quoted string literal, so this can never come from a real writ.schema
-// file, only from data already folded into the log (a foreign or
-// non-conforming client's op, exactly like TestObjectShow_
-// HostilePersonRefRendersEscaped's foreign write). Exercised directly
-// against escapeSchemaDescriptions and schemasrc.Render -- the same two
-// calls buildSchemaPlan makes -- rather than through a full schema-apply
-// round trip, because there is no conforming path that plants the raw
-// newline in the first place.
-func TestSchemaPlanPorcelain_HostileNewlineInDescriptionCannotForgeDiffLine(t *testing.T) {
-	sentinel := "forged addition"
-	// hostile is built from rune concatenation, not a literal newline in
-	// this file's source, per the same discipline as the bidi vectors
-	// above.
-	hostile := "line one" + string(rune(0x0A)) + sentinel
+// schemaWithTypeDescription returns a writ.schema source declaring one
+// type whose type-level description is desc and whose op-level
+// description stays fixed, so a test can change exactly the type
+// description between two renders and attribute any diff to that field
+// alone.
+func schemaWithTypeDescription(desc string) string {
+	return "namespace acme\n" +
+		"description \"Acme's vocabulary\"\n\n" +
+		"type standup {\n" +
+		"  description \"" + schemaFileEscape(desc) + "\"\n\n" +
+		"  op create 1 {\n" +
+		"    description \"Create a standup\"\n" +
+		"    title string(200) lww\n" +
+		"  }\n" +
+		"}\n"
+}
 
-	current := state.Schema{
-		Namespace: "acme",
-		Types: []state.SchemaType{{
-			Name:        "acme.standup",
-			Description: hostile,
-			Ops:         []state.SchemaOp{{OpType: "create", OpVersion: 1, Description: "Create a standup"}},
-			Fields:      []state.SchemaField{{Name: "title", OpType: "create", OpVersion: 1, ValueType: "string", MaxLength: 200, Strategy: "lww"}},
-		}},
+// schemaFileEscape returns desc ready to embed inside a writ.schema string
+// literal. schemasrc's lexer (lexString) recognizes exactly four escape
+// sequences -- \", \\, \n, \t -- and rejects any other backslash sequence
+// outright ("unknown escape sequence"), so a data backslash, quote,
+// newline or tab must be doubled here to survive as data rather than fail
+// to parse. This is the write side of exactly what schemasrc's own
+// quoteString does on the read side.
+func schemaFileEscape(desc string) string {
+	var b strings.Builder
+	for _, r := range desc {
+		switch r {
+		case '"':
+			b.WriteString(`\"`)
+		case '\\':
+			b.WriteString(`\\`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\t':
+			b.WriteString(`\t`)
+		default:
+			b.WriteRune(r)
+		}
 	}
-	planned := current
-	planned.Types = []state.SchemaType{{
-		Name:        "acme.standup",
-		Description: "line one",
-		Ops:         current.Types[0].Ops,
-		Fields:      current.Types[0].Fields,
-	}}
+	return b.String()
+}
 
-	currentSource, err := schemasrc.Render(escapeSchemaDescriptions(current))
-	if err != nil {
-		t.Fatalf("render current: %v", err)
-	}
-	plannedSource, err := schemasrc.Render(escapeSchemaDescriptions(planned))
-	if err != nil {
-		t.Fatalf("render planned: %v", err)
-	}
-
-	var buf bytes.Buffer
-	renderSchemaPlanPorcelain(&buf, &schemaPlanResult{
-		currentSource: currentSource,
-		plannedSource: plannedSource,
+// escapeLiteralText returns the six ASCII characters a \uXXXX escape of
+// cp would use, as literal text -- backslash, 'u', four lowercase hex
+// digits -- built one byte at a time from cp's own value (mirroring
+// textsafe.EscapeForbidden's own construction), never typed as a \uXXXX
+// sequence in this file's source. That discipline matters here
+// specifically: this file's source must never itself spell out the
+// escape text for a Forbidden code point, because a test that builds
+// "the literal escape text" by typing it directly is indistinguishable,
+// on disk, from a test that accidentally embedded the real code point --
+// exactly the hazard this whole package exists to catch.
+func escapeLiteralText(cp rune) string {
+	const hex = "0123456789abcdef"
+	return string([]byte{
+		'\\', 'u',
+		hex[(cp>>12)&0xF], hex[(cp>>8)&0xF], hex[(cp>>4)&0xF], hex[cp&0xF],
 	})
-	out := buf.String()
+}
 
-	if !strings.Contains(out, sentinel) {
-		t.Fatalf("schema plan diff = %q, want it to still contain %q somewhere (lossless)", out, sentinel)
+// TestSchemaPlanPorcelain_DiffIsInjectiveAcrossLiteralEscapeText is round
+// 4's finding 2 on PR #185: an earlier version of this fix ran
+// textsafe.EscapeForbidden on a description before schemasrc.Render
+// quoted it, so quoteString then backslash-escaped the very backslash
+// the earlier pass had just introduced. Two different descriptions could
+// collapse onto the same rendered text under that composition, so `schema
+// plan` could report a real change with an empty diff.
+//
+// literalEscapeText's description already spells out, as ordinary text,
+// the six ASCII characters a \uXXXX escape of U+202E would use (no
+// Forbidden rune among them -- see escapeLiteralText above for why this
+// is built at runtime rather than typed literally). realCodePointText's
+// description differs only by containing the actual U+202E code point at
+// the same position (built by rune concatenation, never a literal
+// character in this file). A real change from one to the other must
+// produce a non-empty diff whose two description lines are visibly
+// different from each other, and the printed op count must match:
+// exactly one define-type op.
+func TestSchemaPlanPorcelain_DiffIsInjectiveAcrossLiteralEscapeText(t *testing.T) {
+	env := initTestRepo(t)
+
+	literalEscapeText := "before" + escapeLiteralText(0x202E) + "after"
+	realCodePointText := "before" + string(rune(0x202E)) + "after"
+
+	writeSchemaFile(t, env.repoDir, schemaWithTypeDescription(literalEscapeText))
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply (literal escape text) failed with %d; stderr: %s", code, stderr.String())
 	}
 
-	var sawSentinelWithLineOne bool
+	writeSchemaFile(t, env.repoDir, schemaWithTypeDescription(realCodePointText))
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "plan"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema plan failed with %d; stderr: %s", code, stderr.String())
+	}
+	out := stdout.String()
+
+	// quoteString backslash-escapes literalEscapeText's own data
+	// backslash, so its rendered line carries two backslashes before
+	// u202e; escapeRenderedSchemaSource turns realCodePointText's raw
+	// rune into a single-backslash escape. The two must stay visibly
+	// distinct.
+	wantOldLine := "-  description \"before\\" + escapeLiteralText(0x202E) + "after\""
+	wantNewLine := "+  description \"before" + escapeLiteralText(0x202E) + "after\""
+	lines := make(map[string]bool)
 	for _, l := range strings.Split(out, "\n") {
-		trimmed := strings.TrimPrefix(strings.TrimPrefix(l, "+"), "-")
-		if trimmed == sentinel || strings.TrimSpace(trimmed) == sentinel {
-			t.Errorf("schema plan diff = %q, contains %q as its own diff line -- the embedded raw newline forged an extra line", out, l)
-		}
-		if strings.Contains(l, "line one") && strings.Contains(l, sentinel) {
-			sawSentinelWithLineOne = true
-		}
+		lines[l] = true
 	}
-	if !sawSentinelWithLineOne {
-		t.Errorf("schema plan diff = %q, want %q and %q on the same rendered line (the newline between them escaped, not real)", out, "line one", sentinel)
+	if !lines[wantOldLine] {
+		t.Errorf("schema plan diff missing removed-description line %q; full output:\n%s", wantOldLine, out)
+	}
+	if !lines[wantNewLine] {
+		t.Errorf("schema plan diff missing added-description line %q; full output:\n%s", wantNewLine, out)
+	}
+	if wantOldLine == wantNewLine {
+		t.Fatalf("test is broken: the two expected lines are identical, so it cannot distinguish the bug from the fix")
+	}
+
+	wantSummary := "1 op(s) to append: 1 define-type\n"
+	if !strings.Contains(out, wantSummary) {
+		t.Errorf("schema plan diff = %q, want it to contain the summary line %q (a non-empty diff and a matching op count)", out, wantSummary)
+	}
+}
+
+// TestSchemaPlanJSON_SourceFieldsStayRawAcrossHostileDescription pins
+// docs/cli-json.md's promise for current_source and planned_source: each
+// is "writ.schema source text rendered from the log's own folded state",
+// i.e. schemasrc.Render's raw output, not a display-escaped copy -- the
+// human-readable diff's own escaping (renderSchemaPlanPorcelain) must
+// never reach these fields. Round 4's finding 2 traced a version of the
+// fix that broke this: escaping a description before Render saw it
+// changed the schema state Render rendered, so --json's current_source no
+// longer matched real source schemasrc.Parse would accept back.
+//
+// hostile is built by rune concatenation, never a literal character in
+// this file's source, per the same discipline as the bidi vectors
+// elsewhere in this file.
+func TestSchemaPlanJSON_SourceFieldsStayRawAcrossHostileDescription(t *testing.T) {
+	env := initTestRepo(t)
+
+	hostile := "Owned by email:alice" + string(rune(0x202E)) + "@good.com"
+	writeSchemaFile(t, env.repoDir, hostileDescriptionSchema(hostile))
+
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "plan", "--json"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema plan --json failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	var plan wire.SchemaPlan
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindSchemaPlan, &plan)
+
+	if !plan.UpToDate {
+		t.Fatalf("plan.UpToDate = false, want true -- writ.schema was not changed since the apply above")
+	}
+	if !strings.ContainsRune(plan.CurrentSource, 0x202E) {
+		t.Errorf("current_source (decoded) = %q, want it to contain the actual U+202E code point -- Render's raw output, faithfully round-tripped through emitJSON's own lossless escape", plan.CurrentSource)
+	}
+	if !strings.ContainsRune(plan.PlannedSource, 0x202E) {
+		t.Errorf("planned_source (decoded) = %q, want it to contain the actual U+202E code point", plan.PlannedSource)
+	}
+	// The round 4 regression pre-escaped the description before Render, so
+	// the decoded field would have held the literal, double-escaped text
+	// below instead of the raw code point -- assert that shape is absent,
+	// not only that the raw rune is present.
+	if strings.Contains(plan.CurrentSource, `\\u202e`) {
+		t.Errorf("current_source (decoded) = %q, contains double-escaped literal text -- want Render's raw code point, not a pre-escaped copy", plan.CurrentSource)
 	}
 }
