@@ -15,7 +15,13 @@ import (
 
 func main() {
 	ctx := context.Background()
-	os.Exit(runStdin(ctx, os.Args[1:], os.Stdin, isCharDevice(os.Stdin), os.Stdout, os.Stderr))
+	// Interactivity needs both ends of the prompt exchange: a prompt is
+	// written to stderr and read back from stdin, so a char-device stdin
+	// with a redirected stderr (e.g. `writ init 2>init.log` on a terminal)
+	// would otherwise decide "interactive" and then block on a prompt the
+	// user never sees — an apparent hang (WRIT-220 review round 1).
+	interactive := isCharDevice(os.Stdin) && isCharDevice(os.Stderr)
+	os.Exit(runStdin(ctx, os.Args[1:], os.Stdin, interactive, os.Stdout, os.Stderr))
 }
 
 // isCharDevice reports whether f is a character device — a real terminal,

@@ -72,7 +72,18 @@ func resolveNamespace(flagValue string, stdin io.Reader, interactive bool, stder
 	}
 
 	fmt.Fprint(stderr, "This repository has no writ.schema yet. Namespace for the starter file: ")
-	line, _ := bufio.NewReader(stdin).ReadString('\n')
+	line, err := bufio.NewReader(stdin).ReadString('\n')
+	if line == "" && errors.Is(err, io.EOF) {
+		// Nothing could ever have answered this prompt — stdin was already
+		// at EOF, the shape cron, systemd, `docker run` without `-i`, and
+		// GitHub Actions `run:` steps all give a char-device-classified
+		// stdin (WRIT-220 review round 1). That is a different fact from a
+		// human pressing enter on an empty line, so it gets the same
+		// message a non-interactive run would have produced instead of
+		// "no namespace entered", which reads as blaming a human who was
+		// never there.
+		return "", fmt.Errorf("writ.schema does not exist yet and no --namespace was given; pass --namespace <name>, matching %s", namespaceGrammar)
+	}
 	line = strings.TrimSpace(line)
 	if line == "" {
 		return "", fmt.Errorf("no namespace entered; pass --namespace <name>, matching %s", namespaceGrammar)

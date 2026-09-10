@@ -338,8 +338,7 @@ func validateName(p *parser, tok token, pattern *regexp.Regexp, what string, res
 // *parser or a token, for a caller outside this package that has a
 // namespace string before there is any writ.schema source to parse it
 // from. cmd/writ's `writ init`, validating a namespace a human supplies
-// for the starter file it is about to write, is that caller today; it
-// sits beside the already-exported IsKeyword for the same reason.
+// for the starter file it is about to write, is that caller today.
 //
 // Callers must not validate a namespace by synthesizing
 // "namespace " + name + "\n" and calling Parse instead of this function:
