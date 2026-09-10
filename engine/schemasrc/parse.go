@@ -331,6 +331,33 @@ func validateName(p *parser, tok token, pattern *regexp.Regexp, what string, res
 	}
 }
 
+// ValidateNamespace reports whether name is legal in a writ.schema
+// namespace declaration: it applies the exact grammar validateName
+// enforces on that slot — namespacePattern, maxNameLength, and keywords
+// (all eight reserved, same as a type name or op type name) — without a
+// *parser or a token, for a caller outside this package that has a
+// namespace string before there is any writ.schema source to parse it
+// from. cmd/writ's `writ init`, validating a namespace a human supplies
+// for the starter file it is about to write, is that caller today.
+//
+// Callers must not validate a namespace by synthesizing
+// "namespace " + name + "\n" and calling Parse instead of this function:
+// a name containing a newline (e.g. "acme\ntype x { op create 1 {} }")
+// parses as more than one line and would inject further declarations
+// into the file rather than being rejected as invalid.
+func ValidateNamespace(name string) error {
+	if isKeyword(name) {
+		return fmt.Errorf("namespace %q is a reserved word", name)
+	}
+	if len(name) > maxNameLength {
+		return fmt.Errorf("namespace %q is %d characters, over the %d-character limit", name, len(name), maxNameLength)
+	}
+	if !namespacePattern.MatchString(name) {
+		return fmt.Errorf("invalid namespace %q; must match %s", name, namespacePattern.String())
+	}
+	return nil
+}
+
 // parseDescription parses `description "..."` and rejects an empty
 // string literal: `description ""` carries no data — it compiles to the
 // same omitted wire field as no description line at all (§5, §6) — and

@@ -36,7 +36,7 @@ func initTestRepo(t *testing.T) testCLIEnv {
 	setupSigningKey(t, env.repoDir)
 
 	var stdout, stderr bytes.Buffer
-	if code := run(context.Background(), []string{"init", "-C", env.repoDir}, &stdout, &stderr); code != 0 {
+	if code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("writ init failed with %d; stderr: %s", code, stderr.String())
 	}
 	return env

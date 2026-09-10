@@ -35,7 +35,7 @@ immutable **operations**, each stored as an ordinary git commit under
 deterministically folding an object's operations in causal order.
 
 ```console
-$ writ init                        # fetch refspecs, plus a starter writ.schema
+$ writ init --namespace acme        # fetch refspecs, plus a starter writ.schema
 $ cat > writ.schema <<'EOF'         # replace the starter: your vocabulary, as data
 namespace acme
 type ticket {

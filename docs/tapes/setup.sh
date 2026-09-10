@@ -47,7 +47,7 @@ git clone "$WRIT_BARE_DIR" "$WRIT_COLLAB_DIR" >/dev/null 2>&1
   git config user.email "bob@example.com"
   git config gpg.format ssh
   git config user.signingKey "$WRIT_DEMO_ROOT/id_ed25519.pub"
-  writ init >/dev/null 2>&1
+  writ init --namespace demo >/dev/null 2>&1
 )
 
 # Fixed placeholder id the tape "types" literally, so the recording reads

@@ -38,7 +38,7 @@ func TestQuickstart(t *testing.T) {
 
 	// Step 2: writ init
 	var stdout, stderr bytes.Buffer
-	code := run(ctx, []string{"init", "-C", aliceDir}, &stdout, &stderr)
+	code := run(ctx, []string{"init", "-C", aliceDir, "--namespace", "quickstart"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("step 2 (writ init) failed with %d; stderr: %s", code, stderr.String())
 	}
@@ -117,7 +117,7 @@ func TestQuickstart(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	code = run(ctx, []string{"init", "-C", bobDir}, &stdout, &stderr)
+	code = run(ctx, []string{"init", "-C", bobDir, "--namespace", "quickstart"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("bob init failed with %d; stderr: %s", code, stderr.String())
 	}

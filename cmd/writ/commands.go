@@ -51,15 +51,21 @@ var rootCommand = &command{
 var initCmd = &command{
 	Name:      "init",
 	Short:     "Initialize writ configuration (writer ID and remote fetch refspecs)",
-	UsageLine: "Usage: writ init [-C <dir>] [remote...]",
+	UsageLine: "Usage: writ init [-C <dir>] [--namespace <name>] [remote...]",
 	Long: "Initialize writ repository configuration by resolving or minting a writer ID,\n" +
-		"verifying SSH signing key configuration, and adding fetch refspecs for git remotes.",
+		"verifying SSH signing key configuration, and adding fetch refspecs for git remotes.\n" +
+		"On a work tree with no writ.schema yet, also writes a starter one: --namespace names\n" +
+		"it explicitly, an interactive terminal is prompted for it, and a non-interactive run\n" +
+		"with neither refuses rather than choosing one for you — the namespace becomes part of\n" +
+		"every wire type the schema declares, so it is never derived from a directory name.",
 	Flags: []flagSpec{
 		{Name: "C"},
+		{Name: "namespace"},
 	},
 	Examples: []string{
 		"writ init",
 		"writ init origin",
+		"writ init --namespace acme",
 	},
 }
 

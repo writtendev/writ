@@ -487,8 +487,7 @@ func resolveSchemaTarget(schemas []state.Schema, f *schemasrc.File) (string, err
 // ^[a-z][a-z0-9-]*$, maxLength 64, so the result is always 8-71 characters
 // of printable non-space ASCII: envelope-legal for every legal namespace,
 // and never confusable with a minted id, since ^[0-9a-f]{32}$ admits no
-// colon. deriveStarterNamespace (cmd/writ/init.go) is the naming
-// precedent for this kind of derivation.
+// colon.
 func deriveSchemaObjectID(namespace string) string {
 	return "schema:" + namespace
 }

@@ -64,16 +64,6 @@ func isKeyword(s string) bool {
 	return keywords[s]
 }
 
-// IsKeyword reports whether s is one of writ.schema's reserved words (see
-// keywords): the exported mirror of isKeyword, so a caller outside this
-// package — cmd/writ's `writ init`, deriving a namespace that must not
-// collide with the grammar, is the one today — tests a name against the
-// same closed table TestKeywordsAreClosed pins, rather than keeping its
-// own copy that can silently drift from it.
-func IsKeyword(s string) bool {
-	return isKeyword(s)
-}
-
 // lexer scans writ.schema source into a flat token slice. Positions are
 // 1-based line and 1-based column, counted in Unicode code points
 // (spec/value-types.md §Length units).
