@@ -101,6 +101,7 @@ writ schema apply
 Output:
 ```
 Created schema object schema:my-project (namespace "my-project").
+This repository now declares 1 namespace: my-project.
 Appended 6 op(s).
 ```
 
@@ -114,7 +115,8 @@ writ schema show my-project.ticket
 
 Output:
 ```
-type  my-project.ticket
+type       my-project.ticket
+namespace  my-project
 Ops:
   create  v1
   update  v1

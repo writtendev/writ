@@ -165,10 +165,11 @@ func runSchemaApply(ctx context.Context, defaultDir string, args []string, stdou
 
 	if opts.jsonMode {
 		applyRes := schemaApplyResult{
-			objectID:  planRes.objectID,
-			namespace: planRes.namespace,
-			created:   planRes.created,
-			ops:       planRes.ops,
+			objectID:   planRes.objectID,
+			namespace:  planRes.namespace,
+			namespaces: planRes.namespaces,
+			created:    planRes.created,
+			ops:        planRes.ops,
 		}
 		if err := emitJSON(stdout, wire.KindSchemaApply, applyRes.toWireApply()); err != nil {
 			fmt.Fprintf(stderr, "writ schema apply: marshal json: %v\n", err)
@@ -183,6 +184,18 @@ func runSchemaApply(ctx context.Context, defaultDir string, args []string, stdou
 	}
 	if planRes.created {
 		fmt.Fprintf(stdout, "Created schema object %s (namespace %q).\n", planRes.objectID, planRes.namespace)
+		// Printed on every mint, including the first ever apply in a
+		// repository (WRIT-223): what was missing was never the fact that
+		// something was created -- schema.go already reported that since
+		// WRIT-191 -- but the context that makes an accidental
+		// `namespace acme` -> `namespace acme2` edit legible. A count
+		// threshold here would be a magic condition for no reason; "1
+		// namespace: acme" on the very first apply reads correctly.
+		word := "namespace"
+		if len(planRes.namespaces) != 1 {
+			word = "namespaces"
+		}
+		fmt.Fprintf(stdout, "This repository now declares %d %s: %s.\n", len(planRes.namespaces), word, strings.Join(planRes.namespaces, ", "))
 	} else {
 		fmt.Fprintf(stdout, "Updated schema object %s (namespace %q).\n", planRes.objectID, planRes.namespace)
 	}
@@ -195,16 +208,22 @@ func runSchemaApply(ctx context.Context, defaultDir string, args []string, stdou
 // doesn't compute (current_source, planned_source, up_to_date) can't leak
 // into apply's own payload by accident.
 type schemaApplyResult struct {
-	objectID  string
-	namespace string
-	created   bool
-	ops       []codec.Envelope
+	objectID   string
+	namespace  string
+	namespaces []string
+	created    bool
+	ops        []codec.Envelope
 }
 
 func (r schemaApplyResult) toWireApply() wire.SchemaApply {
+	namespaces := r.namespaces
+	if namespaces == nil {
+		namespaces = []string{}
+	}
 	return wire.SchemaApply{
 		ObjectID:    r.objectID,
 		Namespace:   r.namespace,
+		Namespaces:  namespaces,
 		Created:     r.created,
 		OpsAppended: len(r.ops),
 		Ops:         wire.FromSchemaEnvelopes(r.ops),
@@ -251,6 +270,7 @@ func renderSchemaError(w io.Writer, err error) int {
 type schemaPlanResult struct {
 	objectID      string
 	namespace     string
+	namespaces    []string
 	created       bool
 	upToDate      bool
 	ops           []codec.Envelope
@@ -411,6 +431,7 @@ func buildSchemaPlan(ctx context.Context, store *writ.Store, dir string) (*schem
 	return &schemaPlanResult{
 		objectID:      objectID,
 		namespace:     f.Namespace,
+		namespaces:    schemaNamespaces(schemas, f.Namespace),
 		created:       created,
 		upToDate:      len(delta) == 0,
 		ops:           delta,
@@ -418,6 +439,31 @@ func buildSchemaPlan(ctx context.Context, store *writ.Store, dir string) (*schem
 		plannedSource: plannedSource,
 		conflicts:     conflicts,
 	}, nil
+}
+
+// schemaNamespaces returns the distinct, sorted, non-empty namespaces the
+// repository's schema objects declare, unioned with extra -- the namespace
+// this apply targets, so a fresh mint's own namespace is counted even
+// before store.ApplySchema writes it. Loops over schemas, already in hand
+// from store.Schema(ctx): no extra store call, no new engine API, no
+// projection read. Always non-nil so a caller serializing it needs no nil
+// check.
+func schemaNamespaces(schemas []state.Schema, extra string) []string {
+	set := make(map[string]bool, len(schemas)+1)
+	for _, s := range schemas {
+		if s.Namespace != "" {
+			set[s.Namespace] = true
+		}
+	}
+	if extra != "" {
+		set[extra] = true
+	}
+	out := make([]string, 0, len(set))
+	for ns := range set {
+		out = append(out, ns)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // resolveSchemaTarget implements the one decision this ticket owns: which
@@ -749,12 +795,12 @@ func rawFieldString(raw map[string]json.RawMessage, key string) string {
 // attribute case) a define-field op that folds against the log's real
 // history to a state the file itself no longer describes.
 //
-// A namespace change is refused earlier, by resolveSchemaTarget, and never
-// reaches here: current and planned are only ever compared once a target
-// object id is already settled, and current.Namespace is by construction
-// either "" (a brand-new object) or already equal to planned.Namespace (a
-// namespace match) — resolveSchemaTarget refuses every other outcome
-// before buildSchemaPlan folds current or planned at all.
+// A namespace change never reaches this function with a current to compare
+// removals against: resolveSchemaTarget resolves an edited namespace to a
+// fresh target object id — it mints, it no longer refuses (WRIT-217 deleted
+// the refusal that used to sit here) — so current is the zero state.Schema{}
+// for that apply, and there is nothing to compare planned against, not
+// because the change itself is refused.
 //
 // Comparison is always compiled declarations (planned, compiled) against
 // folded state (current), never source text — comments, spacing, and

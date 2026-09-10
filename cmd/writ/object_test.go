@@ -996,6 +996,32 @@ func TestSchemaShowCLI(t *testing.T) {
 	if len(typeInfo.Fields) == 0 {
 		t.Errorf("expected fields for ticket, got none")
 	}
+
+	// WRIT-223: the single-type porcelain view gains a `namespace` row,
+	// derived from the qualified name -- already visible in `type`, but
+	// broken out for a reader who wants it without parsing the dot.
+	stdout.Reset()
+	stderr.Reset()
+	code = run(context.Background(), []string{"schema", "show", "-C", env.repoDir, "acme.ticket"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("schema show ticket (human) failed with %d; stderr: %s", code, stderr.String())
+	}
+	if !hasTabwriterRow(stdout.String(), "namespace", "acme") {
+		t.Errorf("schema show acme.ticket (human) = %q, want a namespace row naming acme", stdout.String())
+	}
+}
+
+// hasTabwriterRow reports whether out contains a line whose
+// whitespace-separated fields are exactly want -- the shape a
+// text/tabwriter table row takes once flushed, regardless of how many
+// spaces of padding separate the columns.
+func hasTabwriterRow(out string, want ...string) bool {
+	for _, line := range strings.Split(out, "\n") {
+		if slices.Equal(strings.Fields(line), want) {
+			return true
+		}
+	}
+	return false
 }
 
 // widgetTargetTestSchema declares one field twice under two different ops:
@@ -1081,6 +1107,12 @@ func TestSchemaShowCLI_SchemaType(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "schema") {
 		t.Errorf("stdout does not name the type: %q", stdout.String())
+	}
+	// The bootstrap type "schema" is never namespace-qualified (WRIT-217
+	// leaves it bare), so strings.Cut in the namespace-row branch finds no
+	// dot and must print no row for it (WRIT-223).
+	if strings.Contains(stdout.String(), "namespace") {
+		t.Errorf("schema show schema (human) unexpectedly printed a namespace row: %q", stdout.String())
 	}
 }
 

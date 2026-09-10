@@ -683,6 +683,17 @@ type standup {
 		t.Fatalf("expected a fresh schema object id for the new namespace, got the same id %s twice", firstObjectID)
 	}
 
+	// WRIT-223's own acceptance: --json carries the resulting-namespace fact
+	// structurally, not only in prose, so a scripted caller can detect "this
+	// apply created a new schema object" without parsing English.
+	secondApply := schemaApplyFromJSON(t, stdout.Bytes())
+	if !secondApply.Created {
+		t.Errorf("second apply created = %v, want true (a fresh mint for the renamed namespace)", secondApply.Created)
+	}
+	if want := []string{"acme", "acme2"}; !slices.Equal(secondApply.Namespaces, want) {
+		t.Errorf("second apply namespaces = %v, want %v", secondApply.Namespaces, want)
+	}
+
 	stdout.Reset()
 	stderr.Reset()
 	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "show"}, &stdout, &stderr); code != 0 {
@@ -692,6 +703,99 @@ type standup {
 	sort.Strings(names)
 	if !slices.Equal(names, []string{"acme.standup", "acme2.standup"}) {
 		t.Fatalf("schema show = %v, want both the original and the new namespace's types, both installed", names)
+	}
+
+	// The porcelain form of the identical rename-vs-second-package
+	// transition, on a fresh repository: the create-report line growth this
+	// ticket adds. A separate repo is needed because apply is idempotent —
+	// re-running the acme2 transition above in porcelain mode would find
+	// nothing left to apply and print neither line.
+	env2 := initTestRepo(t)
+	writeSchemaFile(t, env2.repoDir, base)
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"-C", env2.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("initial porcelain apply failed with %d; stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "This repository now declares 1 namespace: acme.") {
+		t.Errorf("initial apply porcelain = %q, want the resulting-namespace line naming 1 namespace", stdout.String())
+	}
+
+	writeSchemaFile(t, env2.repoDir, changed)
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"-C", env2.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("rename porcelain apply failed with %d; stderr: %s", code, stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, `Created schema object schema:acme2 (namespace "acme2").`) {
+		t.Errorf("rename apply porcelain = %q, want the Created line naming the new object", out)
+	}
+	if !strings.Contains(out, "This repository now declares 2 namespaces: acme, acme2.") {
+		t.Errorf("rename apply porcelain = %q, want the resulting-namespace line naming both namespaces and the count", out)
+	}
+}
+
+// TestSchemaCLI_ApplyReuseStaysQuiet pins WRIT-223's "stays quiet"
+// acceptance criterion: applying an addition under a namespace the log
+// already recognises reuses the existing schema object exactly as before
+// (`Updated schema object …`), and gains no resulting-namespace line — that
+// line is new-mint-only, both in porcelain and in --json's `namespaces`
+// tracking nothing that would make a caller think reuse is somehow also a
+// mint.
+func TestSchemaCLI_ApplyReuseStaysQuiet(t *testing.T) {
+	env := initTestRepo(t)
+	base := `namespace acme
+description "Acme's vocabulary"
+
+type standup {
+  op create 1 {
+    title  string(200)  lww
+  }
+}
+`
+	writeSchemaFile(t, env.repoDir, base)
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("initial apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	extended := base + `
+type widget {
+  op create 1 {
+    caption  string  lww
+  }
+}
+`
+	writeSchemaFile(t, env.repoDir, extended)
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("addition apply failed with %d; stderr: %s", code, stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, `Updated schema object schema:acme (namespace "acme").`) {
+		t.Errorf("addition apply porcelain = %q, want the Updated line", out)
+	}
+	if strings.Contains(out, "This repository now declares") {
+		t.Errorf("addition apply porcelain = %q, want no resulting-namespace line on reuse", out)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply", "--json"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("no-op apply --json failed with %d; stderr: %s", code, stderr.String())
+	}
+	// Nothing left to apply now, so this is the up-to-date porcelain path,
+	// not the reuse-with-an-addition path above -- but the same "no created,
+	// no fresh mint" shape holds: created is false either way, and
+	// namespaces still tracks the one namespace this repository declares.
+	noop := schemaApplyFromJSON(t, stdout.Bytes())
+	if noop.Created {
+		t.Errorf("no-op apply created = %v, want false (nothing left to apply)", noop.Created)
+	}
+	if want := []string{"acme"}; !slices.Equal(noop.Namespaces, want) {
+		t.Errorf("no-op apply namespaces = %v, want %v", noop.Namespaces, want)
 	}
 }
 
@@ -1227,6 +1331,14 @@ func planObjectID(t *testing.T, jsonData []byte) string {
 
 func applyObjectID(t *testing.T, jsonData []byte) string {
 	t.Helper()
+	return schemaApplyFromJSON(t, jsonData).ObjectID
+}
+
+// schemaApplyFromJSON decodes a `writ schema apply --json` envelope's data
+// as a wire.SchemaApply, for tests that need more than just the object id
+// (e.g. Namespaces, Created).
+func schemaApplyFromJSON(t *testing.T, jsonData []byte) wire.SchemaApply {
+	t.Helper()
 	var envW wire.Envelope
 	if err := json.Unmarshal(jsonData, &envW); err != nil {
 		t.Fatalf("unmarshal envelope: %v", err)
@@ -1236,7 +1348,7 @@ func applyObjectID(t *testing.T, jsonData []byte) string {
 	if err := json.Unmarshal(data, &apply); err != nil {
 		t.Fatalf("unmarshal SchemaApply: %v", err)
 	}
-	return apply.ObjectID
+	return apply
 }
 
 func TestGolden_SchemaPlan_Fresh(t *testing.T) {
