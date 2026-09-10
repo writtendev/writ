@@ -207,6 +207,7 @@ Runs the same computation as `writ schema plan`, then signs and appends the resu
 |---|---|---|
 | `object_id` | string | The schema object written to. On creation (`created: true`), `schema:<namespace>`. On reuse (`created: false`), whatever id the existing schema object already held. |
 | `namespace` | string | The file's `namespace` declaration. |
+| `namespaces` | array | The repository's distinct, sorted namespaces as they stand after this apply. Lets a scripted caller detect "this apply created a new schema object" and read the resulting count (`.data.namespaces \| length`) without parsing porcelain prose — the fact that an unrecognised namespace was just minted as an independent schema object, not applied as a rename of an existing one. |
 | `created` | boolean | `true` iff this apply created a fresh schema object at `object_id`. |
 | `ops_appended` | integer | Count of ops actually appended. `0` when the file already matched the log. |
 | `ops` | array | The ops appended, same shape as `SchemaPlan.ops`. Empty array (`[]`) when nothing was appended. |
@@ -220,6 +221,7 @@ Runs the same computation as `writ schema plan`, then signs and appends the resu
   "data": {
     "object_id": "schema:acme",
     "namespace": "acme",
+    "namespaces": ["acme"],
     "created": true,
     "ops_appended": 2,
     "ops": [

@@ -221,9 +221,16 @@ type SchemaPlan struct {
 
 // SchemaApply is the `schema.apply` JSON payload: the target schema object
 // written to, and the ops actually appended.
+//
+// Namespaces is the repository's distinct, sorted namespace set as it
+// stands after this apply -- the fact that lets a scripted caller detect
+// "this apply created a new schema object" and read the resulting count
+// (`.data.namespaces | length`) without parsing porcelain prose (WRIT-223).
+// Always non-nil so it serializes as `[]`, never `null`.
 type SchemaApply struct {
 	ObjectID    string          `json:"object_id"`
 	Namespace   string          `json:"namespace"`
+	Namespaces  []string        `json:"namespaces"`
 	Created     bool            `json:"created"`
 	OpsAppended int             `json:"ops_appended"`
 	Ops         []SchemaOpEntry `json:"ops"`

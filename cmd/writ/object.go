@@ -1002,6 +1002,13 @@ func runSchemaShow(ctx context.Context, defaultDir string, args []string, stdout
 
 	tw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintf(tw, "type\t%s\n", found.Name)
+	// resolveSchemaTypes qualifies every installed type as
+	// "<namespace>.<type>" except the bootstrap "schema" itself (never
+	// qualified, never anyone's namespace), so a single Cut is total: found
+	// either splits into a namespace or has none to report (WRIT-223).
+	if namespace, _, ok := strings.Cut(found.Name, "."); ok {
+		fmt.Fprintf(tw, "namespace\t%s\n", namespace)
+	}
 	if found.Description != "" {
 		fmt.Fprintf(tw, "description\t%s\n", found.Description)
 	}
