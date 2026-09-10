@@ -351,9 +351,12 @@ to its `TargetKey()` — its declared `target`, or its field name when
 undeclared — and each target's whole rule set is checked at once, after
 every field of the type has been compiled, not incrementally against
 whatever was bound so far: that incremental form is what WRIT-211
-replaced, because it let declaration order change whether a
-disagreement was found at all, not only which pair it was reported
-against. The relation itself, in one sentence:
+replaced, because which rule survived a violation depended on which
+prior a candidate happened to be compared against first
+(`schema-ops.md` §8) — itself a function of canonical `(op_type,
+op_version, field)` order, derived from `op_type` and `field` names,
+not of how the author arranged the source file. The relation itself,
+in one sentence:
 within one `(op_type, field)` version-bump class (§7), rules sharing a
 target must agree on `strategy` and `lattice` and may differ on
 `value_type`, `enum`, `max_length`, `key` and `key_types`; the moment more
