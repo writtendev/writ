@@ -4,12 +4,14 @@
 // definition of the rule without any of them importing a package that can
 // spawn processes.
 //
-// Its imports are strings, unicode/utf8, and the two golang.org/x/text
-// packages that carry the Unicode tables the normalization rule is defined
-// over. All four are pure table-driven computation: no filesystem, no network,
-// no process spawning. That is what makes this package's entry in
-// engine/internal/fold's import allowlist grant no capability. Keep it that
-// way — anything reached from here is reachable from the fold.
+// Its imports are strings, unicode/utf8, the shared internal/textsafe
+// forbidden-code-point table, and the two golang.org/x/text packages that
+// carry the Unicode tables the normalization rule is defined over. All five
+// are pure table-driven computation: no filesystem, no network, no process
+// spawning (textsafe itself imports only strings). That is what makes this
+// package's entry in engine/internal/fold's import allowlist grant no
+// capability. Keep it that way — anything reached from here is reachable
+// from the fold.
 package person
 
 import (
@@ -18,6 +20,8 @@ import (
 
 	"golang.org/x/text/cases"
 	"golang.org/x/text/unicode/norm"
+
+	"github.com/writtendev/writ/internal/textsafe"
 )
 
 // Length bounds from spec/identifiers.md §Person identifiers. MaxLen is
@@ -456,6 +460,12 @@ const (
 	SchemeTooLong
 	// EmptyValue means the value is empty.
 	EmptyValue
+	// ForbiddenCodePoint means the value contains a code point
+	// spec/identifiers.md §Value character repertoire forbids: a C0 or C1
+	// control character, DEL, a bidi control, isolate, embedding or
+	// override, or a zero-width or invisible character. FirstForbidden
+	// names the offending code point for a caller's error message.
+	ForbiddenCodePoint
 	// ValueTooLong means the value exceeds MaxValueLen code points.
 	ValueTooLong
 )
@@ -473,10 +483,22 @@ func (p Problem) String() string {
 		return "scheme is longer than 32 characters"
 	case EmptyValue:
 		return "value is empty"
+	case ForbiddenCodePoint:
+		return "value contains a forbidden code point (control character, bidi control/isolate/override, or zero-width/invisible character; spec/identifiers.md §Value character repertoire)"
 	case ValueTooLong:
 		return "value is longer than 320 characters"
 	}
 	return "unknown problem"
+}
+
+// FirstForbidden reports the first code point in s that
+// spec/identifiers.md §Value character repertoire forbids, so a caller
+// building an error message around a ForbiddenCodePoint Problem can name it
+// (for example "U+202E"). It delegates to internal/textsafe's shared table —
+// the same one cmd/writ escapes at display — rather than keeping a second
+// copy of it here.
+func FirstForbidden(s string) (rune, bool) {
+	return textsafe.First(s)
 }
 
 // Check reports whether s is a conforming person identifier per
@@ -504,6 +526,14 @@ func Check(s string) Problem {
 	}
 	if value == "" {
 		return EmptyValue
+	}
+	// Checked over the value only: the scheme charset (validScheme, above)
+	// already admits none of these code points, so there is nothing to gain
+	// checking it too. A message naming a forbidden code point beats "value
+	// is longer than 320 characters" for an input that is both, which is why
+	// this runs before the length check.
+	if _, bad := textsafe.First(value); bad {
+		return ForbiddenCodePoint
 	}
 	if countRunes(value) > MaxValueLen {
 		return ValueTooLong

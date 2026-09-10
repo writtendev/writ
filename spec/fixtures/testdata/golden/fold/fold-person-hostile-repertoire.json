@@ -1,0 +1,26 @@
+{
+  "objects": [
+    {
+      "object_id": "w-hostile-repertoire",
+      "object_type": "acme.widget",
+      "total_order": [
+        {
+          "commit": "1831f16d282868ee69b7e441db12d1afedf125f5",
+          "label": "alice-create",
+          "t_star": 1772323200
+        },
+        {
+          "commit": "345bcf7b8adbc1744576db4dc959fbceb0104771",
+          "label": "alice-assign-hostile",
+          "t_star": 1772323260
+        }
+      ],
+      "state": {
+        "assignees": [
+          "email:mallory‮@evil.com"
+        ],
+        "title": "Hostile Repertoire Test"
+      }
+    }
+  ]
+}

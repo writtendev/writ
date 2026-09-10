@@ -136,6 +136,54 @@ func TestCheckRejectsRatherThanTruncates(t *testing.T) {
 	}
 }
 
+// TestCheckForbiddenCodePoints pins WRIT-137's producer-side repertoire
+// rule: every forbidden class is rejected with ForbiddenCodePoint, naming
+// the exact code point via FirstForbidden, and the immediate neighbour on
+// each side of every range is still Valid -- so the ranges are pinned at
+// both edges, not just somewhere inside them.
+func TestCheckForbiddenCodePoints(t *testing.T) {
+	forbidden := []rune{
+		0x0000, 0x0001, 0x001F, // C0
+		0x007F,         // DEL
+		0x0080, 0x009F, // C1
+		0x200B, 0x200C, 0x200D, // zero-width space, ZWNJ, ZWJ
+		0x200E, 0x200F, // LRM, RLM
+		0x202A, 0x202E, // bidi embeddings/overrides
+		0x2066, 0x2069, // bidi isolates
+		0xFEFF, // BOM
+	}
+	for _, r := range forbidden {
+		id := "email:ali" + string(r) + "ce@example.com"
+		if got := person.Check(id); got != person.ForbiddenCodePoint {
+			t.Errorf("Check(%q) with %U = %v, want ForbiddenCodePoint", id, r, got)
+		}
+		gotR, ok := person.FirstForbidden(id)
+		if !ok || gotR != r {
+			t.Errorf("FirstForbidden(%q) = %U, %v, want %U, true", id, gotR, ok, r)
+		}
+	}
+
+	// The immediate neighbour of every forbidden range above is accepted.
+	neighbours := []rune{0x0020, 0x007E, 0x00A0, 0x200A, 0x2010, 0x2065, 0x206A, 0xFEFE, 0xFF00}
+	for _, r := range neighbours {
+		id := "email:ali" + string(r) + "ce@example.com"
+		if got := person.Check(id); got != person.Valid {
+			t.Errorf("Check(%q) with neighbour %U = %v, want Valid", id, r, got)
+		}
+	}
+}
+
+// TestCheckForbiddenCodePointOrderedBeforeLength pins that a value both too
+// long and carrying a forbidden code point is reported as the code point,
+// not the length -- naming the offending character beats a generic bound
+// error for an input that is both.
+func TestCheckForbiddenCodePointOrderedBeforeLength(t *testing.T) {
+	id := "email:" + strings.Repeat("a", 320) + string(rune(0x202E))
+	if got := person.Check(id); got != person.ForbiddenCodePoint {
+		t.Errorf("Check(over-long AND forbidden) = %v, want ForbiddenCodePoint", got)
+	}
+}
+
 func TestDerivedMaxLen(t *testing.T) {
 	if person.MaxLen != person.MaxSchemeLen+1+person.MaxValueLen {
 		t.Errorf("MaxLen = %d, want %d", person.MaxLen, person.MaxSchemeLen+1+person.MaxValueLen)

@@ -28,6 +28,10 @@ import (
 //     Unicode data — no filesystem, no network, no processes, no clock.
 //     cases additionally reaches x/text/language, itself table lookup over
 //     language tags.
+//   - person also imports the root-level internal/textsafe (WRIT-137), the
+//     forbidden-code-point table shared with cmd/writ's display-side
+//     escaping. textsafe imports only strings, already on this package's own
+//     allowlist, so this adds nothing fold could not already reach.
 //   - The transitive closure through value and person does contain os,
 //     reached through fmt, which x/text and value's own error messages both
 //     use for formatting. That grants fold nothing new in practice: this

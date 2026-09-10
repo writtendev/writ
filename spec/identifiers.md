@@ -221,7 +221,7 @@ person-id = scheme ":" value
 | Field | Grammar | Bound | Meaning |
 | --- | --- | --- | --- |
 | `scheme` | `[a-z][a-z0-9+.-]*` | at most 32 characters | Names the namespace the value belongs to. |
-| `value` | any non-empty string | at most 320 code points | Opaque to Writ within its scheme. |
+| `value` | any non-empty string outside the forbidden repertoire (§[Value character repertoire](#value-character-repertoire)) | at most 320 code points | Opaque to Writ within its scheme. |
 
 Two schemes are defined:
 
@@ -383,6 +383,57 @@ The number 320 is inherited from the ceiling an RFC 5321 address can reach (a
 happens to be roomy, not a conformance claim, and it applies to `user:` values
 that have nothing to do with email.
 
+### Value character repertoire
+
+Confirmed end to end (WRIT-137): with no repertoire restriction, a person
+identifier's value could carry control characters, bidirectional overrides,
+and zero-width characters. A bidi override makes **displayed text differ from
+stored text** — an identifier stored as `email:mallory@evil.com` can be
+crafted to render as `email:alice@good.com`. A zero-width character does the
+quieter version: `al<ZWSP>ice` renders identically to `alice` but is a
+different string, so one identity can be made to look like another. For a
+format whose product is "this person approved this, cryptographically
+signed," a reader deceived about **who** is the failure that matters —
+nothing is corrupted, the signature simply verifies a claim the human
+misreads.
+
+A person identifier's **value** MUST NOT contain any of the following code
+points. (The scheme's own charset, `[a-z][a-z0-9+.-]*`, already admits none of
+them, so this constrains the value only.)
+
+| Class | Code points |
+| --- | --- |
+| C0 controls | U+0000–U+001F |
+| DEL | U+007F |
+| C1 controls | U+0080–U+009F |
+| Bidi controls, embeddings, overrides, isolates | U+200E–U+200F, U+202A–U+202E, U+2066–U+2069 |
+| Zero-width / invisible characters | U+200B–U+200D, U+FEFF |
+
+**Producers MUST reject** a value containing any of these code points, never
+truncate or repair it, and MUST name the offending code point in the
+rejection.
+
+**Known limitation, accepted deliberately.** A blanket ban on U+200D (ZERO
+WIDTH JOINER) is cruder than correct: ZWJ is load-bearing for legitimate
+rendering in several Indic scripts and in Arabic, so this rule rejects some
+identifiers that ought to be valid. [PRECIS IdentifierClass](https://www.rfc-editor.org/rfc/rfc8264)
+(RFC 8264/8265) handles exactly this with contextual rules (ZWJ is
+`CONTEXTJ`, permitted in specific positions) rather than a flat prohibition.
+This is accepted knowingly as the pragmatic form for now. The planned v0.2.0
+follow-up adopts PRECIS IdentifierClass for the repertoire only, keeping this
+document's normalization pipeline unchanged — the two are separable ("which
+code points are allowed" versus "how two values compare"). Because this rule
+is producer-side only, never consulted by the fold (§[The value folding
+algorithm](#the-value-folding-algorithm) is what the fold actually runs),
+tightening it later refuses new writes and leaves every already-folded
+identifier unchanged: the only casualty is an identifier legal under this
+rule but not under PRECIS, which stops being writable while already-written
+instances keep working.
+
+This is a **producer-side** rule. §[Rendering a person identifier](#rendering-a-person-identifier)
+explains why a producer-side rule alone does not close the attack it exists
+to reduce.
+
 ### Normalization rules
 
 To guarantee deterministic comparison, portable queries, and interoperability
@@ -476,9 +527,10 @@ non-starters — comfortably inside the 320-code-point bound — then folds to
 different bytes in different implementations, which is the one thing this
 format may not do.
 
-This document does not restrict which characters a value may contain. Control
-characters, bidirectional overrides and zero-width characters are an open
-question, deliberately separate from how a value is folded.
+§[Value character repertoire](#value-character-repertoire) restricts which
+characters a value may contain. That is a producer-side constraint on what a
+conforming Writ producer mints, and it is deliberately separate from how a
+value is folded.
 
 ### Comparison and equality
 
@@ -528,7 +580,10 @@ the consequence of the one that does.
 
 - **Producers MUST** emit normalized, scheme-prefixed person identifiers when
   writing operation payloads, and MUST reject — never truncate, never repair —
-  an identifier that violates the grammar or the bounds.
+  an identifier that violates the grammar, the bounds, or the value character
+  repertoire (§[Value character repertoire](#value-character-repertoire)),
+  naming the offending code point when the rejection is a repertoire
+  violation.
 - **Producers MUST NOT** write a `writer-id` where a `person-id` is expected,
   nor derive one from the other
   (§[Relationship to `writer-id`](#relationship-to-writer-id)).
@@ -552,32 +607,76 @@ the consequence of the one that does.
 
 **What the schema can and cannot say.** The `person-id` definition in
 [`schemas/identifiers.schema.json`](schemas/identifiers.schema.json) enforces
-the grammar and the bounds — the scheme's charset and 32-character cap, a
-non-empty value, and the derived 353 `maxLength`. It cannot enforce
-normalization of the *value*, because the value is opaque within its scheme and
-a whitespace-trimming rule is not expressible in a pattern that must also admit
+the grammar, the bounds, and now the value's character repertoire — the
+scheme's charset and 32-character cap, a non-empty value, the forbidden code
+points named in §[Value character repertoire](#value-character-repertoire),
+and the derived 353 `maxLength`. It cannot enforce normalization of the
+*value*, because the value is opaque within its scheme and a
+whitespace-trimming rule is not expressible in a pattern that must also admit
 quoted local parts. `"email: alice@example.com"` is therefore a shape the schema
 accepts and a conforming producer never writes. Schema validation is a
 necessary check, not a sufficient one; §[Normalization rules](#normalization-rules)
 is the rest of the obligation.
+
+### Rendering a person identifier
+
+§[Value character repertoire](#value-character-repertoire) is a producer
+rule, not a security boundary. [`spec/fold.md`](fold.md) §7.1 makes fold
+total by design — fold reads whatever is in the log, including operations
+written by a foreign or buggy client, and what is in the log is permanent —
+so a hostile writer simply emits a non-conforming op and the bidi override or
+zero-width character lands in the log regardless of what producers refuse.
+
+Therefore:
+
+- **Writ's own rendering paths MUST neutralise** the code points
+  §[Value character repertoire](#value-character-repertoire) forbids,
+  wherever a person identifier reaches a human: `--json` output, every CLI
+  display path, and anything else that puts an identifier in front of a
+  reader. Escaping (rendering the code point as its `\uXXXX` form) is
+  preferred over stripping: escaping is lossless and visibly wrong, where
+  stripping silently changes what the log says.
+- **Third-party consumers SHOULD** do the same. This is a SHOULD, not a MUST,
+  because Writ does not control what a third-party client does with the data
+  it reads — but an implementer that skips this exposes the same spoofing
+  vector §[Value character repertoire](#value-character-repertoire) exists to
+  close.
+
+This MUST is scoped to rendering a person identifier specifically; it does
+not create a general normative category for how consumers must render
+arbitrary strings.
+
+It is pinned by `cmd/writ`'s own tests, not by the conformance corpus under
+`testdata/` and `fixtures/`: that corpus states folded *state*, and rendering
+is not state — a hostile identifier folds to the same bytes whether or not
+the display that shows it escapes them.
 
 ### Conformance vectors
 
 The normative cases live in [`testdata/persons/`](testdata/persons):
 `valid/` vectors carry the identifier, the scheme and value it splits into, its
 normalized form, and identifiers it must and must not compare equal to;
-`invalid/` vectors carry an identifier the grammar or the bounds reject, with
-`invalid/index.json` recording why. Between them they pin first-colon parsing
-with a quoted local part, cross-scheme non-equality, case and whitespace
-normalization, unknown-scheme preservation, a maximal-length value and one code
-point more, a value that crosses the bound only *before* normalization, and an
-over-long scheme.
+`invalid/` vectors carry an identifier the grammar, the bounds, or the
+repertoire rejects, with `invalid/index.json` recording why. Between them
+they pin first-colon parsing with a quoted local part, cross-scheme
+non-equality, case and whitespace normalization, unknown-scheme preservation,
+a maximal-length value and one code point more, a value that crosses the
+bound only *before* normalization, an over-long scheme, one vector per
+forbidden repertoire class (an interior C0 control, DEL, an interior C1
+control, a bidi override, a bidi isolate, a zero-width character, and the
+BOM), and what is deliberately still permitted despite the repertoire rule
+(an emoji value, an interior space, and unmarked right-to-left script).
 
 Fold-level behaviour is pinned separately, by
 [`fixtures/testdata/descriptions/fold-person-schemes.yaml`](fixtures/testdata/descriptions/fold-person-schemes.yaml)
-(schemes never unify; an unknown scheme folds like any other) and
+(schemes never unify; an unknown scheme folds like any other),
 [`fold-person-unicode-folding.yaml`](fixtures/testdata/descriptions/fold-person-unicode-folding.yaml)
-(denormalized identifiers fold to one member).
+(denormalized identifiers fold to one member), and
+[`fold-person-hostile-repertoire.yaml`](fixtures/testdata/descriptions/fold-person-hostile-repertoire.yaml)
+(a foreign client's op carrying a bidi override folds byte-for-byte intact —
+the proof that §[Value character repertoire](#value-character-repertoire) is
+producer-side hygiene, not the security boundary §[Rendering a person
+identifier](#rendering-a-person-identifier) is).
 
 ### Relationship to `writer-id`
 

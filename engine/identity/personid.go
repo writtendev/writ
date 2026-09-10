@@ -43,10 +43,14 @@ func DerivePersonID(cfg map[string]string) (string, error) {
 	if raw := cfg["writ.personid"]; strings.TrimSpace(raw) != "" {
 		norm := person.NormalizePerson(raw)
 		if p := person.Check(norm); p != person.Valid {
+			problem := fmt.Errorf("%w: %s", ErrInvalid, p)
+			if r, ok := person.FirstForbidden(norm); ok {
+				problem = fmt.Errorf("%w: %s (U+%04X)", ErrInvalid, p, r)
+			}
 			return "", &ConfigError{
 				Key:     PersonIDKey,
 				Value:   raw,
-				Problem: fmt.Errorf("%w: %s", ErrInvalid, p),
+				Problem: problem,
 			}
 		}
 		return norm, nil
@@ -67,10 +71,14 @@ func DerivePersonID(cfg map[string]string) (string, error) {
 
 	norm := person.NormalizePerson("email:" + email)
 	if p := person.Check(norm); p != person.Valid {
+		problem := fmt.Errorf("%w: derived person identifier is not conforming: %s (set %s to override)", ErrInvalid, p, PersonIDKey)
+		if r, ok := person.FirstForbidden(norm); ok {
+			problem = fmt.Errorf("%w: derived person identifier is not conforming: %s (U+%04X) (set %s to override)", ErrInvalid, p, r, PersonIDKey)
+		}
 		return "", &ConfigError{
 			Key:     "user.email",
 			Value:   email,
-			Problem: fmt.Errorf("%w: derived person identifier is not conforming: %s (set %s to override)", ErrInvalid, p, PersonIDKey),
+			Problem: problem,
 		}
 	}
 	return norm, nil

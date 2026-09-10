@@ -2,6 +2,7 @@ package value_test
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -142,6 +143,32 @@ func TestValueTypeCoversWholeCatalogue(t *testing.T) {
 		if !invalidCovered[vt] {
 			t.Errorf("value type %q has no invalid vector under testdata/value-types/invalid", vt)
 		}
+	}
+}
+
+// TestPersonRefRejectionQuotesValueSafely is WRIT-137's pinning test for the
+// premise check its plan recorded: strconv.IsPrint is false for every
+// forbidden code point (spec/identifiers.md §Value character repertoire), so
+// %q already escapes all of them via strconv.Quote -- this is a pin, not a
+// change, guarding against a future switch from %q to %s in the person-ref
+// rejection message going unnoticed. It also checks the message names the
+// offending code point.
+func TestPersonRefRejectionQuotesValueSafely(t *testing.T) {
+	hostile := "email:alice" + string(rune(0x202E)) + "@evil.com"
+	err := value.Validate("person-ref", value.Params{}, hostile)
+	if err == nil {
+		t.Fatal("value.Validate accepted a person-ref value carrying a bidi override")
+	}
+	wantQuoted := strconv.Quote(hostile)
+	if !strings.Contains(err.Error(), wantQuoted) {
+		t.Errorf("error %q does not contain the %%q-quoted value %q", err.Error(), wantQuoted)
+	}
+	// strconv.Quote escapes a non-printable rune as lowercase \uXXXX.
+	if !strings.Contains(err.Error(), "\\u202e") {
+		t.Errorf("error %q does not contain the escaped hostile code point", err.Error())
+	}
+	if !strings.Contains(err.Error(), "U+202E") {
+		t.Errorf("error %q does not name the offending code point", err.Error())
 	}
 }
 

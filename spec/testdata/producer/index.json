@@ -211,5 +211,17 @@
     "producer_verdict": "accept",
     "reader_disposition": "interpretable",
     "reason": "rule 6 (WRIT-222) scope boundary, the falsifiable half of the acceptance criteria: rule 6 refuses a declared field's own top-level value being null, never a null nested inside a structured value the field's value_type itself permits. An anchor's range/context collar pairs on presence only (engine/internal/value's validateAnchorSide), so a well-formed anchor may carry null on both once both are present -- exactly the shape engine/internal/fold/reject.go's own doc comment blesses (\"an anchor whose context collar is null is well formed\"). The producer accepts it and the reader folds it normally, both because rule 6 and fold's own uninterpretability check stop at the field's own value, never recursing into a structured payload's interior (spec/fold.md §6)"
+  },
+  "person-ref-bidi-override.json": {
+    "producer_verdict": "reject",
+    "reason_code": "schema-violation",
+    "reader_disposition": "interpretable",
+    "reason": "WRIT-137: a person-ref value carrying a bidi override (U+202E) is refused at the producer by person.Check (value.Validate's person-ref arm); the read path does no repertoire checking, so the reader folds the op with the value intact -- exactly the case that makes the display-side escape (spec/identifiers.md section Rendering a person identifier) load-bearing"
+  },
+  "person-ref-control-character.json": {
+    "producer_verdict": "reject",
+    "reason_code": "schema-violation",
+    "reader_disposition": "interpretable",
+    "reason": "WRIT-137: a person-ref value carrying an interior C0 control character is refused at the producer by person.Check; the reader has no repertoire check and folds the op with the value intact"
   }
 }

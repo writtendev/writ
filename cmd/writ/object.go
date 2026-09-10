@@ -32,6 +32,7 @@ import (
 	"github.com/writtendev/writ/cmd/writ/internal/wire"
 	"github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/engine/codec"
+	"github.com/writtendev/writ/internal/textsafe"
 )
 
 func runObject(ctx context.Context, defaultDir string, args []string, stdout, stderr io.Writer) int {
@@ -741,15 +742,24 @@ func runObjectShow(ctx context.Context, defaultDir string, args []string, stdout
 // view: a bare string prints unquoted, everything else (numbers, bools,
 // maps, slices -- an object type nothing declares a Go shape for) prints
 // as compact JSON.
+//
+// Both arms escape bidi and zero-width code points (spec/identifiers.md
+// §Rendering a person identifier) before returning: Object.Fields is a
+// map[string]any with no value type in hand here, so this escapes every
+// string it renders rather than only ones it can prove are person-ref --
+// the same reasoning emitJSON's doc comment gives for --json. The escape is
+// display, not data: a value whose text spells out the escape sequence
+// itself renders identically to one containing the override, and anything
+// needing the exact bytes reads --json.
 func fieldDisplay(v any) string {
 	if s, ok := v.(string); ok {
-		return s
+		return textsafe.EscapeForbidden(s)
 	}
 	b, err := json.Marshal(v)
 	if err != nil {
 		return fmt.Sprintf("%v", v)
 	}
-	return string(b)
+	return textsafe.EscapeForbidden(string(b))
 }
 
 type objectListOpts struct {
@@ -883,9 +893,14 @@ func runObjectList(ctx context.Context, defaultDir string, args []string, stdout
 // come off op commits, including foreign ones, and nothing normalizes them
 // on the read path, so a blank name or email is a real possibility here,
 // not a defensive nicety.
+//
+// name and email are escaped for the same reason fieldDisplay's are
+// (spec/identifiers.md §Rendering a person identifier): this command's
+// --json half is already escaped by emitJSON's pass, so leaving this human
+// line raw would be inconsistent within one command for one line of change.
 func authorDisplay(name, email string) string {
-	name = strings.TrimSpace(name)
-	email = strings.TrimSpace(email)
+	name = textsafe.EscapeForbidden(strings.TrimSpace(name))
+	email = textsafe.EscapeForbidden(strings.TrimSpace(email))
 	switch {
 	case name != "" && email != "":
 		return fmt.Sprintf("%s <%s>", name, email)

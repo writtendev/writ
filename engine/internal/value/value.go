@@ -119,6 +119,9 @@ func Validate(valueType string, params Params, v any) error {
 			return fmt.Errorf("value: person-ref value must be a JSON string")
 		}
 		if p := person.Check(s); p != person.Valid {
+			if r, ok := person.FirstForbidden(s); ok {
+				return fmt.Errorf("value: person-ref value %q: %s (U+%04X)", s, p, r)
+			}
 			return fmt.Errorf("value: person-ref value %q: %s", s, p)
 		}
 		return nil
