@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/go-git/go-git/v5"
 )
 
 func requireGit(t *testing.T) {
@@ -52,6 +54,23 @@ func setupTestCLIEnv(t *testing.T) testCLIEnv {
 		repoDir:       repoDir,
 		globalCfgPath: globalCfgPath,
 	}
+}
+
+// initBareRepo creates a bare repository at dir with go-git.
+//
+// go-git's PlainInit does not read GIT_TEMPLATE_DIR, so the repository misses
+// the auto-maintenance config gittest.DisableAutoMaintenance installs through
+// the template, and its config has to be written in directly. receive-pack
+// reads the config of the repository it is pushed into, not the pusher's:
+// without these keys every push into such a remote leaves a detached
+// git maintenance child still able to write there after the test returns.
+func initBareRepo(t *testing.T, dir string) {
+	t.Helper()
+	if _, err := git.PlainInit(dir, true); err != nil {
+		t.Fatalf("PlainInit bare %s: %v", dir, err)
+	}
+	setGitConfig(t, dir, "gc.auto", "0")
+	setGitConfig(t, dir, "maintenance.auto", "false")
 }
 
 func setGitConfig(t *testing.T, dir, key, val string) {

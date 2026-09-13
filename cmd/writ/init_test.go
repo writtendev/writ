@@ -738,10 +738,7 @@ func TestInit_E2E_PlainGitFetch(t *testing.T) {
 
 	// 1. Bare remote repo
 	bareDir := filepath.Join(tempDir, "bare.git")
-	_, err := git.PlainInit(bareDir, true)
-	if err != nil {
-		t.Fatalf("PlainInit bare: %v", err)
-	}
+	initBareRepo(t, bareDir)
 
 	// 2. Clone A
 	cloneADir := filepath.Join(tempDir, "cloneA")
@@ -940,10 +937,7 @@ func TestInit_BareRepository(t *testing.T) {
 	requireGit(t)
 	tempDir := t.TempDir()
 	bareDir := filepath.Join(tempDir, "bare.git")
-	_, err := git.PlainInit(bareDir, true)
-	if err != nil {
-		t.Fatalf("PlainInit bare: %v", err)
-	}
+	initBareRepo(t, bareDir)
 
 	globalCfgPath := filepath.Join(tempDir, "global_gitconfig")
 	if err := os.WriteFile(globalCfgPath, []byte(""), 0600); err != nil {

@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/go-git/go-git/v5"
 )
 
 // quickstartTestSchema is the writ.schema this test writes and applies,
@@ -90,9 +88,7 @@ func TestQuickstart(t *testing.T) {
 
 	// Step 6: Set up remote and sync
 	bareDir := filepath.Join(t.TempDir(), "remote.git")
-	if _, err := git.PlainInit(bareDir, true); err != nil {
-		t.Fatalf("init bare remote: %v", err)
-	}
+	initBareRepo(t, bareDir)
 	addRemote(t, aliceDir, "origin", bareDir)
 
 	stdout.Reset()

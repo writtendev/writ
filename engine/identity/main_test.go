@@ -8,6 +8,8 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	gittest.DisableAutoMaintenance()
-	os.Exit(m.Run())
+	cleanup := gittest.DisableAutoMaintenance()
+	code := m.Run()
+	cleanup()
+	os.Exit(code)
 }
