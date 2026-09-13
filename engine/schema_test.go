@@ -2039,8 +2039,8 @@ func TestVocabulariesCacheStaysWarmAcrossNonSchemaAppends(t *testing.T) {
 
 // --- WRIT-202: producer-vocabularies append-path freshness window ---
 //
-// The four tests below use the injected clock (writ.SetStoreClock) rather
-// than real sleeps, so nothing here gates on wall time: every "inside the
+// The tests below use the injected clock (writ.SetStoreClock) rather than
+// real sleeps, so nothing here gates on wall time: every "inside the
 // window" assertion holds the clock at the exact instant the cache was
 // warmed (delta zero), and every "after the window" assertion advances it
 // past vocabFreshnessWindow explicitly.
@@ -2051,8 +2051,27 @@ func TestVocabulariesCacheStaysWarmAcrossNonSchemaAppends(t *testing.T) {
 // schema append is never served back out of vocabulariesForAppend's
 // freshness window it just invalidated — even with the clock frozen and
 // never advancing past the window on its own.
+//
+// writ.WithoutAutoRefresh() is not incidental here, and this test is inert
+// without it. Store.ApplySchema ends in maybeAutoRefresh, so under the
+// default autoRefresh a Refresh -> rules -> vocabularies pass re-resolves
+// and re-stamps on its own the moment the schema lands: the assertion
+// below is then satisfied by the auto-refresh whether or not noteAppend
+// zeroed anything, and the round-1 reviewer confirmed by mutation that
+// this test used to stay green with that line deleted outright. Without
+// auto-refresh the invalidation is the only thing that can force the
+// resolve — and that is also the configuration genuinely at risk, since
+// WithoutAutoRefresh is the documented hot-loop caller, the one that
+// applies a schema and then appends inside the same 100ms.
 func TestVocabulariesForAppend_LocalSchemaAppendForcesFreshResolve(t *testing.T) {
-	store, ctx := openWritableStore(t)
+	dir, _ := setupConfiguredRepo(t)
+	ctx := context.Background()
+
+	store, err := writ.Open(dir, writ.WithSigner(dummySigner()), writ.WithoutAutoRefresh())
+	if err != nil {
+		t.Fatalf("writ.Open failed: %v", err)
+	}
+	defer store.Close()
 
 	// Based on the real clock, not an arbitrary fixed date: Store.Open's
 	// own initial-rules resolve (when it runs, on a fresh projection
@@ -2069,10 +2088,19 @@ func TestVocabulariesForAppend_LocalSchemaAppendForcesFreshResolve(t *testing.T)
 		t.Fatalf("StoreVocabulariesForAppend failed: %v", err)
 	}
 	firstAddr := reflect.ValueOf(first).Pointer()
+	if v, ok := first["acme.gizmo"]; ok && v.Declared {
+		t.Fatalf("acme.gizmo unexpectedly already declared before this test wrote it")
+	}
 
-	if err := store.ApplySchema(ctx, []codec.Envelope{
-		schemaEnv(t, "sch-fresh", "create", map[string]any{"namespace": "acme-fresh"}),
-	}); err != nil {
+	if err := store.ApplySchema(ctx, compileTestSchema(t, "sch-fresh", `namespace acme
+description "local schema append forces a fresh resolve"
+
+type gizmo {
+  op create 1 {
+    title string(200) lww
+  }
+}
+`)); err != nil {
 		t.Fatalf("ApplySchema failed: %v", err)
 	}
 
@@ -2086,14 +2114,80 @@ func TestVocabulariesForAppend_LocalSchemaAppendForcesFreshResolve(t *testing.T)
 	if got := reflect.ValueOf(second).Pointer(); got == firstAddr {
 		t.Fatalf("a local \"schema\" append did not force a fresh resolve on the very next vocabulariesForAppend call, despite the clock never advancing past the window: got the same map instance (%#x)", got)
 	}
+	if v, ok := second["acme.gizmo"]; !ok || !v.Declared {
+		t.Fatalf("the fresh resolve after a local \"schema\" append does not see the type that append declared")
+	}
+}
+
+// TestVocabulariesForAppend_ZeroStampNeverReadsAsFresh reaches the one
+// conjunct of vocabulariesForAppend's window check that nothing else
+// exercises: !s.vocabObservedAt.IsZero(). On a cold cache the nil
+// vocabCache short-circuits ahead of it, and with a real clock a zero
+// stamp is ~2000 years stale and the elapsed comparison decides. The
+// single state that actually reaches the guard is the one noteAppend's
+// "schema" branch leaves behind — vocabCache still populated, the stamp
+// zeroed — read by a clock at or near the zero time, where
+// clock().Sub(zero) is not a large positive duration. Round 1 confirmed by
+// mutation that deleting the guard left the whole suite green; it does not
+// survive this test.
+func TestVocabulariesForAppend_ZeroStampNeverReadsAsFresh(t *testing.T) {
+	dir, _ := setupConfiguredRepo(t)
+	ctx := context.Background()
+
+	// Same reason as the test above: without auto-refresh, nothing but the
+	// zeroed stamp stands between the schema append and a served-stale
+	// snapshot.
+	store, err := writ.Open(dir, writ.WithSigner(dummySigner()), writ.WithoutAutoRefresh())
+	if err != nil {
+		t.Fatalf("writ.Open failed: %v", err)
+	}
+	defer store.Close()
+
+	frozen := time.Now()
+	writ.SetStoreClock(store, func() time.Time { return frozen })
+
+	first, err := writ.StoreVocabulariesForAppend(store, ctx)
+	if err != nil {
+		t.Fatalf("StoreVocabulariesForAppend (warm) failed: %v", err)
+	}
+	firstAddr := reflect.ValueOf(first).Pointer()
+
+	if err := store.ApplySchema(ctx, compileTestSchema(t, "sch-zero-stamp", `namespace acme
+description "zero freshness stamp never reads as fresh"
+
+type gizmo {
+  op create 1 {
+    title string(200) lww
+  }
+}
+`)); err != nil {
+		t.Fatalf("ApplySchema failed: %v", err)
+	}
+
+	// vocabCache is still populated (the "schema" branch drops vocabChains
+	// and the stamp, not the snapshot), and the stamp is now the zero
+	// time.Time. Reading it with a clock at the zero time makes
+	// clock().Sub(vocabObservedAt) exactly zero — inside the window by the
+	// elapsed comparison alone. Only the IsZero guard refuses it.
+	writ.SetStoreClock(store, func() time.Time { return time.Time{} })
+
+	second, err := writ.StoreVocabulariesForAppend(store, ctx)
+	if err != nil {
+		t.Fatalf("StoreVocabulariesForAppend (zero stamp, zero clock) failed: %v", err)
+	}
+	if got := reflect.ValueOf(second).Pointer(); got == firstAddr {
+		t.Fatalf("a zero vocabObservedAt read as fresh under a zero clock and served the pre-apply snapshot (same map instance %#x): the IsZero guard is gone", got)
+	}
+	if v, ok := second["acme.gizmo"]; !ok || !v.Declared {
+		t.Fatalf("the resolve forced by the zero stamp does not see the type the schema append declared")
+	}
 }
 
 // TestVocabulariesForAppend_ColdCacheAlwaysResolves pins the other
 // mandatory-freshness case in WRIT-202's plan: a Store whose
-// vocabulariesForAppend has never been called (vocabCache nil,
-// vocabObservedAt the zero time.Time) must resolve on its first call
-// regardless of what the clock reads — the zero value must never be
-// mistaken for "just observed". Reopening against the same on-disk
+// vocabulariesForAppend has never been called (vocabCache nil) must
+// resolve on its first call regardless of what the clock reads — a nil
+// cache is never fresh, whatever time it is. Reopening against the same on-disk
 // projection cache (WithCacheDir) after a prior Open already populated it
 // skips Open's own internal initial-rules resolve (projDB.HasGeneratedTables
 // is true), so this Store's vocabCache is genuinely nil at the point the
@@ -2118,9 +2212,16 @@ func TestVocabulariesForAppend_ColdCacheAlwaysResolves(t *testing.T) {
 	}
 	defer store.Close()
 
-	// A clock frozen at the zero Go time would, if the IsZero guard were
-	// missing, read s.clock().Sub(vocabObservedAt) as exactly zero and
-	// wrongly call a nil cache "fresh". Use it deliberately.
+	// A clock frozen at the zero Go time, to make the point that on a cold
+	// cache the clock is not consulted at all: the window check leads with
+	// s.vocabCache != nil, which short-circuits before either the IsZero
+	// guard or the elapsed-time comparison is reached. So this test pins
+	// the nil-cache conjunct and only that — an earlier version of this
+	// comment claimed the zero clock was exercising the IsZero guard,
+	// which it never could. The guard has its own test
+	// (TestVocabulariesForAppend_ZeroStampNeverReadsAsFresh), because the
+	// only state that reaches it is a *populated* cache whose stamp
+	// noteAppend's "schema" branch just zeroed.
 	writ.SetStoreClock(store, func() time.Time { return time.Time{} })
 
 	vocab, err := writ.StoreVocabulariesForAppend(store, ctx)
@@ -2209,6 +2310,199 @@ type gizmo {
 	}
 	if v, ok := after["acme.gizmo"]; !ok || !v.Declared {
 		t.Fatalf("handle B still does not see handle A's schema change after the freshness window elapsed")
+	}
+}
+
+// TestVocabulariesForAppend_NonSchemaAppendsNeverExtendTheWindow pins the
+// half of Store.noteAppend's contract that its own comment calls
+// load-bearing and that round 1 found nothing tested: the non-"schema"
+// branch rolls this writer's chain tip and fingerprint forward, but must
+// never stamp vocabObservedAt. Adding s.vocabObservedAt = s.clock() there
+// makes the freshness window unbounded rather than 100ms — every append
+// pushes the deadline out again, so a handle in a steady append loop never
+// re-observes a peer's schema change at all, and the "bounded by the
+// window" claim in ARCHITECTURE.md and spec/op-envelope.md quietly becomes
+// false. That is the whole distance between the risk this ticket's ruling
+// accepted (bounded staleness) and one nobody ruled on. Round 1 confirmed
+// the mutant survives every other test in the suite, this one included
+// before it existed.
+//
+// Handle B appends in a loop with its clock advanced 10ms per iteration
+// while handle A declares a type mid-loop; B must re-observe at exactly
+// 100ms of simulated time, no later and no sooner.
+func TestVocabulariesForAppend_NonSchemaAppendsNeverExtendTheWindow(t *testing.T) {
+	dir, _ := setupConfiguredRepo(t)
+	ctx := context.Background()
+
+	handleA, err := writ.Open(dir, writ.WithSigner(dummySigner()), writ.WithCacheDir(t.TempDir()))
+	if err != nil {
+		t.Fatalf("Open handle A failed: %v", err)
+	}
+	defer handleA.Close()
+
+	// acme.widget, so handle B's loop below has an ordinary non-"schema"
+	// op type its producer pre-flight will accept.
+	applyCoreSchema(t, ctx, handleA)
+
+	handleB, err := writ.Open(dir, writ.WithSigner(dummySigner()), writ.WithCacheDir(t.TempDir()))
+	if err != nil {
+		t.Fatalf("Open handle B failed: %v", err)
+	}
+	defer handleB.Close()
+
+	// Based on the real clock, for the same reason the tests above are.
+	frozen := time.Now()
+	now := frozen
+	writ.SetStoreClock(handleB, func() time.Time { return now })
+
+	// Warm through the reader entry point, which always re-derives and so
+	// always re-stamps: vocabObservedAt is then exactly `frozen`, and the
+	// 100ms assertion at the bottom is arithmetic rather than a race with
+	// however long ago Store.Open's own initial-rules resolve stamped it.
+	if _, err := writ.StoreVocabularies(handleB, ctx); err != nil {
+		t.Fatalf("StoreVocabularies (warm) failed: %v", err)
+	}
+	warm, err := writ.StoreVocabulariesForAppend(handleB, ctx)
+	if err != nil {
+		t.Fatalf("StoreVocabulariesForAppend (warm) failed: %v", err)
+	}
+	if v, ok := warm["peer.gizmo"]; ok && v.Declared {
+		t.Fatalf("peer.gizmo unexpectedly already declared before handle A wrote it")
+	}
+
+	dagB := writ.StoreDAGStore(handleB)
+	const stepMillis = 10
+	sawAtMillis := 0
+	for i := 1; i <= 45; i++ {
+		env := codec.Envelope{
+			ObjectID:   fmt.Sprintf("w-%d", i),
+			ObjectType: "acme.widget",
+			OpType:     "create",
+			OpVersion:  1,
+			Body:       json.RawMessage(`{"title":"T"}`),
+		}
+		if _, err := dagB.Append(ctx, env, nil); err != nil {
+			t.Fatalf("append %d failed: %v", i, err)
+		}
+
+		// Well inside B's first window, so nothing about when A writes can
+		// be what makes B notice.
+		if i == 3 {
+			if err := handleA.ApplySchema(ctx, compileTestSchema(t, "sch-peer-window", `namespace peer
+description "peer vocabulary for the unbounded-window test"
+
+type gizmo {
+  op create 1 {
+    title string(200) lww
+  }
+}
+`)); err != nil {
+				t.Fatalf("handle A ApplySchema failed: %v", err)
+			}
+		}
+
+		now = frozen.Add(time.Duration(i*stepMillis) * time.Millisecond)
+
+		vocab, err := writ.StoreVocabulariesForAppend(handleB, ctx)
+		if err != nil {
+			t.Fatalf("StoreVocabulariesForAppend at %dms failed: %v", i*stepMillis, err)
+		}
+		if v, ok := vocab["peer.gizmo"]; ok && v.Declared {
+			sawAtMillis = i * stepMillis
+			break
+		}
+	}
+
+	if sawAtMillis == 0 {
+		t.Fatalf("handle B never re-observed handle A's schema change across 45 appends and 450ms of simulated time: a non-\"schema\" append is extending vocabulariesForAppend's freshness window, which makes the staleness unbounded rather than bounded by vocabFreshnessWindow")
+	}
+	if sawAtMillis != 100 {
+		t.Fatalf("handle B re-observed handle A's schema change at %dms of simulated time, want exactly 100ms (vocabFreshnessWindow measured from the warm, unmoved by the appends in between)", sawAtMillis)
+	}
+}
+
+// TestVocabularies_FingerprintHitRestampsTheAppendWindow pins the stamp on
+// Store.vocabularies' fingerprint-hit path, the other line round 1 found
+// untested. A fingerprint hit is a real dag.Chains pass against ground
+// truth, so it must re-stamp vocabObservedAt exactly as a full resolve
+// does; without the stamp, only a full resolve ever refreshes the window,
+// and every append past the first window pays a whole ref walk again —
+// which is the entire performance claim WRIT-202 makes.
+//
+// The observable is deliberately the negative one, because a re-stamp is
+// visible only as staleness the window is *supposed* to have: after a
+// reader's fingerprint hit at 50ms, an append-path call at 120ms is 70ms
+// into a fresh window and must still be serving the cached snapshot.
+// Delete the stamp and it is 120ms into the warm's window instead, and
+// re-resolves. The 160ms control below keeps this from passing merely
+// because the peer's change never lands at all.
+func TestVocabularies_FingerprintHitRestampsTheAppendWindow(t *testing.T) {
+	dir, _ := setupConfiguredRepo(t)
+	ctx := context.Background()
+
+	handleA, err := writ.Open(dir, writ.WithSigner(dummySigner()), writ.WithCacheDir(t.TempDir()))
+	if err != nil {
+		t.Fatalf("Open handle A failed: %v", err)
+	}
+	defer handleA.Close()
+	applyCoreSchema(t, ctx, handleA)
+
+	handleB, err := writ.Open(dir, writ.WithSigner(dummySigner()), writ.WithCacheDir(t.TempDir()))
+	if err != nil {
+		t.Fatalf("Open handle B failed: %v", err)
+	}
+	defer handleB.Close()
+
+	frozen := time.Now()
+	now := frozen
+	writ.SetStoreClock(handleB, func() time.Time { return now })
+
+	if _, err := writ.StoreVocabulariesForAppend(handleB, ctx); err != nil {
+		t.Fatalf("StoreVocabulariesForAppend (warm) failed: %v", err)
+	}
+
+	// 50ms: an ordinary reader call. Nothing in the repository has moved
+	// since the warm, so this is the fingerprint-hit path — and it must
+	// re-stamp the window it just re-verified.
+	now = frozen.Add(50 * time.Millisecond)
+	if _, err := writ.StoreVocabularies(handleB, ctx); err != nil {
+		t.Fatalf("StoreVocabularies (fingerprint hit) failed: %v", err)
+	}
+
+	if err := handleA.ApplySchema(ctx, compileTestSchema(t, "sch-peer-restamp", `namespace peer
+description "peer vocabulary for the fingerprint-hit re-stamp test"
+
+type gizmo {
+  op create 1 {
+    title string(200) lww
+  }
+}
+`)); err != nil {
+		t.Fatalf("handle A ApplySchema failed: %v", err)
+	}
+
+	// 120ms: 70ms after the fingerprint hit, so inside the window it
+	// re-stamped. Without that stamp this is 120ms after the warm, outside
+	// the window, and B re-resolves and sees peer.gizmo.
+	now = frozen.Add(120 * time.Millisecond)
+	inside, err := writ.StoreVocabulariesForAppend(handleB, ctx)
+	if err != nil {
+		t.Fatalf("StoreVocabulariesForAppend (inside re-stamped window) failed: %v", err)
+	}
+	if v, ok := inside["peer.gizmo"]; ok && v.Declared {
+		t.Fatalf("handle B re-derived at 120ms, only 70ms after a fingerprint-hit reader call: that hit did not re-stamp vocabObservedAt, so the append path pays a full dag.Chains pass every window instead of amortising across one")
+	}
+
+	// 160ms: 110ms after the fingerprint hit, past the window. Control —
+	// proves the assertion above is about the window, not about the peer's
+	// change being invisible for some other reason.
+	now = frozen.Add(160 * time.Millisecond)
+	after, err := writ.StoreVocabulariesForAppend(handleB, ctx)
+	if err != nil {
+		t.Fatalf("StoreVocabulariesForAppend (after re-stamped window) failed: %v", err)
+	}
+	if v, ok := after["peer.gizmo"]; !ok || !v.Declared {
+		t.Fatalf("handle B still does not see handle A's schema change 110ms after the fingerprint hit")
 	}
 }
 
