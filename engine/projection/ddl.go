@@ -98,10 +98,11 @@ func (t ddlTable) orderByQuery() string {
 
 // targetPlan describes how one installed target key (state.Rule.TargetKey())
 // is materialized: a scalar column on the type table, a child table keyed by
-// (object_id, item) or (object_id, idx), or a column inside a keyed-lww
-// group table shared with the other targets keyed on the same tuple. An
-// append-strategy target carries no plan of its own — it is materialized
-// through the type descriptor's AppendGroups instead (see appendGroupPlan).
+// (object_id, item) or (object_id, idx), a column inside a keyed-lww group
+// table shared with the other targets keyed on the same tuple, or — for an
+// append-strategy target — a row-per-entry child table of its own (see
+// AppendTable/AppendRules and writeAppendRows), mirroring the multi-value
+// shape rather than sharing a table with any other target (WRIT-212).
 type targetPlan struct {
 	Strategy  string
 	ValueType string
@@ -119,182 +120,32 @@ type targetPlan struct {
 	GroupTable  string
 	KeyColumns  []string // "k_"-prefixed, in rule.Key order
 	ValueColumn string
+
+	// Append. AppendRules is every rule bound to this target — never one
+	// representative — pre-sorted into canonical rule order (spec/fold.md
+	// §5: ascending (op_type, op_version, field)), which is the order
+	// writeAppendRows applies them in when more than one matches a single
+	// op. See writeAppendRows for the row shape.
+	AppendTable string
+	AppendRules []state.Rule
 }
 
-// appendGroupFieldSource is one rule contributing values to an
-// appendGroupMember's target: the (op_type, op_version) envelope it is
-// declared under, and the body key that envelope's ops carry the value in.
-// A member's Fields lists one of these per declaring rule, in the same
-// order those rules appear in the type's own rule slice (the slice
-// buildTypeDescriptor received and state.Fold itself folds against) — see
-// fieldForOp.
-type appendGroupFieldSource struct {
-	OpType    string
-	OpVersion int64
-	Field     string
-}
-
-// appendGroupMember is one append-strategy target sharing an
-// appendGroupPlan's table. A single target key can be declared by more than
-// one rule — a version bump, or a second op_type agreeing on every merge
-// attribute (spec/schema-ops.md §8) — and those rules are not required to
-// share a field name, so Column alone (keyed by the target) is not enough
-// to read a value back out of an op's body: Fields carries the field name
-// each declaring rule actually uses, keyed by the envelope that rule
-// applies to (WRIT-189 round 4 MAJOR-1).
-type appendGroupMember struct {
-	Key       string // state.Rule.TargetKey()
-	Column    string // "f_" + Key
-	ValueType string
-	Fields    []appendGroupFieldSource // one per declaring rule, in rule-slice order
-}
-
-// appendGroupEnvelope is one (op_type, op_version) envelope an
-// appendGroupPlan's table accepts rows from. A target's rule set is not
-// always one envelope: a version bump keeping the same target, or a second
-// op_type agreeing on every merge attribute (spec/schema-ops.md §8), both
-// legally declare the same append target under two different envelopes,
-// and state.Fold accumulates both into the one target-keyed list regardless
-// (it groups matched rules by target key alone, not by op_type/op_version —
-// spec/fold.md §5, spec/schema-ops.md §8). A group's table has to accept
-// rows from every one of those envelopes to match, not just one — see
-// buildAppendGroups.
-type appendGroupEnvelope struct {
-	OpType    string
-	OpVersion int64
-}
-
-// appendGroupPlan describes one shared child table for a connected group of
-// append-strategy targets — every target sharing a rule's envelope with
-// another lands in the same group (round 2's same-op-body pairing below),
-// and a target declared under more than one envelope bridges those
-// envelopes' whole membership into one group (round 3's cross-envelope
-// fix) — one row per op the materializer walks that matches any of the
-// group's envelopes and isn't already quarantined to unknown_ops, one
-// column per member, NULL where that particular op's body omitted the
-// field.
-//
-// Two independent per-field child tables, zipped back together by a reader
-// matching local list positions, cannot express "these two values came from
-// the same op": an op writing only one of two fields shifts every later
-// pairing (WRIT-189 round 2 MAJOR-1). A shared table sidesteps that
-// entirely — the row itself is the pairing, fixed at write time, nothing
-// for a reader to reconstruct. A target with no sibling sharing its
-// envelope still goes through this path as a group of one: same shape, same
-// code, no special case for the common single-field append target.
-//
-// Keying a group off one representative rule's envelope instead (WRIT-189
-// round 2's shape) silently dropped every op belonging to a target's other
-// envelope, and which envelope survived depended on the rule slice's order
-// — the same non-determinism class as WRIT-186's map iteration and
-// WRIT-198's fieldRules[0] (WRIT-189 round 3 MAJOR-1). Envelopes is every
-// envelope any member target is declared under, not one.
-//
-// Members is the group's representable targets, which is not always all of
-// buildAppendGroups' component: a member the row shape cannot express is
-// declined individually (WRIT-201) and leaves the plan entirely — no column,
-// and no envelope it alone contributed. Table, Members and Envelopes are
-// therefore all derived from the surviving members.
-type appendGroupPlan struct {
-	Table     string
-	Envelopes []appendGroupEnvelope // every envelope a retained member is declared under, sorted
-	Members   []appendGroupMember   // the retained members, sorted by Key — table column order
-}
-
-// appendGroupInfo is buildAppendGroups' output: one connected component of
-// append-strategy target keys (sorted) plus the sorted, deduped set of
-// envelopes any of them are declared under.
-type appendGroupInfo struct {
-	members   []string
-	envelopes []appendGroupEnvelope
-}
-
-// buildAppendGroups partitions every append-strategy target declared in
-// rules into the shared child-table groups appendGroupPlan describes:
-// union-find over target keys, with an edge between every pair of targets
-// an envelope co-declares (round 2's pairing) and a target bridging every
-// envelope its own rules declare (round 3's fix, MAJOR-1) — a target
-// declared under two envelopes pulls both envelopes' whole membership into
-// one component, so the resulting table accepts rows from either rather
-// than silently losing whichever envelope buildTypeDescriptor didn't
-// happen to pick as tk's representative.
-//
-// This consults every rule sharing a target key, never a single
-// representative, and the result does not depend on the order rules are
-// visited in: union-find's final partition is determined only by which
-// pairs are ever unioned, not by the order those unions happen in, and the
-// component and envelope lists are sorted before being handed back. A
-// shuffled rules slice therefore produces an identical grouping —
-// TestAppendGroupContentIsDeterministic pins this at the materialized-row
-// level, not only DDL.
-func buildAppendGroups(rules []state.Rule) []*appendGroupInfo {
-	parent := make(map[string]string)
-	var find func(string) string
-	find = func(x string) string {
-		if _, ok := parent[x]; !ok {
-			parent[x] = x
-		}
-		if parent[x] != x {
-			parent[x] = find(parent[x])
-		}
-		return parent[x]
+// canonicalRuleLess orders two rules the way spec/fold.md §5 requires rules
+// sharing a target to contribute in when one operation matches more than one
+// of them: ascending op_type, then op_version, then field. This is a local
+// copy of engine/internal/fold's unexported ruleOrderLess rather than a call
+// into that package — it is outside this package's import allowlist
+// (TestImportsAllowlist), and the comparison itself is three struct fields,
+// not logic worth crossing the boundary for (see opMatchesRuleLite in
+// materialize.go for the same tradeoff on the match predicate).
+func canonicalRuleLess(a, b state.Rule) bool {
+	if a.OpType != b.OpType {
+		return a.OpType < b.OpType
 	}
-	union := func(a, b string) {
-		ra, rb := find(a), find(b)
-		if ra != rb {
-			parent[ra] = rb
-		}
+	if a.OpVersion != b.OpVersion {
+		return a.OpVersion < b.OpVersion
 	}
-
-	envelopeMembers := make(map[appendGroupEnvelope][]string)
-	targetEnvelopes := make(map[string][]appendGroupEnvelope)
-	for _, r := range rules {
-		if r.Strategy != "append" {
-			continue
-		}
-		tk := r.TargetKey()
-		find(tk) // register even a target with only one envelope
-		ek := appendGroupEnvelope{OpType: r.OpType, OpVersion: r.OpVersion}
-		envelopeMembers[ek] = append(envelopeMembers[ek], tk)
-		targetEnvelopes[tk] = append(targetEnvelopes[tk], ek)
-	}
-	for _, members := range envelopeMembers {
-		for i := 1; i < len(members); i++ {
-			union(members[0], members[i])
-		}
-	}
-
-	rootMembers := make(map[string][]string)
-	for tk := range targetEnvelopes {
-		root := find(tk)
-		rootMembers[root] = append(rootMembers[root], tk)
-	}
-
-	var groups []*appendGroupInfo
-	for _, members := range rootMembers {
-		sort.Strings(members)
-		envSet := make(map[appendGroupEnvelope]bool)
-		for _, tk := range members {
-			for _, ek := range targetEnvelopes[tk] {
-				envSet[ek] = true
-			}
-		}
-		var envs []appendGroupEnvelope
-		for ek := range envSet {
-			envs = append(envs, ek)
-		}
-		sort.Slice(envs, func(i, j int) bool {
-			if envs[i].OpType != envs[j].OpType {
-				return envs[i].OpType < envs[j].OpType
-			}
-			return envs[i].OpVersion < envs[j].OpVersion
-		})
-		groups = append(groups, &appendGroupInfo{members: members, envelopes: envs})
-	}
-	sort.Slice(groups, func(i, j int) bool {
-		return strings.Join(groups[i].members, "\x00") < strings.Join(groups[j].members, "\x00")
-	})
-	return groups
+	return a.Field < b.Field
 }
 
 // anchorColumnRef names one scalar column whose declared value_type is
@@ -314,22 +165,23 @@ type anchorColumnRef struct {
 // typeDescriptor is everything the materializer and the generic readers need
 // to know about one declared object type's generated tables.
 type typeDescriptor struct {
-	ObjectType   string
-	Table        ddlTable
-	Children     []ddlTable
-	Targets      map[string]*targetPlan
-	AppendGroups []appendGroupPlan
+	ObjectType string
+	Table      ddlTable
+	Children   []ddlTable
+	Targets    map[string]*targetPlan
 	// WithheldTargets are this type's target keys that got no column
-	// because the projection's row shape cannot represent them (see
-	// buildTypeDescriptor's append-group loop, and its keyed-lww
-	// key-disagreement case, WRIT-205). The unit is the single
-	// target and nothing wider: the type materializes normally, so do the
-	// targets that merely share a table or an envelope with a withheld
-	// one, and so do ops that never write it. Every body field
-	// bound to one of these targets lands in unknown_fields instead of
-	// being dropped — the latest write per field, which is what that
-	// column's per-key register can hold (spec/forward-compatibility.md
-	// §Targets a projection declines).
+	// because the projection's row shape cannot represent them — today
+	// only a keyed-lww target whose bound rules disagree on Key
+	// (buildTypeDescriptor's keyed-lww case, WRIT-205); an append target
+	// was the other reason before WRIT-212 gave append its own
+	// row-per-entry table, which has nothing left to withhold. The unit is
+	// the single target and nothing wider: the type materializes normally,
+	// so do the targets that merely share a table with a withheld one, and
+	// so do ops that never write it. Every body field bound to one of
+	// these targets lands in unknown_fields instead of being dropped —
+	// the latest write per field, which is what that column's per-key
+	// register can hold (spec/forward-compatibility.md §Targets a
+	// projection declines).
 	WithheldTargets map[string]bool
 }
 
@@ -359,7 +211,7 @@ type schemaDescriptor struct {
 	// can populate this — from meta, with no DAG walk — while leaving
 	// types nil: requireMaterializationPlan's `desc.types == nil` check
 	// (WRIT-189 round 2 MINOR-6) depends on types staying nil until a real
-	// materialization plan (Children, AppendGroups, and the rest a
+	// materialization plan (Children, Targets, and the rest a
 	// materializeObject call needs) exists for this process, and populating
 	// types with the query-only subset would silently satisfy that guard
 	// with a plan incapable of materializing anything (WRIT-192 round 2
@@ -602,29 +454,29 @@ func persistedQueryShapes(desc *schemaDescriptor) []persistedQueryShape {
 // through the same absent-typeDescriptor path an invalid target already
 // takes (materializeObject).
 //
-// One shape withholds less than the whole type: an append group whose
-// members include a target two rules bind to two different Fields under one
-// exact (op_type, op_version) envelope. WRIT-201 made that shape normative
-// — spec/fold.md §5 rules that every matching rule applies, in canonical
-// rule order, so state.Fold contributes *both* fields' entries to one
-// list — and this table shape, one row per op with one column per member
-// target, structurally cannot hold two entries for one target from one op.
-// So that target alone is withheld — no column — and recorded in
-// WithheldTargets, its body fields landing in unknown_fields instead
-// (spec/forward-compatibility.md §Targets a projection declines). Its
-// group-mates keep their columns, and the group's table, built from
-// whichever members survive, still forms as long as one does. The type
-// itself, and every other target on it, materializes normally: declining
-// one target must not cost a consumer every table and every row for the
-// type, and it must not push ops that have nothing to do with that target —
-// a create carrying only a title, say — into unknown_ops.
+// One shape withholds less than the whole type: a keyed-lww target two
+// rules bind to two different Key tuples (a legal version bump,
+// spec/schema-ops.md §8) — a group table's "k_"-prefixed columns are fixed
+// at generation time from one key tuple, so a second, differently-shaped
+// tuple has nowhere to go (WRIT-205). That target alone is withheld — no
+// column — and recorded in WithheldTargets, its body fields landing in
+// unknown_fields instead (spec/forward-compatibility.md §Targets a
+// projection declines). Its group-mates keep their columns, and the group's
+// table, built from whichever members survive, still forms as long as one
+// does. The type itself, and every other target on it, materializes
+// normally: declining one target must not cost a consumer every table and
+// every row for the type, and it must not push ops that have nothing to do
+// with that target — a create carrying only a title, say — into
+// unknown_ops.
 //
-// A second shape withholds the same way: a keyed-lww target two rules bind
-// to two different Key tuples (again a legal version bump, spec/schema-ops.md
-// §8) — a group table's "k_"-prefixed columns are fixed at generation time
-// from one key tuple, so a second, differently-shaped tuple has nowhere to
-// go (WRIT-205). Same unit, same fallback: that target alone goes into
-// WithheldTargets, its group-mates and the type materialize normally.
+// An append target used to have a second, analogous unrepresentable shape —
+// two rules binding one target to two different Fields under one exact
+// (op_type, op_version) envelope, which the old one-row-per-op/one-column-
+// per-target append table could not hold both entries of (WRIT-201). WRIT-212
+// gave every append target its own row-per-entry table instead (see
+// targetPlan's AppendTable/AppendRules and writeAppendRows), so that shape
+// is materialized rather than withheld: there is no longer an append case
+// here at all.
 func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]bool) (*typeDescriptor, []anchorColumnRef, bool, error) {
 	tableName := "o_" + strings.ReplaceAll(objectType, "-", "_")
 
@@ -854,15 +706,43 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 			})
 
 		case "append":
-			// Deferred entirely to buildAppendGroups below (WRIT-189 round 2
-			// MAJOR-1, round 3 MAJOR-1): every append target's own full rule
-			// set — every envelope it is declared under, not resolved[tk]'s
-			// single blended attributes alone — feeds group formation
-			// directly from this type's rules, never from this
-			// per-target-key loop (resolved here holds one blended record
-			// per target, which is exactly what round 3 found unsafe for a
-			// target declared under more than one envelope when that record
-			// was instead a single representative rule).
+			// One row-per-entry child table of its own, mirroring
+			// multi-value above rather than sharing a table with any other
+			// target (WRIT-212 — before this, every append target's rule
+			// set fed a separate group-formation pass below, buildAppendGroups,
+			// so two targets sharing an envelope shared one table and one
+			// row per op; that shared row was what made two entries for one
+			// target from a single op unrepresentable, and is gone now that
+			// each target has its own table and each folded list entry its
+			// own row).
+			//
+			// AppendRules is every rule bound to tk — never resolved[tk]'s
+			// single blended ValueType alone — because a version bump or a
+			// second op_type agreeing on every merge attribute
+			// (spec/schema-ops.md §8) can declare tk under a different field
+			// name, and writeAppendRows needs the field each op's own
+			// matching rule actually uses, applied via opMatchesRuleLite
+			// rather than a bespoke envelope-matching predicate. Sorted into
+			// canonical rule order (spec/fold.md §5: ascending (op_type,
+			// op_version, field)) once here rather than at materialize time,
+			// since it depends only on the rule set, not on any op.
+			trs := append([]state.Rule(nil), rulesByTarget[tk]...)
+			sort.Slice(trs, func(i, j int) bool { return canonicalRuleLess(trs[i], trs[j]) })
+			childName := tableName + "__" + tk
+			targets[tk] = &targetPlan{
+				Strategy: r.Strategy, ValueType: r.ValueType,
+				AppendTable: childName, AppendRules: trs,
+			}
+			insertChild(childName, ddlTable{
+				Name: childName,
+				Columns: []ddlColumn{
+					{Name: "object_id", SQLType: "TEXT"},
+					{Name: "op_seq", SQLType: "INTEGER"},
+					{Name: "entry_idx", SQLType: "INTEGER"},
+					{Name: "value", SQLType: sqlType(r.ValueType)},
+				},
+				PrimaryKey: []string{"object_id", "op_seq", "entry_idx"},
+			})
 
 		case "keyed-lww":
 			if r.KeyDisagree {
@@ -937,117 +817,6 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 		insertChild(g.table, ddlTable{Name: g.table, Columns: cols, PrimaryKey: pk, Indexes: idx})
 	}
 
-	var appendGroupPlans []appendGroupPlan
-	for _, g := range buildAppendGroups(rules) {
-		members := make([]appendGroupMember, 0, len(g.members))
-		for _, tk := range g.members {
-			r := resolved[tk]
-			// Every append rule bound to tk, not just resolved[tk]'s single
-			// blended ValueType: a version bump or a second op_type agreeing
-			// on every merge attribute (spec/schema-ops.md §8) can declare
-			// tk under a different field name, and writeAppendGroupRows
-			// needs the field that specific envelope actually uses (WRIT-189
-			// round 4 MAJOR-1).
-			//
-			// Two of tk's rules can share one exact (op_type, op_version)
-			// envelope while disagreeing on Field — nothing upstream forbids
-			// it, and WRIT-201 made it normative: spec/fold.md §5 rules that
-			// every matching rule applies, in canonical rule order, so
-			// state.Fold appends *both* fields' entries to tk's list for a
-			// single op. This table shape cannot hold that. It is one row per
-			// op with one column per member target — the pairing across
-			// targets is the row, fixed at write time (WRIT-189 round 2
-			// MAJOR-1) — so a target taking two entries from one op has
-			// nowhere to put the second, whichever field fieldForOp resolves.
-			//
-			// (The pre-WRIT-201 reading of this, that state.Fold picks one
-			// value deterministically and the projection merely could not
-			// reproduce which, was wrong: fold picks neither, it takes both.)
-			//
-			// So tk is withheld — no column, and no rows anywhere — and goes
-			// into withheldTargets, whose fields land in unknown_fields
-			// (spec/forward-compatibility.md §Targets a projection declines)
-			// rather than in a column silently materializing as NULL.
-			// Representing the shape properly needs a row-per-entry table
-			// whose cross-target pairing is redefined, which is a materializer
-			// redesign, not a guess made here.
-			//
-			// The decline stops at tk. Its group-mates are unaffected: a
-			// sibling target reached by one field under each of its envelopes
-			// is representable exactly as it always was, and buildAppendGroups
-			// unioned it in only because it happens to co-occur in an envelope
-			// with tk — an implementation grouping, not a property of the
-			// sibling. Withholding it too would be the prohibited case one
-			// granularity down from the whole-type withhold this replaced
-			// (WRIT-201 round 2 MEDIUM-1), costing a consumer a queryable
-			// target for a reason that is not about that target.
-			//
-			// A target declared under two *different* envelopes with two
-			// different field names is not this shape — each envelope still
-			// resolves to exactly one field, so fieldForOp's scan stays
-			// unambiguous — and stays on the ordinary path (round 3 MAJOR-1,
-			// round 4 MAJOR-1).
-			var fields []appendGroupFieldSource
-			unrepresentable := false
-			envelopeField := make(map[appendGroupEnvelope]string)
-			for _, rr := range rules {
-				if rr.Strategy != "append" || rr.TargetKey() != tk {
-					continue
-				}
-				ek := appendGroupEnvelope{OpType: rr.OpType, OpVersion: rr.OpVersion}
-				if prevField, seen := envelopeField[ek]; seen && prevField != rr.Field {
-					unrepresentable = true
-				} else if !seen {
-					envelopeField[ek] = rr.Field
-				}
-				fields = append(fields, appendGroupFieldSource{OpType: rr.OpType, OpVersion: rr.OpVersion, Field: rr.Field})
-			}
-			if unrepresentable {
-				withheldTargets[tk] = true
-				continue
-			}
-			members = append(members, appendGroupMember{Key: tk, Column: "f_" + tk, ValueType: r.ValueType, Fields: fields})
-		}
-		if len(members) == 0 {
-			continue
-		}
-
-		// Name, shape and envelope set all come from the members that
-		// survived, never from g.members: a withheld target contributes no
-		// column, and an envelope only it was declared under would otherwise
-		// admit ops that write nothing this table holds, one all-NULL row
-		// each.
-		keys := make([]string, 0, len(members))
-		cols := []ddlColumn{
-			{Name: "object_id", SQLType: "TEXT"},
-			{Name: "idx", SQLType: "INTEGER"},
-		}
-		envSet := make(map[appendGroupEnvelope]bool)
-		for _, m := range members {
-			keys = append(keys, m.Key)
-			cols = append(cols, ddlColumn{Name: m.Column, SQLType: sqlType(resolved[m.Key].ValueType)})
-			for _, f := range m.Fields {
-				envSet[appendGroupEnvelope{OpType: f.OpType, OpVersion: f.OpVersion}] = true
-			}
-		}
-		envs := make([]appendGroupEnvelope, 0, len(envSet))
-		for ek := range envSet {
-			envs = append(envs, ek)
-		}
-		sort.Slice(envs, func(i, j int) bool {
-			if envs[i].OpType != envs[j].OpType {
-				return envs[i].OpType < envs[j].OpType
-			}
-			return envs[i].OpVersion < envs[j].OpVersion
-		})
-
-		table := tableName + "__" + strings.Join(keys, "_")
-		insertChild(table, ddlTable{Name: table, Columns: cols, PrimaryKey: []string{"object_id", "idx"}})
-		appendGroupPlans = append(appendGroupPlans, appendGroupPlan{
-			Table: table, Envelopes: envs, Members: members,
-		})
-	}
-
 	if collided {
 		return nil, nil, false, nil
 	}
@@ -1097,7 +866,6 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 		Table:           typeTable,
 		Children:        childList,
 		Targets:         targets,
-		AppendGroups:    appendGroupPlans,
 		WithheldTargets: withheldTargets,
 	}
 

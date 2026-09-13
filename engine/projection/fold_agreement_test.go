@@ -205,7 +205,7 @@ func TestProjectionMatchesFoldAcrossStrategies(t *testing.T) {
 	// append: note, from two concurrent writers — order matters here, so
 	// this is compared positionally, not as a set.
 	wantNotes, _ := want.State["note"].([]any)
-	gotNotes := queryStrings(t, rawDB, "SELECT f_note FROM o_ticket__note WHERE object_id = ? ORDER BY idx ASC", objID)
+	gotNotes := queryStrings(t, rawDB, "SELECT value FROM o_ticket__note WHERE object_id = ? ORDER BY op_seq ASC, entry_idx ASC", objID)
 	if len(gotNotes) != len(wantNotes) {
 		t.Fatalf("o_ticket__note has %d rows, state.Fold's note has %d entries: got %v, want %v", len(gotNotes), len(wantNotes), gotNotes, wantNotes)
 	}
@@ -328,7 +328,7 @@ func TestProjectionMatchesFoldOnTruncatedAncestry(t *testing.T) {
 		t.Fatalf("f_title = %q, want %q", gotTitle, "Truncated")
 	}
 
-	gotNotes := queryStrings(t, rawDB, "SELECT f_note FROM o_ticket__note WHERE object_id = ? ORDER BY idx ASC", objID)
+	gotNotes := queryStrings(t, rawDB, "SELECT value FROM o_ticket__note WHERE object_id = ? ORDER BY op_seq ASC, entry_idx ASC", objID)
 	if len(gotNotes) != 1 || gotNotes[0] != "first" {
 		t.Fatalf("o_ticket__note over the truncated prefix = %v, want [first] (state.Fold agrees, and must not see the un-fetched \"second\" op)", gotNotes)
 	}

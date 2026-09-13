@@ -168,12 +168,12 @@ func TestScalarLWWVersionBumpIsDeterministic(t *testing.T) {
 //
 // "note-v1" (op_version implicit 1 via makeWidgetEnv) declares value_type
 // "string" and "note-v2" declares value_type "int" for the same append
-// target "note" — the same carve-out as the scalar case, on the append
-// group's own resolved-ValueType path (appendGroupMember.ValueType /
-// sqlType(resolved[m.Key].ValueType) in ddl.go). Both ops land in the one
-// shared o_widget__note table (buildAppendGroups unions same-target
-// envelopes), so this also exercises writeAppendGroupRows's per-row NULL
-// handling against a resolved, not representative, column type.
+// target "note" — the same carve-out as the scalar case, resolved the same
+// way (WRIT-205's resolved[tk].ValueType, widening to untyped when bound
+// rules disagree). Both ops land in the one target's own row-per-entry
+// table, o_widget__note (WRIT-212), so this also exercises writeAppendRows's
+// per-row value conversion against a resolved, not representative, column
+// type.
 func TestAppendVersionBumpIsDeterministic(t *testing.T) {
 	base := time.Unix(1700000000, 0).UTC()
 	opCreate := makeWidgetOp("op-create-1", nil, "create", map[string]any{"title": "T"}, base)
@@ -226,7 +226,7 @@ func TestAppendVersionBumpIsDeterministic(t *testing.T) {
 			t.Fatalf("query o_widget__note DDL: %v", err)
 		}
 
-		rows, err := db.DB().Query("SELECT f_note FROM o_widget__note WHERE object_id = ? ORDER BY idx ASC", "w-1")
+		rows, err := db.DB().Query("SELECT value FROM o_widget__note WHERE object_id = ? ORDER BY op_seq ASC, entry_idx ASC", "w-1")
 		if err != nil {
 			t.Fatalf("query o_widget__note: %v", err)
 		}
@@ -249,11 +249,11 @@ func TestAppendVersionBumpIsDeterministic(t *testing.T) {
 	gotOriginal := run(t, rulesOriginal)
 	gotReordered := run(t, rulesReordered)
 
-	if !strings.Contains(gotOriginal.createSQL, "f_note TEXT") {
-		t.Fatalf("o_widget__note DDL (original rule order) = %q, want an untyped (TEXT) f_note column", gotOriginal.createSQL)
+	if !strings.Contains(gotOriginal.createSQL, "value TEXT") {
+		t.Fatalf("o_widget__note DDL (original rule order) = %q, want an untyped (TEXT) value column", gotOriginal.createSQL)
 	}
-	if !strings.Contains(gotReordered.createSQL, "f_note TEXT") {
-		t.Fatalf("o_widget__note DDL (reordered rules) = %q, want an untyped (TEXT) f_note column", gotReordered.createSQL)
+	if !strings.Contains(gotReordered.createSQL, "value TEXT") {
+		t.Fatalf("o_widget__note DDL (reordered rules) = %q, want an untyped (TEXT) value column", gotReordered.createSQL)
 	}
 	if gotOriginal.digest == "" || gotOriginal.digest != gotReordered.digest {
 		t.Fatalf("schema digest differs between rule orderings: %q (original) vs %q (reordered)", gotOriginal.digest, gotReordered.digest)

@@ -200,11 +200,11 @@ Preservation requires specific guarantees across all four engine subsystems:
 A projection is a query surface, not a second source of truth, and its row
 shape is narrower than the fold's. A conforming implementation MAY decline to
 give one target key a queryable representation when its own storage cannot
-express what the fold blesses — for instance a tabular projection pairing one
-row per operation with one column per target, faced with an operation that
-writes two body fields sharing one `append` target and so contributes two
-entries to that target at a single position of $L$ (`spec/fold.md` §5's
-canonical rule order).
+express what the fold blesses — for instance a keyed-lww projection whose
+group table fixes its key columns from one declared key tuple at generation
+time, faced with a version bump that legally rebinds the same target to a
+different key tuple (`spec/schema-ops.md` §8) that those fixed columns have
+no room for.
 
 These bounds are a refinement of `FC-13`, not free-standing rules, and carry
 no `FC-n` of their own. `FC-13` requires a cache to be rebuildable from the
