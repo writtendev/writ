@@ -889,12 +889,87 @@ func TestObjectUnknownType_HostileDeclaredTypeListRendersEscaped(t *testing.T) {
 	}
 	assertNoRawOverride("object list (undeclared type)", stderr.Bytes())
 
-	// `writ object create <undeclared> <op>`: the same list, via
-	// resolveOpVersion's error through renderErr.
+	// `writ object create <undeclared> <op>`: the same list, from
+	// resolveOpVersion's error, printed straight to stderr as well.
 	stdout.Reset()
 	stderr.Reset()
 	if code := run(context.Background(), []string{"object", "create", "-C", env.repoDir, "acme.nosuch", "create"}, &stdout, &stderr); code == 0 {
 		t.Fatalf("object create with an undeclared type unexpectedly succeeded; stdout: %s", stdout.String())
 	}
 	assertNoRawOverride("object create (undeclared type)", stderr.Bytes())
+}
+
+// TestObjectCreate_HostileFetchedEnumRendersEscaped covers the one
+// foreign-sourced string that reaches a human view through an *engine
+// error* rather than through a value writ formats itself: a fetched
+// define-field's body `enum` members.
+//
+// Nothing on the read path gates them. spec.ValidateFieldRule constrains
+// the field, target and key columns against identifierGrammar and the
+// value_type/strategy names against their closed catalogues, but it never
+// looks at the members of an enum -- so a peer's entirely valid,
+// namespace-qualified vocabulary installs cleanly with whatever it chose
+// there. `writ schema plan` reports no conflict, and the first a local
+// user hears of it is engine/internal/value.Check's membership error,
+// which formats the declared list with a bare %v and reaches stderr
+// through renderErr.
+//
+// Friction is one typo on a peer-published type, in the error a human is
+// reading to work out what they mistyped -- beside a %q-quoted, and so
+// already escaped, copy of their own input.
+func TestObjectCreate_HostileFetchedEnumRendersEscaped(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, fullTestSchema)
+
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	hostile := "clo" + string(rune(0x202E)) + "sed"
+
+	// A peer publishing its own namespace-qualified vocabulary, one op per
+	// foreign writer (writeForeignOp plants a single-op chain per writer).
+	peer := func(writerID, opType string, body map[string]any) {
+		t.Helper()
+		writeForeignOp(t, env.repoDir, writerID, "schema", "schema:peer", opType, 1, body)
+	}
+	peer("eeeeeeeeeeeeeee0", "create", map[string]any{"namespace": "peer"})
+	peer("eeeeeeeeeeeeeee1", "define-type", map[string]any{"type": "peer.thing"})
+	peer("eeeeeeeeeeeeeee2", "define-op", map[string]any{
+		"type": "peer.thing", "op_type": "create", "op_version": "1",
+	})
+	peer("eeeeeeeeeeeeeee3", "define-field", map[string]any{
+		"type": "peer.thing", "op_type": "create", "op_version": "1",
+		"field": "status", "value_type": "enum", "strategy": "lww",
+		"enum": []any{"open", hostile},
+	})
+
+	// The peer's schema is valid: nothing warns the local user about it
+	// before the typo below.
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "plan"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema plan exited %d, want 0 (the peer's vocabulary is valid); stdout: %s stderr: %s", code, stdout.String(), stderr.String())
+	}
+
+	// One typo in an enum value on the peer-published type.
+	stdout.Reset()
+	stderr.Reset()
+	code := run(context.Background(), []string{"object", "create", "-C", env.repoDir, "peer.thing", "create", "-field", "status=oepn"}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatalf("object create with a non-member enum value unexpectedly succeeded; stdout: %s", stdout.String())
+	}
+
+	out := stderr.Bytes()
+	if !bytes.Contains(out, []byte("is not a member of the declared enum")) {
+		t.Fatalf("object create stderr = %s, want the enum membership rejection", out)
+	}
+	if bytes.ContainsRune(out, 0x202E) {
+		t.Errorf("object create (non-member enum value) contains a raw U+202E byte sequence: %s", out)
+	}
+	escapeSeq := []byte(fmt.Sprintf("\\u%04x", 0x202E))
+	if !bytes.Contains(out, escapeSeq) {
+		t.Errorf("object create (non-member enum value) = %s, want it to contain the %s escape", out, escapeSeq)
+	}
 }

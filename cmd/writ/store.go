@@ -10,6 +10,7 @@ import (
 
 	"github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/engine/identity"
+	"github.com/writtendev/writ/internal/textsafe"
 )
 
 type notFoundError struct {
@@ -36,32 +37,55 @@ func openStore(dir string, opts ...writ.Option) (*writ.Store, error) {
 	return writ.Open(dir, opts...)
 }
 
+// renderErr prints err as the CLI's one-line human error report and
+// returns the exit code that goes with it.
+//
+// The line is escaped with textsafe.EscapeForbidden on its way out --
+// once, here, rather than at each of errLine's arms or at each error
+// construction upstream. An engine error's text can carry a log-sourced
+// string that nothing on the read path gates: the reachable case is a
+// fetched define-field's body `enum` members, which spec.ValidateFieldRule
+// never constrains (it gates the field, target and key columns against
+// identifierGrammar and value_type/strategy against their closed
+// catalogues, and stops there) and which engine/internal/value.Check then
+// formats into its membership error with a bare %v. renderErr is the one
+// place an engine error reaches a human's stderr, so escaping here covers
+// that whole class instead of one message of it, and cannot be forgotten
+// by the next error message added anywhere below it. It is a no-op on the
+// fixed strings errLine returns and on any span Go's %q has already
+// escaped (strconv.Quote escapes every textsafe.Forbidden rune), so it
+// costs nothing where there is nothing to escape.
+//
+// Escaping inside the engine instead would be the wrong place: that error
+// text is the public API's, shared with callers that are not a terminal.
+// This is writ's own rendering, which is where WRIT-226 puts the escape.
 func renderErr(w io.Writer, err error) int {
 	if err == nil {
 		return 0
 	}
+	fmt.Fprintln(w, textsafe.EscapeForbidden(errLine(err)))
+	return 1
+}
 
+// errLine is the single line renderErr prints for err, unescaped.
+func errLine(err error) string {
 	var cfgErr *identity.ConfigError
 	if errors.As(err, &cfgErr) {
-		fmt.Fprintf(w, "writ: %v\n", cfgErr)
-		return 1
+		return fmt.Sprintf("writ: %v", cfgErr)
 	}
 
 	if errors.Is(err, writ.ErrNoIdentity) {
-		fmt.Fprintln(w, "writ: no writer identity configured (run 'writ init' to configure)")
-		return 1
+		return "writ: no writer identity configured (run 'writ init' to configure)"
 	}
 
 	if errors.Is(err, writ.ErrNoSigningKey) {
-		fmt.Fprintln(w, "writ: no signing key configured (run 'writ init' to configure)")
-		return 1
+		return "writ: no signing key configured (run 'writ init' to configure)"
 	}
 
 	if errors.Is(err, writ.ErrNotFound) {
 		var nf notFoundError
 		if errors.As(err, &nf) {
-			fmt.Fprintf(w, "writ: %s\n", nf.Error())
-			return 1
+			return "writ: " + nf.Error()
 		}
 	}
 
@@ -69,8 +93,7 @@ func renderErr(w io.Writer, err error) int {
 	if !strings.HasPrefix(msg, "writ: ") {
 		msg = "writ: " + msg
 	}
-	fmt.Fprintln(w, msg)
-	return 1
+	return msg
 }
 
 // validSortOrders lists parseOrderBy's canonical --sort keys, for use in its
