@@ -461,7 +461,12 @@ func fieldForOp(fields []appendGroupFieldSource, op codec.Op) (string, bool) {
 // together via two indexed EXISTS lookups instead of an unindexed scan.
 // A value that is not object-shaped (or fails to decode) writes nothing —
 // the members table stays a pure performance index, never a second source
-// of truth for the scalar column, which already holds the value verbatim.
+// of truth for the scalar column, which already holds every member of the
+// value. How faithfully depends on the strategy, and this table is built
+// for only two of them (ddl.go: an untyped lww or create-once target, and
+// nothing else): a create-once column holds the op's bytes verbatim, an
+// lww one the re-marshal toText returns, with <, & and > escaped — see
+// columnValue.
 func writeMembersRows(tx *sql.Tx, table, objectID string, raw any) error {
 	var obj map[string]any
 	switch v := raw.(type) {
