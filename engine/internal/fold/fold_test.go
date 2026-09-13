@@ -309,3 +309,31 @@ func TestFoldKeyedLWWMultiRuleField(t *testing.T) {
 		t.Errorf("canonical JSON mismatch:\n engine: %s\n spec:   %s", string(engineJSON), string(specJSON))
 	}
 }
+
+func TestDetermineObjectTypePrecedence(t *testing.T) {
+	// 1. Create op beats other ops even when not first
+	ops := []codec.Op{
+		{Envelope: codec.Envelope{ObjectType: "widget", OpType: "update"}},
+		{Envelope: codec.Envelope{ObjectType: "gadget", OpType: "create"}},
+	}
+	if got := fold.DetermineObjectType(ops); got != "gadget" {
+		t.Errorf("got %q, want 'gadget'", got)
+	}
+
+	// 2. First non-empty ObjectType when no create op
+	ops2 := []codec.Op{
+		{Envelope: codec.Envelope{ObjectType: "", OpType: "update"}},
+		{Envelope: codec.Envelope{ObjectType: "widget", OpType: "update"}},
+	}
+	if got := fold.DetermineObjectType(ops2); got != "widget" {
+		t.Errorf("got %q, want 'widget'", got)
+	}
+
+	// 3. Fallback when all empty
+	ops3 := []codec.Op{
+		{Envelope: codec.Envelope{ObjectType: "", OpType: "update"}},
+	}
+	if got := fold.DetermineObjectType(ops3); got != "" {
+		t.Errorf("got %q, want ''", got)
+	}
+}
