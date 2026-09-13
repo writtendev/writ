@@ -509,8 +509,10 @@ func writeMembersRows(tx *sql.Tx, table, objectID string, raw any) error {
 // typed field arrives here as json.RawMessage holding e.g. `"c-reply-1"` —
 // quotes included — not the Go string "c-reply-1". Every value_type except
 // the truly untyped one (value_type == "", where the raw bytes are the
-// point: an arbitrary JSON object like comment.subject, preserved verbatim
-// including unknown members and key order) decodes those bytes back into a
+// point: a rule that declares no value_type typechecks nothing, so its
+// field may hold an arbitrary JSON value — an object included — and the
+// raw bytes are what the column stores, preserved verbatim including
+// unknown members and key order) decodes those bytes back into a
 // native Go value before the switch below runs, so a create-once column
 // reads back exactly as an lww column of the same value_type would.
 func columnValue(valueType string, v any) any {
@@ -574,8 +576,8 @@ func rawJSONBytes(v any) ([]byte, bool) {
 }
 
 // toText renders v as the string a TEXT column stores. create-once's raw
-// bytes (json.RawMessage, for an untyped target such as comment.subject)
-// pass through verbatim — the exact bytes a producer wrote, unknown members
+// bytes (json.RawMessage, for a target whose rule declares no value_type)
+// pass through verbatim — the exact bytes the op stores, unknown members
 // and key order included — rather than being decoded and re-marshaled.
 func toText(v any) any {
 	switch t := v.(type) {
