@@ -196,7 +196,18 @@ func runSchemaApply(ctx context.Context, defaultDir string, args []string, stdou
 		if len(planRes.namespaces) != 1 {
 			word = "namespaces"
 		}
-		fmt.Fprintf(stdout, "This repository now declares %d %s: %s.\n", len(planRes.namespaces), word, strings.Join(planRes.namespaces, ", "))
+		// Every entry is a folded schema object's `namespace`, taken from a
+		// create op's *body* -- the slot op-envelope.schema.json leaves as a
+		// bare {"type": "object"}, so a fetched peer's namespace reaches
+		// here with no repertoire gate behind it (WRIT-226 round 1). Escape
+		// at the render, one entry at a time, so planRes.namespaces itself
+		// stays the raw folded value for --json, where emitJSON does its own
+		// pass.
+		display := make([]string, len(planRes.namespaces))
+		for i, ns := range planRes.namespaces {
+			display[i] = textsafe.EscapeForbidden(ns)
+		}
+		fmt.Fprintf(stdout, "This repository now declares %d %s: %s.\n", len(planRes.namespaces), word, strings.Join(display, ", "))
 	} else {
 		fmt.Fprintf(stdout, "Updated schema object %s (namespace %q).\n", planRes.objectID, planRes.namespace)
 	}
@@ -838,6 +849,16 @@ func rawFieldString(raw map[string]json.RawMessage, key string) string {
 // folded state (current), never source text — comments, spacing, and
 // declaration order in the file have no bearing on this check, by
 // construction.
+//
+// Every name interpolated below comes from current, i.e. straight out of a
+// folded op body, which op-envelope.schema.json leaves ungated on the read
+// path — a fetched define-op or define-field carries whatever its writer
+// chose. The type and field names are quoted with %q, which escapes Cf and
+// the rest of textsafe.Forbidden on its own; the op types are not quotable
+// without changing every one of these messages, so they get an explicit
+// textsafe.EscapeForbidden instead (WRIT-226 round 1). This path runs
+// upstream of the resolver's own validOpTypeGrammar drop, so that gate does
+// not cover it.
 func schemaRemovals(current, planned state.Schema, compiled []codec.Envelope) ([]string, error) {
 	var problems []string
 
@@ -861,22 +882,22 @@ func schemaRemovals(current, planned state.Schema, compiled []codec.Envelope) ([
 		for _, co := range ct.Ops {
 			po, ok := findSchemaOp(pt, co.OpType, co.OpVersion)
 			if !ok {
-				problems = append(problems, fmt.Sprintf("op %s version %d on type %q was removed", co.OpType, co.OpVersion, ct.Name))
+				problems = append(problems, fmt.Sprintf("op %s version %d on type %q was removed", textsafe.EscapeForbidden(co.OpType), co.OpVersion, ct.Name))
 				continue
 			}
 			if co.Description != "" && po.Description == "" {
-				problems = append(problems, fmt.Sprintf("op %s version %d on type %q's description was removed", co.OpType, co.OpVersion, ct.Name))
+				problems = append(problems, fmt.Sprintf("op %s version %d on type %q's description was removed", textsafe.EscapeForbidden(co.OpType), co.OpVersion, ct.Name))
 			}
 		}
 
 		for _, cf := range ct.Fields {
 			pf, ok := findSchemaField(pt, cf.OpType, cf.OpVersion, cf.Name)
 			if !ok {
-				problems = append(problems, fmt.Sprintf("field %q on op %s version %d of type %q was removed; mark it `deprecated` instead", cf.Name, cf.OpType, cf.OpVersion, ct.Name))
+				problems = append(problems, fmt.Sprintf("field %q on op %s version %d of type %q was removed; mark it `deprecated` instead", cf.Name, textsafe.EscapeForbidden(cf.OpType), cf.OpVersion, ct.Name))
 				continue
 			}
 			if cf.Deprecated && !pf.Deprecated {
-				problems = append(problems, fmt.Sprintf("field %q on op %s version %d of type %q was un-deprecated; no op can clear a deprecation once written", cf.Name, cf.OpType, cf.OpVersion, ct.Name))
+				problems = append(problems, fmt.Sprintf("field %q on op %s version %d of type %q was un-deprecated; no op can clear a deprecation once written", cf.Name, textsafe.EscapeForbidden(cf.OpType), cf.OpVersion, ct.Name))
 			}
 
 			body, found, err := compiledFieldBody(compiled, ct.Name, cf.OpType, cf.OpVersion, cf.Name)
@@ -900,7 +921,7 @@ func schemaRemovals(current, planned state.Schema, compiled []codec.Envelope) ([
 				if _, present := body[attr]; !present {
 					problems = append(problems, fmt.Sprintf(
 						"field %q on op %s version %d of type %q: attribute %q was removed; nothing is ever removed from the log — %s (spec/schema-ops.md §8.1)",
-						cf.Name, cf.OpType, cf.OpVersion, ct.Name, attr, schemaAttributeNarrowingAdvice(attr)))
+						cf.Name, textsafe.EscapeForbidden(cf.OpType), cf.OpVersion, ct.Name, attr, schemaAttributeNarrowingAdvice(attr)))
 				}
 			}
 		}

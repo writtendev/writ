@@ -737,3 +737,110 @@ func TestSchemaPlanJSON_SourceFieldsStayRawAcrossHostileDescription(t *testing.T
 		t.Errorf("current_source (decoded) = %q, contains double-escaped literal text -- want Render's raw code point, not a pre-escaped copy", plan.CurrentSource)
 	}
 }
+
+// TestSchemaApply_HostileFetchedNamespaceRendersEscaped is round 1's
+// finding 1 on PR #195: a schema object's `namespace` is folded from a
+// `create` op's *body* (engine/state/schema.go, `case "create"`), the same
+// ungated slot as define-type's body `type` -- op-envelope.schema.json
+// leaves `body` a bare {"type": "object"}, and typeIsQualifiedForNamespace
+// compares a type's prefix against the namespace without ever validating
+// the namespace itself. schemaNamespaces takes s.Namespace straight out of
+// every folded schema object, and `schema apply`'s mint summary joined
+// them with %s, so a fetched hostile namespace printed raw in a human view.
+//
+// The ordinary reachable order is the one exercised here: a hostile peer's
+// schema chain is already present when the local repository runs its own
+// first `schema apply` (the `created` arm -- the `Updated` arm is safe
+// only because it uses %q).
+func TestSchemaApply_HostileFetchedNamespaceRendersEscaped(t *testing.T) {
+	env := initTestRepo(t)
+
+	hostile := "ev" + string(rune(0x202E)) + "il"
+
+	// A foreign writer's own schema object, on its own writer ref -- what
+	// fetching a hostile peer's schema chain leaves behind.
+	writeForeignOp(t, env.repoDir, "fedcba9876543210", "schema", "schema:evil", "create", 1, map[string]any{
+		"namespace": hostile,
+	})
+
+	writeSchemaFile(t, env.repoDir, fullTestSchema)
+
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	out := stdout.Bytes()
+	if !bytes.Contains(out, []byte("namespaces:")) {
+		t.Fatalf("schema apply output = %s, want the mint summary's namespace list", out)
+	}
+	if bytes.ContainsRune(out, 0x202E) {
+		t.Errorf("schema apply contains a raw U+202E byte sequence: %s", out)
+	}
+	escapeSeq := []byte(fmt.Sprintf("\\u%04x", 0x202E))
+	if !bytes.Contains(out, escapeSeq) {
+		t.Errorf("schema apply = %s, want it to contain the %s escape", out, escapeSeq)
+	}
+}
+
+// TestSchemaPlan_HostileFetchedOpTypeRendersEscaped is round 1's finding 2
+// on PR #195: `schema plan`'s removal-refusal messages formatted a folded
+// define-op's / define-field's body `op_type` with %s, right beside a
+// %q-escaped type or field name (Go's %q escapes Cf; %s does not). The
+// value comes from the same ungated body slot as everything else this
+// ticket covers.
+//
+// Reachability is the default consequence of fetching any hostile
+// define-op, not an exotic arrangement: the local writ.schema never
+// declares that op, so the delta reads as a removal and `schema plan`
+// refuses with the attacker-chosen name in the message a human is reading
+// to decide what to do. The resolver's own grammar gate (validOpTypeGrammar
+// in resolveSchemaTypes) does not cover this path -- the plan delta
+// compares against raw folded state.Schema, upstream of the resolver.
+func TestSchemaPlan_HostileFetchedOpTypeRendersEscaped(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, fullTestSchema)
+
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	hostile := "a" + string(rune(0x202E)) + "b"
+
+	// Both removal-refusal arms that interpolate an op type: the define-op
+	// one ("op %s version %d on type %q was removed") and the define-field
+	// one ("field %q on op %s version %d of type %q was removed").
+	writeForeignOp(t, env.repoDir, "fedcba9876543210", "schema", "schema:acme", "define-op", 1, map[string]any{
+		"type":        "acme.standup",
+		"op_type":     hostile,
+		"op_version":  "1",
+		"description": "hostile op",
+	})
+	writeForeignOp(t, env.repoDir, "fedcba9876543211", "schema", "schema:acme", "define-field", 1, map[string]any{
+		"type":       "acme.standup",
+		"op_type":    hostile,
+		"op_version": "1",
+		"field":      "note",
+		"value_type": "string",
+		"strategy":   "lww",
+	})
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "plan"}, &stdout, &stderr); code != 1 {
+		t.Fatalf("schema plan exited %d, want 1 (refusing to plan); stdout: %s stderr: %s", code, stdout.String(), stderr.String())
+	}
+
+	out := stderr.Bytes()
+	if !bytes.Contains(out, []byte("refusing to plan")) {
+		t.Fatalf("schema plan stderr = %s, want the removal-refusal message", out)
+	}
+	if bytes.ContainsRune(out, 0x202E) {
+		t.Errorf("schema plan refusal contains a raw U+202E byte sequence: %s", out)
+	}
+	escapeSeq := []byte(fmt.Sprintf("\\u%04x", 0x202E))
+	if !bytes.Contains(out, escapeSeq) {
+		t.Errorf("schema plan refusal = %s, want it to contain the %s escape", out, escapeSeq)
+	}
+}
