@@ -518,16 +518,18 @@ func writeMembersRows(tx *sql.Tx, table, objectID string, raw any) error {
 // exactly as an lww column of the same value_type would.
 //
 // "Truly untyped" is valueType == "" as ddl.go resolves it for the whole
-// target, and two different shapes reach it. Either no bound rule
-// declares a value_type, in which case nothing typechecks the field and
-// it may hold any JSON value but null — an object included. Or the bound
-// rules declare different ones — a version bump changing value_type —
-// and ddl.go widens the target to untyped; each op is still typechecked
-// by its own rule there, so the column holds the union of what the bound
-// rules permit rather than anything at all. Either way the raw bytes are
-// the point, because no single declared type is there to decode them back
-// into. Producer validation rule 6 refuses a top-level null whether or
-// not the rule declares a value_type, spec/op-envelope.md.
+// target, across every rule bound to it: the resolved value_type is the
+// one every bound rule declares, so the target is untyped unless all of
+// them declare the same non-empty value_type. That single predicate — not
+// any particular combination of rules — is what this path turns on.
+// Typechecking meanwhile stays per op: every op is checked against its
+// own rule, so the column holds the union of what the bound rules permit,
+// a rule declaring a value_type admitting only that type and a rule
+// declaring none admitting any JSON value but null, an object included.
+// However the target got there, the raw bytes are the point, because no
+// single declared type is there to decode them back into. Producer
+// validation rule 6 refuses a top-level null whether or not the rule
+// declares a value_type, spec/op-envelope.md.
 //
 // Untyped is the one case where that last equivalence does not hold,
 // because only create-once's accumulator hands back raw bytes: an untyped
@@ -596,12 +598,12 @@ func rawJSONBytes(v any) ([]byte, bool) {
 }
 
 // toText renders v as the string a TEXT column stores. Raw create-once
-// bytes (json.RawMessage, which columnValue forwards here undecoded for a
-// target ddl.go resolved to untyped: no bound rule declares a value_type,
-// or the bound rules declare different ones and the target widens to
-// untyped) pass through verbatim — the exact bytes the op stores, unknown
-// members and key order included. An already-decoded value takes one of
-// the other paths instead: a Go string is stored bare, without the JSON
+// bytes (json.RawMessage, which columnValue forwards here undecoded for
+// any target ddl.go resolved to untyped — any target, that is, whose
+// bound rules do not all declare the same non-empty value_type) pass
+// through verbatim — the exact bytes the op stores, unknown members and
+// key order included. An already-decoded value takes one of the other
+// paths instead: a Go string is stored bare, without the JSON
 // quotes the raw bytes would have carried, and anything the switch below
 // does not special-case is re-marshaled by encoding/json, which escapes
 // <, & and > to \u003c, \u0026 and \u003e.
