@@ -63,7 +63,7 @@ func BenchmarkVocabulariesCache(b *testing.B) {
 	for i := 0; i < logSize; i++ {
 		env := codec.Envelope{
 			ObjectID:   fmt.Sprintf("w-%d", i),
-			ObjectType: "widget",
+			ObjectType: "acme.widget",
 			OpType:     "create",
 			OpVersion:  1,
 			Body:       json.RawMessage(`{"title":"T"}`),
@@ -159,7 +159,7 @@ func BenchmarkAppendByRefCount(b *testing.B) {
 			// timing begins, so every timed Append is a cache hit — the
 			// dimension finding 1 measured.
 			warmup := codec.Envelope{
-				ObjectID: "warm", ObjectType: "widget", OpType: "create",
+				ObjectID: "warm", ObjectType: "acme.widget", OpType: "create",
 				OpVersion: 1, Body: json.RawMessage(`{"title":"T"}`),
 			}
 			if _, err := dagStore.Append(ctx, warmup, nil); err != nil {
@@ -170,7 +170,7 @@ func BenchmarkAppendByRefCount(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				env := codec.Envelope{
 					ObjectID:   fmt.Sprintf("w-%d", i),
-					ObjectType: "widget",
+					ObjectType: "acme.widget",
 					OpType:     "create",
 					OpVersion:  1,
 					Body:       json.RawMessage(`{"title":"T"}`),
