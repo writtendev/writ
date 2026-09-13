@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/go-git/go-git/v5/storage"
 	"github.com/writtendev/writ/engine/codec"
@@ -68,11 +69,11 @@ type Store struct {
 	subscribers []*subscriber
 	mu          sync.Mutex
 
-	// vocabMu guards vocabCache/vocabChains/vocabFingerprint, the memoised
-	// resolution of VocabulariesFromSchemas behind a dag.Chains fingerprint
-	// (see Store.vocabularies and Store.noteAppend). Separate from mu:
-	// resolving vocabularies must not contend with Refresh/Rebuild's
-	// projection lock.
+	// vocabMu guards vocabCache/vocabChains/vocabFingerprint/vocabObservedAt,
+	// the memoised resolution of VocabulariesFromSchemas behind a dag.Chains
+	// fingerprint (see Store.vocabularies and Store.noteAppend). Separate
+	// from mu: resolving vocabularies must not contend with Refresh/
+	// Rebuild's projection lock.
 	vocabMu    sync.Mutex
 	vocabCache codec.Vocabularies
 	// vocabChains is the exact dag.Chains snapshot vocabCache was resolved
@@ -82,6 +83,24 @@ type Store struct {
 	// Chains call plus a full Schema/Enumerate re-resolve on every append.
 	vocabChains      map[string]dag.DiscoveredChain
 	vocabFingerprint string
+	// vocabObservedAt is the last time vocabCache was actually validated
+	// against ground truth — a real dag.Chains pass, in Store.vocabularies,
+	// win or lose against the fingerprint compare — not merely the last
+	// time this cache was touched. Store.noteAppend's non-"schema" branch
+	// rolls the chain snapshot forward without ever calling dag.Chains, so
+	// it must never update this stamp; only vocabularies' own two branches
+	// (fingerprint hit and full resolve) do, because both actually
+	// consulted the refs. Store.vocabulariesForAppend reads it to decide
+	// whether the append path may skip dag.Chains entirely for a short,
+	// documented window (vocabFreshnessWindow in schema.go).
+	vocabObservedAt time.Time
+	// now is the clock Store.vocabularies/vocabulariesForAppend read
+	// through the s.clock() helper below. nil means time.Now; a test
+	// injects a fake one via the export_test.go SetStoreClock seam so
+	// freshness-window tests are deterministic rather than racing wall
+	// time. Not an Open option deliberately (WRIT-202): the window itself
+	// is one fixed, documented constant, not something a caller configures.
+	now func() time.Time
 
 	// ruleCache is the fold-rule counterpart to vocabCache: the built-in
 	// vocabulary overlaid by whatever the log declares (RulesFromSchemas),
@@ -105,6 +124,18 @@ type Store struct {
 	// SchemaType values straight from it (Name, Fields, Ops, Description,
 	// Deprecated), which fields/ops-only ruleCache cannot carry.
 	typesCache resolvedSchemaTypes
+}
+
+// clock returns the time source Store.vocabularies and vocabulariesForAppend
+// read for vocabObservedAt: s.now when a test has injected one via the
+// export_test.go SetStoreClock seam, time.Now otherwise. No Open option
+// wraps this on purpose (WRIT-202) — the freshness window is one fixed,
+// documented constant, not caller-configurable.
+func (s *Store) clock() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
 }
 
 // Close closes the underlying projection database and releases associated resources.

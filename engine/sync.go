@@ -141,6 +141,17 @@ func (s *Store) Sync(ctx context.Context, remote string) (SyncResult, error) {
 		}
 	}
 
+	// Invalidate the producer-vocabularies cache once the fetch step has
+	// completed, unconditionally rather than conditioned on fetchRes having
+	// updates (WRIT-202 item 3): a fetch can move a peer's chain in a way
+	// Store.noteAppend's own rolled-forward bookkeeping never observes, so
+	// waiting for vocabFreshnessWindow to expire on its own would let
+	// vocabulariesForAppend serve a snapshot this fetch just made stale.
+	// One map clear against a network round trip is not worth conditioning
+	// on the fetch result's shape — the conditional version is the one that
+	// gets a corner case wrong.
+	s.invalidateVocabularies()
+
 	// 4. Refresh projection (runs even if transport errored)
 	refreshStats, refreshErr := s.Refresh(ctx)
 

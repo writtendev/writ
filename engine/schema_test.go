@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	writ "github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/engine/codec"
@@ -2033,6 +2034,244 @@ func TestVocabulariesCacheStaysWarmAcrossNonSchemaAppends(t *testing.T) {
 	}
 	if reflect.ValueOf(afterSchema).Pointer() == firstAddr {
 		t.Fatalf("a \"schema\" append did not invalidate the vocabularies cache")
+	}
+}
+
+// --- WRIT-202: producer-vocabularies append-path freshness window ---
+//
+// The four tests below use the injected clock (writ.SetStoreClock) rather
+// than real sleeps, so nothing here gates on wall time: every "inside the
+// window" assertion holds the clock at the exact instant the cache was
+// warmed (delta zero), and every "after the window" assertion advances it
+// past vocabFreshnessWindow explicitly.
+
+// TestVocabulariesForAppend_LocalSchemaAppendForcesFreshResolve pins the
+// load-bearing detail of WRIT-202's fix: Store.noteAppend's "schema"
+// branch must zero vocabObservedAt, not just vocabChains, so a local
+// schema append is never served back out of vocabulariesForAppend's
+// freshness window it just invalidated — even with the clock frozen and
+// never advancing past the window on its own.
+func TestVocabulariesForAppend_LocalSchemaAppendForcesFreshResolve(t *testing.T) {
+	store, ctx := openWritableStore(t)
+
+	// Based on the real clock, not an arbitrary fixed date: Store.Open's
+	// own initial-rules resolve (when it runs, on a fresh projection
+	// cache) stamps vocabObservedAt with the real time.Now, and a frozen
+	// instant far from "now" would make the window's Sub arithmetic go
+	// negative and read as perpetually fresh instead of testing anything.
+	frozen := time.Now()
+	writ.SetStoreClock(store, func() time.Time { return frozen })
+
+	// Warms (or re-stamps, if Store.Open's own initial-rules resolve
+	// already warmed it) vocabObservedAt = frozen.
+	first, err := writ.StoreVocabulariesForAppend(store, ctx)
+	if err != nil {
+		t.Fatalf("StoreVocabulariesForAppend failed: %v", err)
+	}
+	firstAddr := reflect.ValueOf(first).Pointer()
+
+	if err := store.ApplySchema(ctx, []codec.Envelope{
+		schemaEnv(t, "sch-fresh", "create", map[string]any{"namespace": "acme-fresh"}),
+	}); err != nil {
+		t.Fatalf("ApplySchema failed: %v", err)
+	}
+
+	// The clock has not moved at all. If vocabObservedAt survived the
+	// schema append, this would still read as inside the window and
+	// return the now-stale cached map instance.
+	second, err := writ.StoreVocabulariesForAppend(store, ctx)
+	if err != nil {
+		t.Fatalf("StoreVocabulariesForAppend after schema append failed: %v", err)
+	}
+	if got := reflect.ValueOf(second).Pointer(); got == firstAddr {
+		t.Fatalf("a local \"schema\" append did not force a fresh resolve on the very next vocabulariesForAppend call, despite the clock never advancing past the window: got the same map instance (%#x)", got)
+	}
+}
+
+// TestVocabulariesForAppend_ColdCacheAlwaysResolves pins the other
+// mandatory-freshness case in WRIT-202's plan: a Store whose
+// vocabulariesForAppend has never been called (vocabCache nil,
+// vocabObservedAt the zero time.Time) must resolve on its first call
+// regardless of what the clock reads — the zero value must never be
+// mistaken for "just observed". Reopening against the same on-disk
+// projection cache (WithCacheDir) after a prior Open already populated it
+// skips Open's own internal initial-rules resolve (projDB.HasGeneratedTables
+// is true), so this Store's vocabCache is genuinely nil at the point the
+// test calls vocabulariesForAppend for the first time.
+func TestVocabulariesForAppend_ColdCacheAlwaysResolves(t *testing.T) {
+	dir, _ := setupConfiguredRepo(t)
+	ctx := context.Background()
+	cacheDir := t.TempDir()
+
+	warm, err := writ.Open(dir, writ.WithSigner(dummySigner()), writ.WithCacheDir(cacheDir))
+	if err != nil {
+		t.Fatalf("warm-up Open failed: %v", err)
+	}
+	applyCoreSchema(t, ctx, warm)
+	if err := warm.Close(); err != nil {
+		t.Fatalf("warm-up Close failed: %v", err)
+	}
+
+	store, err := writ.Open(dir, writ.WithSigner(dummySigner()), writ.WithCacheDir(cacheDir))
+	if err != nil {
+		t.Fatalf("re-Open failed: %v", err)
+	}
+	defer store.Close()
+
+	// A clock frozen at the zero Go time would, if the IsZero guard were
+	// missing, read s.clock().Sub(vocabObservedAt) as exactly zero and
+	// wrongly call a nil cache "fresh". Use it deliberately.
+	writ.SetStoreClock(store, func() time.Time { return time.Time{} })
+
+	vocab, err := writ.StoreVocabulariesForAppend(store, ctx)
+	if err != nil {
+		t.Fatalf("StoreVocabulariesForAppend (cold) failed: %v", err)
+	}
+	if v, ok := vocab["acme.widget"]; !ok || !v.Declared {
+		t.Fatalf("cold-cache vocabulariesForAppend did not resolve ground truth: acme.widget from the reopened log is missing")
+	}
+}
+
+// TestVocabulariesForAppend_SecondHandleRisk pins the accepted risk the
+// WRIT-202 ruling names rather than hides: two writ.Store handles open on
+// one repository (a CLI plus a watching client, writ's normal case) can
+// disagree for up to vocabFreshnessWindow, because vocabulariesForAppend's
+// window is scoped to the handle that warmed it and Store.noteAppend's
+// chain-observer wiring is per-Store — handle A's append never rolls
+// handle B's snapshot forward or invalidates it. Handle B does not see
+// handle A's schema change while B's clock stays inside the window, and
+// does see it once B's clock advances past the window. This is the
+// ruling's accepted trade working as designed — do not "fix" it by
+// widening what vocabulariesForAppend observes; see its doc comment in
+// engine/schema.go.
+func TestVocabulariesForAppend_SecondHandleRisk(t *testing.T) {
+	dir, _ := setupConfiguredRepo(t)
+	ctx := context.Background()
+
+	handleA, err := writ.Open(dir, writ.WithSigner(dummySigner()), writ.WithCacheDir(t.TempDir()))
+	if err != nil {
+		t.Fatalf("Open handle A failed: %v", err)
+	}
+	defer handleA.Close()
+
+	handleB, err := writ.Open(dir, writ.WithSigner(dummySigner()), writ.WithCacheDir(t.TempDir()))
+	if err != nil {
+		t.Fatalf("Open handle B failed: %v", err)
+	}
+	defer handleB.Close()
+
+	// Based on the real clock, not an arbitrary fixed date: Store.Open's
+	// own initial-rules resolve (when it runs, on a fresh projection
+	// cache) stamps vocabObservedAt with the real time.Now, and a frozen
+	// instant far from "now" would make the window's Sub arithmetic go
+	// negative and read as perpetually fresh instead of testing anything.
+	frozen := time.Now()
+	writ.SetStoreClock(handleB, func() time.Time { return frozen })
+
+	// Warm B's cache at exactly the frozen instant, before A writes
+	// anything B doesn't already know about.
+	before, err := writ.StoreVocabulariesForAppend(handleB, ctx)
+	if err != nil {
+		t.Fatalf("StoreVocabulariesForAppend (warm) failed: %v", err)
+	}
+	if v, ok := before["acme.gizmo"]; ok && v.Declared {
+		t.Fatalf("acme.gizmo unexpectedly already declared before handle A wrote it")
+	}
+
+	if err := handleA.ApplySchema(ctx, compileTestSchema(t, "sch-second-handle", `namespace acme
+description "second-handle risk test vocabulary"
+
+type gizmo {
+  op create 1 {
+    title string(200) lww
+  }
+}
+`)); err != nil {
+		t.Fatalf("handle A ApplySchema failed: %v", err)
+	}
+
+	// Still inside the window (B's clock frozen at the exact instant B
+	// was warmed): B must NOT see A's change yet.
+	inside, err := writ.StoreVocabulariesForAppend(handleB, ctx)
+	if err != nil {
+		t.Fatalf("StoreVocabulariesForAppend (inside window) failed: %v", err)
+	}
+	if v, ok := inside["acme.gizmo"]; ok && v.Declared {
+		t.Fatalf("handle B saw handle A's schema change inside the freshness window: the accepted risk did not hold")
+	}
+
+	// Advance B's clock past vocabFreshnessWindow (100ms): the very next
+	// call must re-derive and see A's change.
+	writ.SetStoreClock(handleB, func() time.Time { return frozen.Add(101 * time.Millisecond) })
+	after, err := writ.StoreVocabulariesForAppend(handleB, ctx)
+	if err != nil {
+		t.Fatalf("StoreVocabulariesForAppend (after window) failed: %v", err)
+	}
+	if v, ok := after["acme.gizmo"]; !ok || !v.Declared {
+		t.Fatalf("handle B still does not see handle A's schema change after the freshness window elapsed")
+	}
+}
+
+// TestTypes_AlwaysSeesAnotherHandlesSchemaChange pins WRIT-202 item 4's
+// conservative split: Store.Types (through Store.declaredTypes and
+// Store.vocabularies) must keep re-deriving ground truth on every call,
+// never inheriting vocabulariesForAppend's append-path freshness window.
+// Handle B's clock is frozen throughout and never advances — this is the
+// test that fails the moment someone later routes readers through the
+// windowed entry point.
+func TestTypes_AlwaysSeesAnotherHandlesSchemaChange(t *testing.T) {
+	dir, _ := setupConfiguredRepo(t)
+	ctx := context.Background()
+
+	handleA, err := writ.Open(dir, writ.WithSigner(dummySigner()), writ.WithCacheDir(t.TempDir()))
+	if err != nil {
+		t.Fatalf("Open handle A failed: %v", err)
+	}
+	defer handleA.Close()
+
+	handleB, err := writ.Open(dir, writ.WithSigner(dummySigner()), writ.WithCacheDir(t.TempDir()))
+	if err != nil {
+		t.Fatalf("Open handle B failed: %v", err)
+	}
+	defer handleB.Close()
+
+	// Based on the real clock, not an arbitrary fixed date: Store.Open's
+	// own initial-rules resolve (when it runs, on a fresh projection
+	// cache) stamps vocabObservedAt with the real time.Now, and a frozen
+	// instant far from "now" would make the window's Sub arithmetic go
+	// negative and read as perpetually fresh instead of testing anything.
+	frozen := time.Now()
+	writ.SetStoreClock(handleB, func() time.Time { return frozen })
+
+	before, err := handleB.Types(ctx)
+	if err != nil {
+		t.Fatalf("handle B Types (before) failed: %v", err)
+	}
+	if _, ok := findSchemaType(before, "acme.gizmo"); ok {
+		t.Fatalf("acme.gizmo unexpectedly already declared before handle A wrote it")
+	}
+
+	if err := handleA.ApplySchema(ctx, compileTestSchema(t, "sch-readers-fresh", `namespace acme
+description "readers keep re-deriving test vocabulary"
+
+type gizmo {
+  op create 1 {
+    title string(200) lww
+  }
+}
+`)); err != nil {
+		t.Fatalf("handle A ApplySchema failed: %v", err)
+	}
+
+	// B's clock has not moved a single tick — the append-path window
+	// would still call a cache from before this instant "fresh", but
+	// Types must not consult that window at all.
+	after, err := handleB.Types(ctx)
+	if err != nil {
+		t.Fatalf("handle B Types (after) failed: %v", err)
+	}
+	if _, ok := findSchemaType(after, "acme.gizmo"); !ok {
+		t.Fatalf("handle B's Types did not see handle A's schema change immediately: a reader inherited the append-path freshness window")
 	}
 }
 

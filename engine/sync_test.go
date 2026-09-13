@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/writtendev/writ/engine"
 )
@@ -331,5 +332,81 @@ func TestStoreSync_PreReceiveHookFailureAndRetry(t *testing.T) {
 	}
 	if objB.Fields["title"] != "Hook Failure Widget" {
 		t.Errorf("Bob Fields[title] = %v, want 'Hook Failure Widget'", objB.Fields["title"])
+	}
+}
+
+// TestStoreSync_InvalidatesVocabulariesForAppendRegardlessOfWindow pins
+// WRIT-202 item 3: Store.Sync must invalidate the append-path
+// producer-vocabularies cache explicitly once its fetch step completes,
+// rather than leaving vocabFreshnessWindow to expire on its own. Bob's
+// clock is frozen at the exact instant his cache was warmed and never
+// advances a single tick for the rest of the test — if Sync relied on the
+// window expiring instead of invalidating explicitly, Bob's next append
+// would still see the pre-Alice vocabulary and refuse an op of the type
+// Alice just declared and pushed.
+func TestStoreSync_InvalidatesVocabulariesForAppendRegardlessOfWindow(t *testing.T) {
+	_, aliceDir, bobDir := setupSyncHarness(t)
+	ctx := context.Background()
+
+	sA, err := writ.Open(aliceDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Open Alice failed: %v", err)
+	}
+	defer sA.Close()
+
+	sB, err := writ.Open(bobDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Open Bob failed: %v", err)
+	}
+	defer sB.Close()
+
+	// Based on the real clock rather than an arbitrary fixed date, for the
+	// same reason schema_test.go's WRIT-202 tests are: Store.Open's own
+	// initial-rules resolve may already have stamped vocabObservedAt with
+	// the real time.Now, and a frozen instant far from "now" would make
+	// the window's Sub arithmetic go negative and read as perpetually
+	// fresh instead of testing anything.
+	frozen := time.Now()
+	writ.SetStoreClock(sB, func() time.Time { return frozen })
+
+	// Warm Bob's append-path cache at exactly the frozen instant, before
+	// Alice's change exists.
+	before, err := writ.StoreVocabulariesForAppend(sB, ctx)
+	if err != nil {
+		t.Fatalf("StoreVocabulariesForAppend (warm) failed: %v", err)
+	}
+	if v, ok := before["acme.gizmo"]; ok && v.Declared {
+		t.Fatalf("acme.gizmo unexpectedly already declared before Alice wrote it")
+	}
+
+	// Alice declares a new type and pushes it.
+	if err := sA.ApplySchema(ctx, compileTestSchema(t, "sch-peer", `namespace acme
+description "peer schema for the sync-invalidation test"
+
+type gizmo {
+  op create 1 {
+    title string(200) lww
+  }
+}
+`)); err != nil {
+		t.Fatalf("Alice ApplySchema failed: %v", err)
+	}
+	if _, err := sA.Sync(ctx, "origin"); err != nil {
+		t.Fatalf("Alice Sync failed: %v", err)
+	}
+
+	// Bob's clock has not moved a single tick since his cache was warmed
+	// above — the window alone would still call this fresh.
+	if _, err := sB.Sync(ctx, "origin"); err != nil {
+		t.Fatalf("Bob Sync failed: %v", err)
+	}
+
+	after, err := writ.StoreVocabulariesForAppend(sB, ctx)
+	if err != nil {
+		t.Fatalf("StoreVocabulariesForAppend after Sync failed: %v", err)
+	}
+	v, declared := after["acme.gizmo"]
+	if !declared || !v.Declared {
+		t.Fatalf("Bob's vocabulariesForAppend still does not see acme.gizmo after a Sync that fetched it: Sync did not invalidate the append-path cache, so the frozen-clock window served a stale snapshot")
 	}
 }
