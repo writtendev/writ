@@ -12,6 +12,7 @@ import (
 	"github.com/writtendev/writ/engine/codec"
 	"github.com/writtendev/writ/engine/dag"
 	"github.com/writtendev/writ/engine/identity"
+	"github.com/writtendev/writ/internal/gittest"
 	"github.com/writtendev/writ/spec"
 )
 
@@ -106,15 +107,8 @@ func initBareRepo(t *testing.T) (string, *git.Repository) {
 	// go-git's PlainInit does not read GIT_TEMPLATE_DIR, so this repository
 	// misses the auto-maintenance config gittest.DisableAutoMaintenance
 	// installs through the template and has to be given it directly.
-	// receive-pack reads the config of the repository it is pushed into, not
-	// the pusher's: without these keys every push here leaves a detached git
-	// maintenance child still able to write into dir after the test returns.
-	for _, kv := range [][2]string{{"gc.auto", "0"}, {"maintenance.auto", "false"}} {
-		cmd := exec.Command("git", "config", kv[0], kv[1])
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git config %s: %v (%s)", kv[0], err, out)
-		}
+	if err := gittest.WriteAutoMaintenanceConfig(dir); err != nil {
+		t.Fatalf("disabling auto-maintenance in %s: %v", dir, err)
 	}
 
 	return dir, repo

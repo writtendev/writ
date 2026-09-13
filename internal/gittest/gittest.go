@@ -5,14 +5,41 @@ package gittest
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 )
 
-// AutoMaintenanceConfig is the git config that keeps detached auto-maintenance
-// out of a repository. It is exported so a test creating a repository system
-// git did not create — go-git's PlainInit ignores templates — can write the
-// same two keys into it.
-const AutoMaintenanceConfig = "[gc]\n\tauto = 0\n[maintenance]\n\tauto = false\n"
+// autoMaintenanceConfig is the git config that keeps detached auto-maintenance
+// out of a repository, and the only spelling of it: the template file, the
+// environment block, and WriteAutoMaintenanceConfig are all derived from this
+// slice, so a key added here reaches every repository however it was created.
+var autoMaintenanceConfig = [][2]string{
+	{"gc.auto", "0"},
+	{"maintenance.auto", "false"},
+}
+
+// WriteAutoMaintenanceConfig writes the auto-maintenance config into the local
+// config of the already-initialised repository at gitDir — for a bare
+// repository, the repository directory itself.
+//
+// Tests need this for repositories system git did not create: go-git's
+// PlainInit ignores GIT_TEMPLATE_DIR, so such a repository misses the config
+// DisableAutoMaintenance installs through the template. receive-pack reads the
+// config of the repository it is pushed into, not the pusher's, so without
+// these keys every push into such a remote leaves a detached git maintenance
+// child still able to write there after the test returns.
+func WriteAutoMaintenanceConfig(gitDir string) error {
+	for _, kv := range autoMaintenanceConfig {
+		cmd := exec.Command("git", "config", kv[0], kv[1])
+		cmd.Dir = gitDir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("git config %s %s in %s: %w (%s)", kv[0], kv[1], gitDir, err, out)
+		}
+	}
+	return nil
+}
 
 // DisableAutoMaintenance stops git's detached auto-maintenance
 // (git maintenance run --auto --detach) from writing into a test repository
@@ -37,17 +64,20 @@ const AutoMaintenanceConfig = "[gc]\n\tauto = 0\n[maintenance]\n\tauto = false\n
 // GIT_CONFIG_COUNT and GIT_TEMPLATE_DIR for the entire binary — nothing else
 // in the process should set either.
 func DisableAutoMaintenance() (cleanup func()) {
-	os.Setenv("GIT_CONFIG_COUNT", "2")
-	os.Setenv("GIT_CONFIG_KEY_0", "gc.auto")
-	os.Setenv("GIT_CONFIG_VALUE_0", "0")
-	os.Setenv("GIT_CONFIG_KEY_1", "maintenance.auto")
-	os.Setenv("GIT_CONFIG_VALUE_1", "false")
+	os.Setenv("GIT_CONFIG_COUNT", strconv.Itoa(len(autoMaintenanceConfig)))
+	var template strings.Builder
+	for i, kv := range autoMaintenanceConfig {
+		os.Setenv(fmt.Sprintf("GIT_CONFIG_KEY_%d", i), kv[0])
+		os.Setenv(fmt.Sprintf("GIT_CONFIG_VALUE_%d", i), kv[1])
+		section, key, _ := strings.Cut(kv[0], ".")
+		fmt.Fprintf(&template, "[%s]\n\t%s = %s\n", section, key, kv[1])
+	}
 
 	dir, err := os.MkdirTemp("", "writ-gittest-template")
 	if err != nil {
 		panic(fmt.Sprintf("gittest: creating git template dir: %v", err))
 	}
-	if err := os.WriteFile(filepath.Join(dir, "config"), []byte(AutoMaintenanceConfig), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "config"), []byte(template.String()), 0o644); err != nil {
 		panic(fmt.Sprintf("gittest: writing git template config: %v", err))
 	}
 	os.Setenv("GIT_TEMPLATE_DIR", dir)

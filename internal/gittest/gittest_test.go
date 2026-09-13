@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/go-git/go-git/v5"
 )
 
 // TestDisableAutoMaintenanceAcrossRepoBoundary pushes into a bare remote and
@@ -20,7 +22,31 @@ import (
 // receive-pack logs trace2 def_param for the config of the directory it
 // started in — the pusher's repository — so seeing gc.auto there says nothing
 // about what the remote it writes into is configured with.
+//
+// Both ways a test creates a bare remote are covered, because they are
+// configured through different channels: system git through the template
+// directory, go-git — which ignores templates — through
+// WriteAutoMaintenanceConfig.
 func TestDisableAutoMaintenanceAcrossRepoBoundary(t *testing.T) {
+	remotes := map[string]func(t *testing.T, dir string){
+		"system git": func(t *testing.T, dir string) {
+			runGit(t, filepath.Dir(dir), "init", "--bare", "--initial-branch=main", dir)
+		},
+		"go-git": func(t *testing.T, dir string) {
+			if _, err := git.PlainInit(dir, true); err != nil {
+				t.Fatalf("PlainInit bare %s: %v", dir, err)
+			}
+			if err := WriteAutoMaintenanceConfig(dir); err != nil {
+				t.Fatalf("WriteAutoMaintenanceConfig: %v", err)
+			}
+		},
+	}
+	for name, initRemote := range remotes {
+		t.Run(name, func(t *testing.T) { testAcrossRepoBoundary(t, initRemote) })
+	}
+}
+
+func testAcrossRepoBoundary(t *testing.T, initRemote func(t *testing.T, dir string)) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH; skipping test")
 	}
@@ -34,7 +60,7 @@ func TestDisableAutoMaintenanceAcrossRepoBoundary(t *testing.T) {
 		t.Fatalf("mkdir trace: %v", err)
 	}
 
-	runGit(t, dir, "init", "--bare", "--initial-branch=main", remoteDir)
+	initRemote(t, remoteDir)
 	runGit(t, dir, "init", "--initial-branch=main", workDir)
 	runGit(t, workDir, "config", "user.name", "Tester")
 	runGit(t, workDir, "config", "user.email", "tester@example.com")
