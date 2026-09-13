@@ -321,7 +321,8 @@ type typeDescriptor struct {
 	AppendGroups []appendGroupPlan
 	// WithheldTargets are this type's target keys that got no column
 	// because the projection's row shape cannot represent them (see
-	// buildTypeDescriptor's append-group loop). The unit is the single
+	// buildTypeDescriptor's append-group loop, and its keyed-lww
+	// key-disagreement case, WRIT-205). The unit is the single
 	// target and nothing wider: the type materializes normally, so do the
 	// targets that merely share a table or an envelope with a withheld
 	// one, and so do ops that never write it. Every body field
@@ -617,6 +618,13 @@ func persistedQueryShapes(desc *schemaDescriptor) []persistedQueryShape {
 // one target must not cost a consumer every table and every row for the
 // type, and it must not push ops that have nothing to do with that target —
 // a create carrying only a title, say — into unknown_ops.
+//
+// A second shape withholds the same way: a keyed-lww target two rules bind
+// to two different Key tuples (again a legal version bump, spec/schema-ops.md
+// §8) — a group table's "k_"-prefixed columns are fixed at generation time
+// from one key tuple, so a second, differently-shaped tuple has nowhere to
+// go (WRIT-205). Same unit, same fallback: that target alone goes into
+// WithheldTargets, its group-mates and the type materialize normally.
 func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]bool) (*typeDescriptor, []anchorColumnRef, bool, error) {
 	tableName := "o_" + strings.ReplaceAll(objectType, "-", "_")
 
@@ -627,30 +635,97 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 	// every other merge attribute: spec/fieldrules.go's carve-out and
 	// spec/schema-ops.md §8 both let a version bump of the same (op_type,
 	// field) freely change value_type (also key, key_types, enum,
-	// max_length). So a target with such a version bump has two rules that
-	// legally disagree on ValueType, and reps[tk] — whichever one appeared
-	// first in rules — decides which one wins: the generated column's SQL
-	// type, and so whether the other version's values survive
-	// columnValue's type coercion, becomes a function of rule-slice order.
-	// Not fixed here — choosing which of two legitimately-disagreeing
-	// value_types a shared column should take is a design question on its
-	// own, filed as WRIT-205.
-	reps := make(map[string]state.Rule)
+	// max_length). WRIT-205: picking one bound rule as a "representative"
+	// and taking every attribute off it (the old single-rule pick) is
+	// order-dependent — whichever rule a slice happens to present first
+	// decided the generated column's SQL type, and so whether another
+	// version's values survived columnValue's type coercion. Every
+	// attribute below is instead resolved from ALL of a target's bound
+	// rules, never from one of them:
+	//
+	//   - Strategy: any bound rule's — spec.CheckTargetAgreement already
+	//     guarantees agreement here, unconditionally, so this attribute was
+	//     never actually order-dependent.
+	//   - ValueType: the single declared value type when every bound rule
+	//     agrees, otherwise "" (untyped). A singleton set is unchanged from
+	//     today. Untyped is not a gap being papered over: it is the
+	//     projection's existing first-class shape for a target with no
+	//     single declared type — the same TEXT column, with a members
+	//     child table under lww/create-once, that an undeclared value_type
+	//     already gets (sqlType/columnValue's TEXT/toText path). Two other
+	//     shapes were considered and are closed by settled documents, not
+	//     by judgment here: declining the target outright is closed by
+	//     spec/forward-compatibility.md §"Targets a projection declines",
+	//     whose permission is conditioned on storage that "cannot express
+	//     what the fold blesses" — untyped storage can, so the condition
+	//     for declining is not met; a column per (target, op_version) is
+	//     closed by spec/schema-ops.md §8, since Fold groups matched rules
+	//     by target key alone, never by op_version, so folded state holds
+	//     exactly one value per target and there is no per-version
+	//     partition in it to project.
+	//   - Key (keyed-lww only): the single declared key tuple when every
+	//     bound keyed-lww rule agrees, otherwise the target is genuinely
+	//     unrepresentable — a fixed set of "k_"-prefixed columns cannot
+	//     hold two different key tuples for one target (spec/fold.md §5
+	//     #8 keys each op on its own rule's key list) — and is declined
+	//     through the WithheldTargets path below, the same one an
+	//     unrepresentable append shape already uses.
+	//
+	// No new spec text implements any of this: value_type's mapping to a
+	// SQL type and a keyed-lww target's column shape are both
+	// engine-internal DDL decisions nowhere stated in spec/, so widening to
+	// the already-defined "untyped" and declining an unrepresentable key
+	// both apply existing rules rather than add new ones.
+	type resolvedTarget struct {
+		Strategy    string
+		ValueType   string   // "" when bound rules disagree: untyped
+		Key         []string // keyed-lww only; nil when bound rules disagree
+		KeyDisagree bool     // keyed-lww only: bound rules declare different key tuples
+	}
+	rulesByTarget := make(map[string][]state.Rule)
 	var targetKeys []string
 	for _, r := range rules {
 		tk := r.TargetKey()
-		if _, ok := reps[tk]; !ok {
-			reps[tk] = r
+		if _, ok := rulesByTarget[tk]; !ok {
 			targetKeys = append(targetKeys, tk)
 		}
+		rulesByTarget[tk] = append(rulesByTarget[tk], r)
 	}
 	sort.Strings(targetKeys)
+
+	resolved := make(map[string]resolvedTarget, len(targetKeys))
+	for _, tk := range targetKeys {
+		trs := rulesByTarget[tk]
+		rt := resolvedTarget{Strategy: trs[0].Strategy, ValueType: trs[0].ValueType}
+		for _, r := range trs[1:] {
+			if r.ValueType != rt.ValueType {
+				rt.ValueType = ""
+			}
+		}
+		if rt.Strategy == "keyed-lww" {
+			key := trs[0].Key
+			keyStr := strings.Join(key, "\x00")
+			agree := true
+			for _, r := range trs[1:] {
+				if strings.Join(r.Key, "\x00") != keyStr {
+					agree = false
+					break
+				}
+			}
+			if agree {
+				rt.Key = key
+			} else {
+				rt.KeyDisagree = true
+			}
+		}
+		resolved[tk] = rt
+	}
 
 	for _, tk := range targetKeys {
 		if !validIdent(tk) {
 			return nil, nil, false, nil
 		}
-		if r := reps[tk]; r.Strategy == "keyed-lww" {
+		if r := resolved[tk]; r.Strategy == "keyed-lww" {
 			for _, k := range r.Key {
 				if !validIdent(k) {
 					return nil, nil, false, nil
@@ -681,6 +756,15 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 	// so any second write to a name is a genuine collision, never a
 	// legitimate merge — collided withholds the whole type for it, exactly
 	// like the cross-type collision identCollision already catches.
+	// withheldTargets collects target keys this type declines a column for
+	// entirely — populated here for a keyed-lww target whose bound rules
+	// disagree on Key (see the resolved-attribute comment above), and again
+	// below for an append target whose bound rules disagree on Field under
+	// one envelope. Declared once, ahead of both, so a single map is
+	// threaded through the whole function rather than merged after the
+	// fact.
+	withheldTargets := make(map[string]bool)
+
 	collided := false
 	insertChild := func(name string, table ddlTable) {
 		if collided {
@@ -701,7 +785,7 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 	groups := make(map[string]*groupInfo)
 
 	for _, tk := range targetKeys {
-		r := reps[tk]
+		r := resolved[tk]
 		switch r.Strategy {
 		case "lww", "create-once", "lattice", "tombstone":
 			col := "f_" + tk
@@ -772,14 +856,34 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 		case "append":
 			// Deferred entirely to buildAppendGroups below (WRIT-189 round 2
 			// MAJOR-1, round 3 MAJOR-1): every append target's own full rule
-			// set — every envelope it is declared under, not reps[tk] alone
-			// — feeds group formation directly from this type's rules, never
-			// from this per-target-key loop (reps here holds only one
-			// representative rule per target, which is exactly what round 3
-			// found unsafe for a target declared under more than one
-			// envelope).
+			// set — every envelope it is declared under, not resolved[tk]'s
+			// single blended attributes alone — feeds group formation
+			// directly from this type's rules, never from this
+			// per-target-key loop (resolved here holds one blended record
+			// per target, which is exactly what round 3 found unsafe for a
+			// target declared under more than one envelope when that record
+			// was instead a single representative rule).
 
 		case "keyed-lww":
+			if r.KeyDisagree {
+				// Two rules bind tk under different key tuples — a version
+				// bump or a second op_type changing `key` is exactly as
+				// legal as changing `value_type` (spec/schema-ops.md §8),
+				// but a keyed-lww group table's "k_"-prefixed columns are
+				// fixed at generation time from one key tuple: a second,
+				// differently-shaped tuple has nowhere to go, and
+				// spec/fold.md §5 #8 keys each op on its own rule's key
+				// list, so a v2 op would mis-key into v1's columns rather
+				// than merely mis-type them. Genuinely unrepresentable, so
+				// decline it the same way an unrepresentable append shape
+				// is declined below: no column, no group-table
+				// participation, its body fields land in unknown_fields
+				// instead (spec/forward-compatibility.md §"Targets a
+				// projection declines"). Its group-mates and the type
+				// itself are unaffected.
+				withheldTargets[tk] = true
+				continue
+			}
 			groupKey := strings.Join(r.Key, "\x00")
 			g, ok := groups[groupKey]
 			if !ok {
@@ -813,7 +917,7 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 			cols = append(cols, ddlColumn{Name: kc, SQLType: "TEXT"})
 		}
 		for _, tk := range g.members {
-			r := reps[tk]
+			r := resolved[tk]
 			col := "f_" + tk
 			cols = append(cols, ddlColumn{Name: col, SQLType: sqlType(r.ValueType), Indexed: r.ValueType != ""})
 			if r.ValueType == "anchor" {
@@ -834,13 +938,12 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 	}
 
 	var appendGroupPlans []appendGroupPlan
-	withheldTargets := make(map[string]bool)
 	for _, g := range buildAppendGroups(rules) {
 		members := make([]appendGroupMember, 0, len(g.members))
 		for _, tk := range g.members {
-			r := reps[tk]
-			// Every append rule bound to tk, not just reps[tk]'s one
-			// representative: a version bump or a second op_type agreeing
+			r := resolved[tk]
+			// Every append rule bound to tk, not just resolved[tk]'s single
+			// blended ValueType: a version bump or a second op_type agreeing
 			// on every merge attribute (spec/schema-ops.md §8) can declare
 			// tk under a different field name, and writeAppendGroupRows
 			// needs the field that specific envelope actually uses (WRIT-189
@@ -922,7 +1025,7 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 		envSet := make(map[appendGroupEnvelope]bool)
 		for _, m := range members {
 			keys = append(keys, m.Key)
-			cols = append(cols, ddlColumn{Name: m.Column, SQLType: sqlType(reps[m.Key].ValueType)})
+			cols = append(cols, ddlColumn{Name: m.Column, SQLType: sqlType(resolved[m.Key].ValueType)})
 			for _, f := range m.Fields {
 				envSet[appendGroupEnvelope{OpType: f.OpType, OpVersion: f.OpVersion}] = true
 			}
