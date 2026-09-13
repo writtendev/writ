@@ -75,11 +75,10 @@ func testAcrossRepoBoundary(t *testing.T, initRemote func(t *testing.T, dir stri
 	// that specifically — --local, because a plain --get would also report
 	// values this process supplied through the environment, which is exactly
 	// what does not survive the repository boundary.
-	if got := gitConfigLocal(t, remoteDir, "gc.auto"); got != "0" {
-		t.Errorf("remote's own gc.auto = %q, want %q", got, "0")
-	}
-	if got := gitConfigLocal(t, remoteDir, "maintenance.auto"); got != "false" {
-		t.Errorf("remote's own maintenance.auto = %q, want %q", got, "false")
+	for _, kv := range autoMaintenanceConfig {
+		if got := gitConfig(t, remoteDir, "--local", "--get", kv[0]); got != kv[1] {
+			t.Errorf("remote's own %s = %q, want %q", kv[0], got, kv[1])
+		}
 	}
 
 	push := exec.Command("git", "push", "origin", "HEAD:main")
@@ -91,6 +90,34 @@ func testAcrossRepoBoundary(t *testing.T, initRemote func(t *testing.T, dir stri
 
 	if n := maintenanceChildren(t, traceDir); n != 0 {
 		t.Errorf("push started %d git maintenance child process(es), want 0", n)
+	}
+}
+
+// TestEnvChannelReachesGoGitRepo guards the third delivery channel, which the
+// cross-boundary test above cannot reach.
+//
+// A non-bare repository go-git created gets the config from GIT_CONFIG_COUNT
+// and nowhere else: PlainInit ignores GIT_TEMPLATE_DIR, and
+// WriteAutoMaintenanceConfig is only called on the bare remotes. Without this,
+// dropping the environment block fails no test while detached maintenance
+// children come back in the packages that build repositories that way.
+func TestEnvChannelReachesGoGitRepo(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping test")
+	}
+	t.Cleanup(DisableAutoMaintenance())
+
+	dir := filepath.Join(t.TempDir(), "gogit")
+	if _, err := git.PlainInit(dir, false); err != nil {
+		t.Fatalf("PlainInit %s: %v", dir, err)
+	}
+
+	// --get, not --local: config arriving through the environment is the whole
+	// point here, and this repository's own config file has none of it.
+	for _, kv := range autoMaintenanceConfig {
+		if got := gitConfig(t, dir, "--get", kv[0]); got != kv[1] {
+			t.Errorf("%s = %q, want %q", kv[0], got, kv[1])
+		}
 	}
 }
 
@@ -141,13 +168,13 @@ func runGit(t *testing.T, dir string, args ...string) {
 	}
 }
 
-func gitConfigLocal(t *testing.T, repoDir, key string) string {
+func gitConfig(t *testing.T, repoDir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", "config", "--local", "--get", key)
+	cmd := exec.Command("git", append([]string{"config"}, args...)...)
 	cmd.Dir = repoDir
 	out, err := cmd.Output()
 	if err != nil {
-		t.Fatalf("git config --local --get %s in %s: %v", key, repoDir, err)
+		t.Fatalf("git config %s in %s: %v", strings.Join(args, " "), repoDir, err)
 	}
 	return strings.TrimSpace(string(out))
 }
