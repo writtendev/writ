@@ -556,6 +556,137 @@ func TestSchemaPlanPorcelain_DiffIsInjectiveAcrossLiteralEscapeText(t *testing.T
 	}
 }
 
+// TestSchemaShow_HostileTypeNameRendersEscaped is WRIT-226's reachability
+// spike and acceptance test: a define-type op's body `type` is the one
+// foreign-sourced string that survives every existing gate --
+// codec.ValidateEnvelope's decode-path schema leaves `body` unconstrained,
+// FoldSchema only checks `type != ""`, and typeIsQualifiedForNamespace
+// checks only the namespace prefix and single-segment shape, never
+// character grammar -- so a hostile type name installs into Schema.Types
+// and, before this ticket's fix, printed raw through both of `schema
+// show`'s porcelain arms (the bare list and the single-type view).
+//
+// The hostile op is planted with writeForeignOp, not by constructing a
+// state.Schema directly: that is what makes it fetched-equivalent (as if
+// received from a hostile remote peer) rather than locally constructed,
+// the same mechanism WRIT-137's accepted test
+// (TestObjectShow_HostilePersonRefRendersEscaped) used. The object id is
+// derived the same way `writ schema apply` derives it
+// (deriveSchemaObjectID: "schema:" + namespace) so this foreign op lands
+// on the very schema object `schema apply` below just created, on a
+// different writer ref -- exactly what a non-conforming second writer
+// contesting a legitimate schema object looks like.
+func TestSchemaShow_HostileTypeNameRendersEscaped(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, fullTestSchema)
+
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	hostile := "acme.a" + string(rune(0x202E)) + "b"
+
+	writeForeignOp(t, env.repoDir, "fedcba9876543210", "schema", "schema:acme", "define-type", 1, map[string]any{
+		"type": hostile,
+	})
+
+	escapeSeq := []byte(fmt.Sprintf("\\u%04x", 0x202E))
+	assertNoRawOverride := func(label string, out []byte) {
+		t.Helper()
+		if bytes.ContainsRune(out, 0x202E) {
+			t.Errorf("%s contains a raw U+202E byte sequence: %s", label, out)
+		}
+		if !bytes.Contains(out, escapeSeq) {
+			t.Errorf("%s = %s, want it to contain the %s escape", label, out, escapeSeq)
+		}
+	}
+
+	// `writ schema show` with no argument: the bare porcelain type-name
+	// listing (object.go's ":984" site) -- the most exposed of the three,
+	// since it needs no prior knowledge of the hostile name to reach.
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"schema", "show", "-C", env.repoDir}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema show (list) failed with %d; stderr: %s", code, stderr.String())
+	}
+	assertNoRawOverride("schema show (list)", stdout.Bytes())
+
+	// `writ schema show <hostile-name>`: the single-type porcelain view
+	// (":1025" and the ":1030" namespace row).
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"schema", "show", "-C", env.repoDir, hostile}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema show <name> failed with %d; stderr: %s", code, stderr.String())
+	}
+	assertNoRawOverride("schema show <name>", stdout.Bytes())
+
+	// --json must still round-trip the exact hostile string losslessly
+	// (already covered by emitJSON's WRIT-137 pass; pinned here too so a
+	// regression in that pass would still be caught alongside this one).
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"schema", "show", "-C", env.repoDir, hostile, "--json"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema show <name> --json failed with %d; stderr: %s", code, stderr.String())
+	}
+	if bytes.ContainsRune(stdout.Bytes(), 0x202E) {
+		t.Errorf("schema show <name> --json contains a raw U+202E byte sequence: %s", stdout.Bytes())
+	}
+
+	var typeInfo wire.SchemaTypeInfo
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindSchemaShow, &typeInfo)
+	if typeInfo.Name != hostile {
+		t.Errorf("decoded type name = %q, want the original hostile value %q (lossless round trip)", typeInfo.Name, hostile)
+	}
+}
+
+// TestDecodeGate_RefusesForbiddenCodePointInEnvelope pins the claim
+// object.go's comments now make about object_type and op_type: both are
+// constrained at decode by spec/schemas/op-envelope.schema.json's
+// patterns (^[a-z][a-z0-9-]{0,63}(\.[a-z][a-z0-9-]{0,63})?$ and
+// ^[a-z][a-z0-9-]*$ respectively), so a payload carrying a forbidden code
+// point in either is refused by codec.ValidateEnvelope before it ever
+// folds -- it never reaches the three sites in object.go this ticket
+// escaped for consistency rather than as live holes. If
+// op-envelope.schema.json's patterns are ever loosened, this test fails
+// rather than letting those three sites silently become live holes with a
+// comment that no longer matches reality.
+func TestDecodeGate_RefusesForbiddenCodePointInEnvelope(t *testing.T) {
+	hostile := "acme.a" + string(rune(0x202E)) + "b"
+
+	base := func() map[string]any {
+		return map[string]any{
+			"object_id":   "obj-1",
+			"object_type": "acme.standup",
+			"op_type":     "create",
+			"op_version":  1,
+			"body":        map[string]any{},
+		}
+	}
+
+	for _, tc := range []struct {
+		name  string
+		field string
+	}{
+		{name: "object_type", field: "object_type"},
+		{name: "op_type", field: "op_type"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := base()
+			payload[tc.field] = hostile
+
+			raw, err := json.Marshal(payload)
+			if err != nil {
+				t.Fatalf("marshal payload: %v", err)
+			}
+
+			if err := codec.ValidateEnvelope(raw); err == nil {
+				t.Fatalf("ValidateEnvelope(%s) = nil, want a schema-violation error refusing the forbidden code point in %s", raw, tc.field)
+			}
+		})
+	}
+}
+
 // TestSchemaPlanJSON_SourceFieldsStayRawAcrossHostileDescription pins
 // docs/cli-json.md's promise for current_source and planned_source: each
 // is "writ.schema source text rendered from the log's own folded state",

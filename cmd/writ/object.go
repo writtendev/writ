@@ -722,7 +722,15 @@ func runObjectShow(ctx context.Context, defaultDir string, args []string, stdout
 
 	tw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintf(tw, "object_id\t%s\n", obj.ObjectID)
-	fmt.Fprintf(tw, "object_type\t%s\n", obj.ObjectType)
+	// obj.ObjectType is envelope-derived (DetermineObjectType,
+	// engine/internal/fold/fold.go) and so already grammar-gated at decode
+	// by spec/schemas/op-envelope.schema.json's object_type pattern -- a
+	// forbidden code point here cannot survive decode. Escaped anyway for
+	// consistency with emitJSON's own pass (which escapes every string
+	// wire.FromObject serializes, this one included) and pinned by
+	// TestDecodeGate_RefusesForbiddenCodePointInEnvelope so this comment
+	// cannot silently rot into a false claim.
+	fmt.Fprintf(tw, "object_type\t%s\n", textsafe.EscapeForbidden(obj.ObjectType))
 	for _, k := range keys {
 		fmt.Fprintf(tw, "%s\t%s\n", k, fieldDisplay(obj.Fields[k]))
 	}
@@ -731,7 +739,11 @@ func runObjectShow(ctx context.Context, defaultDir string, args []string, stdout
 	if len(obj.UnknownOps) > 0 {
 		fmt.Fprintln(stdout, "Unknown ops:")
 		for _, u := range obj.UnknownOps {
-			fmt.Fprintf(stdout, "  %s %s v%d (%s)\n", u.ObjectType, u.OpType, u.OpVersion, u.Commit)
+			// u.ObjectType and u.OpType are likewise envelope-derived
+			// (engine/internal/fold/fold.go:214) and decode-gated the same
+			// way obj.ObjectType above is -- see that comment. Escaped for
+			// the same consistency reason, not because this is a live hole.
+			fmt.Fprintf(stdout, "  %s %s v%d (%s)\n", textsafe.EscapeForbidden(u.ObjectType), textsafe.EscapeForbidden(u.OpType), u.OpVersion, u.Commit)
 		}
 	}
 
@@ -882,7 +894,11 @@ func runObjectList(ctx context.Context, defaultDir string, args []string, stdout
 		}
 		author := authorDisplay(r.Author.Name, r.Author.Email)
 		updatedAt := r.UpdatedAt.Format("2006-01-02 15:04:05")
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", shortID, r.ObjectType, author, updatedAt)
+		// r.ObjectType is envelope-derived (engine/projection/materialize.go:738)
+		// and decode-gated the same way runObjectShow's obj.ObjectType is --
+		// see that comment. Escaped for consistency, not because this column
+		// is a live hole.
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", shortID, textsafe.EscapeForbidden(r.ObjectType), author, updatedAt)
 	}
 	_ = tw.Flush()
 	return 0
@@ -980,8 +996,20 @@ func runSchemaShow(ctx context.Context, defaultDir string, args []string, stdout
 		// Deliberately the porcelain form: one bare type name per line,
 		// nothing else -- so shell completion can be a plain
 		// $(writ schema show) call with nothing to parse.
+		//
+		// t.Name is a folded define-type body `type` value (state.Schema,
+		// engine/state/schema.go's FoldSchema): unlike object_type/op_type
+		// above, this is not envelope-derived, so it carries no decode-path
+		// grammar gate at all -- spec/schemas/op-envelope.schema.json
+		// leaves an op's `body` as a bare "type": "object". A foreign
+		// define-type whose body type carries a forbidden code point
+		// decodes cleanly, passes FoldSchema's `!= ""` check, and passes
+		// typeIsQualifiedForNamespace (engine/schema.go), which checks
+		// only the namespace prefix and single-segment shape, never
+		// character grammar. This is the one genuinely reachable site this
+		// escape is for -- see TestSchemaShow_HostileTypeNameRendersEscaped.
 		for _, t := range types {
-			fmt.Fprintln(stdout, t.Name)
+			fmt.Fprintln(stdout, textsafe.EscapeForbidden(t.Name))
 		}
 		return 0
 	}
@@ -1017,18 +1045,26 @@ func runSchemaShow(ctx context.Context, defaultDir string, args []string, stdout
 
 	// found.Description and each op's Description are schema-object free
 	// text (state.Schema, folded from define-type/define-op op bodies)
-	// with no repertoire gate -- unlike a type/op/field name, which the
-	// schema grammar already constrains. Escaped for the same reason
-	// fieldDisplay's and authorDisplay's doc comments give, below: the
-	// escape is display, not data.
+	// with no repertoire gate at all. That is also true of found.Name
+	// (the type itself): op and field names ARE resolver-gated
+	// (spec.ValidateFieldRule, engine/schema.go:910, into a
+	// SchemaConflict when they fail it), and a *locally produced* type
+	// name is producer-gated (spec/schema-ops.md §4.2's grammar, enforced
+	// by validateAgainstBootstrap before an op is ever appended) -- but a
+	// type name arriving on a *fetched* op has no equivalent gate on the
+	// read path (spec/fold.md §7.1 makes fold total regardless of what a
+	// conforming producer would have refused), so it is escaped here for
+	// the same reason as Description: the escape is display, not data.
 	tw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintf(tw, "type\t%s\n", found.Name)
+	fmt.Fprintf(tw, "type\t%s\n", textsafe.EscapeForbidden(found.Name))
 	// resolveSchemaTypes qualifies every installed type as
 	// "<namespace>.<type>" except the bootstrap "schema" itself (never
 	// qualified, never anyone's namespace), so a single Cut is total: found
-	// either splits into a namespace or has none to report (WRIT-223).
+	// either splits into a namespace or has none to report (WRIT-223). Cut
+	// the raw name, not the escaped one, so the "." split still works on
+	// the original value -- only the printed remainder needs escaping.
 	if namespace, _, ok := strings.Cut(found.Name, "."); ok {
-		fmt.Fprintf(tw, "namespace\t%s\n", namespace)
+		fmt.Fprintf(tw, "namespace\t%s\n", textsafe.EscapeForbidden(namespace))
 	}
 	if found.Description != "" {
 		fmt.Fprintf(tw, "description\t%s\n", textsafe.EscapeForbidden(found.Description))
