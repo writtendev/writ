@@ -61,11 +61,21 @@ func runObject(ctx context.Context, defaultDir string, args []string, stdout, st
 }
 
 // declaredTypeNames lists every object type the installed vocabulary
-// declares, sorted, for use in an "unknown type" error message.
+// declares, sorted and escaped for display, for use in an "unknown type"
+// error message.
+//
+// Each t.Name is a folded define-type body `type` value, which carries no
+// grammar gate on the read path at all -- runSchemaShow's comment on the
+// same value spells out why. Both callers join the result straight into a
+// human-readable message and neither needs the raw form, so the escape is
+// applied here once rather than at each render site; a caller that did
+// need the raw value should take it from Store.Types and escape at its own
+// render, the way runSchemaApply handles namespaces. Sorting after
+// escaping is deliberate: the order is the one a human reads.
 func declaredTypeNames(types []writ.SchemaType) []string {
 	names := make([]string, 0, len(types))
 	for _, t := range types {
-		names = append(names, t.Name)
+		names = append(names, textsafe.EscapeForbidden(t.Name))
 	}
 	sort.Strings(names)
 	return names
@@ -1006,8 +1016,11 @@ func runSchemaShow(ctx context.Context, defaultDir string, args []string, stdout
 		// decodes cleanly, passes FoldSchema's `!= ""` check, and passes
 		// typeIsQualifiedForNamespace (engine/schema.go), which checks
 		// only the namespace prefix and single-segment shape, never
-		// character grammar. This is the one genuinely reachable site this
-		// escape is for -- see TestSchemaShow_HostileTypeNameRendersEscaped.
+		// character grammar. Every human view of this value therefore has
+		// to escape it: this listing, the single-type view below, and
+		// declaredTypeNames' "declares:" list (which escapes for its own
+		// two callers) -- see TestSchemaShow_HostileTypeNameRendersEscaped
+		// and TestObjectUnknownType_HostileDeclaredTypeListRendersEscaped.
 		for _, t := range types {
 			fmt.Fprintln(stdout, textsafe.EscapeForbidden(t.Name))
 		}

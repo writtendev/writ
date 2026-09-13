@@ -844,3 +844,57 @@ func TestSchemaPlan_HostileFetchedOpTypeRendersEscaped(t *testing.T) {
 		t.Errorf("schema plan refusal = %s, want it to contain the %s escape", out, escapeSeq)
 	}
 }
+
+// TestObjectUnknownType_HostileDeclaredTypeListRendersEscaped covers the
+// third caller of a folded define-type body `type`: declaredTypeNames
+// (object.go), whose sorted list is joined into the "not declared by the
+// installed vocabulary (declares: ...)" message emitted by both
+// `writ object list <type>` and `writ object create`/`apply` (through
+// resolveOpVersion). It is the same value TestSchemaShow_HostileTypeNameRendersEscaped
+// plants, reached by a lower-friction route: a plain typo in the type
+// argument prints the attacker-chosen string beside a %q-quoted (and so
+// already escaped) copy of the user's own input.
+func TestObjectUnknownType_HostileDeclaredTypeListRendersEscaped(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, fullTestSchema)
+
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	hostile := "acme.a" + string(rune(0x202E)) + "b"
+
+	writeForeignOp(t, env.repoDir, "fedcba9876543210", "schema", "schema:acme", "define-type", 1, map[string]any{
+		"type": hostile,
+	})
+
+	escapeSeq := []byte(fmt.Sprintf("\\u%04x", 0x202E))
+	assertNoRawOverride := func(label string, out []byte) {
+		t.Helper()
+		if bytes.ContainsRune(out, 0x202E) {
+			t.Errorf("%s contains a raw U+202E byte sequence: %s", label, out)
+		}
+		if !bytes.Contains(out, escapeSeq) {
+			t.Errorf("%s = %s, want it to contain the %s escape", label, out, escapeSeq)
+		}
+	}
+
+	// `writ object list <undeclared>`: the declares: list goes straight to
+	// stderr, no renderErr in between.
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"object", "list", "-C", env.repoDir, "acme.nosuch"}, &stdout, &stderr); code == 0 {
+		t.Fatalf("object list with an undeclared type unexpectedly succeeded; stdout: %s", stdout.String())
+	}
+	assertNoRawOverride("object list (undeclared type)", stderr.Bytes())
+
+	// `writ object create <undeclared> <op>`: the same list, via
+	// resolveOpVersion's error through renderErr.
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"object", "create", "-C", env.repoDir, "acme.nosuch", "create"}, &stdout, &stderr); code == 0 {
+		t.Fatalf("object create with an undeclared type unexpectedly succeeded; stdout: %s", stdout.String())
+	}
+	assertNoRawOverride("object create (undeclared type)", stderr.Bytes())
+}
