@@ -32,7 +32,7 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: pin
         run: |
           version="$(make -s hugo-version)"
@@ -67,7 +67,7 @@ jobs:
     concurrency:
       group: docs-publish-${{ github.ref }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: pin
         run: |
           version="$(make -s hugo-version)"
@@ -102,7 +102,7 @@ jobs:
       # merged last.
       - name: Set up Go
         if: github.event_name == 'push' && github.ref_type == 'tag'
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: "1.25"
       - uses: charmbracelet/vhs-action@v2
