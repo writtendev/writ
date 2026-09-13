@@ -278,15 +278,31 @@ func TestAppendVersionBumpIsDeterministic(t *testing.T) {
 // TestKeyedLWWVersionBumpKeyDisagreementDeclines is the plan's third test:
 // a keyed-lww target ("verdict") whose bound rules disagree on Key across a
 // version bump — endorse op_version 1 keys it on (subject, revision),
-// op_version 2 keys it on (subject) alone, both legal per
-// spec/schema-ops.md §8's carve-out (key is as free to change on a version
-// bump as value_type) — is genuinely unrepresentable by a fixed set of
-// "k_"-prefixed group-table columns: v2's op would mis-key into v1's
-// columns (spec/fold.md §5 #8 keys each op on its own rule's key list), not
-// merely mis-type them the way a disagreeing value_type would. So unlike
+// op_version 2 keys it on (subject, commit) — both within one
+// versionBumpClass (same op_type and field, spec/fieldrules.go's
+// FindTargetDisagreement), so spec.CheckTargetAgreement's carve-out permits
+// it exactly as freely as a disagreeing value_type (spec/schema-ops.md §8).
+// It is genuinely unrepresentable by a fixed set of "k_"-prefixed
+// group-table columns: v2's op would mis-key into v1's columns
+// (spec/fold.md §5 #8 keys each op on its own rule's key list), not merely
+// mis-type them the way a disagreeing value_type would. So unlike
 // value_type, this is declined outright through the existing
 // WithheldTargets path (spec/forward-compatibility.md §"Targets a
 // projection declines") rather than widened.
+//
+// The two key tuples are deliberately kept the same length (2), differing
+// only in the second component's name ("revision" vs "commit"): a
+// differing-arity pair (e.g. (subject, revision) vs (subject) alone) is
+// also legal under the same carve-out, but panics
+// engine/internal/fold.keyedLWWAccumulator.Result's sort comparator
+// (strategy.go ~line 480) with an index-out-of-range — it assumes every
+// entry's key slice is the same length as the first it compares, which
+// holds for every declared shape today but not this one. That is a real
+// bug in engine/internal/fold, outside engine/projection/ddl.go's scope
+// (and this ticket's — see AGENTS.md's "Stop-and-report conditions": a
+// bug found outside scope is commented, not fixed here); it is flagged on
+// WRIT-205 rather than fixed as a drive-by, and this test is shaped to
+// exercise ddl.go's decline path without tripping over it.
 //
 // "revision" is a second target sharing verdict's v1 key tuple
 // (subject, revision) with no disagreement of its own, standing in for the
@@ -301,12 +317,12 @@ func TestKeyedLWWVersionBumpKeyDisagreementDeclines(t *testing.T) {
 	opEndorseV1 := makeVersionedOp("w-1", "op-endorse-v1-1", []string{"op-create-1"}, "endorse", 1,
 		map[string]any{"subject": "alice", "revision": "deadbeef", "verdict": "yes"}, base.Add(1*time.Second))
 	opEndorseV2 := makeVersionedOp("w-1", "op-endorse-v2-1", []string{"op-endorse-v1-1"}, "endorse", 2,
-		map[string]any{"subject": "alice", "verdict": "no"}, base.Add(2*time.Second))
+		map[string]any{"subject": "alice", "commit": "cafebabe", "verdict": "no"}, base.Add(2*time.Second))
 
 	titleRule := state.Rule{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string", ObjectType: "widget"}
 	revisionRule := state.Rule{OpType: "endorse", OpVersion: 1, Field: "revision", Strategy: "keyed-lww", Key: []string{"subject", "revision"}, ValueType: "git-oid", ObjectType: "widget"}
 	verdictV1Rule := state.Rule{OpType: "endorse", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww", Key: []string{"subject", "revision"}, ValueType: "enum", Enum: []string{"yes", "no"}, ObjectType: "widget"}
-	verdictV2Rule := state.Rule{OpType: "endorse", OpVersion: 2, Field: "verdict", Strategy: "keyed-lww", Key: []string{"subject"}, ValueType: "enum", Enum: []string{"yes", "no"}, ObjectType: "widget"}
+	verdictV2Rule := state.Rule{OpType: "endorse", OpVersion: 2, Field: "verdict", Strategy: "keyed-lww", Key: []string{"subject", "commit"}, ValueType: "enum", Enum: []string{"yes", "no"}, ObjectType: "widget"}
 
 	rules := map[string][]state.Rule{"widget": {titleRule, revisionRule, verdictV1Rule, verdictV2Rule}}
 
@@ -377,14 +393,14 @@ func TestKeyedLWWVersionBumpKeyDisagreementDeclines(t *testing.T) {
 		t.Fatalf("o_widget__k_subject_revision DDL = %q, must not contain f_verdict — a withheld target must get no column", groupSQL)
 	}
 
-	// ... and no group table was generated for v2's own (subject) key
-	// tuple either: the whole target is withheld, not partially
+	// ... and no group table was generated for v2's own (subject, commit)
+	// key tuple either: the whole target is withheld, not partially
 	// represented under whichever version's key happened to survive.
 	var soleKeyTables int
-	if err := db.DB().QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'o_widget__k_subject'").Scan(&soleKeyTables); err != nil {
-		t.Fatalf("query sqlite_master for o_widget__k_subject: %v", err)
+	if err := db.DB().QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'o_widget__k_subject_commit'").Scan(&soleKeyTables); err != nil {
+		t.Fatalf("query sqlite_master for o_widget__k_subject_commit: %v", err)
 	}
 	if soleKeyTables != 0 {
-		t.Fatalf("o_widget__k_subject table exists, want none — a withheld keyed-lww target must not get a group table under either disagreeing key")
+		t.Fatalf("o_widget__k_subject_commit table exists, want none — a withheld keyed-lww target must not get a group table under either disagreeing key")
 	}
 }
