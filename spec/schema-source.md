@@ -456,9 +456,38 @@ carve-out is void for every rule bound to it, and `value_type`,
 (`schema-ops.md` §8). Left unchecked here, the same disagreement is still
 caught later — `RulesFromSchemas` withholds every rule bound to the
 target as a `SchemaConflict`, not only the rule that introduced the
-disagreement — but only after the ops are signed into the log and
-unremovable, which is what makes catching it at `Compile` time the one
-that matters:
+disagreement (`schema-ops.md` §8 is the normative statement for both the
+relation and this consequence) — but that catch is not itself confined
+to after signing: `writ schema plan` and `writ schema apply` run the
+resolver over the state an apply would actually produce and refuse a
+conflict the apply itself would introduce, before appending anything
+(`cmd/writ/schema.go`'s `conflictsIntroducedByApply`) — a property of
+writ's own CLI, not of this format: the preamble licenses exactly this
+gap, granting that a conforming implementation need not parse
+`writ.schema` at all, so it need not ship any such pre-flight. That
+refusal is narrower than it looks: it catches only a conflict newly
+introduced by the apply it is checking, so one already in the log is
+reported, not re-refused — and for a target conflict specifically
+nothing new can enter through that gap anyway, since any file naming
+both disagreeing rules is exactly what `Compile` rejects before the
+pre-flight would ever run. Two routes still put a target conflict in
+the log regardless: a producer that appends schema ops directly, never
+running `writ schema apply`, meets no pre-flight to refuse it; and two
+individually clean applies that each bind one target from a different
+`(op_type, field)` class disagree only once their ops merge, by which
+point both are already signed and unremovable. Once a disagreement does
+reach the log by either route, the conflicting ops stay unremovable and
+every rule bound to the target is withheld — though not permanently: a
+later `define-field` that overwrites the disagreeing attribute
+registers into agreement — `value_type`, `enum`, `max_length`, `key`,
+`key_types`, `lattice`, and `target`, each its own independent
+`keyed-lww` register (`schema-ops.md` §8.1) — restores every withheld
+rule; dropping either rule is refused just the same, since nothing is
+ever removed from the log. What does not come back is round-tripping
+the log's conflicted state verbatim: a `writ.schema` naming both
+disagreeing rules bound to the same target is exactly what `Compile`
+rejects — which is what makes `Compile` catching the version bump
+below, before any of that, the one that matters:
 
 ```
 type ticket {
