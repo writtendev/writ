@@ -5,18 +5,16 @@ import (
 	"strconv"
 )
 
-const localSchemaVersion = 1
+const localSchemaVersion = 2
 
 var localTables = []string{
 	"meta",
-	"drafts",
 	"read_state",
 	"sync_cursors",
 }
 
 var localTableQueries = map[string]string{
 	"meta":         "SELECT * FROM meta ORDER BY key ASC",
-	"drafts":       "SELECT * FROM drafts ORDER BY draft_id ASC",
 	"read_state":   "SELECT * FROM read_state ORDER BY object_id ASC",
 	"sync_cursors": "SELECT * FROM sync_cursors ORDER BY remote ASC, ref_name ASC",
 }
@@ -26,18 +24,6 @@ CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
-
-CREATE TABLE IF NOT EXISTS drafts (
-    draft_id TEXT PRIMARY KEY,
-    subject_type TEXT NOT NULL,
-    subject_id TEXT NOT NULL,
-    in_reply_to TEXT NOT NULL,
-    anchor TEXT NOT NULL,
-    text TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_drafts_subject_id ON drafts(subject_id);
 
 CREATE TABLE IF NOT EXISTS read_state (
     object_id TEXT PRIMARY KEY,

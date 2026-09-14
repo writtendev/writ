@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/writtendev/writ/engine/projection"
-	"github.com/writtendev/writ/engine/resolve"
 )
 
 func TestProjectionAndLocalTablesDisjoint(t *testing.T) {
@@ -46,97 +45,7 @@ func TestLocalStoreCRUD(t *testing.T) {
 	}
 	defer db.Close()
 
-	// 1. Draft CRUD
-	anc := resolve.Anchor{
-		Version: 1,
-		Old: &resolve.SideAnchor{
-			Commit: "0000000000000000000000000000000000000001",
-			Path:   "main.go",
-		},
-	}
-	d1 := projection.Draft{
-		SubjectType: "widget",
-		SubjectID:   "w-123",
-		InReplyTo:   "n-456",
-		Anchor:      &anc,
-		Text:        "Draft note text",
-	}
-
-	id1, err := db.SaveDraft(d1)
-	if err != nil {
-		t.Fatalf("SaveDraft failed: %v", err)
-	}
-	if id1 == "" {
-		t.Fatalf("expected non-empty draft ID")
-	}
-
-	gotD1, err := db.Draft(id1)
-	if err != nil {
-		t.Fatalf("Draft %s failed: %v", id1, err)
-	}
-	if gotD1.DraftID != id1 || gotD1.SubjectID != "w-123" || gotD1.Text != "Draft note text" || gotD1.Anchor == nil || gotD1.Anchor.Old.Path != "main.go" {
-		t.Fatalf("unexpected draft read: %+v", gotD1)
-	}
-
-	// Update draft
-	gotD1.Text = "Updated draft text"
-	idUpdated, err := db.SaveDraft(gotD1)
-	if err != nil {
-		t.Fatalf("SaveDraft update failed: %v", err)
-	}
-	if idUpdated != id1 {
-		t.Fatalf("expected same draft ID %s, got %s", id1, idUpdated)
-	}
-
-	gotD1Updated, err := db.Draft(id1)
-	if err != nil {
-		t.Fatalf("Draft failed: %v", err)
-	}
-	if gotD1Updated.Text != "Updated draft text" {
-		t.Fatalf("expected updated text, got %q", gotD1Updated.Text)
-	}
-
-	// List drafts
-	d2 := projection.Draft{
-		SubjectType: "gadget",
-		SubjectID:   "g-789",
-		Text:        "Gadget draft text",
-	}
-	id2, err := db.SaveDraft(d2)
-	if err != nil {
-		t.Fatalf("SaveDraft 2 failed: %v", err)
-	}
-
-	allDrafts, err := db.ListDrafts(projection.DraftFilter{})
-	if err != nil {
-		t.Fatalf("ListDrafts all failed: %v", err)
-	}
-	if len(allDrafts) != 2 {
-		t.Fatalf("expected 2 drafts, got %d", len(allDrafts))
-	}
-
-	widgetDrafts, err := db.ListDrafts(projection.DraftFilter{SubjectType: "widget"})
-	if err != nil {
-		t.Fatalf("ListDrafts widget failed: %v", err)
-	}
-	if len(widgetDrafts) != 1 || widgetDrafts[0].DraftID != id1 {
-		t.Fatalf("expected 1 widget draft, got %+v", widgetDrafts)
-	}
-
-	// Delete draft
-	if err := db.DeleteDraft(id1); err != nil {
-		t.Fatalf("DeleteDraft failed: %v", err)
-	}
-	if _, err := db.Draft(id1); err != projection.ErrNotFound {
-		t.Fatalf("expected ErrNotFound after delete, got %v", err)
-	}
-	if err := db.DeleteDraft("non-existent"); err != projection.ErrNotFound {
-		t.Fatalf("expected ErrNotFound for non-existent draft, got %v", err)
-	}
-
-	_ = id2
-
-	// 2. Read state CRUD
+	// 1. Read state CRUD
 	now := time.Now().UTC().Truncate(time.Second)
 	if err := db.MarkRead("obj-1", "op-1", now); err != nil {
 		t.Fatalf("MarkRead failed: %v", err)
@@ -167,7 +76,7 @@ func TestLocalStoreCRUD(t *testing.T) {
 		t.Fatalf("expected 0 marks for obj-1 after clear, got %d", len(marksAfterClear))
 	}
 
-	// 3. Sync cursor CRUD
+	// 2. Sync cursor CRUD
 	syncTime := time.Now().UTC().Truncate(time.Second)
 	if err := db.SetSyncCursor("origin", "refs/writ/writer1/widget", "0123456789abcdef", syncTime); err != nil {
 		t.Fatalf("SetSyncCursor failed: %v", err)
@@ -219,15 +128,6 @@ func TestLocalStateSurvivesRebuild(t *testing.T) {
 	}
 
 	// Write local state
-	draftID, err := db.SaveDraft(projection.Draft{
-		SubjectType: "widget",
-		SubjectID:   "w-survive",
-		Text:        "Secret draft text",
-	})
-	if err != nil {
-		t.Fatalf("SaveDraft failed: %v", err)
-	}
-
 	now := time.Now().UTC().Truncate(time.Second)
 	if err := db.MarkRead("w-survive", "op-initial", now); err != nil {
 		t.Fatalf("MarkRead failed: %v", err)
@@ -283,15 +183,6 @@ func TestLocalStateSurvivesRebuild(t *testing.T) {
 	}
 	if !reflect.DeepEqual(localDumpBefore, localDumpAfterReopen) {
 		t.Fatalf("local state changed after projection file deletion and reopen:\nbefore: %+v\nafter: %+v", localDumpBefore, localDumpAfterReopen)
-	}
-
-	// Verify draft can still be read
-	draftAfter, err := db2.Draft(draftID)
-	if err != nil {
-		t.Fatalf("Draft lookup after recreate failed: %v", err)
-	}
-	if draftAfter.Text != "Secret draft text" {
-		t.Fatalf("expected draft text %q, got %q", "Secret draft text", draftAfter.Text)
 	}
 
 	// 3. Force folded-schema reset by writing stale schema_version in meta and reopening
