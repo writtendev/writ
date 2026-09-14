@@ -64,6 +64,12 @@ func TestFoldObjectTypeInference(t *testing.T) {
 			wantType: "gadget",
 		},
 		{
+			// Synthetic-only: spec/schemas/op-envelope.schema.json requires
+			// object_type and its pattern admits no empty string, so no op
+			// off the wire can carry "". This case exists to pin the
+			// structural rule itself — the earliest op in canonical order is
+			// op-1, whose ObjectType is "", so that is the answer now, not
+			// "widget" from a later op.
 			name: "ops[0] empty ObjectType, subsequent update op has ObjectType",
 			ops: []codec.Op{
 				{
@@ -90,7 +96,7 @@ func TestFoldObjectTypeInference(t *testing.T) {
 					Author:  codec.Identity{When: baseTime.Add(time.Minute)},
 				},
 			},
-			wantType: "widget",
+			wantType: "",
 		},
 		{
 			name: "subsequent create op takes precedence over first non-empty op",
@@ -310,30 +316,47 @@ func TestFoldKeyedLWWMultiRuleField(t *testing.T) {
 	}
 }
 
-func TestDetermineObjectTypePrecedence(t *testing.T) {
-	// 1. Create op beats other ops even when not first
+func TestDetermineObjectTypeCanonicalOrder(t *testing.T) {
+	baseTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	// 1. The earliest op in canonical order names the type, regardless of
+	// input slice order and regardless of op_type — no op here is named
+	// "create", which is exactly the point: the rule names no op vocabulary.
+	// Distinct IDs and distinct Author.When are required so Order actually
+	// resolves a canonical order instead of erroring into the fallback below.
 	ops := []codec.Op{
-		{Envelope: codec.Envelope{ObjectType: "widget", OpType: "update"}},
-		{Envelope: codec.Envelope{ObjectType: "gadget", OpType: "create"}},
+		{ID: "op-later", Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "widget", OpType: "update"}, Author: codec.Identity{When: baseTime.Add(time.Minute)}},
+		{ID: "op-earlier", Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "gadget", OpType: "open"}, Author: codec.Identity{When: baseTime}},
 	}
 	if got := fold.DetermineObjectType(ops); got != "gadget" {
 		t.Errorf("got %q, want 'gadget'", got)
 	}
 
-	// 2. First non-empty ObjectType when no create op
+	// 2. Canonical order follows causality, not input slice order: op-child
+	// names op-parent as a parent, so op-parent orders first (t*=baseTime)
+	// even though it appears second in the input slice and its own
+	// timestamp is later than an unrelated op would need to beat.
 	ops2 := []codec.Op{
-		{Envelope: codec.Envelope{ObjectType: "", OpType: "update"}},
-		{Envelope: codec.Envelope{ObjectType: "widget", OpType: "update"}},
+		{ID: "op-child", Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "widget", OpType: "update"}, Parents: []string{"op-parent"}, Author: codec.Identity{When: baseTime.Add(time.Minute)}},
+		{ID: "op-parent", Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "draft", OpType: "open"}, Author: codec.Identity{When: baseTime}},
 	}
-	if got := fold.DetermineObjectType(ops2); got != "widget" {
+	if got := fold.DetermineObjectType(ops2); got != "draft" {
+		t.Errorf("got %q, want 'draft'", got)
+	}
+
+	// 3. Fallback: an Order error (here ErrDuplicateOpID, from two ops
+	// sharing the empty ID) takes the input-order fallback deliberately,
+	// rather than erroring — DetermineObjectType returns ops[0].ObjectType.
+	ops3 := []codec.Op{
+		{Envelope: codec.Envelope{ObjectType: "widget", OpType: "update"}},
+		{Envelope: codec.Envelope{ObjectType: "gadget", OpType: "open"}},
+	}
+	if got := fold.DetermineObjectType(ops3); got != "widget" {
 		t.Errorf("got %q, want 'widget'", got)
 	}
 
-	// 3. Fallback when all empty
-	ops3 := []codec.Op{
-		{Envelope: codec.Envelope{ObjectType: "", OpType: "update"}},
-	}
-	if got := fold.DetermineObjectType(ops3); got != "" {
+	// 4. Empty ops slice.
+	if got := fold.DetermineObjectType(nil); got != "" {
 		t.Errorf("got %q, want ''", got)
 	}
 }
