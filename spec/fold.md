@@ -268,16 +268,13 @@ carry `add`/`remove` is the worked example: `assign`'s pair declares
 OR-sets land in separate state keys instead of one shared `add`/`remove`
 pair). A rule table that violates this agreement rule is non-conforming,
 exactly as one that reuses a target across a `strategy` change already
-was; for `keyed-lww` specifically, when the operations present match more
-than one of one target's rules and those rules disagree on `key` tuple
-**length**, fold itself MUST refuse the rule table with an error rather
-than fold it, per §7.1's account of the operations-versus-rule-tables
-boundary — including what happens when the operations present match only
-one such rule. Because the relation above is a genuine equivalence
-relation — unlike a pairwise "is this candidate a version bump of that
-specific prior" test, which is not transitive once a target is shared by
-three or more rules — which rules a resolver finds disagreeing can never
-depend on the order it happens to consider them in.
+was; for `keyed-lww` specifically, a `key` tuple **length** disagreement
+can make fold itself refuse the rule table with an error — §7.1 states
+when. Because the relation above is a genuine equivalence relation —
+unlike a pairwise "is this candidate a version bump of that specific
+prior" test, which is not transitive once a target is shared by three or
+more rules — which rules a resolver finds disagreeing can never depend on
+the order it happens to consider them in.
 
 **Every rule that matches an operation applies.** An operation is not
 limited to the first declared rule that matches it, by declaration order or
@@ -527,19 +524,15 @@ there, which a reader has no say over and must never die on. It says
 nothing about the **rule table** a caller hands to `Fold` alongside those
 operations. A rule table that contradicts itself is a programming error at
 the API boundary, not data arriving, and a fold that refuses it is not a
-failure of this section's totality. Concretely, when the operations
-present match more than one of a `keyed-lww` target's rules and those
-rules disagree on `key` tuple length, fold MUST refuse the rule table with
-an error rather than build an accumulator for it, never a cause of
-undefined behavior in the strategy's own comparator — §5's `keyed-lww`
-entry orders result entries "by their key tuples, compared
-component-wise," which is not defined across tuples of different length.
-When the operations present match only one of the target's rules, fold
-builds an ordinary accumulator for that rule alone and folds normally;
-disagreement elsewhere in the table is then never inspected. A rule table
-a schema resolved from the log can produce is protected upstream instead
-(`spec/schema-ops.md` §8) and never reaches fold in a shape this refusal
-would need to cover.
+failure of this section's totality. Concretely: when fold would build a
+`keyed-lww` accumulator for a target from rules that disagree on `key`
+tuple length, it MUST refuse the rule table with an error instead of
+building one — never a cause of undefined behavior in the strategy's own
+comparator, since §5's `keyed-lww` entry orders result entries "by their
+key tuples, compared component-wise," which is not defined across tuples
+of different length. A rule table a schema resolved from the log can
+produce is protected upstream instead (`spec/schema-ops.md` §8) and never
+reaches fold in a shape this refusal would need to cover.
 
 **`null` is named as its own case** and is treated identically to a value of
 the wrong type, wherever a strategy consumes a value: at the field, as an
