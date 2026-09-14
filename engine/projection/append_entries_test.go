@@ -494,17 +494,17 @@ func TestAppendAmbiguousFieldBothEntriesMaterialize(t *testing.T) {
 // detect any more: an op matches both rules (opMatchesRuleLite treats
 // op_version 0 as a wildcard on either side), and both contribute rows, in
 // canonical rule order (spec/fold.md §5: ascending op_type, then
-// op_version, then field) — here (remark, v0, note) before (remark, v2,
+// op_version, then field) — here (annotate, v0, note) before (annotate, v2,
 // body), since op_version dominates field once op_type ties.
 func TestAppendWildcardVersionOrdersByCanonicalRule(t *testing.T) {
 	base := time.Unix(1700000000, 0).UTC()
 	opCreate := makeVersionedWidgetOp("op-create-1", nil, "create", 1, map[string]any{"title": "T"}, base)
-	opComment := makeVersionedWidgetOp("op-comment-1", []string{"op-create-1"}, "comment", 2, map[string]any{"note": "n0", "body": "b2"}, base.Add(1*time.Second))
-	ops := []codec.Op{opCreate, opComment}
+	opAnnotate := makeVersionedWidgetOp("op-annotate-1", []string{"op-create-1"}, "annotate", 2, map[string]any{"note": "n0", "body": "b2"}, base.Add(1*time.Second))
+	ops := []codec.Op{opCreate, opAnnotate}
 
 	titleRule := state.Rule{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string", ObjectType: "widget"}
-	wildcardRule := state.Rule{OpType: "comment", OpVersion: 0, Field: "note", Target: "remark", Strategy: "append", ValueType: "string", ObjectType: "widget"}
-	specificRule := state.Rule{OpType: "comment", OpVersion: 2, Field: "body", Target: "remark", Strategy: "append", ValueType: "string", ObjectType: "widget"}
+	wildcardRule := state.Rule{OpType: "annotate", OpVersion: 0, Field: "note", Target: "remark", Strategy: "append", ValueType: "string", ObjectType: "widget"}
+	specificRule := state.Rule{OpType: "annotate", OpVersion: 2, Field: "body", Target: "remark", Strategy: "append", ValueType: "string", ObjectType: "widget"}
 	rules := []state.Rule{titleRule, wildcardRule, specificRule}
 
 	want, err := state.Fold(ops, rules)
@@ -525,7 +525,7 @@ func TestAppendWildcardVersionOrdersByCanonicalRule(t *testing.T) {
 
 	enumRes := &dag.EnumerateResult{
 		Ops:            map[string][]codec.Op{"w-1": ops},
-		Cursors:        dag.CursorSet{"refs/writ/0123456789abcdef/widget": "op-comment-1"},
+		Cursors:        dag.CursorSet{"refs/writ/0123456789abcdef/widget": "op-annotate-1"},
 		DecodedCommits: len(ops),
 	}
 	if _, err := db.Refresh(store, projection.WithSchema(map[string][]state.Rule{"widget": rules}), projection.WithEnumOverrideForTest(enumRes)); err != nil {
@@ -584,6 +584,180 @@ func TestAppendArrayFieldFlattensToOneRowPerElement(t *testing.T) {
 	if !reflect.DeepEqual(got, []string{"a", "b"}) {
 		t.Fatalf("o_widget__note = %v, want [a b] — one row per array element in the column's declared type, not one row holding a JSON array", got)
 	}
+}
+
+// TestAppendTypedColumnStoresDeclaredType pins the plan's acceptance item 3
+// — entries land "in the column's declared type" — for the per-element
+// typed conversion writeAppendRows performs.
+//
+// That conversion is a path this ticket creates. Before the row-per-entry
+// table, an array reaching a typed append target was handed whole to
+// columnValue, which falls off every typed case's switch for a []any and
+// returns nil, so the single cell written was NULL and no declared type was
+// exercised per element at all. Now each element is converted individually
+// against the target's resolved value_type, and two halves have to agree
+// for the stored cell to read back as its declared type: the conversion in
+// materialize.go (columnValue(plan.ValueType, e)) and the column's SQL type
+// in ddl.go (sqlType(r.ValueType)).
+//
+// So the assertions are on typeof(value) as SQLite sees it and on the
+// declared column type, not on the value alone: a value comparison cannot
+// tell the integer 1 from the text "1", and an INTEGER column silently
+// holding TEXT "true"/"false" answers `WHERE value = 1` with nothing.
+// Dropping either half — converting as untyped, or declaring the column
+// TEXT — reddens this test; nothing else in the tree covers a typed
+// non-string append column, since a target bound by rules that disagree on
+// value_type (version_bump_test.go) resolves to untyped by WRIT-205 and
+// never reaches a typed case.
+//
+// The third target is untyped and carries a nested array, which pins the
+// other half of the flattening contract in the same run: writeAppendRows
+// flattens exactly one level, mirroring engine/internal/fold's
+// appendAccumulator.Apply (`a.list = append(a.list, slice...)`), so an
+// inner array stays one entry rather than being flattened recursively into
+// its own elements.
+func TestAppendTypedColumnStoresDeclaredType(t *testing.T) {
+	base := time.Unix(1700000000, 0).UTC()
+	opCreate := makeWidgetOp("op-create-1", nil, "create", map[string]any{"title": "T"}, base)
+	opNote := makeWidgetOp("op-note-1", []string{"op-create-1"}, "note", map[string]any{
+		"flag":  []any{true, false},
+		"count": []any{float64(1), float64(2)},
+		"raw":   []any{[]any{"a", "b"}, "c"},
+	}, base.Add(1*time.Second))
+	ops := []codec.Op{opCreate, opNote}
+
+	titleRule := state.Rule{OpType: "create", Field: "title", Strategy: "lww", ValueType: "string", ObjectType: "widget"}
+	flagRule := state.Rule{OpType: "note", OpVersion: 1, Field: "flag", Target: "flags", Strategy: "append", ValueType: "bool", ObjectType: "widget"}
+	countRule := state.Rule{OpType: "note", OpVersion: 1, Field: "count", Target: "counts", Strategy: "append", ValueType: "int", ObjectType: "widget"}
+	rawRule := state.Rule{OpType: "note", OpVersion: 1, Field: "raw", Target: "raw_entries", Strategy: "append", ObjectType: "widget"}
+	rules := []state.Rule{titleRule, flagRule, countRule, rawRule}
+
+	want, err := state.Fold(ops, rules)
+	if err != nil {
+		t.Fatalf("state.Fold failed: %v", err)
+	}
+	for _, tc := range []struct {
+		target string
+		want   []any
+	}{
+		{"flags", []any{true, false}},
+		{"counts", []any{float64(1), float64(2)}},
+		{"raw_entries", []any{[]any{"a", "b"}, "c"}},
+	} {
+		got, ok := want.State[tc.target].([]any)
+		if !ok || !reflect.DeepEqual(got, tc.want) {
+			t.Fatalf("test setup: state.Fold's %s = %#v, want %#v", tc.target, want.State[tc.target], tc.want)
+		}
+	}
+
+	_, store := createTestStore(t, "0123456789abcdef")
+	db, err := projection.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:) failed: %v", err)
+	}
+	defer db.Close()
+
+	enumRes := &dag.EnumerateResult{
+		Ops:            map[string][]codec.Op{"w-1": ops},
+		Cursors:        dag.CursorSet{"refs/writ/0123456789abcdef/widget": "op-note-1"},
+		DecodedCommits: len(ops),
+	}
+	if _, err := db.Refresh(store, projection.WithSchema(map[string][]state.Rule{"widget": rules}), projection.WithEnumOverrideForTest(enumRes)); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	for _, tc := range []struct {
+		table     string
+		columnSQL string
+		want      []typedAppendCell
+	}{
+		{
+			table:     "o_widget__flags",
+			columnSQL: "INTEGER",
+			want: []typedAppendCell{
+				{Value: "1", Type: "integer"},
+				{Value: "0", Type: "integer"},
+			},
+		},
+		{
+			table:     "o_widget__counts",
+			columnSQL: "INTEGER",
+			want: []typedAppendCell{
+				{Value: "1", Type: "integer"},
+				{Value: "2", Type: "integer"},
+			},
+		},
+		{
+			table:     "o_widget__raw_entries",
+			columnSQL: "TEXT",
+			want: []typedAppendCell{
+				{Value: `["a","b"]`, Type: "text"},
+				{Value: "c", Type: "text"},
+			},
+		},
+	} {
+		if got := appendValueColumnType(t, db.DB(), tc.table); got != tc.columnSQL {
+			t.Errorf("%s.value declared type = %q, want %q — sqlType must key off the target's resolved value_type", tc.table, got, tc.columnSQL)
+		}
+		got := queryTypedAppendCells(t, db.DB(), tc.table)
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s cells = %+v, want %+v — every element converted against the target's declared value_type", tc.table, got, tc.want)
+		}
+	}
+}
+
+// typedAppendCell is one append entry's stored cell as SQLite reports it:
+// the value rendered as text alongside typeof(), which is what distinguishes
+// the integer 1 from the text "1" in an INTEGER column.
+type typedAppendCell struct {
+	Value string
+	Type  string
+}
+
+func queryTypedAppendCells(t *testing.T, db *sql.DB, table string) []typedAppendCell {
+	t.Helper()
+	rows, err := db.Query("SELECT value, typeof(value) FROM "+table+" WHERE object_id = ? ORDER BY op_seq ASC, entry_idx ASC", "w-1")
+	if err != nil {
+		t.Fatalf("query %s: %v", table, err)
+	}
+	defer rows.Close()
+	var out []typedAppendCell
+	for rows.Next() {
+		var cell typedAppendCell
+		if err := rows.Scan(&cell.Value, &cell.Type); err != nil {
+			t.Fatalf("scan %s: %v", table, err)
+		}
+		out = append(out, cell)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate %s: %v", table, err)
+	}
+	return out
+}
+
+// appendValueColumnType reports the SQL type an append table's value column
+// was declared with, which is what gives the stored cell its affinity.
+func appendValueColumnType(t *testing.T, db *sql.DB, table string) string {
+	t.Helper()
+	rows, err := db.Query("SELECT name, type FROM pragma_table_info(?)", table)
+	if err != nil {
+		t.Fatalf("pragma_table_info(%s): %v", table, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name, sqlType string
+		if err := rows.Scan(&name, &sqlType); err != nil {
+			t.Fatalf("scan pragma_table_info(%s): %v", table, err)
+		}
+		if name == "value" {
+			return sqlType
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate pragma_table_info(%s): %v", table, err)
+	}
+	t.Fatalf("%s has no value column", table)
+	return ""
 }
 
 // TestAppendExplicitNullContributesNoRow pins the end-to-end outcome for an

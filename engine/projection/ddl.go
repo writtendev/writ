@@ -520,8 +520,9 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 	//     unrepresentable — a fixed set of "k_"-prefixed columns cannot
 	//     hold two different key tuples for one target (spec/fold.md §5
 	//     #8 keys each op on its own rule's key list) — and is declined
-	//     through the WithheldTargets path below, the same one an
-	//     unrepresentable append shape already uses.
+	//     through the WithheldTargets path below, which is the only
+	//     decline this function makes: under the row-per-entry append
+	//     table an append target has nothing left to withhold (WRIT-212).
 	//
 	// No new spec text implements any of this: value_type's mapping to a
 	// SQL type and a keyed-lww target's column shape are both
