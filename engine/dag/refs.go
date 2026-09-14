@@ -29,19 +29,18 @@ var objectTypeRegexp = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}(\.[a-z][a-z0-9-
 // grammar's only enforcement of it.
 const objectTypeMaxLength = 129
 
-// objectTypeEndsInLock reports whether objType's final "."-delimited
-// segment (or the whole string, if it carries no dot) is exactly "lock" —
-// the one object-type shape that is grammar-legal but ref-unwritable:
-// git rejects any slash-separated ref path component ending in ".lock"
+// objectTypeEndsInDotLock reports whether objType ends in the literal
+// suffix ".lock" — the one object-type shape that is ref-unwritable: git
+// rejects any slash-separated ref path component ending in ".lock"
 // outright (verified against real git: `git check-ref-format
-// refs/writ/<writer-id>/acme.lock` fails, while `.../acme.standup`
-// succeeds). A namespace of "lock" is fine ("lock.thing" is a legal, ref-
-// writable object type); the exclusion is on the trailing segment alone.
-func objectTypeEndsInLock(objType string) bool {
-	if i := strings.LastIndexByte(objType, '.'); i >= 0 {
-		return objType[i+1:] == "lock"
-	}
-	return objType == "lock"
+// refs/writ/<writer-id>/acme.lock` fails, while both
+// `.../acme.standup` and bare `.../lock` succeed — bare "lock" does not
+// end in ".lock" and is a legal, ref-writable object type). A namespace
+// of "lock" is likewise fine ("lock.thing" is a legal, ref-writable
+// object type); the exclusion is on the trailing ".lock" suffix alone,
+// not on the segment's content.
+func objectTypeEndsInDotLock(objType string) bool {
+	return strings.HasSuffix(objType, ".lock")
 }
 
 // ChainRef represents a parsed Writ append chain reference.
@@ -76,8 +75,11 @@ func ParseChainRef(ref string) (ChainRef, error) {
 			return ChainRef{}, fmt.Errorf("dag: invalid writer-id in ref %q: %w", ref, err)
 		}
 		objType := parts[1]
-		if len(objType) == 0 || len(objType) > objectTypeMaxLength || !objectTypeRegexp.MatchString(objType) || objectTypeEndsInLock(objType) {
+		if len(objType) == 0 || len(objType) > objectTypeMaxLength || !objectTypeRegexp.MatchString(objType) {
 			return ChainRef{}, fmt.Errorf("dag: invalid object-type %q in ref %q", objType, ref)
+		}
+		if objectTypeEndsInDotLock(objType) {
+			return ChainRef{}, fmt.Errorf("dag: object-type %q in ref %q cannot own a chain: git rejects a ref path component ending in \".lock\"", objType, ref)
 		}
 		return ChainRef{
 			Name:       plumbing.ReferenceName(ref),
@@ -105,8 +107,11 @@ func ParseChainRef(ref string) (ChainRef, error) {
 			return ChainRef{}, fmt.Errorf("dag: invalid writer-id in ref %q: %w", ref, err)
 		}
 		objType := parts[1]
-		if len(objType) == 0 || len(objType) > objectTypeMaxLength || !objectTypeRegexp.MatchString(objType) || objectTypeEndsInLock(objType) {
+		if len(objType) == 0 || len(objType) > objectTypeMaxLength || !objectTypeRegexp.MatchString(objType) {
 			return ChainRef{}, fmt.Errorf("dag: invalid object-type %q in ref %q", objType, ref)
+		}
+		if objectTypeEndsInDotLock(objType) {
+			return ChainRef{}, fmt.Errorf("dag: object-type %q in ref %q cannot own a chain: git rejects a ref path component ending in \".lock\"", objType, ref)
 		}
 		return ChainRef{
 			Name:       plumbing.ReferenceName(ref),

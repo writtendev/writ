@@ -167,14 +167,20 @@ corpus. This is a ref-safety exclusion, not a grammar keyword — every
 declared type is namespace-qualified on the wire (§5), and git rejects
 outright any slash-separated ref path component ending in `.lock`
 (`spec/ref-layout.md` §4), so a type named `lock` under any namespace
-would compile to an `object_type` (`<namespace>.lock`) that can never
-actually be written to a chain. Rejecting it here, at parse time with a
-line and column, is strictly better than letting it fail unwritably
-later at `dagStore.Append`. `TestKeywordsAreClosed` does not cover this
+would compile to an `object_type` (`<namespace>.lock`) ending in
+`.lock`, which can never actually be written to a chain. That exclusion
+is now also the shipped `object_type` / `type_name` grammar itself
+(`spec/op-envelope.md`, `spec/schema-ops.md` §2) — a `.lock`-ending name
+is not merely reserved here, it is not a legal type name at all.
+Rejecting it here too, at parse time with a line and column, is strictly
+better than letting it fail the grammar or `dagStore.Append` later with
+a less specific diagnostic. `TestKeywordsAreClosed` does not cover this
 table on purpose: folding a ref-safety concern into the closed
 structural-keyword set would widen what that test is meant to guard. A
 namespace of `lock` is unaffected (`lock.thing` is a legal, ref-writable
-object type) — the exclusion is on a type's own final segment only.
+object type) — the exclusion is on a type's own name ending in `.lock`
+once namespace-qualified, not on the bare word `lock` appearing
+anywhere.
 
 A relation is an `object-ref` value type (`value-types.md`), not a
 separate grammar bolted onto this one: writ has no join engine and no

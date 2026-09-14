@@ -142,7 +142,8 @@
       "type": "string",
       "pattern": "^[a-z][a-z0-9-]{0,63}(\\.[a-z][a-z0-9-]{0,63})?$",
       "maxLength": 129,
-      "description": "A declared object type's wire name: <namespace>.<type>, or bare for the one type this specification defines (schema itself, which has no namespace). This is used verbatim as the wire object_type (spec/op-envelope.md), so it shares that field's exact grammar and 129-character (64 + '.' + 64) bound. This layer only admits the grammar; the schema-layer resolver (engine/schema.go's RulesFromSchemas) is what requires a consumer-declared type to actually carry its own schema's namespace prefix (spec/schema-ops.md §2, §6)."
+      "not": { "pattern": "\\.lock$" },
+      "description": "A declared object type's wire name: <namespace>.<type>, or bare for the one type this specification defines (schema itself, which has no namespace). This is used verbatim as the wire object_type (spec/op-envelope.md), so it shares that field's exact grammar, 129-character (64 + '.' + 64) bound, and its `.lock` exclusion (see object_type there for the reasoning). This layer only admits the grammar; the schema-layer resolver (engine/schema.go's RulesFromSchemas) is what requires a consumer-declared type to actually carry its own schema's namespace prefix (spec/schema-ops.md §2, §6)."
     },
     "op_type_name": {
       "type": "string",

@@ -49,15 +49,13 @@ var (
 
 const objectTypeMaxLength = 129
 
-// objectTypeEndsInLock mirrors engine/dag/refs.go's ref-safety exclusion:
-// git rejects any slash-separated ref path component ending in ".lock"
-// outright, so an object type whose final ("."-delimited) segment is
-// exactly "lock" can never be written to a chain (spec/ref-layout.md §4).
-func objectTypeEndsInLock(objType string) bool {
-	if i := strings.LastIndexByte(objType, '.'); i >= 0 {
-		return objType[i+1:] == "lock"
-	}
-	return objType == "lock"
+// objectTypeEndsInDotLock mirrors engine/dag/refs.go's ref-safety
+// exclusion: git rejects any slash-separated ref path component ending
+// in ".lock" outright, so an object type ending in ".lock" can never be
+// written to a chain (spec/ref-layout.md §4). Bare "lock" does not end
+// in ".lock" and is unaffected.
+func objectTypeEndsInDotLock(objType string) bool {
+	return strings.HasSuffix(objType, ".lock")
 }
 
 // parseRefName parses and validates a ref name per spec/ref-layout.md.
@@ -75,7 +73,7 @@ func parseRefName(ref string) (writerID, objectType string, err error) {
 	if !writerIDRegexp.MatchString(wID) {
 		return "", "", fmt.Errorf("invalid writer-id %q: must match ^[0-9a-f]{16}$", wID)
 	}
-	if len(objType) == 0 || len(objType) > objectTypeMaxLength || !objectTypeRegexp.MatchString(objType) || objectTypeEndsInLock(objType) {
+	if len(objType) == 0 || len(objType) > objectTypeMaxLength || !objectTypeRegexp.MatchString(objType) || objectTypeEndsInDotLock(objType) {
 		return "", "", fmt.Errorf("invalid object-type %q: must match %s with length 1..%d and not end in \".lock\"", objType, objectTypeRegexp.String(), objectTypeMaxLength)
 	}
 	return wID, objType, nil
