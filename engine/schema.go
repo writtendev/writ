@@ -144,11 +144,23 @@ const vocabFreshnessWindow = 100 * time.Millisecond
 // stamps vocabObservedAt: both actually consulted the refs, which is
 // exactly what vocabulariesForAppend's window needs to measure freshness
 // against.
+//
+// Both stamp the clock read *before* the dag.Chains call below, not the
+// clock at the point of the assignment. The stamp means "when the refs
+// were read", and on the full-resolve branch the assignment happens after
+// a Schema()/Enumerate fold measured in tens of milliseconds that scales
+// with log size (BenchmarkVocabulariesCache/Miss). Stamping the later
+// time would silently widen vocabulariesForAppend's window by one whole
+// resolve: a schema change another handle lands just after this read
+// would stay invisible for the window *plus* that resolve, against a
+// bound documented as the window alone. Reading the clock first makes the
+// enforced bound the documented one.
 func (s *Store) vocabularies(ctx context.Context) (codec.Vocabularies, error) {
 	if s == nil {
 		return nil, fmt.Errorf("writ: store is nil")
 	}
 
+	observedAt := s.clock()
 	chains, err := dag.Chains(s.storer)
 	if err != nil {
 		return nil, fmt.Errorf("writ: resolve vocabularies: chains: %w", err)
@@ -158,7 +170,7 @@ func (s *Store) vocabularies(ctx context.Context) (codec.Vocabularies, error) {
 	s.vocabMu.Lock()
 	if s.vocabCache != nil && fp == s.vocabFingerprint {
 		cached := s.vocabCache
-		s.vocabObservedAt = s.clock()
+		s.vocabObservedAt = observedAt
 		s.vocabMu.Unlock()
 		return cached, nil
 	}
@@ -178,7 +190,7 @@ func (s *Store) vocabularies(ctx context.Context) (codec.Vocabularies, error) {
 	s.typesCache = res
 	s.vocabChains = chains
 	s.vocabFingerprint = fp
-	s.vocabObservedAt = s.clock()
+	s.vocabObservedAt = observedAt
 	s.vocabMu.Unlock()
 
 	return vocabularies, nil
