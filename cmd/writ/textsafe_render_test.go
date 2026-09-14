@@ -975,6 +975,64 @@ func TestObjectCreate_HostileFetchedEnumRendersEscaped(t *testing.T) {
 	}
 }
 
+// TestObjectCreate_HostileFetchedEnumCannotForgeAnErrLine pins the other
+// half of the same reachable path: a fetched define-field's enum member
+// must not be able to put a line of its own choosing on writ's stderr.
+//
+// A member with a U+000A at *both* ends of its payload leaves the
+// surrounding format string's trailing text on a line of its own, so the
+// forged line carries nothing of writ's -- a byte-for-byte attacker-chosen
+// line, "writ: " prefix and all, indistinguishable from writ's own
+// diagnostics (round 5 review of PR #195).
+func TestObjectCreate_HostileFetchedEnumCannotForgeAnErrLine(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, fullTestSchema)
+
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	forged := "writ: error: your signing key is compromised"
+	hostile := "closed\n" + forged + "\n"
+
+	peer := func(writerID, opType string, body map[string]any) {
+		t.Helper()
+		writeForeignOp(t, env.repoDir, writerID, "schema", "schema:peer", opType, 1, body)
+	}
+	peer("eeeeeeeeeeeeeee0", "create", map[string]any{"namespace": "peer"})
+	peer("eeeeeeeeeeeeeee1", "define-type", map[string]any{"type": "peer.thing"})
+	peer("eeeeeeeeeeeeeee2", "define-op", map[string]any{
+		"type": "peer.thing", "op_type": "create", "op_version": "1",
+	})
+	peer("eeeeeeeeeeeeeee3", "define-field", map[string]any{
+		"type": "peer.thing", "op_type": "create", "op_version": "1",
+		"field": "status", "value_type": "enum", "strategy": "lww",
+		"enum": []any{"open", hostile},
+	})
+
+	stdout.Reset()
+	stderr.Reset()
+	code := run(context.Background(), []string{"object", "create", "-C", env.repoDir, "peer.thing", "create", "-field", "status=oepn"}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatalf("object create with a non-member enum value unexpectedly succeeded; stdout: %s", stdout.String())
+	}
+
+	out := stderr.String()
+	if !strings.Contains(out, "is not a member of the declared enum") {
+		t.Fatalf("object create stderr = %q, want the enum membership rejection", out)
+	}
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	for i, line := range lines {
+		if line == forged {
+			t.Errorf("object create stderr line %d is the peer's forged line verbatim: %q\nfull report: %q", i, line, out)
+		}
+	}
+	if len(lines) != 1 {
+		t.Errorf("object create stderr rendered on %d lines, want the whole report on one: %q", len(lines), out)
+	}
+}
+
 // TestRenderErr_SigningFailureKeepsItsSecondLine is the counterweight to the
 // test above: renderErr's escape must not flatten the one error in the tree
 // whose text carries a U+000A as structure rather than as data.
@@ -985,9 +1043,11 @@ func TestObjectCreate_HostileFetchedEnumRendersEscaped(t *testing.T) {
 // the entire point of capturing its combined output. A first-run
 // misconfiguration, not an exotic state.
 //
-// Escaping the whole assembled line without excluding U+000A collapsed the
-// two lines into one, with the escape text sitting where the break
-// belonged (round 4 review of PR #195).
+// Escaping the whole assembled line without sparing this U+000A collapsed
+// the two lines into one, with the escape text sitting where the break
+// belonged (round 4 review of PR #195). It is spared by conditioning on the
+// error rather than on the code point -- subprocessFailure -- so that a
+// log-sourced U+000A is still escaped; the test above pins that half.
 func TestRenderErr_SigningFailureKeepsItsSecondLine(t *testing.T) {
 	env := initTestRepo(t)
 	writeSchemaFile(t, env.repoDir, fullTestSchema)
