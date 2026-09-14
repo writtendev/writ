@@ -119,6 +119,13 @@
     "reason": "a version bump changing strategy while reusing the default (field-name) target is the WRIT-198 class reachable from source; the resolver would withhold both create rules for the shared target as a TargetKey() disagreement (WRIT-211), so Compile rejects it instead (spec/schema-source.md §5, §7; WRIT-187 round-1 finding 2)"
   },
   {
+    "file": "version-bump-changes-key.schema",
+    "line": 6,
+    "col": 19,
+    "message": "field rule (approval, 2, verdict) reuses target \"verdict\" already bound by (approval, 1, verdict), but they disagree on key; a key tuple is the keyed-lww register's identity, not what it holds, so rules sharing a target MUST agree on it even across a version bump of the same (op_type, field) — a version bump that changes the key tuple or a key column's type must declare a distinct target (spec/schema-ops.md §8)",
+    "reason": "WRIT-234: op_version 1 of \"approval\"'s \"verdict\" keys on (subject, revision), op_version 2 keys it on (subject) alone -- same versionBumpClass, key arity disagrees. Before this ticket's ruling, key and key_types were on spec/schema-ops.md §8's \"MAY freely change\" list, so this file compiled and applied cleanly; the resolved schema then made engine/internal/fold.keyedLWWAccumulator.Result's sort comparator read past the end of the shorter key tuple, an intermittent index-out-of-range panic reachable from an ordinary read command (reproduction 1 in the ticket's investigation, also reachable via a fetched foreign ref, cmd/writ/textsafe_render_test.go's TestForeignOp_KeyArityCollision_ReadStaysClean). The ruling closes the carve-out for key/key_types (spec/fieldrules.go's FindTargetDisagreement), so Compile now refuses this exact file at the v2 field, before it ever reaches the log."
+  },
+  {
     "file": "repeated-modifier.schema",
     "line": 5,
     "col": 32,

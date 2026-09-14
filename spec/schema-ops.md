@@ -593,28 +593,42 @@ this section's agreement rule well-defined regardless of how many rules,
 or how many classes, share the target):
 
 - **Within one class**, a version bump:
-  - **MAY freely change** `value_type`, `enum`, `max_length`, `key`, or
-    `key_types` while keeping the same `target` (or omitting `target`,
-    which defaults to `field`): the accumulator factory selected is the
-    same either way, because these attributes are not consulted by the
-    strategy at fold time (`spec/value-types.md` §Producer-side and
-    reader-tolerant: nothing on the read path calls the value-type
-    validator). `lattice` is deliberately absent from this list: the
-    `lattice` accumulator reads it to order its semilattice, so it *is*
-    consulted at fold time. A version bump reusing a `target` therefore
+  - **MAY freely change** `value_type`, `enum`, or `max_length` while
+    keeping the same `target` (or omitting `target`, which defaults to
+    `field`): the accumulator factory selected is the same either way,
+    because these attributes are not consulted by the strategy at fold
+    time (`spec/value-types.md` §Producer-side and reader-tolerant:
+    nothing on the read path calls the value-type validator). `lattice`,
+    `key`, and `key_types` are deliberately absent from this list.
+    `lattice` is consulted at fold time — the `lattice` accumulator reads
+    it to order its semilattice — so a version bump reusing a `target`
     **MUST still agree on `lattice`**, exactly as the cross-class case
     below requires — two same-strategy `lattice` rules sharing a target
     but declaring different orderings are exactly as order-dependent as
-    two rules disagreeing on `strategy` itself, version bump or not. The
-    resolver-level consequence — every rule bound to the target withheld
-    as a `SchemaConflict` and an op written under any of them becoming an
-    `UnknownOp` — is pinned by
-    `spec/fixtures/testdata/descriptions/schema-driven-version-bump-lattice-collision.yaml`.
-  - **MUST declare a distinct `target`** when it changes `strategy`:
-    reusing a target across a strategy change makes the older version's
-    strategy silently run over the newer version's writes, since canonical
-    rule order hands the accumulator the lower `op_version`'s rule —
-    neither rule's declared behavior.
+    two rules disagreeing on `strategy` itself, version bump or not. `key`
+    and `key_types` say which register a keyed-lww target *is*, not what
+    it holds: retyping a key column changes normalization, so values that
+    were two registers become one, an identity change rather than a
+    change to what the register stores, which is why both fields move
+    together and not `key` alone. A version bump reusing a `target`
+    therefore **MUST also still agree on `key` and `key_types`**. The
+    resolver-level consequence in every one of these three cases — every
+    rule bound to the target withheld as a `SchemaConflict` and an op
+    written under any of them becoming an `UnknownOp` — is pinned by
+    `spec/fixtures/testdata/descriptions/schema-driven-version-bump-lattice-collision.yaml`
+    for `lattice` and
+    `schema-driven-version-bump-key-arity-collision.yaml` for `key`.
+  - **MUST declare a distinct `target`** when it changes `strategy`,
+    `key`, or `key_types`: reusing a target across a strategy change
+    makes the older version's strategy silently run over the newer
+    version's writes, since canonical rule order hands the accumulator
+    the lower `op_version`'s rule — neither rule's declared behavior;
+    reusing one across a change to the key tuple or a key column's type
+    collapses what the log meant as two distinct register identities onto
+    the one target `Fold` groups by. `engine/schemasrc`'s compiler refuses
+    a `writ.schema` source file that does this before it ever reaches the
+    log (§9); a schema resolved from the log withholds the whole target
+    the same way the resolver already withholds a `strategy` disagreement.
 - **Between classes** — the moment a target is bound by more than one
   `(op_type, field)` class — the "MAY freely change" exemption above is
   void, for every rule bound to that target, not only the rules straddling
@@ -763,28 +777,26 @@ Narrowing one of them is therefore a version bump under the *same*
 `title` unbounded again, reusing `target: title` (or omitting it, which
 defaults to the same place `op_version` 1 uses).
 
-`key` and `key_types` read like they belong in that group — §8's MAY
-bullet names both — but narrowing either, in the sense this section
-means (a redeclaration whose body stops carrying the attribute at all,
-leaving the log holding a register the file no longer describes), is
-unreachable without also changing `strategy`: both are required exactly
-when `strategy` is `keyed-lww` and forbidden otherwise
-(`spec/fieldrules.go`'s `ValidateFieldRule`), so a redeclaration that
-drops `key` has, by construction, also stopped declaring `keyed-lww`.
-That is the `strategy`-change case §8's second bullet already governs,
-not the same-target case its first bullet grants for this section's
-narrowing scenario. The entailed `strategy` change is the whole reason,
-and nothing about `key`/`key_types` themselves adds to it: exactly like
-`value_type`, they are read from the *matched* rule on every `Apply`
-(`engine/internal/fold/strategy.go`'s `keyedLWWAccumulator.Apply` builds
-the composite key from `rule.Key` and `rule.KeyTypes`) rather than being
-captured when the accumulator is instantiated, so two `keyed-lww` rules
-sharing a target and differing only in them are not order-dependent.
-§8's MAY bullet is correct as stated and stays correct: it covers a
-version bump that keeps `key`/`key_types` present and changes their
-*value* — narrowing which columns compose the key while staying
-`keyed-lww` — which never reaches this section's clearing case, because
-the attribute is never absent from the body, only different.
+`key` and `key_types` used to read like they belonged in that first
+group — before WRIT-234, §8's MAY bullet named both — but narrowing
+either is target-sensitive for a stronger reason than a merely entailed
+`strategy` change. WRIT-234 closed that carve-out outright: a key tuple
+is the keyed-lww register's *identity*, not what it holds, so
+`spec.CheckTargetAgreement` now requires every rule bound to a target to
+agree on `key` and `key_types` even within one version-bump class (§8).
+Narrowing either, in the sense this section means (a redeclaration whose
+body stops carrying the attribute at all, leaving the log holding a
+register the file no longer describes), is simply the limiting case of
+that disagreement — dropping a value disagrees with the register's
+existing key tuple exactly as declaring a different one would — on top
+of the fact that dropping `key` also stops declaring
+`strategy: keyed-lww` at all, since both are required exactly when
+`strategy` is `keyed-lww` and forbidden otherwise (`spec/fieldrules.go`'s
+`ValidateFieldRule`). Either reason alone would put `key`/`key_types` in
+this section's distinct-target group; together they leave no case —
+narrowing, or an ordinary version bump that merely changes the key
+tuple's value while staying `keyed-lww` — where the same target can be
+reused.
 
 `lattice` is the remaining attribute §8 excludes from its MAY bullet,
 and its reason is the other one: `newLatticeAccumulator`

@@ -1,0 +1,7 @@
+namespace acme
+
+type standup {
+  op create 1   { title string(200) lww }
+  op approval 1 { verdict enum(approve, block) keyed-lww key(subject person-ref, revision string) }
+  op approval 2 { verdict enum(approve, block) keyed-lww key(subject person-ref) }
+}

@@ -200,7 +200,7 @@ Field merge rules are declared in machine-readable tables (`field-rules.json`, c
 - `op_type` (string): The operation type.
 - `op_version` (integer): The operation schema version.
 - `field` (string): The target field in the operation body.
-- `target` (optional string): The state key in the generic fold map (`ObjectState.State`). Defaults to `field` if omitted. Rules may declare a `target` state key to avoid strategy collisions when multiple op types define identical body field names with differing merge strategies. The same remedy applies across versions of one op type, not only across op types: `Fold` groups matched rules by target key alone (not by `op_version`) and instantiates one accumulator per target from the first of its matching rules in canonical rule order (§Canonical rule order below), which for a version bump is the lowest `op_version`, so a `define-field` version bump (`spec/schema-ops.md`) that changes `strategy` while reusing a `target` already bound to a different strategy would silently run the older version's strategy over the newer version's writes rather than either rule's declared behavior. Within the version-bump equivalence class formed by one `(op_type, field)`, a version bump MAY freely change `value_type`, `enum`, `max_length`, `key`, or `key_types` under the same target, because those never change which accumulator factory runs; `lattice` is not on that list, because the `lattice` accumulator reads it at fold time to order its semilattice, so reusing a target across a `lattice` change would likewise order the newer version's writes by the older version's semilattice, and a version bump reusing a target MUST still agree on it. A version bump that changes `strategy` MUST declare a distinct `target`, and a rule table that reuses a target across a strategy change is non-conforming. The moment a target is bound by more than one such class, the "MAY freely change" exemption is void for every rule bound to it, not only the rules straddling two classes — see the shared-target agreement rule below.
+- `target` (optional string): The state key in the generic fold map (`ObjectState.State`). Defaults to `field` if omitted. Rules may declare a `target` state key to avoid strategy collisions when multiple op types define identical body field names with differing merge strategies. The same remedy applies across versions of one op type, not only across op types: `Fold` groups matched rules by target key alone (not by `op_version`) and instantiates one accumulator per target from the first of its matching rules in canonical rule order (§Canonical rule order below), which for a version bump is the lowest `op_version`, so a `define-field` version bump (`spec/schema-ops.md`) that changes `strategy` while reusing a `target` already bound to a different strategy would silently run the older version's strategy over the newer version's writes rather than either rule's declared behavior. Within the version-bump equivalence class formed by one `(op_type, field)`, a version bump MAY freely change `value_type`, `enum`, or `max_length` under the same target, because those never change which accumulator factory runs, nor which register the target names. `lattice`, `key`, and `key_types` are not on that list: `lattice` is consulted by the strategy at fold time — the `lattice` accumulator reads it to order its semilattice, so reusing a target across a `lattice` change would order the newer version's writes by the older version's semilattice — and `key`/`key_types` say which register a `keyed-lww` target *is*, not what it holds, so a version bump that changes either splits what the log meant as one register into two while `Fold` still groups them under one target. A version bump reusing a target MUST still agree on all three. A version bump that changes `strategy`, `key`, or `key_types` MUST declare a distinct `target` instead, and a rule table that reuses a target across such a change is non-conforming. The moment a target is bound by more than one such class, the "MAY freely change" exemption is void for every rule bound to it, not only the rules straddling two classes — see the shared-target agreement rule below.
 - `strategy` (string): Exactly one strategy from the closed catalogue.
 - `key` (array of strings, required for `keyed-lww`): The ordered list of body fields forming the composite key.
 - `lattice` (array of strings, required for `lattice`): The ordered elements of the semilattice.
@@ -237,23 +237,26 @@ candidate and one prior:
    construction — reflexive, symmetric and transitive — which is what
    makes the rest of this rule well-defined regardless of how many rules,
    or how many classes, end up sharing the target.
-2. **Within one class**, rules MUST agree on `strategy` and `lattice`, and
-   MAY freely differ on `value_type`, `enum`, `max_length`, `key`, or
-   `key_types` — the version-bump carve-out already stated above — with a
-   version bump that also changes `strategy` required to declare a
-   distinct `target` instead of reusing this one. `lattice` is never on
-   the freely-changeable list, class or no class: unlike the other five,
-   it is consulted by the strategy at fold time — the `lattice`
-   accumulator reads it to order its semilattice — so two rules sharing a
-   target MUST agree on it even within a single version-bump class.
+2. **Within one class**, rules MUST agree on `strategy`, `lattice`, `key`,
+   and `key_types`, and MAY freely differ on `value_type`, `enum`, or
+   `max_length` — the version-bump carve-out already stated above — with
+   a version bump that also changes `strategy`, `key`, or `key_types`
+   required to declare a distinct `target` instead of reusing this one.
+   `lattice`, `key` and `key_types` are never on the freely-changeable
+   list, class or no class: unlike the other three, `lattice` is
+   consulted by the strategy at fold time — the `lattice` accumulator
+   reads it to order its semilattice — and `key`/`key_types` name which
+   register a `keyed-lww` target *is* rather than what it holds, so two
+   rules sharing a target MUST agree on all three even within a single
+   version-bump class.
 3. **Between classes** — the moment a target is bound by more than one
    class — the carve-out in (2) is void, for every rule bound to the
    target, not only the rules straddling two classes: a class internally
    non-uniform on an attribute cannot agree with any other class on it, so
    the exemption vanishing wholesale is the carve-out's transitive
    closure, not an extra rule. Every rule bound to the target must then
-   agree on all seven attributes: `strategy`, `lattice`, `value_type`,
-   `key`, `key_types`, `enum` and `max_length`.
+   agree on all seven attributes: `strategy`, `lattice`, `key`,
+   `key_types`, `value_type`, `enum` and `max_length`.
 
 This is what stops two body fields that merely happen to share a name —
 such as one OR-set's `add` side and an unrelated OR-set's `add` side,

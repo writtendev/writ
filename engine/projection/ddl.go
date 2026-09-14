@@ -172,9 +172,12 @@ type typeDescriptor struct {
 	// WithheldTargets are this type's target keys that got no column
 	// because the projection's row shape cannot represent them — today
 	// only a keyed-lww target whose bound rules disagree on Key
-	// (buildTypeDescriptor's keyed-lww case, WRIT-205); an append target
-	// was the other reason before WRIT-212 gave append its own
-	// row-per-entry table, which has nothing left to withhold. The unit is
+	// (buildTypeDescriptor's keyed-lww case, WRIT-205; unreachable from a
+	// schema resolved out of the log since WRIT-234 closed the carve-out
+	// that let Key disagree, but still reachable from a caller-supplied
+	// rule set — see that case's own comment); an append target was the
+	// other reason before WRIT-212 gave append its own row-per-entry
+	// table, which has nothing left to withhold. The unit is
 	// the single target and nothing wider: the type materializes normally,
 	// so do the targets that merely share a table with a withheld one, and
 	// so do ops that never write it. Every body field bound to one of
@@ -483,11 +486,11 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 	// The unit is the target key: one column or one child-table
 	// participation per distinct target key, regardless of how many rules
 	// (op types) address it. spec.CheckTargetAgreement guarantees every
-	// rule sharing a target key agrees on strategy — always — but not on
-	// every other merge attribute: spec/fieldrules.go's carve-out and
-	// spec/schema-ops.md §8 both let a version bump of the same (op_type,
-	// field) freely change value_type (also key, key_types, enum,
-	// max_length). WRIT-205: picking one bound rule as a "representative"
+	// rule sharing a target key agrees on strategy, lattice, and (WRIT-234)
+	// key and key_types — always — but not on every other merge attribute:
+	// spec/fieldrules.go's carve-out and spec/schema-ops.md §8 both let a
+	// version bump of the same (op_type, field) freely change value_type
+	// (also enum, max_length). WRIT-205: picking one bound rule as a "representative"
 	// and taking every attribute off it (the old single-rule pick) is
 	// order-dependent — whichever rule a slice happens to present first
 	// decided the generated column's SQL type, and so whether another
@@ -523,6 +526,15 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 	//     through the WithheldTargets path below, which is the only
 	//     decline this function makes: under the row-per-entry append
 	//     table an append target has nothing left to withhold (WRIT-212).
+	//     WRIT-234 closed the version-bump carve-out for Key and KeyTypes,
+	//     so spec.CheckTargetAgreement now withholds a disagreeing target
+	//     before RulesFromSchemas ever emits its rules — rules is this
+	//     function's caller's own resolved shape, so a schema resolved out
+	//     of the log can no longer reach this branch at all. It stays live
+	//     for a caller that builds rules directly, bypassing that resolver
+	//     (projection.WithSchema's own contract, exercised by
+	//     version_bump_test.go's
+	//     TestKeyedLWWVersionBumpKeyDisagreementDeclines).
 	//
 	// No new spec text implements any of this: value_type's mapping to a
 	// SQL type and a keyed-lww target's column shape are both
@@ -613,9 +625,11 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 	// withheldTargets collects target keys this type declines a column for
 	// entirely — populated in exactly one place, the keyed-lww case below,
 	// for a target whose bound rules disagree on Key (see the
-	// resolved-attribute comment above). Append has nothing left to
-	// withhold under the row-per-entry table (WRIT-212), so the second
-	// populator this comment used to point at is gone.
+	// resolved-attribute comment above; WRIT-234 made this reachable only
+	// from a caller-supplied rule set, never from a schema resolved out of
+	// the log). Append has nothing left to withhold under the
+	// row-per-entry table (WRIT-212), so the second populator this comment
+	// used to point at is gone.
 	withheldTargets := make(map[string]bool)
 
 	collided := false
@@ -747,11 +761,9 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 
 		case "keyed-lww":
 			if r.KeyDisagree {
-				// Two rules bind tk under different key tuples — a version
-				// bump or a second op_type changing `key` is exactly as
-				// legal as changing `value_type` (spec/schema-ops.md §8),
-				// but a keyed-lww group table's "k_"-prefixed columns are
-				// fixed at generation time from one key tuple: a second,
+				// Two rules bind tk under different key tuples. A keyed-lww
+				// group table's "k_"-prefixed columns are fixed at
+				// generation time from one key tuple: a second,
 				// differently-shaped tuple has nowhere to go, and
 				// spec/fold.md §5 #8 keys each op on its own rule's key
 				// list, so a v2 op would mis-key into v1's columns rather
@@ -762,6 +774,18 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 				// declines"). It is the only shape this function declines
 				// — the append case above declines nothing (WRIT-212). Its
 				// group-mates and the type itself are unaffected.
+				//
+				// WRIT-234 closed spec/schema-ops.md §8's version-bump
+				// carve-out for Key and KeyTypes: spec.CheckTargetAgreement
+				// now refuses this disagreement wholesale, so a schema
+				// resolved out of the log withholds the whole target before
+				// RulesFromSchemas ever emits rules for it, and this branch
+				// can no longer be reached that way. It stays reachable —
+				// and stays a decline, not a panic — for a caller that
+				// builds rules directly and hands them to
+				// projection.WithSchema without going through the resolver
+				// (version_bump_test.go's
+				// TestKeyedLWWVersionBumpKeyDisagreementDeclines).
 				withheldTargets[tk] = true
 				continue
 			}

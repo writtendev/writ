@@ -463,17 +463,24 @@ func FindTargetDisagreement(target string, rules []FieldRule) (d TargetDisagreem
 		if !slices.Equal(a.Lattice, b.Lattice) {
 			return TargetDisagreement{Target: target, Attribute: "lattice", A: a, B: b}, true
 		}
-		if singleClass {
-			continue
-		}
-		if a.ValueType != b.ValueType {
-			return TargetDisagreement{Target: target, Attribute: "value_type", A: a, B: b}, true
-		}
+		// Key and KeyTypes say which register a keyed-lww target *is*, not
+		// what it holds (spec/schema-ops.md §8): retyping a key column
+		// changes normalization, so values that were two registers become
+		// one, exactly the identity change a Strategy or Lattice
+		// disagreement is. Held to agreement even within a single
+		// version-bump class, like Strategy and Lattice above and unlike
+		// the three attributes the carve-out below still covers.
 		if !slices.Equal(a.Key, b.Key) {
 			return TargetDisagreement{Target: target, Attribute: "key", A: a, B: b}, true
 		}
 		if !equalKeyTypes(a.KeyTypes, b.KeyTypes) {
 			return TargetDisagreement{Target: target, Attribute: "key_types", A: a, B: b}, true
+		}
+		if singleClass {
+			continue
+		}
+		if a.ValueType != b.ValueType {
+			return TargetDisagreement{Target: target, Attribute: "value_type", A: a, B: b}, true
 		}
 		if !slices.Equal(a.Enum, b.Enum) {
 			return TargetDisagreement{Target: target, Attribute: "enum", A: a, B: b}, true
@@ -492,17 +499,21 @@ func FindTargetDisagreement(target string, rules []FieldRule) (d TargetDisagreem
 //
 //  1. Partition rules into versionBumpClass groups — every rule sharing one
 //     (OpType, Field) is one class, whatever OpVersion each declares.
-//  2. Within a class, rules MUST agree on Strategy and Lattice; they MAY
-//     freely differ on ValueType, Key, KeyTypes, Enum and MaxLength (§8's
-//     version-bump carve-out).
+//  2. Within a class, rules MUST agree on Strategy, Lattice, Key and
+//     KeyTypes; they MAY freely differ on ValueType, Enum and MaxLength
+//     (§8's version-bump carve-out). Key and KeyTypes say which register a
+//     keyed-lww target *is*, not what it holds, so a version bump that
+//     changes either MUST declare a distinct target — the same standard
+//     already applied to Strategy and Lattice, for the same reason: the
+//     fold consults it.
 //  3. The moment the target is bound by more than one class, that carve-out
 //     is gone for every rule bound to it, not only the rules straddling two
 //     classes: a class internally non-uniform on an attribute cannot agree
 //     with any other class on it, so the exemption vanishing wholesale is
 //     the carve-out's transitive closure, not an extra rule. Every rule
 //     bound to the target — within a class or across classes — must then
-//     agree on all seven attributes: Strategy, Lattice, ValueType, Key,
-//     KeyTypes, Enum and MaxLength.
+//     agree on all seven attributes: Strategy, Lattice, Key, KeyTypes,
+//     ValueType, Enum and MaxLength.
 //
 // Because every comparison is plain value equality — itself an equivalence
 // relation — agreement across the whole set holds iff every *consecutive*
@@ -541,9 +552,13 @@ func CheckTargetAgreement(target string, rules []FieldRule) error {
 		return fmt.Errorf(
 			"field rule (%s, %d, %s) reuses target %q already bound by (%s, %d, %s), but they disagree on lattice (%v vs %v); lattice is consulted by the strategy at fold time, so rules sharing a target MUST agree on it even across a version bump of the same (op_type, field) (spec/schema-ops.md §8)",
 			d.B.OpType, d.B.OpVersion, d.B.Field, d.Target, d.A.OpType, d.A.OpVersion, d.A.Field, d.A.Lattice, d.B.Lattice)
+	case "key", "key_types":
+		return fmt.Errorf(
+			"field rule (%s, %d, %s) reuses target %q already bound by (%s, %d, %s), but they disagree on %s; a key tuple is the keyed-lww register's identity, not what it holds, so rules sharing a target MUST agree on it even across a version bump of the same (op_type, field) — a version bump that changes the key tuple or a key column's type must declare a distinct target (spec/schema-ops.md §8)",
+			d.B.OpType, d.B.OpVersion, d.B.Field, d.Target, d.A.OpType, d.A.OpVersion, d.A.Field, d.Attribute)
 	default:
 		return fmt.Errorf(
-			"field rule (%s, %d, %s) reuses target %q already bound by (%s, %d, %s), but they disagree on %s; the target is shared by more than one (op_type, field) version-bump class, so the version-bump carve-out for value_type, key, key_types, enum and max_length applies only within a class, not between them (spec/schema-ops.md §8) — every rule sharing this target must agree on %s",
+			"field rule (%s, %d, %s) reuses target %q already bound by (%s, %d, %s), but they disagree on %s; the target is shared by more than one (op_type, field) version-bump class, so the version-bump carve-out for value_type, enum and max_length applies only within a class, not between them (spec/schema-ops.md §8) — every rule sharing this target must agree on %s",
 			d.B.OpType, d.B.OpVersion, d.B.Field, d.Target, d.A.OpType, d.A.OpVersion, d.A.Field, d.Attribute, d.Attribute)
 	}
 }

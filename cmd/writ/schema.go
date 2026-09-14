@@ -752,27 +752,25 @@ var schemaFieldAttributeKeys = []string{"value_type", "enum", "max_length", "lat
 // reason, the same reason a `strategy` change MUST declare a distinct
 // target — WRIT-206, spec/fieldrules.go's CheckTargetAgreement); `target`
 // itself, whose narrowing is by definition a target change; and `key`
-// and `key_types`, because ValidateFieldRule (spec/fieldrules.go)
-// requires both exactly when strategy is keyed-lww and forbids them
-// otherwise, so a redeclaration that stops carrying `key` (this
-// function only runs on an attribute schemaRemovals found entirely
-// absent — see there) has necessarily also stopped declaring
-// `strategy: keyed-lww`. That entailed strategy change is the whole
-// reason key/key_types are here; they are not order-dependent in
-// themselves, since keyedLWWAccumulator.Apply reads Key and KeyTypes
-// off the matched rule on every op rather than capturing them at
-// construction, exactly as it reads ValueType. So §8's MAY bullet still
-// lists key/key_types correctly: it covers a version bump that keeps
-// both present and only changes their value (narrowing which columns
-// compose the key while staying keyed-lww), which never reaches
-// schemaRemovals's removed-attribute check at all, because the
-// attribute is never absent from the body, only different. Every
-// remaining entry is likewise unaffected by which rule the fold sees
-// first at a shared target: enum and max_length are validation-only and
-// the fold never reads them, and value_type, though read on every op to
-// normalize a value, is read off the matched rule rather than captured
-// at construction. So §8 already lets a version bump narrow any of the
-// three under the same target (spec/schema-ops.md §8.1).
+// and `key_types`, which are no longer on §8's "MAY freely change" list
+// at all (WRIT-234): a key tuple is the keyed-lww register's identity,
+// not what it holds, so CheckTargetAgreement now requires every rule
+// bound to a target to agree on both, even within one version-bump
+// class. Dropping either entirely — the only shape this function's
+// caller, schemaRemovals, runs on (an attribute found entirely absent
+// from the new declaration; see there) — is simply the limiting case of
+// that disagreement, on top of also entailing the departure from
+// `strategy: keyed-lww` that dropping `key` always did. So key and
+// key_types are here for a stronger reason than lattice's
+// order-dependence at fold time: any difference at all, not only a
+// narrowing to absent, now needs a distinct target. Every remaining
+// entry is unaffected by which rule the fold sees first at a shared
+// target: enum and max_length are validation-only and the fold never
+// reads them, and value_type, though read on every op to normalize a
+// value, is read off the matched rule rather than captured at
+// construction. So §8 still lets a version bump narrow value_type, enum
+// or max_length under the same target (spec/schema-ops.md §8.1); key,
+// key_types and lattice all need a distinct one.
 var schemaFieldTargetSensitive = map[string]bool{"lattice": true, "target": true, "key": true, "key_types": true}
 
 // schemaAttributeNarrowingAdvice is the recipe schemaRemovals points a
