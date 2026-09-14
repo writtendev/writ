@@ -81,13 +81,53 @@ func (s *Store) Schema(ctx context.Context) ([]state.Schema, error) {
 	return schemas, nil
 }
 
+// vocabFreshnessWindow is how long Store.vocabulariesForAppend trusts a
+// cached producer-vocabularies snapshot without re-deriving it from
+// dag.Chains (WRIT-202). It exists because a cache *hit* in vocabularies
+// below still costs one full IterReferences pass over every ref in the
+// repository, which makes every Append linear in total ref count —
+// BenchmarkAppendByRefCount on this branch's head with this window
+// disabled (Apple M2 Max, -benchtime=200x -count=3, medians of three):
+// 1.06ms -> 7.67ms -> 17.61ms -> 80.30ms at 0/200/500/2,000 loose refs,
+// against 0.77ms -> 0.80ms -> 0.94ms -> 1.21ms with it. The public write
+// surface is one op at a time (Objects.Create, Store.Append; there is no
+// batch path), so an agent writing 50 ops today pays for 50 full ref
+// scans; this window lets one dag.Chains pass amortise across a burst
+// instead.
+//
+// What 100ms buys, stated so it cannot be read as more than it is. The
+// window is armed when a derive finishes (see vocabularies above), so a
+// burst gets the whole 100ms however long that derive D took — there is
+// no ref count at which the window stops helping. But it divides the ref
+// walk across a burst; it does not remove it. In steady state, at a floor
+// of ~0.8ms per append, one window covers on the order of a hundred
+// appends, so per-append cost settles near floor x (1 + D/100ms): still
+// linear in total ref count, with the slope cut by roughly how many
+// appends fit in one window, and with the amortisation ratio itself
+// ceilinged by that same count. 100ms is chosen to be long enough for
+// that count to be worth having on the bursts writ's write surface
+// produces, and short enough that the accepted second-handle risk
+// documented on vocabulariesForAppend below does not widen with it. This
+// is one fixed, unexported constant, not an Open option (WRIT-202 item
+// 2): if a caller ever needs different behaviour, that is a separate
+// ticket driven by that caller's own measurement.
+const vocabFreshnessWindow = 100 * time.Millisecond
+
 // vocabularies resolves the log-sourced producer vocabularies
 // (VocabulariesFromSchemas), memoised behind a fingerprint over the repo's
 // discovered chains (dag.Chains): a fetch or a local "schema" append moves
 // at least one chain's tip in a way that can change what a schema object
 // resolves to, so it invalidates the cache; nothing else does. A cache
-// hit costs one IterReferences pass (Chains) plus a fingerprint
-// comparison — no fold, no full log walk.
+// hit here still costs one IterReferences pass (Chains) plus a fingerprint
+// comparison — no fold, no full log walk, but not free either; an append
+// hit that goes through vocabulariesForAppend's freshness window instead
+// (below) costs nothing at all, no ref access whatsoever. That distinction
+// is this function's whole reason for having a narrower sibling rather
+// than just being made cheaper in place: Store.rules/Store.declaredTypes
+// and the readers off them (Refresh, Rebuild, Types) need the ground truth
+// this function derives every time they call it, and must not inherit the
+// append path's staleness allowance (WRIT-202 item 4's conservative
+// split).
 //
 // The naive version of that statement is false on the write path, which is
 // the only path that calls this: every Append moves the writer's own
@@ -104,10 +144,35 @@ func (s *Store) Schema(ctx context.Context) ([]state.Schema, error) {
 // this function's own comparison below does the (correctly expensive)
 // re-resolve.
 //
-// This is what dag.WithProducerVocabularies's resolver calls for Append's
-// own producer validation, and what Store.rules/Store.declaredTypes call
-// to resolve the fold-rule index and declared types, so every consumer
-// sees the same vocabularies from the same cache.
+// Store.rules/Store.declaredTypes call this directly to resolve the
+// fold-rule index and declared types, so every reader sees the same
+// vocabularies from the same cache. dag.WithProducerVocabularies's
+// resolver no longer calls this directly for Append's own producer
+// validation — it calls Store.vocabulariesForAppend, which delegates here
+// only outside its freshness window (or on a cold cache) — but every path
+// that does reach this function, on a fingerprint hit or a full resolve,
+// stamps vocabObservedAt: both actually consulted the refs, which is
+// exactly what vocabulariesForAppend's window needs to measure freshness
+// against.
+//
+// Both stamp at the point of assignment — when the derive they are part of
+// finished — not a clock read taken before the dag.Chains call below. On
+// the fingerprint-hit branch the two are the same instant for practical
+// purposes (one Chains pass and a mutex acquire apart). On the
+// full-resolve branch the assignment trails the ref read by a whole
+// Schema()/Enumerate fold, so vocabulariesForAppend's window runs from the
+// end of that fold and the staleness bound it buys is the window *plus* at
+// most one ground-truth resolve. That is what every prose site states, on
+// purpose: round 3 of this ticket's review moved these reads before the
+// walk so the enforced bound would be the window alone, and round 4
+// measured what that costs. Arming the window at t_start when the derive
+// only finishes at t_start+D leaves W-D of window, so the amortisation
+// this ticket exists for shrinks as D — the ref walk, the exact cost being
+// amortised — grows, and vanishes once one walk exceeds W. At 8,000 refs
+// that made Append indistinguishable from having no window at all
+// (~301ms/op, against ~295ms with the window disabled and ~0.84ms stamping
+// here). The bound is documented honestly instead; do not "tighten" it by
+// moving these reads earlier.
 func (s *Store) vocabularies(ctx context.Context) (codec.Vocabularies, error) {
 	if s == nil {
 		return nil, fmt.Errorf("writ: store is nil")
@@ -122,6 +187,7 @@ func (s *Store) vocabularies(ctx context.Context) (codec.Vocabularies, error) {
 	s.vocabMu.Lock()
 	if s.vocabCache != nil && fp == s.vocabFingerprint {
 		cached := s.vocabCache
+		s.vocabObservedAt = s.clock()
 		s.vocabMu.Unlock()
 		return cached, nil
 	}
@@ -135,15 +201,108 @@ func (s *Store) vocabularies(ctx context.Context) (codec.Vocabularies, error) {
 	rules, _ := RulesFromSchemas(schemas)
 	res := resolveSchemaTypes(schemas)
 
+	// This write-back is unconditional, so a derive already in flight when a
+	// concurrent noteAppend("schema") or invalidateVocabularies lands installs
+	// its own pre-change snapshot over the invalidation, stamp included — the
+	// one residual the round-5 fingerprint clear in noteAppend does not close,
+	// and the reason ARCHITECTURE.md §Producer validation states what is
+	// enforced rather than an absolute. It is bounded by the same window and
+	// stays inside WRIT-202's accepted risk; closing it needs a cache
+	// generation counter checked here, which is a wider change than the bound
+	// it would buy and is deliberately not made.
 	s.vocabMu.Lock()
 	s.vocabCache = vocabularies
 	s.ruleCache = rules
 	s.typesCache = res
 	s.vocabChains = chains
 	s.vocabFingerprint = fp
+	s.vocabObservedAt = s.clock()
 	s.vocabMu.Unlock()
 
 	return vocabularies, nil
+}
+
+// vocabulariesForAppend is Store.vocabularies' append-path sibling
+// (WRIT-202): the entry point dag.WithProducerVocabularies' resolver calls
+// for Append's own producer pre-flight, and the only place
+// vocabFreshnessWindow is consulted. While the cache's last completed
+// derive (vocabObservedAt, stamped when a vocabularies call finishes) is
+// under the window old, this returns the cached snapshot with no ref
+// access at all — not even the one IterReferences pass a vocabularies hit
+// still pays for. Outside the window, on a cold cache, or immediately
+// after a local "schema" append or a Sync (both of which clear
+// vocabObservedAt — noteAppend and invalidateVocabularies below), it
+// delegates to vocabularies unchanged, so freshness stays mandatory
+// exactly where WRIT-202 requires it.
+//
+// The staleness this can serve is therefore the window *plus at most one
+// ground-truth resolve*, not the window alone: the refs a derive read were
+// read one Schema()/Enumerate fold before the stamp that arms the window
+// (vocabularies above says why the stamp sits at the end rather than the
+// start). Every statement of this bound — here, vocabObservedAt's field
+// comment, Open's resolver comment, ARCHITECTURE.md, CHANGELOG.md — says
+// the same thing; keep it that way.
+//
+// The ruling this encodes (RULING, WRIT-202, spec/op-envelope.md §Producer
+// validation): producer validation is a best-effort pre-flight, not a hard
+// per-op guarantee, so trading a bounded amount of staleness for
+// amortising the ref walk across a burst of appends is an acceptable
+// trade, not a correctness regression. The accepted risk, stated plainly:
+// a second writ.Store handle on the same repository (a CLI plus a
+// watching client, writ's normal case) can sign an op this window's stale
+// view would have refused, for up to vocabFreshnessWindow plus one
+// ground-truth resolve after the first handle's ApplySchema — see
+// TestVocabulariesForAppend_SecondHandleRisk.
+// Those ops are permanent, and the reader stays total either way
+// (spec/fold.md §7.1): fold never errors, and one bad op costs that op,
+// never the object. But the unit of loss is the operation, not the field.
+// §7.1 rule 1 is "reject the whole operation, not the offending field", so
+// an op carrying a value some declared merge strategy cannot consume
+// contributes no field writes at all — the well-formed fields it also
+// carried included — and is quarantined as an FC-5 opaque record while
+// staying in the DAG byte-for-byte. Milder shapes cost less: an undeclared
+// field is preserved and ignored and the op folds, and a value that only
+// contradicts a declared value type folds as written, because §7.1
+// deliberately does not enforce declared value types. The outcome is
+// visible in every case; it just does not un-happen. This is accepted, not
+// a bug to "fix" by widening what this function observes.
+func (s *Store) vocabulariesForAppend(ctx context.Context) (codec.Vocabularies, error) {
+	if s == nil {
+		return nil, fmt.Errorf("writ: store is nil")
+	}
+
+	s.vocabMu.Lock()
+	if s.vocabCache != nil && !s.vocabObservedAt.IsZero() && s.clock().Sub(s.vocabObservedAt) < vocabFreshnessWindow {
+		cached := s.vocabCache
+		s.vocabMu.Unlock()
+		return cached, nil
+	}
+	s.vocabMu.Unlock()
+
+	// Delegate without holding vocabMu across the call: vocabularies takes
+	// the lock itself, and holding it here would serialize every stale-
+	// window Append behind whatever dag.Chains and the resolve underneath
+	// it cost, for no benefit — the lock only ever needs to guard the
+	// cache fields themselves, not the derivation that populates them.
+	return s.vocabularies(ctx)
+}
+
+// invalidateVocabularies drops the entire producer-vocabularies cache —
+// vocabCache, vocabChains, vocabFingerprint, and vocabObservedAt alike —
+// so the next call, on either entry point, pays for a full re-resolve
+// regardless of how fresh vocabObservedAt would otherwise still read.
+// Store.Sync calls this once its fetch step completes (WRIT-202 item 3):
+// a fetch can move a peer's chain in a way noteAppend's own rolled-forward
+// bookkeeping knows nothing about, so waiting for vocabFreshnessWindow to
+// expire on its own would let vocabulariesForAppend serve a snapshot a
+// just-fetched schema change already invalidated.
+func (s *Store) invalidateVocabularies() {
+	s.vocabMu.Lock()
+	defer s.vocabMu.Unlock()
+	s.vocabCache = nil
+	s.vocabChains = nil
+	s.vocabFingerprint = ""
+	s.vocabObservedAt = time.Time{}
 }
 
 // rules resolves the fold-rule index a projection ApplySchema/Refresh/Rebuild
@@ -191,23 +350,53 @@ func (s *Store) declaredTypes(ctx context.Context) (resolvedSchemaTypes, error) 
 // object type is irrelevant to what a schema object folds to — so the
 // resolved vocabularies themselves stay valid; only the moved chain's tip
 // in the cached snapshot, and the fingerprint derived from it, need to
-// catch up so the next real dag.Chains() comparison agrees and hits.
+// catch up so the next real dag.Chains() comparison agrees and hits. This
+// branch deliberately leaves vocabObservedAt untouched: rolling this
+// writer's own tip forward is bookkeeping, not an observation of anyone
+// else's chains against ground truth, so it must never extend
+// vocabulariesForAppend's freshness window — only a real dag.Chains pass
+// in Store.vocabularies does that.
 //
 // Appending "schema" itself takes the opposite path: it is exactly the
 // case that can change what VocabulariesFromSchemas resolves, so rather
 // than recompute anything here — which would put the very log I/O this
 // cache exists to get off the append hot path right back onto it — this
-// just drops the cached snapshot. The next Store.vocabularies call then
-// sees its own freshly computed fingerprint disagree with the (now
-// absent) cache and pays for one full resolve, correctly, because this
-// append — unlike the many non-"schema" ones surrounding it — really
-// might have moved the schema.
+// just drops the cached snapshot, vocabObservedAt included (WRIT-202: this
+// is the load-bearing half of the fix, not an incidental one — leaving
+// vocabObservedAt set here would let vocabulariesForAppend serve, for up
+// to the rest of the window, exactly the snapshot this append just made
+// stale). The next Store.vocabularies call then sees its own freshly
+// computed fingerprint disagree with the (now absent) cache and pays for
+// one full resolve, correctly, because this append — unlike the many
+// non-"schema" ones surrounding it — really might have moved the schema.
+//
+// That branch clears vocabFingerprint alongside them, and the clear is not
+// redundant with zeroing the stamp (WRIT-202 review round 5). Sequentially
+// it changes nothing: this append moved this writer's own tip, so the next
+// vocabularies call's freshly computed fingerprint already disagrees with
+// the cached one. It matters against a reader on another goroutine of this
+// same handle that computed its dag.Chains fingerprint before this append
+// and has not yet reached vocabMu. With the old fingerprint left standing,
+// that reader takes vocabularies' fingerprint-hit branch on a pre-append
+// snapshot and re-stamps vocabObservedAt on it, handing this handle's own
+// next Append exactly the view this append invalidated. Clearing the
+// fingerprint turns that reader's stale value into a guaranteed miss, so it
+// full-resolves against the log as it now stands.
+// invalidateVocabularies clears all four fields for the same reason. The
+// clear only works because fingerprintChains never returns "" (see its
+// marker below): a repository with no writ chains would otherwise
+// fingerprint to the same value this writes and match it. Both lines are
+// netted by TestNoteAppend_SchemaAppendLeavesNoFingerprintForAParkedReader;
+// for the residual neither closes, see Store.vocabularies' write-back above
+// and ARCHITECTURE.md §Producer validation.
 func (s *Store) noteAppend(objectType string, newTip plumbing.Hash) {
 	s.vocabMu.Lock()
 	defer s.vocabMu.Unlock()
 
 	if objectType == "schema" {
 		s.vocabChains = nil
+		s.vocabFingerprint = ""
+		s.vocabObservedAt = time.Time{}
 		return
 	}
 	if s.vocabChains == nil {
@@ -237,6 +426,16 @@ func fingerprintChains(chains map[string]dag.DiscoveredChain) string {
 	sort.Strings(names)
 
 	var b strings.Builder
+	// A leading marker, so a fingerprint is never the empty string. "" is
+	// what Store.noteAppend's "schema" branch and invalidateVocabularies
+	// write to mean "no valid fingerprint", and a repository with no writ
+	// chains at all — the bootstrap case, before anything has been appended —
+	// fingerprints to exactly that without this. It would then match the
+	// sentinel, and the fingerprint-hit branch in Store.vocabularies would
+	// serve a snapshot noteAppend had just invalidated (WRIT-202 review round
+	// 5). Nothing outside this cache reads the string; only its equality
+	// matters.
+	b.WriteString("chains:")
 	for _, name := range names {
 		b.WriteString(name)
 		b.WriteByte('\n')

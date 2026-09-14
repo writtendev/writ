@@ -538,6 +538,28 @@ cache and a projection all qualify, and a re-signing bridge does not.
 The consequence is intended: an implementation that cannot interpret an
 op type cannot put its own name on it.
 
+Rules 3, 4, 5, and 6 above bind a producer to verify against *a* view of
+the schema in the log; they do not require that view to be the most recent
+one possible. A producer MAY validate against a recently-resolved view of
+the schema rather than re-deriving ground truth before every op, so long as
+it still applies rules 3, 4, 5, and 6 in full against whatever view it
+holds. Rules 1 and 2 are outside this allowance entirely: neither consults
+the log, so neither has a view that could be stale, and rule 2 in
+particular is the byte-equality invariant a reader rejects on (§Reader
+validation item 2 below) — no amount of schema staleness excuses it.
+Deferring, caching, or skipping the envelope-schema and canonicalisation
+checks is never permitted.
+
+A producer's refusal to sign an op is therefore evidence that op violated the
+schema as of that view, not a guarantee that the log as a whole contains no
+op violating the schema's current state — a distinction
+[spec/fold.md](fold.md) §7.1 already forces for a foreign producer's ops,
+which a conforming reader MUST interpret to whatever extent the closed
+catalogue allows regardless of what that producer validated, or whether it
+validated anything at all. Bounding how stale a producer's own view may get
+before it revalidates is an implementation's own performance concern, not a
+wire-format rule this document constrains.
+
 ## Reader validation
 
 A conforming reader, given a commit reached via a writ ref, MUST reject

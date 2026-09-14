@@ -112,23 +112,42 @@ func BenchmarkVocabulariesCache(b *testing.B) {
 	})
 }
 
-// BenchmarkAppendByRefCount is WRIT-188 round 2's major-finding reproduction,
-// kept in the tree as a live measurement of a known, tracked regression
-// rather than as a claim that it is fixed. dag.WithProducerVocabularies puts
-// Store.vocabularies on every Append, and Store.vocabularies calls
-// dag.Chains before it can even compare its cache's fingerprint. dag.Chains
-// is a single storer.IterReferences pass over every reference in the
-// repository (round 2 added, and round 3 reverted, a filesystem-scoped fast
-// path: it closed this gap but introduced a repo-bricking failure and a
-// silent read-path data-loss case — see the WRIT-188 round 3 review), so
-// per-Append cost here is linear in the repository's TOTAL ref count —
-// ordinary refs/heads entries, the kind a couple hundred branches (or one
-// `git fetch`) leaves behind — not only in its writ chain count. `main`
-// never calls dag.Chains on the append path at all, so it has no equivalent
-// scaling to compare against here — see BenchmarkVocabulariesCache/Hit for
-// the flat, log-size-independent cost this benchmark's own cache still
-// preserves. The regression this benchmark reproduces is tracked as its own
-// ticket, separate from WRIT-188.
+// BenchmarkAppendByRefCount is WRIT-188 round 2's major-finding
+// reproduction, kept in the tree as a live measurement of a regression that
+// WRIT-202 closes rather than as a claim that nothing here costs anything.
+// dag.WithProducerVocabularies used to put Store.vocabularies — a full
+// dag.Chains ref walk plus a fingerprint compare, on every single hit — on
+// every Append, and dag.Chains is a single storer.IterReferences pass over
+// every reference in the repository (round 2 added, and round 3 reverted, a
+// filesystem-scoped fast path: it closed this gap but introduced a
+// repo-bricking failure and a silent read-path data-loss case — see the
+// WRIT-188 round 3 review), so per-Append cost was linear in the
+// repository's TOTAL ref count — ordinary refs/heads entries, the kind a
+// couple hundred branches (or one `git fetch`) leaves behind — not only in
+// its writ chain count.
+//
+// WRIT-202 puts vocabulariesForAppend's short freshness window in front of
+// that ref walk on the append path specifically: within the window, an
+// Append's producer pre-flight returns the cached snapshot with no
+// dag.Chains call at all, so the burst of Appends this benchmark's inner
+// loop performs now amortises to roughly one ref walk per window rather
+// than one per Append. `main` never called dag.Chains on the append path
+// at all, so it has no equivalent scaling to compare against here — see
+// BenchmarkVocabulariesCache/Hit for the flat, log-size-independent cost a
+// vocabularies() hit (outside the append path) still pays. See this
+// ticket's PR description for this benchmark's own before/after numbers.
+//
+// What this measures, and what it does not. At -benchtime=200x the timed
+// loop runs one and a half to two and a half times the 100ms window (200
+// appends at ~0.8-1.2ms each), so the window expires inside it and the
+// residual is measured rather than hidden: the post-fix column still rises
+// with refCount, with the slope cut by roughly the number of appends one
+// window covers. Read it as an amortisation of a cost that remains linear
+// in total ref count, never as "refCount no longer matters" — it does. And
+// the one warm-up append runs before b.ResetTimer(), so nothing here
+// speaks to the cold-cache, single-append-per-process case (one CLI
+// invocation, one dag.Chains scan): that one is unhelped by construction
+// and is deliberately out of WRIT-202's scope.
 func BenchmarkAppendByRefCount(b *testing.B) {
 	for _, refCount := range []int{0, 200, 500, 2000} {
 		b.Run(fmt.Sprintf("refs=%d", refCount), func(b *testing.B) {

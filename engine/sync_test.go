@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/writtendev/writ/engine"
 )
@@ -331,5 +332,128 @@ func TestStoreSync_PreReceiveHookFailureAndRetry(t *testing.T) {
 	}
 	if objB.Fields["title"] != "Hook Failure Widget" {
 		t.Errorf("Bob Fields[title] = %v, want 'Hook Failure Widget'", objB.Fields["title"])
+	}
+}
+
+// TestStoreSync_InvalidatesVocabulariesForAppendRegardlessOfWindow pins
+// WRIT-202 item 3: Store.Sync must invalidate the append-path
+// producer-vocabularies cache explicitly once its fetch step completes,
+// rather than leaving vocabFreshnessWindow to expire on its own. Bob's
+// clock is frozen at the exact instant his cache was warmed and never
+// advances a single tick for the rest of the test — if Sync relied on the
+// window expiring instead of invalidating explicitly, Bob's next append
+// would still see the pre-Alice vocabulary and refuse an op of the type
+// Alice just declared and pushed.
+//
+// The awkward shape below — Sync driven from a goroutine while the test
+// holds the mutex Refresh needs — is what it takes for this to be a real
+// regression net rather than a green test that proves nothing. Sync's step
+// 4 calls Store.Refresh unconditionally, Refresh calls rules ->
+// vocabularies, and that pass re-resolves and re-stamps vocabObservedAt
+// whether or not step 3.5 invalidated anything. Read the append path after
+// Sync returns and you are reading the Refresh's work: the round-1
+// reviewer confirmed by mutation that the straightforward version of this
+// test stays green with s.invalidateVocabularies() deleted from Sync
+// outright. The invalidation is observable only in the gap between the
+// fetch and the Refresh, so this test parks the Refresh and looks into it.
+func TestStoreSync_InvalidatesVocabulariesForAppendRegardlessOfWindow(t *testing.T) {
+	_, aliceDir, bobDir := setupSyncHarness(t)
+	ctx := context.Background()
+
+	sA, err := writ.Open(aliceDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Open Alice failed: %v", err)
+	}
+	defer sA.Close()
+
+	sB, err := writ.Open(bobDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Open Bob failed: %v", err)
+	}
+	defer sB.Close()
+
+	// Based on the real clock rather than an arbitrary fixed date, for the
+	// same reason schema_test.go's WRIT-202 tests are: Store.Open's own
+	// initial-rules resolve may already have stamped vocabObservedAt with
+	// the real time.Now, and a frozen instant far from "now" would make
+	// the window's Sub arithmetic go negative and read as perpetually
+	// fresh instead of testing anything.
+	frozen := time.Now()
+	writ.SetStoreClock(sB, func() time.Time { return frozen })
+
+	// Warm Bob's append-path cache at exactly the frozen instant, before
+	// Alice's change exists.
+	before, err := writ.StoreVocabulariesForAppend(sB, ctx)
+	if err != nil {
+		t.Fatalf("StoreVocabulariesForAppend (warm) failed: %v", err)
+	}
+	if v, ok := before["acme.gizmo"]; ok && v.Declared {
+		t.Fatalf("acme.gizmo unexpectedly already declared before Alice wrote it")
+	}
+
+	// Alice declares a new type and pushes it.
+	if err := sA.ApplySchema(ctx, compileTestSchema(t, "sch-peer", `namespace acme
+description "peer schema for the sync-invalidation test"
+
+type gizmo {
+  op create 1 {
+    title string(200) lww
+  }
+}
+`)); err != nil {
+		t.Fatalf("Alice ApplySchema failed: %v", err)
+	}
+	if _, err := sA.Sync(ctx, "origin"); err != nil {
+		t.Fatalf("Alice Sync failed: %v", err)
+	}
+
+	// Bob's clock has not moved a single tick since his cache was warmed
+	// above — the window alone would still call this fresh. Hold the mutex
+	// Refresh must acquire, so Bob's Sync runs its fetch, invalidates, and
+	// then parks before it can re-resolve anything of its own.
+	release := writ.StoreHoldRefreshLock(sB)
+	syncDone := make(chan error, 1)
+	go func() {
+		_, err := sB.Sync(ctx, "origin")
+		syncDone <- err
+	}()
+
+	// Poll rather than assert once: the fetch is a real git subprocess, so
+	// "Sync has reached the invalidation" is not an instant this test can
+	// name. Sync cannot finish while the lock is held — Refresh is
+	// unconditional and has no early exit before it — so the only two
+	// outcomes are "the invalidation ran" and "the deadline expired". Bob's
+	// clock is frozen, so no amount of real time spent polling can let the
+	// window expire on its own and hand this test a false pass.
+	sawGizmo := false
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		vocab, err := writ.StoreVocabulariesForAppend(sB, ctx)
+		if err == nil {
+			if v, ok := vocab["acme.gizmo"]; ok && v.Declared {
+				sawGizmo = true
+				break
+			}
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+
+	release()
+	if err := <-syncDone; err != nil {
+		t.Fatalf("Bob Sync failed: %v", err)
+	}
+	if !sawGizmo {
+		t.Fatalf("Bob's vocabulariesForAppend never saw acme.gizmo in the window between Sync's fetch and its Refresh: Sync did not invalidate the append-path cache, so the frozen-clock freshness window kept serving the pre-fetch snapshot")
+	}
+
+	// And the post-Sync state is right too — this part would pass on its
+	// own either way (Refresh re-resolves regardless), so it is a sanity
+	// check, not the assertion that carries the test.
+	after, err := writ.StoreVocabulariesForAppend(sB, ctx)
+	if err != nil {
+		t.Fatalf("StoreVocabulariesForAppend after Sync failed: %v", err)
+	}
+	if v, declared := after["acme.gizmo"]; !declared || !v.Declared {
+		t.Fatalf("Bob's vocabulariesForAppend does not see acme.gizmo after Sync returned")
 	}
 }
