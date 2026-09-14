@@ -86,13 +86,17 @@ type Store struct {
 	// vocabObservedAt is the last time vocabCache was actually validated
 	// against ground truth — a real dag.Chains pass, in Store.vocabularies,
 	// win or lose against the fingerprint compare — not merely the last
-	// time this cache was touched. It holds the clock read immediately
-	// *before* that pass, not the clock at the point the field is assigned:
-	// on the full-resolve branch the assignment trails the ref read by a
-	// whole Schema()/Enumerate fold, and stamping the later time would make
-	// vocabFreshnessWindow measure from the end of the resolve rather than
-	// from the observation, widening the window the append path actually
-	// enforces by that fold's duration. Store.noteAppend's non-"schema" branch
+	// time this cache was touched. It holds the clock at the point that
+	// derive *completed*, not the clock read before its ref walk: the
+	// window has to be armed from completion, or a derive costing longer
+	// than vocabFreshnessWindow would arm nothing at all and the append
+	// path would be back to a full ref walk per Append (WRIT-202 review
+	// round 4 measured exactly that — see Store.vocabularies). The
+	// consequence, documented everywhere the bound is stated rather than
+	// engineered away: on the full-resolve branch this stamp trails the ref
+	// read by a whole Schema()/Enumerate fold, so what the append path
+	// enforces is the window plus at most one ground-truth resolve.
+	// Store.noteAppend's non-"schema" branch
 	// rolls the chain snapshot forward without ever calling dag.Chains, so
 	// it must never update this stamp; only vocabularies' own two branches
 	// (fingerprint hit and full resolve) do, because both actually

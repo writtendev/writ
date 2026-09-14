@@ -88,19 +88,29 @@ func (s *Store) Schema(ctx context.Context) ([]state.Schema, error) {
 // repository, which makes every Append linear in total ref count —
 // BenchmarkAppendByRefCount on this branch's head with this window
 // disabled (Apple M2 Max, -benchtime=200x -count=3, medians of three):
-// 1.16ms -> 8.51ms -> 20.03ms -> 67.98ms at 0/200/500/2,000 loose refs,
-// against 1.20ms -> 1.26ms -> 1.40ms -> 2.24ms with it. The public write
+// 1.06ms -> 7.67ms -> 17.61ms -> 80.30ms at 0/200/500/2,000 loose refs,
+// against 0.77ms -> 0.80ms -> 0.94ms -> 1.21ms with it. The public write
 // surface is one op at a time (Objects.Create, Store.Append; there is no
 // batch path), so an agent writing 50 ops today pays for 50 full ref
 // scans; this window lets one dag.Chains pass amortise across a burst
-// instead. 100ms is chosen to comfortably cover a burst
-// (BenchmarkAppendByRefCount's per-append cost at 2,000 refs is ~68ms
-// *before* this window — a single scan the window then lets a whole burst
-// share) without drifting so wide that the accepted second-handle risk
-// documented on vocabulariesForAppend below widens with it. This is one
-// fixed, unexported constant, not an Open option (WRIT-202 item 2): if a
-// caller ever needs different behaviour, that is a separate ticket driven
-// by that caller's own measurement.
+// instead.
+//
+// What 100ms buys, stated so it cannot be read as more than it is. The
+// window is armed when a derive finishes (see vocabularies above), so a
+// burst gets the whole 100ms however long that derive D took — there is
+// no ref count at which the window stops helping. But it divides the ref
+// walk across a burst; it does not remove it. In steady state, at a floor
+// of ~0.8ms per append, one window covers on the order of a hundred
+// appends, so per-append cost settles near floor x (1 + D/100ms): still
+// linear in total ref count, with the slope cut by roughly how many
+// appends fit in one window, and with the amortisation ratio itself
+// ceilinged by that same count. 100ms is chosen to be long enough for
+// that count to be worth having on the bursts writ's write surface
+// produces, and short enough that the accepted second-handle risk
+// documented on vocabulariesForAppend below does not widen with it. This
+// is one fixed, unexported constant, not an Open option (WRIT-202 item
+// 2): if a caller ever needs different behaviour, that is a separate
+// ticket driven by that caller's own measurement.
 const vocabFreshnessWindow = 100 * time.Millisecond
 
 // vocabularies resolves the log-sourced producer vocabularies
@@ -145,22 +155,29 @@ const vocabFreshnessWindow = 100 * time.Millisecond
 // exactly what vocabulariesForAppend's window needs to measure freshness
 // against.
 //
-// Both stamp the clock read *before* the dag.Chains call below, not the
-// clock at the point of the assignment. The stamp means "when the refs
-// were read", and on the full-resolve branch the assignment happens after
-// a Schema()/Enumerate fold measured in tens of milliseconds that scales
-// with log size (BenchmarkVocabulariesCache/Miss). Stamping the later
-// time would silently widen vocabulariesForAppend's window by one whole
-// resolve: a schema change another handle lands just after this read
-// would stay invisible for the window *plus* that resolve, against a
-// bound documented as the window alone. Reading the clock first makes the
-// enforced bound the documented one.
+// Both stamp at the point of assignment — when the derive they are part of
+// finished — not a clock read taken before the dag.Chains call below. On
+// the fingerprint-hit branch the two are the same instant for practical
+// purposes (one Chains pass and a mutex acquire apart). On the
+// full-resolve branch the assignment trails the ref read by a whole
+// Schema()/Enumerate fold, so vocabulariesForAppend's window runs from the
+// end of that fold and the staleness bound it buys is the window *plus* at
+// most one ground-truth resolve. That is what every prose site states, on
+// purpose: round 3 of this ticket's review moved these reads before the
+// walk so the enforced bound would be the window alone, and round 4
+// measured what that costs. Arming the window at t_start when the derive
+// only finishes at t_start+D leaves W-D of window, so the amortisation
+// this ticket exists for shrinks as D — the ref walk, the exact cost being
+// amortised — grows, and vanishes once one walk exceeds W. At 8,000 refs
+// that made Append indistinguishable from having no window at all
+// (~301ms/op, against ~295ms with the window disabled and ~0.84ms stamping
+// here). The bound is documented honestly instead; do not "tighten" it by
+// moving these reads earlier.
 func (s *Store) vocabularies(ctx context.Context) (codec.Vocabularies, error) {
 	if s == nil {
 		return nil, fmt.Errorf("writ: store is nil")
 	}
 
-	observedAt := s.clock()
 	chains, err := dag.Chains(s.storer)
 	if err != nil {
 		return nil, fmt.Errorf("writ: resolve vocabularies: chains: %w", err)
@@ -170,7 +187,7 @@ func (s *Store) vocabularies(ctx context.Context) (codec.Vocabularies, error) {
 	s.vocabMu.Lock()
 	if s.vocabCache != nil && fp == s.vocabFingerprint {
 		cached := s.vocabCache
-		s.vocabObservedAt = observedAt
+		s.vocabObservedAt = s.clock()
 		s.vocabMu.Unlock()
 		return cached, nil
 	}
@@ -190,7 +207,7 @@ func (s *Store) vocabularies(ctx context.Context) (codec.Vocabularies, error) {
 	s.typesCache = res
 	s.vocabChains = chains
 	s.vocabFingerprint = fp
-	s.vocabObservedAt = observedAt
+	s.vocabObservedAt = s.clock()
 	s.vocabMu.Unlock()
 
 	return vocabularies, nil
@@ -199,14 +216,23 @@ func (s *Store) vocabularies(ctx context.Context) (codec.Vocabularies, error) {
 // vocabulariesForAppend is Store.vocabularies' append-path sibling
 // (WRIT-202): the entry point dag.WithProducerVocabularies' resolver calls
 // for Append's own producer pre-flight, and the only place
-// vocabFreshnessWindow is consulted. While the cache's last real
-// dag.Chains observation (vocabObservedAt) is under the window old, this
-// returns the cached snapshot with no ref access at all — not even the one
-// IterReferences pass a vocabularies hit still pays for. Outside the
-// window, on a cold cache, or immediately after a local "schema" append or
-// a Sync (both of which clear vocabObservedAt — noteAppend and
-// invalidateVocabularies below), it delegates to vocabularies unchanged,
-// so freshness stays mandatory exactly where WRIT-202 requires it.
+// vocabFreshnessWindow is consulted. While the cache's last completed
+// derive (vocabObservedAt, stamped when a vocabularies call finishes) is
+// under the window old, this returns the cached snapshot with no ref
+// access at all — not even the one IterReferences pass a vocabularies hit
+// still pays for. Outside the window, on a cold cache, or immediately
+// after a local "schema" append or a Sync (both of which clear
+// vocabObservedAt — noteAppend and invalidateVocabularies below), it
+// delegates to vocabularies unchanged, so freshness stays mandatory
+// exactly where WRIT-202 requires it.
+//
+// The staleness this can serve is therefore the window *plus at most one
+// ground-truth resolve*, not the window alone: the refs a derive read were
+// read one Schema()/Enumerate fold before the stamp that arms the window
+// (vocabularies above says why the stamp sits at the end rather than the
+// start). Every statement of this bound — here, vocabObservedAt's field
+// comment, Open's resolver comment, ARCHITECTURE.md, CHANGELOG.md — says
+// the same thing; keep it that way.
 //
 // The ruling this encodes (RULING, WRIT-202, spec/op-envelope.md §Producer
 // validation): producer validation is a best-effort pre-flight, not a hard
@@ -215,8 +241,9 @@ func (s *Store) vocabularies(ctx context.Context) (codec.Vocabularies, error) {
 // trade, not a correctness regression. The accepted risk, stated plainly:
 // a second writ.Store handle on the same repository (a CLI plus a
 // watching client, writ's normal case) can sign an op this window's stale
-// view would have refused, for up to vocabFreshnessWindow after the first
-// handle's ApplySchema — see TestVocabulariesForAppend_SecondHandleRisk.
+// view would have refused, for up to vocabFreshnessWindow plus one
+// ground-truth resolve after the first handle's ApplySchema — see
+// TestVocabulariesForAppend_SecondHandleRisk.
 // Those ops are permanent, and the reader stays total either way
 // (spec/fold.md §7.1): fold never errors, and one bad op costs that op,
 // never the object. But the unit of loss is the operation, not the field.

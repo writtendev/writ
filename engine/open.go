@@ -151,9 +151,10 @@ func Open(path string, opts ...Option) (*Store, error) {
 				return nil, nil
 			}
 			// vocabulariesForAppend, not vocabularies: the append path may
-			// serve a snapshot up to vocabFreshnessWindow stale rather than
-			// paying for a dag.Chains ref walk on every single Append
-			// (WRIT-202). Every other caller of vocabularies — rules,
+			// serve a snapshot up to vocabFreshnessWindow plus one
+			// ground-truth resolve stale rather than paying for a
+			// dag.Chains ref walk on every single Append (WRIT-202).
+			// Every other caller of vocabularies — rules,
 			// declaredTypes, and Types/Refresh/Rebuild through them — stays
 			// on the ground-truth path unchanged.
 			return s.vocabulariesForAppend(context.Background())
