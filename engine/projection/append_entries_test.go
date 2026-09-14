@@ -889,6 +889,98 @@ func TestAppendFoldParityAcrossTargets(t *testing.T) {
 	}
 }
 
+// TestAppendQuarantinedOpWithValidAppendValueContributesNoRow pins
+// writeAppendRows' quarantined-op skip — the one mechanism keeping an op
+// the fold refused out of the append tables — against the only op shape
+// that actually exercises it.
+//
+// Every other quarantined op in this file is quarantined for a reason that
+// independently means no append rule would contribute at it anyway: an
+// unrecognized op type no append rule matches (op-escalate-1), an explicit
+// null the writer's own `raw == nil` check drops (op-note-3 in
+// appendFoldParityOps), or rules the projection's schema does not carry at
+// all (TestAppendTablesSurviveDropAndRebuild's tag op). So none of them
+// redden if the skip is deleted.
+//
+// This one does, because engine/internal/fold's Uninterpretable works at
+// whole-op granularity (spec/fold.md §7.1): if *any* matched rule rejects
+// the body, the entire op is quarantined, including writes at fields whose
+// own rules would have accepted them. op-note-2 below carries a perfectly
+// valid append value at "note" and a non-bool at "flag", whose sibling
+// tombstone rule matches the same op type — so the fold quarantines it and
+// its append value never enters state.Fold's list. Without the skip the
+// writer would still see the op and write "should-not-appear" into
+// o_widget__notes: the append table would carry an entry the fold never
+// blessed, which is the droppable-cache invariant (the projection holds
+// nothing the fold does not produce) rather than a cosmetic one, and
+// exactly the projection-as-a-second-answer divergence the row-per-entry
+// redesign exists to prevent.
+func TestAppendQuarantinedOpWithValidAppendValueContributesNoRow(t *testing.T) {
+	base := time.Unix(1700000000, 0).UTC()
+	opCreate := makeVersionedWidgetOp("op-create-1", nil, "create", 1, map[string]any{"title": "T"}, base)
+	opGood := makeVersionedWidgetOp("op-note-1", []string{"op-create-1"}, "note", 1, map[string]any{"note": "good"}, base.Add(1*time.Second))
+	// The op the skip is for: a legal append value at "note", and a value
+	// the sibling tombstone rule at "flag" cannot consume.
+	opMixed := makeVersionedWidgetOp("op-note-2", []string{"op-note-1"}, "note", 1, map[string]any{"note": "should-not-appear", "flag": "not-a-bool"}, base.Add(2*time.Second))
+	opAfter := makeVersionedWidgetOp("op-note-3", []string{"op-note-2"}, "note", 1, map[string]any{"note": "after"}, base.Add(3*time.Second))
+	ops := []codec.Op{opCreate, opGood, opMixed, opAfter}
+
+	rules := []state.Rule{
+		{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string", ObjectType: "widget"},
+		{OpType: "note", OpVersion: 1, Field: "note", Target: "notes", Strategy: "append", ValueType: "string", ObjectType: "widget"},
+		{OpType: "note", OpVersion: 1, Field: "flag", Target: "flag", Strategy: "tombstone", ValueType: "bool", ObjectType: "widget"},
+	}
+
+	want, err := state.Fold(ops, rules)
+	if err != nil {
+		t.Fatalf("state.Fold failed: %v", err)
+	}
+	wantNotes, _ := want.State["notes"].([]any)
+	if !reflect.DeepEqual(wantNotes, []any{"good", "after"}) {
+		t.Fatalf("test setup: state.Fold's notes = %#v, want [good after] — op-note-2's append value must not reach the fold's list", wantNotes)
+	}
+	if len(want.UnknownOps) != 1 || want.UnknownOps[0].Commit != "op-note-2" {
+		t.Fatalf("test setup: state.Fold's UnknownOps = %+v, want exactly op-note-2 (quarantined by its sibling tombstone rule)", want.UnknownOps)
+	}
+
+	order, err := dag.Order(ops)
+	if err != nil {
+		t.Fatalf("dag.Order failed: %v", err)
+	}
+	seqOf := make(map[string]int, len(order))
+	for i, op := range order {
+		seqOf[op.ID] = i
+	}
+
+	_, store := createTestStore(t, "0123456789abcdef")
+	db, err := projection.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:) failed: %v", err)
+	}
+	defer db.Close()
+
+	enumRes := &dag.EnumerateResult{
+		Ops:            map[string][]codec.Op{"w-1": ops},
+		Cursors:        dag.CursorSet{"refs/writ/0123456789abcdef/widget": "op-note-3"},
+		DecodedCommits: len(ops),
+	}
+	if _, err := db.Refresh(store, projection.WithSchema(map[string][]state.Rule{"widget": rules}), projection.WithEnumOverrideForTest(enumRes)); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	// The full (op_seq, entry_idx, value) row set, not just the values: the
+	// quarantined op's position in L must be a gap, and op-note-3 must keep
+	// its own index rather than sliding into it.
+	got := queryAppendEntries(t, db.DB(), "o_widget__notes", "w-1")
+	wantEntries := []appendEntry{
+		{OpSeq: seqOf["op-note-1"], EntryIdx: 0, Value: "good"},
+		{OpSeq: seqOf["op-note-3"], EntryIdx: 0, Value: "after"},
+	}
+	if !reflect.DeepEqual(got, wantEntries) {
+		t.Fatalf("o_widget__notes rows = %+v, want %+v — op-note-2 is quarantined by its sibling tombstone rule, so its append value must not land in the table even though the append rule itself would have accepted it (WRIT-212)", got, wantEntries)
+	}
+}
+
 // TestAppendMaterializationDeterministicUnderRuleShuffle extends
 // TestGeneratedDDLIsDeterministic (DDL/digest only) and the old
 // TestAppendGroupContentIsDeterministic (one shuffle) to the full
