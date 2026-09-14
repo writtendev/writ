@@ -293,7 +293,7 @@ func TestAppendVersionBumpIsDeterministic(t *testing.T) {
 //
 // WRIT-234 closed that carve-out: Key and KeyTypes are no longer on §8's
 // "MAY freely change" list, so spec.CheckTargetAgreement now refuses this
-// exact disagreement, and spec.RulesFromSchemas withholds the whole target
+// exact disagreement, and writ.RulesFromSchemas withholds the whole target
 // before it ever reaches this package — a schema resolved out of the log
 // cannot produce the rule set this test builds. This test still compiles
 // and still pins a real behaviour, because it constructs its rules

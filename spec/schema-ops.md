@@ -627,7 +627,7 @@ or how many classes, share the target):
     collapses what the log meant as two distinct register identities onto
     the one target `Fold` groups by. `engine/schemasrc`'s compiler refuses
     a `writ.schema` source file that does this before it ever reaches the
-    log (`spec/schema-source.md` §9); a schema resolved from the log
+    log (`spec/schema-source.md` §5, §7); a schema resolved from the log
     withholds the whole target the same way the resolver already withholds
     a `strategy` disagreement.
 - **Between classes** — the moment a target is bound by more than one
