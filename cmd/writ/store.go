@@ -37,15 +37,15 @@ func openStore(dir string, opts ...writ.Option) (*writ.Store, error) {
 	return writ.Open(dir, opts...)
 }
 
-// renderErr prints err as the CLI's one-line human error report and
-// returns the exit code that goes with it.
+// renderErr prints err as the CLI's human error report and returns the
+// exit code that goes with it.
 //
-// The line is escaped with textsafe.EscapeForbidden on its way out --
-// once, here, rather than at each of errLine's arms or at each error
-// construction upstream. An engine error's text can carry a log-sourced
-// string that nothing on the read path gates: the reachable case is a
-// fetched define-field's body `enum` members, which spec.ValidateFieldRule
-// never constrains (it gates the field, target and key columns against
+// The report is escaped by escapeErrReport on its way out -- once, here,
+// rather than at each of errLine's arms or at each error construction
+// upstream. An engine error's text can carry a log-sourced string that
+// nothing on the read path gates: the reachable case is a fetched
+// define-field's body `enum` members, which spec.ValidateFieldRule never
+// constrains (it gates the field, target and key columns against
 // identifierGrammar and value_type/strategy against their closed
 // catalogues, and stops there) and which engine/internal/value.Check then
 // formats into its membership error with a bare %v. renderErr is the one
@@ -63,11 +63,71 @@ func renderErr(w io.Writer, err error) int {
 	if err == nil {
 		return 0
 	}
-	fmt.Fprintln(w, textsafe.EscapeForbidden(errLine(err)))
+	fmt.Fprintln(w, escapeErrReport(errLine(err)))
 	return 1
 }
 
-// errLine is the single line renderErr prints for err, unescaped.
+// escapeErrReport returns line -- errLine's assembled error report -- with
+// every textsafe.Forbidden code point escaped as \uXXXX, except U+000A.
+// Same shape, and the same reason, as escapeRenderedSchemaSource in
+// schema.go: the exclusion exists to preserve the line structure writ's own
+// format strings write, not to spare any code point in the data.
+//
+// Exactly one error in the tree writes a U+000A as structure --
+// engine/codec/sign.go's `fmt.Errorf("codec: ssh-keygen -Y sign: %w\n%s",
+// err, ...)`, whose second line is ssh-keygen's own diagnostic and the
+// entire point of capturing its combined output. A missing, unreadable or
+// passphrase-protected signing key is a first-run misconfiguration, not an
+// exotic state, so escaping that break -- as the whole-line escape did
+// before this exclusion -- flattens a common, non-hostile diagnostic onto
+// one line for no security gain. U+0009 is not excluded with it: no error
+// format string in the tree writes a tab as structure, so escaping tabs
+// mangles nothing, and the exclusion stays exactly as wide as the structure
+// that justifies it (round 4 review of PR #195).
+//
+// The trade-off this reopens, stated plainly rather than left implicit: a
+// U+000A in a log-sourced string reaching an error report is no longer
+// neutralised, so a hostile peer can forge an extra line on stderr. That is
+// reachable today by the same route the escape was added for, and was
+// confirmed by execution rather than assumed: a fetched define-field whose
+// enum member is "closed\nwrit: forged line" prints a second stderr line
+// out of value.Check's membership error. The forged line still carries
+// whatever the surrounding format string puts after the interpolation (the
+// closing bracket of %v's slice, here), so it is not fully attacker-chosen
+// -- but a break is a break.
+//
+// It is accepted here because the alternative is worse for its size.
+// Escaping the interpolation rather than the line would have to happen
+// where the message is built, and the reachable message is built inside
+// engine/internal/value, whose error text is the public API's and shared
+// with callers that are not a terminal; cmd/writ receives it already
+// assembled and cannot tell the peer's bytes from the engine's. So
+// neutralising the forgery would mean changing engine error text for every
+// caller, which is a different change from this one. A forged stderr line
+// is also a weaker primitive than the bidi override this escape is for: it
+// can add a line, not silently reverse what a line already says.
+func escapeErrReport(line string) string {
+	hasForbidden := strings.ContainsFunc(line, func(r rune) bool {
+		return r != '\n' && textsafe.Forbidden(r)
+	})
+	if !hasForbidden {
+		return line
+	}
+	var b strings.Builder
+	b.Grow(len(line))
+	for _, r := range line {
+		if r == '\n' || !textsafe.Forbidden(r) {
+			b.WriteRune(r)
+			continue
+		}
+		fmt.Fprintf(&b, `\u%04x`, r)
+	}
+	return b.String()
+}
+
+// errLine is the error report renderErr prints for err, unescaped. It is one
+// line for every error but engine/codec/sign.go's ssh-keygen failure, which
+// carries its diagnostic on a second (see escapeErrReport).
 func errLine(err error) string {
 	var cfgErr *identity.ConfigError
 	if errors.As(err, &cfgErr) {

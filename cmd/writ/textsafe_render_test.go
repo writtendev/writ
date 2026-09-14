@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -971,5 +972,51 @@ func TestObjectCreate_HostileFetchedEnumRendersEscaped(t *testing.T) {
 	escapeSeq := []byte(fmt.Sprintf("\\u%04x", 0x202E))
 	if !bytes.Contains(out, escapeSeq) {
 		t.Errorf("object create (non-member enum value) = %s, want it to contain the %s escape", out, escapeSeq)
+	}
+}
+
+// TestRenderErr_SigningFailureKeepsItsSecondLine is the counterweight to the
+// test above: renderErr's escape must not flatten the one error in the tree
+// whose text carries a U+000A as structure rather than as data.
+//
+// engine/codec/sign.go builds it -- `fmt.Errorf("codec: ssh-keygen -Y sign:
+// %w\n%s", err, ...)` -- so a missing, unreadable or passphrase-protected
+// signing key reports ssh-keygen's own diagnostic on a second line, which is
+// the entire point of capturing its combined output. A first-run
+// misconfiguration, not an exotic state.
+//
+// Escaping the whole assembled line without excluding U+000A collapsed the
+// two lines into one, with the escape text sitting where the break
+// belonged (round 4 review of PR #195).
+func TestRenderErr_SigningFailureKeepsItsSecondLine(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, fullTestSchema)
+
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	// The commonest way to reach sign.go's two-line error: a signing key
+	// that is configured but not there.
+	setGitConfig(t, env.repoDir, "user.signingKey", filepath.Join(t.TempDir(), "absent_ed25519"))
+
+	stdout.Reset()
+	stderr.Reset()
+	code := run(context.Background(), []string{"object", "create", "-C", env.repoDir, "acme.standup", "create", "-field", "title=hi"}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatalf("object create with a missing signing key unexpectedly succeeded; stdout: %s", stdout.String())
+	}
+
+	out := stderr.String()
+	if !strings.Contains(out, "ssh-keygen -Y sign") {
+		t.Fatalf("object create stderr = %q, want the ssh-keygen signing failure", out)
+	}
+	newlineEscape := fmt.Sprintf("\\u%04x", 0x000A)
+	if strings.Contains(out, newlineEscape) {
+		t.Errorf("object create stderr carries a literal %s escape, so ssh-keygen's diagnostic was flattened onto one line: %q", newlineEscape, out)
+	}
+	if got := len(strings.Split(strings.TrimRight(out, "\n"), "\n")); got < 2 {
+		t.Errorf("object create stderr rendered on %d line(s), want ssh-keygen's diagnostic on a line of its own: %q", got, out)
 	}
 }
