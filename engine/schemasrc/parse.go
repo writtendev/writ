@@ -32,9 +32,13 @@ const maxNameLength = 64
 // separate from keywords: "lock" is a ref-safety exclusion, not a grammar
 // keyword — TestKeywordsAreClosed pins keywords as the closed structural-word
 // table, and folding a ref-safety concern into it would widen what that
-// test is meant to guard. A namespace of "lock" is fine ("lock.thing"); the
-// constraint is on a type's own final segment only, checked here in the
-// type-name slot alone (not namespace, not op type name, not field name).
+// test is meant to guard. A namespace of "lock" is unaffected ("lock.thing"
+// is a legal, ref-writable object type) — the exclusion is on a type's own
+// name ending in ".lock" once namespace-qualified, not on the bare word
+// "lock" appearing anywhere. A schemasrc type name itself never contains a
+// dot, so checking the bare name here, in the type-name slot alone (not
+// namespace, not op type name, not field name), covers the whole reachable
+// set.
 var reservedTypeNames = map[string]bool{"lock": true}
 
 // reservedTypeNameReason is appended to the diagnostic when validateName

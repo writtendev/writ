@@ -170,8 +170,10 @@ outright any slash-separated ref path component ending in `.lock`
 would compile to an `object_type` (`<namespace>.lock`) ending in
 `.lock`, which can never actually be written to a chain. That exclusion
 is now also the shipped `object_type` / `type_name` grammar itself
-(`spec/op-envelope.md`, `spec/schema-ops.md` §2) — a `.lock`-ending name
-is not merely reserved here, it is not a legal type name at all.
+(`spec/op-envelope.md`'s `object_type` field states it; `spec/schema-ops.md`
+§4.2's `type` field defers to it rather than restating it) — a
+`.lock`-ending name is not merely reserved here, it is not a legal type
+name at all.
 Rejecting it here too, at parse time with a line and column, is strictly
 better than letting it fail the grammar or `dagStore.Append` later with
 a less specific diagnostic. `TestKeywordsAreClosed` does not cover this

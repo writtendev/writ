@@ -265,14 +265,17 @@ Declares an object type.
 }
 ```
 
-- `type` (string, required): The wire `object_type`
-  (`^[a-z][a-z0-9-]{0,63}(\.[a-z][a-z0-9-]{0,63})?$`, at most 129
-  characters) — the same grammar `spec/op-envelope.md` gives
-  `object_type`, because this value is used verbatim as one. For a
-  consumer-declared type this MUST be qualified with the schema object's
-  own namespace, `<namespace>.<type>`; the resolver (§2, §6) drops and
-  reports any declaration that is not, rather than installing it under a
-  name the declaring schema is not entitled to.
+- `type` (string, required): the wire `object_type` — this value is used
+  verbatim as one, so it MUST satisfy `spec/op-envelope.md`'s
+  `object_type` field in full, exclusions included: matching the
+  pattern there is not enough on its own — the value also MUST NOT end
+  in `.lock`, or it would be grammar-legal here but unable to ever own a
+  chain (see `object_type` there for the pattern, the 129-character
+  bound, and the `.lock` reasoning; do not restate that grammar here).
+  For a consumer-declared type this MUST be qualified with the schema
+  object's own namespace, `<namespace>.<type>`; the resolver (§2, §6)
+  drops and reports any declaration that is not, rather than installing
+  it under a name the declaring schema is not entitled to.
 - `description` (string, optional).
 
 A type need not be declared by `define-type` before a `define-field` or
