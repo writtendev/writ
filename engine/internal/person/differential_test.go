@@ -42,27 +42,44 @@ sys.stdout.write('\n'.join(out))
 // input here is longer than two code points. Length is a separate axis with
 // its own defects, and length_test.go is where it is covered.
 //
-// Inputs are restricted to what Unicode 15.0.0 had assigned, because the host
-// CPython is generally a later version: for characters assigned in the pinned
-// version, Unicode's stability policies make composition and case folding
-// fixed, so a disagreement is this implementation's defect and not a version
-// skew. Skipped where python3 is unavailable.
+// Inputs are restricted to what the host CPython has assigned (or the pinned
+// version, whichever is earlier): for characters assigned in both, Unicode's
+// stability policies make composition and case folding fixed, so a disagreement
+// is this implementation's defect and not a version skew. Full differential
+// cross-checks for Unicode 17 additions are suspended until Python 3.15 is
+// released with Unicode 17 support. Skipped where python3 is unavailable.
 func TestDifferentialAgainstCPython(t *testing.T) {
 	python, err := exec.LookPath("python3")
 	if err != nil {
 		t.Skip("python3 not available; the differential reference cannot be run")
 	}
 
-	assigned := rangetable.Assigned(person.UnicodeVersion)
+	pyVerOut, err := exec.Command(python, "-c", "import unicodedata; print(unicodedata.unidata_version)").Output()
+	if err != nil {
+		t.Fatalf("querying host python unicodedata.unidata_version: %v", err)
+	}
+	pyVersion := strings.TrimSpace(string(pyVerOut))
+
+	targetVersion := person.UnicodeVersion
+	if pyVersion != "" && pyVersion < person.UnicodeVersion {
+		t.Logf("host python unicodedata.unidata_version is %s (earlier than pinned Unicode %s); "+
+			"capping differential comparison repertoire to %s (full differential cross-checks "+
+			"for Unicode 17 additions are suspended until Python 3.15)",
+			pyVersion, person.UnicodeVersion, pyVersion)
+		targetVersion = pyVersion
+	}
+
+	assigned := rangetable.Assigned(targetVersion)
 	if assigned == nil {
-		t.Skipf("x/text carries no range table for Unicode %s", person.UnicodeVersion)
+		t.Skipf("x/text carries no range table for Unicode %s", targetVersion)
 	}
 
 	var inputs []string
-	// Every code point in an input must be assigned in the pinned version.
+	// Every code point in an input must be assigned in the compared version.
 	// The filter is not decoration: the impostor sweep below reaches into
-	// higher planes, and a code point CPython knows about and Unicode 15.0.0
-	// does not would report a version difference as an implementation defect.
+	// higher planes, and a code point CPython knows about and targetVersion
+	// does not (or vice versa) would report a version difference as an
+	// implementation defect.
 	// U+10D57 (Garay, assigned in 16.0.0) is one such, and did.
 	add := func(rs ...rune) {
 		hex := make([]string, len(rs))

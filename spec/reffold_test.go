@@ -71,6 +71,7 @@ var normalizePersonInputs = []string{
 	"user:\U00011347\U0001133e",               // and one whose second element is a starter
 	"user:\u1100\u1161",                       // Hangul, the composition between two starters
 	"user:\u00e9\U00010041\u0300\u0065\u0301", // a false composition must not cost its neighbours
+	"user:x\U000113c2\U000113c2y",             // Unicode 17 backward-combining starter in context
 	"\u0130:alice",                            // a non-conforming scheme, where the two copies still must agree
 	"\U00010041\u0300@example.com",            // colonless, and past the ASCII fast path
 	// One input per defect the folding implementations work around, mirroring
