@@ -268,7 +268,11 @@ carry `add`/`remove` is the worked example: `assign`'s pair declares
 OR-sets land in separate state keys instead of one shared `add`/`remove`
 pair). A rule table that violates this agreement rule is non-conforming,
 exactly as one that reuses a target across a `strategy` change already
-was. Because the relation above is a genuine equivalence relation — unlike
+was; for `keyed-lww` specifically, a rule table binding one target to
+rules whose `key` tuples disagree in **length** MUST be refused by fold
+itself with an error rather than folded, per §7.1's account of the
+operations-versus-rule-tables boundary. Because the relation above is a
+genuine equivalence relation — unlike
 a pairwise "is this candidate a version bump of that specific prior" test,
 which is not transitive once a target is shared by three or more rules —
 which rules a resolver finds disagreeing can never depend on the order it
@@ -507,12 +511,30 @@ consume, as each strategy states in §5. A conforming reader MUST:
    `spec/forward-compatibility.md` `FC-5` specifies. That rule is the single
    definition of what the record carries; this section widens the population
    that flows through the channel and does not restate its contents. Rejection
-   MUST NOT be an error return from fold: every other operation materializes
-   normally. One bad operation costs that operation, never the object.
+   of an **operation** MUST NOT be an error return from fold: every other
+   operation materializes normally. One bad operation costs that operation,
+   never the object.
 3. **Preserve it.** As in §7, an uninterpretable operation remains a full
    member of the restricted DAG — it participates in $t^*$, in the total order
    $L$ and in every ancestry test — and it remains in the DAG byte-for-byte
    intact.
+
+**Scope: operations arriving in the log, not rule tables a caller supplies.**
+This section's totality guarantee — fold MUST NOT error on what it finds
+in the log — governs **operations**: data a remote or buggy writer put
+there, which a reader has no say over and must never die on. It says
+nothing about the **rule table** a caller hands to `Fold` alongside those
+operations. A rule table that contradicts itself is a programming error at
+the API boundary, not data arriving, and a fold that refuses it is not a
+failure of this section's totality. Concretely: a rule table binding one
+`keyed-lww` target to rules whose `key` tuples disagree in length MUST be
+refused by fold with an error, never folded and never a cause of undefined
+behavior in the strategy's own comparator — §5's `keyed-lww` entry orders
+result entries "by their key tuples, compared component-wise," which is not
+defined across tuples of different length. This is the one case fold
+refuses; a rule table a schema resolved from the log can produce is
+protected upstream instead (`spec/schema-ops.md` §8) and never reaches
+fold in a shape this section's guarantee would need to cover.
 
 **`null` is named as its own case** and is treated identically to a value of
 the wrong type, wherever a strategy consumes a value: at the field, as an
@@ -595,6 +617,6 @@ implementations:
 
 The normative test vectors and fixture repositories verify compliance:
 - `spec/testdata/fold/order/`: Abstract op graphs testing total order derivation across linear chains, multi-writer forks, equal-$t^*$ ties, skewed clocks, ancestry truncation, and multi-object interleaving.
-- `spec/testdata/fold/merge/`: Op graphs testing each catalogue strategy, including delete/edit interleavings and concurrent mutations. `schema-*.json` cover the `schema` vocabulary specifically (`spec/schema-ops.md`): a bootstrap fold of a whole schema object, a `deprecate-field` write interleaved with a redeclaring `define-field`, concurrent `define-field` ops on one keyed-lww key, the two `target`-remedy vectors this section's version-bump rule states above (`schema-version-bump-same-target.json`, `schema-version-bump-new-target.json`), and `spec/schema-ops.md` §8.1's narrowing vector (`schema-narrow-field-attribute-not-cleared.json`). `append-two-fields-shared-target.json` and `lww-two-fields-shared-target.json` pin the "every rule that matches an operation applies" requirement and the canonical rule order above (WRIT-201): two body fields sharing one target within one `(op_type, op_version)` envelope, both written by one operation, fold to a two-item list (and to the `(op_type, op_version, field)`-latest write, respectively) under every conforming implementation. Both label their rules so that sorting the labels gives the reverse of canonical rule order, so an implementation taking its order from its own rule slice fails them.
+- `spec/testdata/fold/merge/`: Op graphs testing each catalogue strategy, including delete/edit interleavings and concurrent mutations. `schema-*.json` cover the `schema` vocabulary specifically (`spec/schema-ops.md`): a bootstrap fold of a whole schema object, a `deprecate-field` write interleaved with a redeclaring `define-field`, concurrent `define-field` ops on one keyed-lww key, the two `target`-remedy vectors this section's version-bump rule states above (`schema-version-bump-same-target.json`, `schema-version-bump-new-target.json`), and `spec/schema-ops.md` §8.1's narrowing vector (`schema-narrow-field-attribute-not-cleared.json`). `append-two-fields-shared-target.json` and `lww-two-fields-shared-target.json` pin the "every rule that matches an operation applies" requirement and the canonical rule order above (WRIT-201): two body fields sharing one target within one `(op_type, op_version)` envelope, both written by one operation, fold to a two-item list (and to the `(op_type, op_version, field)`-latest write, respectively) under every conforming implementation. Both label their rules so that sorting the labels gives the reverse of canonical rule order, so an implementation taking its order from its own rule slice fails them. `keyed-lww-key-arity-refused.json` pins §7.1's rule-table refusal (WRIT-239): a `keyed-lww` target bound to rules whose `key` tuples disagree in length, the shorter a strict prefix of the longer, sets `expected_refusal` rather than `expected_state` and requires every harness to see a non-nil fold error instead of the folded-state and quarantine assertions the other vectors carry.
 - `spec/fixtures/testdata/descriptions/fold-*.yaml` and `spec/fixtures/testdata/golden/fold/`: Signed fixture repositories exercising concurrent field edits, multi-device writer races, LWW and tiebreaks, per-field merge strategies, delete/undelete/edit interleavings under `tombstone` (`fold-tombstone-threads.yaml`), and ancestry truncation.
 - `spec/fixtures/testdata/descriptions/schema-driven-*.yaml` and `spec/fixtures/testdata/golden/schema-driven/`: Signed fixture repositories folding ordinary objects under rules resolved from a `schema` object in the log (`spec/schema-ops.md` §7), covering person normalization at every strategy position, version bumps, and rule-resolution conflicts.

@@ -1,0 +1,36 @@
+{
+  "name": "keyed-lww-key-arity-refused",
+  "description": "A caller-supplied rule table binds one keyed-lww target ('verdict') to two rules whose Key tuples disagree on length: op_version 1's ['subject','revision'] and op_version 2's ['subject'], the shorter a strict prefix of the longer -- the shape that previously reached the Result() comparator's pairwise key-component ordering and panicked with index out of range (WRIT-234, WRIT-239). Fold refuses the rule table outright (WRIT-239's ruling: refuse rather than silently order shorter-first, which would bless two prefix-related tuples as permanent distinct registers) rather than reducing partially. A sibling 'score' target using a well-formed lww rule shows the refusal is whole-fold, not per-target: even though 'score' alone is perfectly foldable, the fold as a whole returns an error.",
+  "object_id": "obj-1",
+  "fields": {
+    "verdict_v1": { "strategy": "keyed-lww", "field": "verdict", "target": "verdict", "op_version": 1, "key": ["subject", "revision"] },
+    "verdict_v2": { "strategy": "keyed-lww", "field": "verdict", "target": "verdict", "op_version": 2, "key": ["subject"] },
+    "score": { "strategy": "lww", "field": "score", "target": "score", "value_type": "string" }
+  },
+  "ops": [
+    {
+      "id": "op-1",
+      "parents": [],
+      "time": 100,
+      "object_id": "obj-1",
+      "op_version": 1,
+      "body": { "subject": "user:alice", "revision": "r1", "verdict": "approve" }
+    },
+    {
+      "id": "op-2",
+      "parents": ["op-1"],
+      "time": 200,
+      "object_id": "obj-1",
+      "op_version": 2,
+      "body": { "subject": "user:alice", "verdict": "request-changes" }
+    },
+    {
+      "id": "op-3",
+      "parents": ["op-2"],
+      "time": 300,
+      "object_id": "obj-1",
+      "body": { "score": "final" }
+    }
+  ],
+  "expected_refusal": true
+}

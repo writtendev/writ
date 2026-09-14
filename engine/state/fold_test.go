@@ -174,6 +174,17 @@ func TestMergeVectors(t *testing.T) {
 			}
 
 			res, err := s.Fold(ops, rules)
+			if vec.ExpectedRefusal {
+				// A rule table the fold must refuse rather than reduce
+				// (spec/fold.md §7.1: that section's totality guarantee is
+				// over operations arriving in the log, not a caller-supplied
+				// rule table). Only the presence of an error is pinned, not
+				// its wording.
+				if err == nil {
+					t.Fatalf("s.Fold: expected an error for a rule table fold must refuse, got none")
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("s.Fold failed: %v", err)
 			}

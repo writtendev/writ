@@ -268,10 +268,45 @@ func Fold(ops []codec.Op, rules []Rule) (ObjectState, error) {
 		sort.Slice(frs, func(i, j int) bool { return ruleOrderLess(frs[i], frs[j]) })
 	}
 
-	// Instantiate strategy accumulators for each target key
+	// Instantiate strategy accumulators for each target key. Target keys are
+	// visited in sorted order — not by ranging matchedRulesByField directly —
+	// so that when more than one target fails the keyed-lww arity check
+	// below, the error names a deterministic target rather than whichever one
+	// Go's randomized map iteration happened to reach first (WRIT-239
+	// measured 1753/247 across 2000 folds on two disagreeing targets before
+	// this fix).
+	targetKeys := make([]string, 0, len(matchedRulesByField))
+	for targetKey := range matchedRulesByField {
+		targetKeys = append(targetKeys, targetKey)
+	}
+	sort.Strings(targetKeys)
+
 	accumulators := make(map[string]Accumulator, len(matchedRulesByField))
-	for targetKey, fieldRules := range matchedRulesByField {
+	for _, targetKey := range targetKeys {
+		fieldRules := matchedRulesByField[targetKey]
 		primaryRule := fieldRules[0]
+		// A caller-supplied rule table, unlike one derived from a schema in
+		// the log (WRIT-234 withholds the whole target there), can bind one
+		// keyed-lww target to rules whose Key tuples differ in length. The
+		// Result() comparator orders entries by comparing key components
+		// pairwise (spec/fold.md §5's "ordered by their key tuples, compared
+		// component-wise"), which is undefined across tuples of different
+		// length and previously panicked with index out of range. Refuse the
+		// rule table outright rather than making the comparator defensively
+		// total: silently ordering shorter-first would bless two
+		// prefix-related tuples as permanent distinct registers, inventing a
+		// merge semantics nobody asked for (WRIT-234's ruling, carried
+		// forward by WRIT-239's). This checks arity, not full Key equality:
+		// rules sharing a target may legally disagree on which columns make
+		// up an equal-length key (TestFoldKeyedLWWMultiRuleField).
+		if primaryRule.Strategy == "keyed-lww" {
+			for _, fr := range fieldRules[1:] {
+				if len(fr.Key) != len(primaryRule.Key) {
+					err := fmt.Errorf("keyed-lww rules disagree on key arity (%d vs %d)", len(primaryRule.Key), len(fr.Key))
+					return ObjectState{}, fmt.Errorf("fold: target %q: %w", targetKey, err)
+				}
+			}
+		}
 		acc, err := NewAccumulator(primaryRule, reach)
 		if err != nil {
 			return ObjectState{}, fmt.Errorf("fold: target %q: %w", targetKey, err)

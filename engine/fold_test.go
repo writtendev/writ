@@ -174,6 +174,17 @@ func TestMergeVectors(t *testing.T) {
 			}
 
 			res, err := writ.Fold(ops, rules)
+			if vec.ExpectedRefusal {
+				// A rule table the fold must refuse rather than reduce
+				// (spec/fold.md §7.1: that section's totality guarantee is
+				// over operations arriving in the log, not a caller-supplied
+				// rule table). Only the presence of an error is pinned, not
+				// its wording.
+				if err == nil {
+					t.Fatalf("writ.Fold: expected an error for a rule table fold must refuse, got none")
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("writ.Fold failed: %v", err)
 			}
@@ -235,6 +246,57 @@ func TestMergeVectors(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestFold_KeyedLWWArityMismatchRefused is WRIT-239's acceptance test: a
+// caller-supplied rule table binding one keyed-lww target to rules whose Key
+// tuples disagree on length must produce an error, never a panic — the
+// strict-prefix, arity 2-vs-1 shape (endorse's "verdict" keyed on
+// (subject, revision) at op_version 1, on (subject) alone at op_version 2).
+// It is run in a loop rather than once: the panic this replaces was
+// intermittent, driven by Go's randomized map iteration order over
+// fieldRules — WRIT-234 measured this exact shape at roughly one in eight —
+// while the refusal itself is deterministic post-fix, since the arity check
+// runs on canonically sorted rules before any map-ordered comparison. The
+// loop exists to prove the panic is gone, not to prove the fix is
+// deterministic; 200 iterations catch a surviving 1-in-8 panic with
+// probability better than 1 - 1e-11. A bare panic fails the test outright
+// with no recover needed.
+func TestFold_KeyedLWWArityMismatchRefused(t *testing.T) {
+	ops := []codec.Op{
+		{
+			ID: "op-1",
+			Envelope: codec.Envelope{
+				ObjectID:  "obj-1",
+				OpType:    "endorse",
+				OpVersion: 1,
+				Body:      json.RawMessage(`{"subject":"user:alice","revision":"r1","verdict":"approve"}`),
+			},
+			Author: codec.Identity{When: time.Unix(100, 0).UTC()},
+		},
+		{
+			ID:      "op-2",
+			Parents: []string{"op-1"},
+			Envelope: codec.Envelope{
+				ObjectID:  "obj-1",
+				OpType:    "endorse",
+				OpVersion: 2,
+				Body:      json.RawMessage(`{"subject":"user:alice","verdict":"none"}`),
+			},
+			Author: codec.Identity{When: time.Unix(200, 0).UTC()},
+		},
+	}
+	rules := []writ.Rule{
+		{OpType: "endorse", OpVersion: 1, Field: "verdict", Target: "verdict", Strategy: "keyed-lww", Key: []string{"subject", "revision"}},
+		{OpType: "endorse", OpVersion: 2, Field: "verdict", Target: "verdict", Strategy: "keyed-lww", Key: []string{"subject"}},
+	}
+
+	const iterations = 200
+	for i := 0; i < iterations; i++ {
+		if _, err := writ.Fold(ops, rules); err == nil {
+			t.Fatalf("iteration %d: expected an error for a keyed-lww rule table disagreeing on key arity, got nil", i)
+		}
 	}
 }
 

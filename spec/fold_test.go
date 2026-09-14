@@ -145,6 +145,18 @@ func TestMergeVectors(t *testing.T) {
 			}
 
 			folded, err := spec.Fold(vec.Ops, rules)
+			if vec.ExpectedRefusal {
+				// A rule table the fold must refuse rather than reduce
+				// (spec/fold.md §7.1: that section's totality guarantee is
+				// over operations arriving in the log, not a caller-supplied
+				// rule table). Only the presence of an error is pinned, not
+				// its wording — the two Go folds need not agree on text.
+				if err == nil {
+					t.Fatalf("spec.Fold: expected an error for a rule table fold must refuse, got none")
+				}
+				assertEngineAgrees(t, vec, nil, nil)
+				return
+			}
 			if err != nil {
 				t.Fatalf("spec.Fold failed: %v", err)
 			}
@@ -266,6 +278,12 @@ func assertEngineAgrees(t *testing.T, vec spec.MergeVector, wantStateJSON []byte
 	}
 
 	res, err := writ.Fold(ops, rules)
+	if vec.ExpectedRefusal {
+		if err == nil {
+			t.Fatalf("writ.Fold: expected an error for a rule table fold must refuse, got none")
+		}
+		return
+	}
 	if err != nil {
 		t.Fatalf("writ.Fold failed: %v", err)
 	}

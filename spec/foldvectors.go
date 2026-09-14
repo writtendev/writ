@@ -110,6 +110,15 @@ type MergeVector struct {
 	// quarantine rather than reduce (spec/fold.md §7, §7.1). Omitted where no
 	// op in the vector is quarantined.
 	ExpectedUnknownOps []string `json:"expected_unknown_ops,omitempty"`
+	// ExpectedRefusal marks a vector whose Fields describe a rule table fold
+	// must refuse rather than reduce — e.g. one keyed-lww target bound to
+	// rules whose Key tuples disagree on arity (spec/fold.md §7.1: that
+	// section's totality guarantee governs operations arriving in the log,
+	// not a caller-supplied rule table). A harness asserts only that fold
+	// returned a non-nil error, never its text: the engine and the reference
+	// fold need not share wording. Mutually exclusive with a non-empty
+	// ExpectedState.
+	ExpectedRefusal bool `json:"expected_refusal,omitempty"`
 }
 
 // OrderVectors loads all ordering test vectors from testdata/fold/order/
@@ -251,6 +260,9 @@ func MergeVectors() ([]MergeVector, error) {
 		}
 		if len(vec.Ops) == 0 {
 			return nil, fmt.Errorf("spec: merge vector %q has no ops", vec.Name)
+		}
+		if vec.ExpectedRefusal && len(vec.ExpectedState) != 0 {
+			return nil, fmt.Errorf("spec: merge vector %q sets both expected_refusal and expected_state", vec.Name)
 		}
 
 		opMap := make(map[string]bool, len(vec.Ops))
