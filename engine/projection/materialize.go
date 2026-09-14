@@ -523,13 +523,19 @@ func writeMembersRows(tx *sql.Tx, table, objectID string, raw any) error {
 // them declare the same non-empty value_type. That single predicate — not
 // any particular combination of rules — is what this path turns on.
 // Typechecking meanwhile stays per op: every op is checked against its
-// own rule, so the column holds the union of what the bound rules permit,
-// a rule declaring a value_type admitting only that type and a rule
-// declaring none admitting any JSON value but null, an object included.
-// However the target got there, the raw bytes are the point, because no
-// single declared type is there to decode them back into. Producer
-// validation rule 6 refuses a top-level null whether or not the rule
-// declares a value_type, spec/op-envelope.md.
+// own rule, so a value_type binds only the ops whose rule declares one.
+// That rule's own typecheck is all this says anything about — declaring
+// a value_type it admits only that type, declaring none it typechecks
+// against no type at all and passes an object as readily as a string. It
+// is not a claim about what the column can hold: other schema
+// constraints, not enumerated here, narrow a field independently of
+// value_type, and a value this typecheck admits can still be refused by
+// one of them before it reaches the column. However the target got
+// there, the raw bytes are the point, because no single declared type is
+// there to decode them back into. A top-level null is refused whichever
+// rule the op is checked against — by Producer validation rule 6
+// (spec/op-envelope.md) unless one of those other constraints refuses it
+// first.
 //
 // Untyped is the one case where that last equivalence does not hold,
 // because only create-once's accumulator hands back raw bytes: an untyped
