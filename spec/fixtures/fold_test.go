@@ -16,6 +16,7 @@ import (
 	"github.com/writtendev/writ/engine/codec/canonicaljson"
 	"github.com/writtendev/writ/engine/dag"
 	"github.com/writtendev/writ/engine/identity"
+	"github.com/writtendev/writ/engine/state"
 	"github.com/writtendev/writ/spec"
 	"github.com/writtendev/writ/spec/fixtures"
 )
@@ -278,6 +279,8 @@ func runFoldFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 		for _, cop := range codecOps {
 			byID[cop.ID] = cop
 		}
+		expectedObjectType := byID[totalOrder[0]].ObjectType
+
 		var unknownOps []FoldUnknownOp
 		for _, u := range folded.UnknownOps {
 			unknownOps = append(unknownOps, FoldUnknownOp{
@@ -294,6 +297,15 @@ func runFoldFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("writ.Fold for object %s: %w", objID, err)
 		}
+		if engineRes.ObjectType != expectedObjectType {
+			t.Fatalf("engine ObjectType mismatch for %s in %s: got %q, want %q",
+				objID, fix.Name, engineRes.ObjectType, expectedObjectType)
+		}
+		if got := state.DetermineObjectType(codecOps); got != expectedObjectType {
+			t.Fatalf("state.DetermineObjectType mismatch for %s in %s: got %q, want %q",
+				objID, fix.Name, got, expectedObjectType)
+		}
+
 		engineJSON, err := canonicaljson.Marshal(mustJSON(t, engineRes.State))
 		if err != nil {
 			return nil, fmt.Errorf("canonicalizing engine state for %s: %w", objID, err)
@@ -374,7 +386,7 @@ func runFoldFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 
 		golden.Objects = append(golden.Objects, FoldObjectGolden{
 			ObjectID:   objID,
-			ObjectType: codecOps[0].ObjectType,
+			ObjectType: expectedObjectType,
 			TotalOrder: orderEntries,
 			State:      foldedState,
 			UnknownOps: unknownOps,

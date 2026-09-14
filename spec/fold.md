@@ -35,7 +35,9 @@ Each operation $u \in S$ carries:
 - `parents`: the list of parent commit SHAs from the git commit carrier.
 - `time`: the commit author timestamp as an integer (seconds since Unix epoch UTC, `1970-01-01T00:00:00Z`).
 - `object_id`: the target object identifier from the payload carrier.
+- `object_type`: the target object type string from the payload carrier.
 - `op_type`: the operation type string from the payload carrier.
+- `op_version`: the schema version integer from the payload carrier.
 - `body`: the JSON object containing type-specific fields.
 
 ### Ancestry restriction
@@ -160,6 +162,23 @@ enter the ready set $R$ until $A \in E$, topological validity is strictly
 preserved: $A$ is emitted before $D$ in $L$. Last-writer-wins evaluates
 operations in $L$ order, so $D$ (the descendant) is processed after $A$ and
 overwrites $A$.
+
+### Determining an object's type
+
+An object's `object_type` is derived deterministically from its canonical total
+order $L$:
+
+$$\text{ObjectType}(S) = \begin{cases} o_1.\text{object_type} & \text{if } L = [o_1, \dots, o_n] \text{ and } n \ge 1 \\ "" & \text{if } S = \emptyset \end{cases}$$
+
+When operations in an object's restricted DAG disagree on `object_type`, the
+object's `object_type` MUST be that of the earliest operation in canonical
+total order $L$.
+
+Implementations MUST NOT scan for or give precedence to an operation named
+`create`: creation is schema-declared and may be named anything (`open`, `init`,
+`draft`, etc.; see `spec/op-envelope.md`). Deriving an object's type from $o_1$
+guarantees topological validity, respects causal ancestry, and breaks
+concurrent ties deterministically via $(t^*, \text{id})$.
 
 ## 5. Per-field merge strategies catalogue
 
