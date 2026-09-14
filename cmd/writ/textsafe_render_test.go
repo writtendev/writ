@@ -1080,3 +1080,110 @@ func TestRenderErr_SigningFailureKeepsItsSecondLine(t *testing.T) {
 		t.Errorf("object create stderr rendered on %d line(s), want ssh-keygen's diagnostic on a line of its own: %q", got, out)
 	}
 }
+
+// TestForeignOp_KeyArityCollision_ReadStaysClean is WRIT-234's acceptance
+// test: reproduction 2 from that ticket's investigation, replayed against
+// this ticket's fix. Alice authors and applies an entirely benign schema
+// (fullTestSchema's "approval" v1, keyed-lww key(subject) — one column,
+// nothing mismatched) and writes one v1 op on her own object. A foreign
+// writer then plants, with writeForeignOp — bypassing dag.Append,
+// codec.BuildCommit and validateProducerOp exactly as a fetched peer ref
+// would — a schema extension binding the *same* field ("verdict") under
+// the *same* op_type ("approval") to a new op_version 2 whose key tuple
+// has different arity ((subject, revision) instead of (subject) alone),
+// plus one v2 data op on Alice's own object.
+//
+// On `main`, before this ticket, key and key_types were on
+// spec/schema-ops.md §8's "MAY freely change" list, so both versions'
+// rules resolved and installed under the shared "verdict" target, and
+// engine/internal/fold.keyedLWWAccumulator.Result's sort comparator —
+// handed two entries whose key tuples are of different lengths — read
+// past the end of the shorter one. Because Result ranges a Go map to build
+// the slice it sorts, the panic was intermittent: reachable roughly one
+// read in eight, not on every invocation. This ticket closes the carve-out
+// (spec/fieldrules.go's FindTargetDisagreement), so spec.CheckTargetAgreement
+// now rejects the pair as an ordinary "key" disagreement and
+// engine/schema.go's resolveSchemaTypes withholds the whole "verdict"
+// target before RulesFromSchemas ever emits its rules — no keyed-lww
+// accumulator is ever constructed for it, so the comparator is never
+// reached at all.
+//
+// The loop of 50 iterations is what the ticket's own reproduction used to
+// defeat the map-order intermittency (its measured natural rate was
+// roughly one panic in eight reads): 50 identical reads make a surviving
+// panic overwhelmingly likely to be caught, while a single invocation
+// could pass by chance even against the unfixed comparator.
+func TestForeignOp_KeyArityCollision_ReadStaysClean(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, fullTestSchema)
+
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	// Alice's own benign v1 op: fullTestSchema's "approval" op 1 keys
+	// "verdict" on key(subject person-ref) alone.
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{
+		"object", "create", "-C", env.repoDir, "acme.standup", "approval",
+		"-field", "verdict=approve",
+		"-field", "subject=email:alice@example.com",
+		"--json",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("object create (Alice's v1 approval) failed with %d; stderr: %s", code, stderr.String())
+	}
+	var created wire.ObjectCreated
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectCreate, &created)
+	objectID := created.ObjectID
+
+	// A foreign writer's schema extension on the same schema object
+	// ("schema:acme", the id apply derived from the namespace): a new
+	// "approval" op_version 2 for the same field "verdict", key arity 2
+	// instead of 1. Two distinct writer ids, exactly as the existing
+	// foreign-schema tests above use, since define-op and define-field are
+	// ordinarily authored by whichever local client ran `schema apply`
+	// last — here, deliberately, someone else's.
+	writeForeignOp(t, env.repoDir, "fedcba9876543210", "schema", "schema:acme", "define-op", 1, map[string]any{
+		"type": "acme.standup", "op_type": "approval", "op_version": "2",
+		"description": "Approve or block a standup (v2)",
+	})
+	writeForeignOp(t, env.repoDir, "fedcba9876543211", "schema", "schema:acme", "define-field", 1, map[string]any{
+		"type": "acme.standup", "op_type": "approval", "op_version": "2",
+		"field": "verdict", "value_type": "enum", "enum": []any{"approve", "block"},
+		"strategy": "keyed-lww",
+		"key":      []any{"subject", "revision"},
+		"key_types": map[string]any{
+			"subject":  "person-ref",
+			"revision": "string",
+		},
+	})
+
+	// The same foreign writer's v2 data op, on Alice's own object —
+	// reproduction 2's step 3's second half: a remote writer's op landing
+	// on a victim's object, not just on their own.
+	writeForeignOp(t, env.repoDir, "fedcba9876543212", "acme.standup", objectID, "approval", 2, map[string]any{
+		"subject":  "email:alice@example.com",
+		"revision": "deadbeef",
+		"verdict":  "block",
+	})
+
+	var first string
+	for i := 0; i < 50; i++ {
+		stdout.Reset()
+		stderr.Reset()
+		code := run(context.Background(), []string{"object", "show", "-C", env.repoDir, objectID}, &stdout, &stderr)
+		if code != 0 {
+			t.Fatalf("iteration %d: object show exited %d (want a clean read, no panic); stderr: %s", i, code, stderr.String())
+		}
+		out := stdout.String()
+		if i == 0 {
+			first = out
+			continue
+		}
+		if out != first {
+			t.Fatalf("iteration %d: object show output differs from iteration 0's:\n got:  %q\nwant: %q", i, out, first)
+		}
+	}
+}

@@ -358,11 +358,11 @@ op_version, field)` order, derived from `op_type` and `field` names,
 not of how the author arranged the source file. The relation itself,
 in one sentence:
 within one `(op_type, field)` version-bump class (§7), rules sharing a
-target must agree on `strategy` and `lattice` and may differ on
-`value_type`, `enum`, `max_length`, `key` and `key_types`; the moment more
-than one class binds the target that carve-out is void for every rule
-bound to it, and all seven attributes must agree (`schema-ops.md` §8 is
-the normative statement this borrows, not a second copy of it). `Compile`
+target must agree on `strategy`, `lattice`, `key` and `key_types` and may
+differ on `value_type`, `enum` and `max_length`; the moment more than one
+class binds the target that carve-out is void for every rule bound to it,
+and all seven attributes must agree (`schema-ops.md` §8 is the normative
+statement this borrows, not a second copy of it). `Compile`
 diverges from the resolver here on purpose — a source file is authored,
 not folded — and **rejects the file**: a `*SyntaxError` with a line and
 column, naming the later of the disagreeing pair in canonical
@@ -439,21 +439,39 @@ without a migration, because field rules are already keyed by
 `(op_type, op_version, field)` (`schema-ops.md` §8): ops written under the
 old version keep folding under the old rules, and ops written under the
 new version fold under the new ones. A version bump that changes
-`strategy`, or that disagrees on `lattice`, while reusing the same
-`target` as a prior version is order-dependent — `fold.md` §5's generic
-fold groups matched rules by target key alone and instantiates one
-accumulator from whichever rule a caller's slice lists first — and
-`engine/schemasrc.Compile` rejects both at compile time, with a line and
-column, rather than deferring to the resolver: `compileType` runs this
-check once every field of the type has been compiled, after the field
-loop, so nothing about it needs to wait until the type's rules are
-assembled elsewhere. A version bump is only the within-class half of that
-check (§5): if the reused target is also bound from outside the bumping
-class — another `op_type`, or another `field`, regardless of whether
-that binding is `target`'s default or an explicit `target(...)` — the
-carve-out is void for every rule bound to it, and `value_type`,
-`enum`, `max_length`, `key` and `key_types` must agree too
-(`schema-ops.md` §8). Left unchecked here, the same disagreement is still
+`strategy`, that disagrees on `lattice`, or that disagrees on `key` or
+`key_types`, while reusing the same `target` as a prior version is
+order-dependent, or — for `key`/`key_types` — names two different
+register identities under one target: `fold.md` §5's generic fold groups
+matched rules by target key alone and instantiates one accumulator from
+whichever rule a caller's slice lists first. For `key`/`key_types` the
+hazard is not that race at all: a `keyed-lww` accumulator fixes nothing
+about its key shape when it is constructed, and instead rebuilds each
+entry's key tuple from that op's own matched rule's `Key`/`KeyTypes` on
+every single op (`keyedLWWAccumulator.Apply`,
+`engine/internal/fold/strategy.go`) — so when two bound rules disagree
+on key arity, the accumulator's `latest` map ends up holding key tuples
+of two different lengths side by side, regardless of which rule sorts
+first. `Result`'s sort comparator (same file) walks its first argument's
+indices and reads the second at each; for a strict-prefix pair, whether
+that read runs past the shorter tuple's end is direction-dependent — the
+comparator panics on an out-of-range index only when the longer tuple
+lands as the first argument, so the panic is intermittent, not certain.
+A mixed-arity pair that is not prefix-related differs inside the shared
+indices instead, returns before reaching the end, and never panics —
+differing length is necessary but not sufficient; the shorter tuple
+being a strict prefix of the longer one is the trigger, though not a
+guaranteed one. `engine/schemasrc.Compile`
+rejects all three at compile time,
+with a line and column, rather than deferring to the resolver: `compileType` runs this check once every field of the type
+has been compiled, after the field loop, so nothing about it needs to
+wait until the type's rules are assembled elsewhere. A version bump is
+only the within-class half of that check (§5): if the reused target is
+also bound from outside the bumping class — another `op_type`, or
+another `field`, regardless of whether that binding is `target`'s
+default or an explicit `target(...)` — the carve-out is void for every
+rule bound to it, and `value_type`, `enum` and `max_length` must agree
+too (`schema-ops.md` §8). Left unchecked here, the same disagreement is still
 caught later — `RulesFromSchemas` withholds every rule bound to the
 target as a `SchemaConflict`, not only the rule that introduced the
 disagreement (`schema-ops.md` §8 is the normative statement for both the

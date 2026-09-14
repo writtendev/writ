@@ -1,0 +1,107 @@
+{
+  "schemas": [
+    {
+      "object_id": "sch-acme",
+      "schema": {
+        "object_id": "sch-acme",
+        "namespace": "acme",
+        "types": [
+          {
+            "type": "acme.gadget",
+            "fields": [
+              {
+                "field": "verdict",
+                "op_type": "approve",
+                "op_version": 1,
+                "value_type": "enum",
+                "enum": [
+                  "approve",
+                  "block"
+                ],
+                "strategy": "keyed-lww",
+                "key": [
+                  "subject",
+                  "revision"
+                ],
+                "key_types": {
+                  "revision": "string",
+                  "subject": "person-ref"
+                }
+              },
+              {
+                "field": "verdict",
+                "op_type": "approve",
+                "op_version": 2,
+                "value_type": "enum",
+                "enum": [
+                  "approve",
+                  "block"
+                ],
+                "strategy": "keyed-lww",
+                "key": [
+                  "subject"
+                ],
+                "key_types": {
+                  "subject": "person-ref"
+                }
+              },
+              {
+                "field": "title",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "conflicts": [
+    {
+      "object_type": "acme.gadget",
+      "object_ids": [
+        "sch-acme"
+      ],
+      "reason": "field rule (approve, 2, verdict) reuses target \"verdict\" already bound by (approve, 1, verdict), but they disagree on key; a key tuple is the keyed-lww register's identity, not what it holds, so rules sharing a target MUST agree on it even across a version bump of the same (op_type, field) — a version bump that changes the key tuple or a key column's type must declare a distinct target (spec/schema-ops.md §8)"
+    }
+  ],
+  "objects": [
+    {
+      "object_id": "gadget-1",
+      "object_type": "acme.gadget",
+      "total_order": [
+        {
+          "commit": "a5dd4cb0c48bf260f5e58a8db60f479464c88648",
+          "t_star": 1767225900
+        },
+        {
+          "commit": "3c25db2518d34838b867d74c4abd545a11feb9b4",
+          "t_star": 1767225960
+        },
+        {
+          "commit": "d002fa6979dd164e2c9c8f244ff682f43c08b94e",
+          "t_star": 1767226020
+        }
+      ],
+      "state": {
+        "title": "Widget"
+      },
+      "unknown_ops": [
+        {
+          "commit": "3c25db2518d34838b867d74c4abd545a11feb9b4",
+          "object_type": "acme.gadget",
+          "op_type": "approve",
+          "op_version": 1
+        },
+        {
+          "commit": "d002fa6979dd164e2c9c8f244ff682f43c08b94e",
+          "object_type": "acme.gadget",
+          "op_type": "approve",
+          "op_version": 2
+        }
+      ]
+    }
+  ]
+}

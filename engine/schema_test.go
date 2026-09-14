@@ -829,6 +829,118 @@ func TestRulesFromSchemas_ThreeRuleTargetSharingIsOrderIndependent(t *testing.T)
 	}
 }
 
+// TestRulesFromSchemas_VersionBumpKeyArityDisagreementWithholdsTarget pins
+// WRIT-234's ruling directly: a keyed-lww target ("verdict") whose two
+// rules share a versionBumpClass (same op_type "approval" and field
+// "verdict") but declare key tuples of different arity —
+// (subject, revision) under op_version 1, (subject) alone under op_version
+// 2. Before this ticket, key and key_types were on spec/schema-ops.md §8's
+// "MAY freely change" list, so both rules resolved and installed; the
+// resolved schema then handed engine/internal/fold.keyedLWWAccumulator a
+// target whose entries carry key tuples of two different lengths, which
+// makes Result's sort comparator read past the end of the shorter one.
+// Closing the carve-out (spec/fieldrules.go's FindTargetDisagreement) makes
+// spec.CheckTargetAgreement reject the pair as an ordinary "key" attribute
+// disagreement, so resolveSchemaTypes' existing pass-3 withhold (the same
+// path a strategy or lattice disagreement already takes) drops both rules
+// before RulesFromSchemas ever emits them: no keyed-lww accumulator is
+// constructed for "verdict" at all, and the panic becomes structurally
+// unreachable for a log-resolved schema rather than handled.
+//
+// A sibling target ("title", an ordinary lww field on a different op)
+// proves the withhold is scoped to "verdict" alone: declining one target
+// must not cost the type its other fields. This shuffles the type's field
+// order and asserts the resolved rules, the conflicts, and the folded
+// ObjectState are byte-identical across every permutation — the same
+// standard WRIT-211's three-rule vector above is held to, since which pair
+// of rules a resolver compares first must not affect whether the whole
+// target is withheld.
+func TestRulesFromSchemas_VersionBumpKeyArityDisagreementWithholdsTarget(t *testing.T) {
+	titleField := mkField("gadget", "create", 1, "title", "lww")
+
+	verdictV1 := mkField("gadget", "approval", 1, "verdict", "keyed-lww")
+	verdictV1.ValueType = "enum"
+	verdictV1.Enum = []string{"approve", "block"}
+	verdictV1.Key = []string{"subject", "revision"}
+	verdictV1.KeyTypes = map[string]string{"subject": "string", "revision": "string"}
+
+	verdictV2 := mkField("gadget", "approval", 2, "verdict", "keyed-lww")
+	verdictV2.ValueType = "enum"
+	verdictV2.Enum = []string{"approve", "block"}
+	verdictV2.Key = []string{"subject"}
+	verdictV2.KeyTypes = map[string]string{"subject": "string"}
+
+	allFields := []state.SchemaField{titleField, verdictV1, verdictV2}
+
+	dataOps := []codec.Op{
+		{
+			Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "acme.gadget", OpType: "create", OpVersion: 1, Body: json.RawMessage(`{"title":"T"}`)},
+			ID:       "create-1",
+		},
+		{
+			Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "acme.gadget", OpType: "approval", OpVersion: 1, Body: json.RawMessage(`{"subject":"user:alice","revision":"aaa","verdict":"approve"}`)},
+			ID:       "approval-v1",
+		},
+		{
+			Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "acme.gadget", OpType: "approval", OpVersion: 2, Body: json.RawMessage(`{"subject":"user:alice","verdict":"block"}`)},
+			ID:       "approval-v2",
+		},
+	}
+
+	r := rand.New(rand.NewSource(234))
+	var wantRules map[string][]writ.Rule
+	var wantConflicts []writ.SchemaConflict
+	var wantState writ.ObjectState
+
+	for i := 0; i < 20; i++ {
+		fields := append([]state.SchemaField(nil), allFields...)
+		r.Shuffle(len(fields), func(a, b int) { fields[a], fields[b] = fields[b], fields[a] })
+
+		schemas := []state.Schema{{
+			ObjectID:  "sch-a",
+			Namespace: "acme",
+			Types:     []state.SchemaType{{Name: "acme.gadget", Fields: fields}},
+		}}
+
+		rules, conflicts := writ.RulesFromSchemas(schemas)
+		got := rules["acme.gadget"]
+		if len(got) != 1 {
+			t.Fatalf("permutation #%d: expected exactly 1 rule installed (title's), got %+v", i, got)
+		}
+		if got[0].TargetKey() != "title" {
+			t.Fatalf("permutation #%d: expected the surviving rule to be \"title\", got %+v", i, got[0])
+		}
+		if len(conflicts) != 1 {
+			t.Fatalf("permutation #%d: expected exactly 1 conflict, got %+v", i, conflicts)
+		}
+
+		objState, err := writ.Fold(dataOps, rules["acme.gadget"])
+		if err != nil {
+			t.Fatalf("permutation #%d: Fold: %v", i, err)
+		}
+		if objState.State["title"] != "T" {
+			t.Fatalf("permutation #%d: expected title to fold normally, got state %+v", i, objState.State)
+		}
+		if len(objState.UnknownOps) != 2 {
+			t.Fatalf("permutation #%d: expected both approval ops to fall through as unknown, got %+v", i, objState.UnknownOps)
+		}
+
+		if i == 0 {
+			wantRules, wantConflicts, wantState = rules, conflicts, objState
+			continue
+		}
+		if !reflect.DeepEqual(rules, wantRules) {
+			t.Fatalf("permutation #%d: RulesFromSchemas order-dependence:\n got:  %+v\nwant: %+v", i, rules, wantRules)
+		}
+		if !reflect.DeepEqual(conflicts, wantConflicts) {
+			t.Fatalf("permutation #%d: conflict order-dependence:\n got:  %+v\nwant: %+v", i, conflicts, wantConflicts)
+		}
+		if !reflect.DeepEqual(objState, wantState) {
+			t.Fatalf("permutation #%d: folded state order-dependence:\n got:  %+v\nwant: %+v", i, objState, wantState)
+		}
+	}
+}
+
 // TestRulesFromSchemas_SharedKeyColumnDisagreementIsOrderIndependent is the
 // key-column twin of TestRulesFromSchemas_ThreeRuleTargetSharingIsOrderIndependent
 // above, and pins WRIT-214 round 5's fix. Three keyed-lww rules under one

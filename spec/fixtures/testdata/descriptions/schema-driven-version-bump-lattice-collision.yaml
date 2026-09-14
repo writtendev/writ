@@ -10,10 +10,13 @@ description: >
   target (both default to "level", spec.FieldRule.TargetKey) as op_version
   1, differing only in lattice ordering (["low","high"] vs
   ["high","low"]). spec/schema-ops.md §8's "MAY freely change" list names
-  value_type, enum, max_length, key and key_types for a version bump —
-  lattice is deliberately absent, because the lattice accumulator
+  value_type, enum and max_length for a version bump — lattice is
+  deliberately absent, because the lattice accumulator
   (engine/internal/fold/strategy.go) reads it to order its semilattice, so
-  it *is* consulted at fold time. The resolver must therefore reject
+  it *is* consulted at fold time (key and key_types are absent from the
+  list too, for the unrelated reason WRIT-234 pins:
+  schema-driven-version-bump-key-arity-collision.yaml). The resolver must
+  therefore reject
   op_version 2's rule as a disagreement even though it is a version bump of
   op_version 1: the define-field-v2 op still folds cleanly into schema
   state (schema's own fold performs no rule validation), but WRIT-211

@@ -1,0 +1,169 @@
+name: schema-driven-version-bump-key-arity-collision
+description: >
+  WRIT-234's ruling: closing spec/schema-ops.md §8's version-bump
+  carve-out for `key` and `key_types`. Before this ticket, a version bump
+  of one (op_type, field) could freely change a keyed-lww target's key
+  tuple under the same target — the same carve-out
+  schema-driven-version-bump-value-type-only.yaml pins for `value_type`.
+  Here op_version 1 of "approve" keys field "verdict" on
+  key(subject, revision) — two columns — and op_version 2 keys the same
+  field on key(subject) alone — one column, a strict prefix of the first.
+  Both share one versionBumpClass (same op_type and field) and the same
+  default target ("verdict", spec.FieldRule.TargetKey). Before this
+  ticket, both rules resolved and installed with no conflict, and folding
+  an object written under both versions handed
+  engine/internal/fold.keyedLWWAccumulator two entries whose key tuples
+  are of different lengths — exactly the shape whose Result sort
+  comparator reads past the end of the shorter tuple (strategy.go
+  ~line 480), an intermittent panic (WRIT-234's own investigation
+  measured roughly one fold in eight) reachable from an ordinary read
+  command. Closing the carve-out (spec/fieldrules.go's
+  FindTargetDisagreement, moving Key and KeyTypes out of the singleClass
+  exemption) makes spec.CheckTargetAgreement reject this pair as an
+  ordinary "key" disagreement: the resolver withholds every rule bound to
+  target "verdict" — both op_version 1's and op_version 2's — before
+  RulesFromSchemas ever emits them, reporting one SchemaConflict naming
+  the target and the "key" attribute. No keyed-lww accumulator is ever
+  constructed for "verdict", so the comparator is never reached: the
+  panic becomes structurally unreachable for a log-resolved schema rather
+  than handled. A sibling field "title" (op "create" v1, plain lww, its
+  own default target) proves the withhold is scoped to "verdict" alone —
+  declining one target must not cost the type its other fields. Both
+  "approve" ops become UnknownOp, since "approve" declared no other
+  field and its only rule was withheld wholesale. (pins: reader)
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: define-type
+            parents: [create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "acme.gadget"
+            expect: accept
+
+          - id: define-field-title
+            parents: [define-type]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.gadget"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: define-field-verdict-v1
+            parents: [define-field-title]
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.gadget"
+                op_type: "approve"
+                op_version: "1"
+                field: "verdict"
+                value_type: "enum"
+                enum: ["approve", "block"]
+                strategy: "keyed-lww"
+                key: ["subject", "revision"]
+                key_types:
+                  subject: "person-ref"
+                  revision: "string"
+            expect: accept
+
+          - id: define-field-verdict-v2
+            parents: [define-field-verdict-v1]
+            author: alice
+            timestamp: 2026-01-01T00:04:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.gadget"
+                op_type: "approve"
+                op_version: "2"
+                field: "verdict"
+                value_type: "enum"
+                enum: ["approve", "block"]
+                strategy: "keyed-lww"
+                key: ["subject"]
+                key_types:
+                  subject: "person-ref"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/gadget
+    history:
+      - commits:
+          - id: create-1
+            author: alice
+            timestamp: 2026-01-01T00:05:00Z
+            op:
+              object_id: gadget-1
+              object_type: acme.gadget
+              op_type: create
+              op_version: 1
+              body:
+                title: "Widget"
+            expect: accept
+
+          - id: approve-v1
+            parents: [create-1]
+            author: alice
+            timestamp: 2026-01-01T00:06:00Z
+            op:
+              object_id: gadget-1
+              object_type: acme.gadget
+              op_type: approve
+              op_version: 1
+              body:
+                subject: "email:alice@example.com"
+                revision: "aaa"
+                verdict: "approve"
+            expect: accept
+
+          - id: approve-v2
+            parents: [approve-v1]
+            author: alice
+            timestamp: 2026-01-01T00:07:00Z
+            op:
+              object_id: gadget-1
+              object_type: acme.gadget
+              op_type: approve
+              op_version: 2
+              body:
+                subject: "email:alice@example.com"
+                verdict: "block"
+            expect: accept

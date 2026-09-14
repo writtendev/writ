@@ -280,29 +280,39 @@ func TestAppendVersionBumpIsDeterministic(t *testing.T) {
 // version bump — endorse op_version 1 keys it on (subject, revision),
 // op_version 2 keys it on (subject, commit) — both within one
 // versionBumpClass (same op_type and field, spec/fieldrules.go's
-// FindTargetDisagreement), so spec.CheckTargetAgreement's carve-out permits
-// it exactly as freely as a disagreeing value_type (spec/schema-ops.md §8).
-// It is genuinely unrepresentable by a fixed set of "k_"-prefixed
-// group-table columns: v2's op would mis-key into v1's columns
-// (spec/fold.md §5 #8 keys each op on its own rule's key list), not merely
-// mis-type them the way a disagreeing value_type would. So unlike
-// value_type, this is declined outright through the existing
-// WithheldTargets path (spec/forward-compatibility.md §"Targets a
-// projection declines") rather than widened.
+// FindTargetDisagreement).
 //
-// The two key tuples are deliberately kept the same length (2), differing
-// only in the second component's name ("revision" vs "commit"): a
-// differing-arity pair (e.g. (subject, revision) vs (subject) alone) is
-// also legal under the same carve-out, but panics
-// engine/internal/fold.keyedLWWAccumulator.Result's sort comparator
-// (strategy.go ~line 480) with an index-out-of-range — it assumes every
-// entry's key slice is the same length as the first it compares, which
-// holds for every declared shape today but not this one. That is a real
-// bug in engine/internal/fold, outside engine/projection/ddl.go's scope
-// (and this ticket's — see AGENTS.md's "Stop-and-report conditions": a
-// bug found outside scope is commented, not fixed here); it is flagged on
-// WRIT-205 rather than fixed as a drive-by, and this test is shaped to
-// exercise ddl.go's decline path without tripping over it.
+// When this test was written, spec.CheckTargetAgreement's version-bump
+// carve-out permitted this disagreement exactly as freely as a disagreeing
+// value_type (spec/schema-ops.md §8), and the point being pinned was that
+// buildTypeDescriptor still had to decline the target outright rather than
+// widen it the way it widens value_type: a fixed set of "k_"-prefixed
+// group-table columns is genuinely unrepresentable for two different key
+// tuples (spec/fold.md §5 #8 keys each op on its own rule's key list), so
+// v2's op would mis-key into v1's columns rather than merely mis-type them.
+//
+// WRIT-234 closed that carve-out: Key and KeyTypes are no longer on §8's
+// "MAY freely change" list, so spec.CheckTargetAgreement now refuses this
+// exact disagreement, and writ.RulesFromSchemas withholds the whole target
+// before it ever reaches this package — a schema resolved out of the log
+// cannot produce the rule set this test builds. This test still compiles
+// and still pins a real behaviour, because it constructs its rules
+// caller-side, handing them to projection.WithSchema directly rather than
+// resolving them from a log-sourced schema: buildTypeDescriptor's Key-
+// disagreement decline is kept for exactly that caller-supplied surface
+// (see its own comment in ddl.go), the same surface WRIT-239 is about —
+// whether writ.Fold itself should be made total against caller-supplied
+// mismatched-arity keyed-lww rules is that ticket's question, not this
+// package's. This test does exercise fold's comparator: materialize.go
+// hands state.Fold the unfiltered rule slice (WithheldTargets is only
+// consulted afterward, for unknown_fields), so a keyedLWWAccumulator is
+// constructed for the withheld "verdict" target and reaches Result()
+// with both v1's and v2's entries. It survives that only because both
+// verdict rules' key tuples are kept at the same arity (2) — a
+// differing-arity pair reaching that comparator panics intermittently
+// (spec/schema-source.md §7) — so this test is deliberately shaped to
+// exercise the fold path without tripping over it; do not widen either
+// tuple without preserving that equality.
 //
 // "revision" is a second target sharing verdict's v1 key tuple
 // (subject, revision) with no disagreement of its own, standing in for the

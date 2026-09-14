@@ -312,16 +312,21 @@ func TestFieldRuleTargetKey(t *testing.T) {
 
 // TestCheckTargetAgreement pins WRIT-211's transitive shared-target
 // agreement relation (spec/fold.md §5, spec/schema-ops.md §8): rules
-// sharing a TargetKey must always agree on Strategy and on Lattice, and —
-// unless every one of them belongs to the same (op_type, field)
-// version-bump equivalence class — must also agree on ValueType, Key,
-// KeyTypes, Enum and MaxLength. Lattice is held to agreement even within a
-// single class — WRIT-206, pinned below by the "different lattice
-// ordering" cases both cross-op_type and within a version bump — because,
-// unlike the other five, it is consulted by the strategy at fold time: two
+// sharing a TargetKey must always agree on Strategy, Lattice, Key and
+// KeyTypes, and — unless every one of them belongs to the same (op_type,
+// field) version-bump equivalence class — must also agree on ValueType,
+// Enum and MaxLength. Lattice is held to agreement even within a single
+// class — WRIT-206, pinned below by the "different lattice ordering"
+// cases both cross-op_type and within a version bump — because, unlike
+// the remaining three, it is consulted by the strategy at fold time: two
 // same-strategy lattice rules sharing a target but declaring different
 // orderings are exactly as order-dependent as two rules disagreeing on
-// strategy itself.
+// strategy itself. Key and KeyTypes are likewise held to agreement even
+// within a single class — WRIT-234, pinned below by the "different key
+// arity" and "different key_types" cases — for a different reason: a key
+// tuple is the keyed-lww register's identity, not what it holds, so a
+// version bump that changes either splits one register into two under a
+// target the fold still treats as one.
 func TestCheckTargetAgreement(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -378,6 +383,27 @@ func TestCheckTargetAgreement(t *testing.T) {
 			rules: []spec.FieldRule{
 				{OpType: "promote", OpVersion: 1, Field: "level", Strategy: "lattice", Lattice: []string{"low", "high"}},
 				{OpType: "promote", OpVersion: 2, Field: "level", Strategy: "lattice", Lattice: []string{"high", "low"}},
+			},
+			wantErr: true,
+		},
+		{
+			// WRIT-234: key and key_types used to be on §8's "MAY freely
+			// change" list, the same as value_type; the ruling closed that
+			// carve-out because a key tuple is the keyed-lww register's
+			// identity, not what it holds, so a version bump that changes
+			// key arity must declare a distinct target instead.
+			name: "version bump, same op_type and field, different key arity: rejected",
+			rules: []spec.FieldRule{
+				{OpType: "approval", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww", Key: []string{"subject", "revision"}},
+				{OpType: "approval", OpVersion: 2, Field: "verdict", Strategy: "keyed-lww", Key: []string{"subject"}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "version bump, same op_type and field, different key_types: rejected",
+			rules: []spec.FieldRule{
+				{OpType: "approval", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww", Key: []string{"subject"}, KeyTypes: map[string]string{"subject": "string"}},
+				{OpType: "approval", OpVersion: 2, Field: "verdict", Strategy: "keyed-lww", Key: []string{"subject"}, KeyTypes: map[string]string{"subject": "person-ref"}},
 			},
 			wantErr: true,
 		},

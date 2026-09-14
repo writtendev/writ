@@ -5,8 +5,9 @@ description: >
   2 of "configure" redeclares field "mode" with the same strategy (lww) and
   the same target (both default to "mode"), but a different value_type
   (string -> int). An op_version bump of the same (op_type, field) MAY
-  freely change value_type, key, key_types, enum and max_length as long as
-  strategy is unchanged — the carve-out engine/schemasrc/compile_test.go's
+  freely change value_type, enum and max_length as long as strategy,
+  lattice, key and key_types are unchanged — the carve-out
+  engine/schemasrc/compile_test.go's
   TestCompileVersionBumpValueTypeOnlyIsAccepted pins at the compiler level.
   RulesFromSchemas installs both versions with no conflict: v1 ops keep
   folding as strings, v2 ops fold as ints, and the shared "mode" target
