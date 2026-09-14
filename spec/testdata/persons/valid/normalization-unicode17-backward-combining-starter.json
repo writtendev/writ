@@ -1,0 +1,10 @@
+{
+  "identifier": "user:x𑏅y",
+  "scheme": "user",
+  "value": "x𑏅y",
+  "normalized": "user:x𑏅y",
+  "equal_to": [
+    "user:x𑏅y",
+    "user:x𑏅y"
+  ]
+}

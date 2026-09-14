@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.25"
+          go-version: "1.27"
       - run: go test ./...
 
   race:
@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.25"
+          go-version: "1.27"
       - run: go test -race ./...
 
   fuzz:
@@ -43,7 +43,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.25"
+          go-version: "1.27"
       - run: make fuzz FUZZTIME=20s
 
   api:
@@ -54,7 +54,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.25"
+          go-version: "1.27"
       - run: make api-check
 
   # api-check answers "is the baseline current". This answers "did anything
@@ -84,7 +84,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.25"
+          go-version: "1.27"
       - name: Classify the API delta against the merge base
         run: |
           git fetch --no-tags --quiet origin \
@@ -107,14 +107,20 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.25"
+          go-version: "1.27"
       - run: make cli-docs-check
 
 
+  # golangci-lint v1.64.8 requires Go 1.25 until the v2 migration lands (see
+  # WRIT-218). GOTOOLCHAIN=local keeps Go 1.25 from auto-switching to
+  # go.mod's toolchain, and --go=1.25 aligns the targeted version with the
+  # runtime version.
   lint:
     name: lint
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      GOTOOLCHAIN: local
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -130,4 +136,4 @@ jobs:
         with:
           version: v1.64.8
           install-mode: goinstall
-          args: --timeout=5m
+          args: --go=1.25 --timeout=5m

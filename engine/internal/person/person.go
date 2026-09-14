@@ -54,7 +54,7 @@ const MaxNonStarterRun = 30
 // actually compiled in, and a toolchain bump therefore fails loudly and is
 // answered with a deliberate spec amendment, rather than silently
 // renormalizing every identifier in every repository.
-const UnicodeVersion = "15.0.0"
+const UnicodeVersion = "17.0.0"
 
 // Split splits a person identifier into its scheme and value on the FIRST
 // colon, per spec/identifiers.md. The first colon and not "a colon": an email
@@ -385,41 +385,33 @@ func sortByCCC(rs []rune, cc []uint8) {
 // and whether a given pair composes — comes from x/text; nothing here is a
 // table this repository has to keep current.
 //
-// It composes only onto rs[0] and never promotes a later starter to be a new
-// base, which UAX #15 permits in general. That is sound here because of an
-// empirical property of the pinned Unicode version rather than anything about
-// the algorithm: of the 75 starters in 15.0.0 that combine backwards — and so
-// stay inside a segment rather than beginning one — exactly zero are the first
-// element of any composition. A later starter therefore has nothing to compose
-// with even if it were promoted. TestPinnedUnicodeVersion is what keeps this
-// true: a Unicode version bump has to re-establish it.
+// It tracks the last-retained starter (L) per UAX #15 so that
+// backward-combining starters that appear as first elements of compositions
+// (such as those introduced in Unicode 17.0.0) correctly compose when
+// preceded by other text in a segment.
 func compose(rs []rune, cc []uint8) string {
 	if len(rs) == 0 {
 		return ""
 	}
 	out := make([]rune, 0, len(rs))
 	out = append(out, rs[0])
-	// A segment that opens on a non-starter has no starter to compose onto.
-	composable := cc[0] == 0
-	// UAX #15 D115: c is blocked from the base when *any* character already
-	// retained between them has ccc 0, or a class at least as high as c's.
-	// Looking only at the last one is not enough — canonical ordering leaves
-	// ccc-0 marks where they are, so a retained blocker can end up behind a
-	// later mark of lower class and would otherwise be forgotten.
-	blockedAll := false
+	lastStarter := -1
+	if cc[0] == 0 {
+		lastStarter = 0
+	}
 	maxRetained := -1
 	for i, c := range rs[1:] {
 		n := int(cc[i+1])
-		blocked := blockedAll || maxRetained >= n
-		if composable && !blocked {
-			if p, ok := combine(out[0], c); ok {
-				out[0] = p
+		if lastStarter >= 0 && maxRetained < n {
+			if p, ok := combine(out[lastStarter], c); ok {
+				out[lastStarter] = p
 				continue
 			}
 		}
 		out = append(out, c)
 		if n == 0 {
-			blockedAll = true
+			lastStarter = len(out) - 1
+			maxRetained = -1
 		} else if n > maxRetained {
 			maxRetained = n
 		}

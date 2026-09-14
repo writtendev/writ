@@ -133,6 +133,12 @@ var foldVectors = []struct {
 		why:  "the guard is per segment, so one bad pair must not discard the good ones around it",
 	},
 	{
+		name: "Unicode 17 backward-combining starter composes in context",
+		in:   "x\U000113c2\U000113c2y",
+		want: "x\U000113c5y",
+		why:  "UAX #15 last-retained-starter (L) tracking; backward-combining starter in context",
+	},
+	{
 		name: "ASCII folds to ASCII lowercase",
 		in:   "Alice@Example.COM",
 		want: "alice@example.com",
@@ -272,13 +278,13 @@ func canonicalCompositions(t *testing.T) []composingPair {
 		pairs = append(pairs, composingPair{d[0], d[1], c})
 	}
 	if len(pairs) < 1000 {
-		t.Fatalf("test setup: found only %d canonical compositions, expected ~1088", len(pairs))
+		t.Fatalf("test setup: found only %d canonical compositions, expected ~1097", len(pairs))
 	}
 	return pairs
 }
 
 // TestCanonicalCompositionsSurviveTheGuard checks the guard's cost: it must
-// reject nothing real. Every canonical composition in Unicode 15.0.0 has to
+// reject nothing real. Every canonical composition in Unicode 17.0.0 has to
 // still compose, both on its own and with text around it, or the guard has
 // traded a merge defect for a split one.
 func TestCanonicalCompositionsSurviveTheGuard(t *testing.T) {

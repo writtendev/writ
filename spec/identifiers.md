@@ -439,7 +439,7 @@ to reduce.
 A person identifier's **value**, decomposed to Normalization Form D (NFD),
 MUST NOT carry a run of more than **30** consecutive non-starters — code
 points with a non-zero `Canonical_Combining_Class` — evaluated against
-Unicode 15.0.0, the version §[The value folding algorithm](#the-value-folding-algorithm)
+Unicode 17.0.0, the version §[The value folding algorithm](#the-value-folding-algorithm)
 pins. This is UAX #15 §13's Stream-Safe Text Format, applied literally as a
 constraint on what a conforming producer may mint.
 
@@ -517,7 +517,7 @@ algorithm for **every scheme**:
    locale MUST NOT change the answer.
 3. **Normalize to NFC again.**
 
-All three steps are evaluated against **Unicode 15.0.0**, which this document
+All three steps are evaluated against **Unicode 17.0.0**, which this document
 pins. An implementation MUST state the Unicode version it folds against, and a
 change of version is a change to this specification.
 
@@ -734,8 +734,10 @@ bound only *before* normalization, an over-long scheme, one vector per
 forbidden repertoire class (an interior C0 control, DEL, an interior C1
 control, a bidi override, a bidi isolate, a zero-width character, and the
 BOM), what is deliberately still permitted despite the repertoire rule
-(an emoji value, an interior space, and unmarked right-to-left script), and
-the Stream-Safe Text boundary: a value accepted at exactly 30 consecutive NFD
+(an emoji value, an interior space, and unmarked right-to-left script),
+backward-combining starters composed in context under Unicode 17.0.0
+([`normalization-unicode17-backward-combining-starter.json`](testdata/persons/valid/normalization-unicode17-backward-combining-starter.json)),
+and the Stream-Safe Text boundary: a value accepted at exactly 30 consecutive NFD
 non-starters, one refused at 31, one refused well past the limit, and a
 legitimate multi-mark identifier well inside it (a Vietnamese name whose
 stacked diacritic is two non-starters) — a witness that the bound leaves
