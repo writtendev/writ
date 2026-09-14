@@ -20,13 +20,14 @@ import (
 // (now-deleted) typed Fold*/projection.Review-style readers (round 1 MAJOR
 // finding). The property under test was never typed: it is writeTypeRow's
 // inversion of state.Fold's output into generated scalar columns, keyed-lww
-// groups, append groups, and unknown_ops — entirely generic machinery — so
-// this cross-checks it directly against state.Fold over a schema-declared
-// type the engine has never heard of ("ticket"), built from two independent
-// writer identities' concurrent and causally-ordered ops, exactly as
-// makeReviewEnv/makeWidgetOp build ops elsewhere in this package: hand-built
-// codec.Op values with an explicit parent DAG, reaching Refresh through
-// WithEnumOverrideForTest with no producer-validation gate to route around
+// groups, per-target append tables, and unknown_ops — entirely generic
+// machinery — so this cross-checks it directly against state.Fold over a
+// schema-declared type the engine has never heard of ("ticket"), built from
+// two independent writer identities' concurrent and causally-ordered ops,
+// exactly as makeReviewEnv/makeWidgetOp build ops elsewhere in this
+// package: hand-built codec.Op values with an explicit parent DAG, reaching
+// Refresh through WithEnumOverrideForTest with no producer-validation gate
+// to route around
 // (op-envelope's producer validation lives in dag.Store.Append/codec.BuildCommit,
 // neither of which this touches).
 
@@ -205,7 +206,7 @@ func TestProjectionMatchesFoldAcrossStrategies(t *testing.T) {
 	// append: note, from two concurrent writers — order matters here, so
 	// this is compared positionally, not as a set.
 	wantNotes, _ := want.State["note"].([]any)
-	gotNotes := queryStrings(t, rawDB, "SELECT f_note FROM o_ticket__note WHERE object_id = ? ORDER BY idx ASC", objID)
+	gotNotes := queryStrings(t, rawDB, "SELECT value FROM o_ticket__note WHERE object_id = ? ORDER BY op_seq ASC, entry_idx ASC", objID)
 	if len(gotNotes) != len(wantNotes) {
 		t.Fatalf("o_ticket__note has %d rows, state.Fold's note has %d entries: got %v, want %v", len(gotNotes), len(wantNotes), gotNotes, wantNotes)
 	}
@@ -328,7 +329,7 @@ func TestProjectionMatchesFoldOnTruncatedAncestry(t *testing.T) {
 		t.Fatalf("f_title = %q, want %q", gotTitle, "Truncated")
 	}
 
-	gotNotes := queryStrings(t, rawDB, "SELECT f_note FROM o_ticket__note WHERE object_id = ? ORDER BY idx ASC", objID)
+	gotNotes := queryStrings(t, rawDB, "SELECT value FROM o_ticket__note WHERE object_id = ? ORDER BY op_seq ASC, entry_idx ASC", objID)
 	if len(gotNotes) != 1 || gotNotes[0] != "first" {
 		t.Fatalf("o_ticket__note over the truncated prefix = %v, want [first] (state.Fold agrees, and must not see the un-fetched \"second\" op)", gotNotes)
 	}

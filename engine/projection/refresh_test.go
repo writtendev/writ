@@ -635,19 +635,20 @@ func TestDetermineObjectTypePrecedence(t *testing.T) {
 
 // TestCollidingLogDeclaredTypeStaysOpenable is WRIT-189 round 1's MAJOR-3
 // finding, exercised at the level Store.Open actually calls: a log-declared
-// object type ("widget--base-head") whose generated table name collides
-// with widget's own base/head append-group table
-// ("o_widget__base_head" — round 2 MAJOR-1 folded the separate "base" and
-// "head" child tables into this one shared table, so that is what a
-// collision has to target now) used to fail buildDescriptor with a hard
-// error, which propagated all the way
-// through ApplySchema and would have made writ.Open fail forever — data one
-// writer wrote (a legal object type name under op-envelope's grammar)
-// bricking the whole repository for every writer, with nothing removable
-// from the log to fix it. Refresh (and so ApplySchema) must instead
-// withhold only the colliding type's tables: its ops fall to unknown_ops,
-// and widget's own tables — including the one it collided with — are
-// unaffected.
+// object type ("widget--base") whose generated table name collides with
+// widget's own "base" append target's own table ("o_widget__base" —
+// WRIT-212 gives every append target a row-per-entry table of its own,
+// tableName + "__" + target, the same construction a collection target
+// already uses; before that, two append targets sharing an envelope shared
+// one table, "o_widget__base_head", which is what this collision used to
+// target) used to fail buildDescriptor with a hard error, which propagated
+// all the way through ApplySchema and would have made writ.Open fail
+// forever — data one writer wrote (a legal object type name under
+// op-envelope's grammar) bricking the whole repository for every writer,
+// with nothing removable from the log to fix it. Refresh (and so
+// ApplySchema) must instead withhold only the colliding type's tables: its
+// ops fall to unknown_ops, and widget's own tables — including the one it
+// collided with — are unaffected.
 func TestCollidingLogDeclaredTypeStaysOpenable(t *testing.T) {
 	ctx := context.Background()
 	_, store := createTestStore(t, "0123456789abcdef")
@@ -660,7 +661,7 @@ func TestCollidingLogDeclaredTypeStaysOpenable(t *testing.T) {
 
 	// The ordinary store.Append path enforces producer validation against
 	// the vocabulary the store was opened with (appendRules, here), which
-	// would refuse to write an op for "widget--base-head" long before it
+	// would refuse to write an op for "widget--base" long before it
 	// ever reached buildDescriptor —
 	// that gate is orthogonal to this finding (a real repo reaches
 	// buildDescriptor with such an op only once a log-declared schema
@@ -683,12 +684,12 @@ func TestCollidingLogDeclaredTypeStaysOpenable(t *testing.T) {
 		t.Fatalf("unexpected stats1: %+v", stats1)
 	}
 
-	payload := []byte(`{"body":{"title":"colliding type"},"object_id":"collider-1","object_type":"widget--base-head","op_type":"create","op_version":1}`)
+	payload := []byte(`{"body":{"title":"colliding type"},"object_id":"collider-1","object_type":"widget--base","op_type":"create","op_version":1}`)
 	collidingOp := codec.Op{
 		ID: "op-collider-1",
 		Envelope: codec.Envelope{
 			ObjectID:   "collider-1",
-			ObjectType: "widget--base-head",
+			ObjectType: "widget--base",
 			OpType:     "create",
 			OpVersion:  1,
 			Body:       []byte(`{"title":"colliding type"}`),
@@ -704,7 +705,7 @@ func TestCollidingLogDeclaredTypeStaysOpenable(t *testing.T) {
 			Email: "writer@example.com",
 			When:  time.Unix(1700000002, 0).UTC(),
 		},
-		Message: "writ: create widget--base-head/collider-1\n",
+		Message: "writ: create widget--base/collider-1\n",
 	}
 
 	deltaEnum := &dag.EnumerateResult{
@@ -712,15 +713,15 @@ func TestCollidingLogDeclaredTypeStaysOpenable(t *testing.T) {
 			"collider-1": {collidingOp},
 		},
 		Cursors: dag.CursorSet{
-			"refs/writ/0123456789abcdef/widget":            widgetOp.ID,
-			"refs/writ/0123456789abcdef/widget--base-head": "op-collider-1",
+			"refs/writ/0123456789abcdef/widget":       widgetOp.ID,
+			"refs/writ/0123456789abcdef/widget--base": "op-collider-1",
 		},
 		DecodedCommits: 1,
 	}
 
 	rules := testRules()
-	rules["widget--base-head"] = []state.Rule{
-		{OpType: "create", Field: "title", Strategy: "lww", ValueType: "string", ObjectType: "widget--base-head"},
+	rules["widget--base"] = []state.Rule{
+		{OpType: "create", Field: "title", Strategy: "lww", ValueType: "string", ObjectType: "widget--base"},
 	}
 
 	// The regression: this call used to return a "generated table name...
@@ -740,7 +741,7 @@ func TestCollidingLogDeclaredTypeStaysOpenable(t *testing.T) {
 
 	var unknownCount int
 	if err := db.DB().QueryRow(
-		"SELECT COUNT(*) FROM unknown_ops WHERE object_id = 'collider-1' AND object_type = 'widget--base-head'",
+		"SELECT COUNT(*) FROM unknown_ops WHERE object_id = 'collider-1' AND object_type = 'widget--base'",
 	).Scan(&unknownCount); err != nil {
 		t.Fatalf("query unknown_ops failed: %v", err)
 	}

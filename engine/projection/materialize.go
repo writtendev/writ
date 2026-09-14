@@ -102,12 +102,18 @@ func insertUnknownOps(tx *sql.Tx, objectID string, ops []codec.Op) error {
 }
 
 // writeTypeRow inserts td's type-table row (scalar and position-companion
-// columns, plus unknown_fields), every child-table row a collection or
-// keyed-lww target folded to, and every append-group row (unknownOps is the
-// object's quarantined ops, needed only to skip them when writing those).
+// columns, plus unknown_fields), every child-table row a collection,
+// keyed-lww or append target folded to (unknownOps is the object's
+// quarantined ops, needed only to skip them when writing append rows: see
+// writeAppendRows).
 func writeTypeRow(tx *sql.Tx, td *typeDescriptor, objectID string, folded map[string]any, rules []state.Rule, orderedOps []codec.Op, unknownFields string, unknownOps []state.UnknownOp) error {
 	cols := []string{"object_id"}
 	vals := []any{objectID}
+
+	skip := make(map[string]bool, len(unknownOps))
+	for _, u := range unknownOps {
+		skip[u.Commit] = true
+	}
 
 	// group.keyed-lww targets by their shared group table so every group
 	// row (one per distinct key tuple) is built once, from every member
@@ -125,6 +131,11 @@ func writeTypeRow(tx *sql.Tx, td *typeDescriptor, objectID string, folded map[st
 		val, has := folded[tk]
 
 		switch {
+		case plan.AppendTable != "":
+			if err := writeAppendRows(tx, plan, objectID, orderedOps, skip); err != nil {
+				return err
+			}
+
 		case plan.Column != "":
 			cols = append(cols, plan.Column)
 			if has {
@@ -246,18 +257,6 @@ func writeTypeRow(tx *sql.Tx, td *typeDescriptor, objectID string, folded map[st
 		}
 	}
 
-	if len(td.AppendGroups) > 0 {
-		skip := make(map[string]bool, len(unknownOps))
-		for _, u := range unknownOps {
-			skip[u.Commit] = true
-		}
-		for _, ag := range td.AppendGroups {
-			if err := writeAppendGroupRows(tx, ag, objectID, orderedOps, skip); err != nil {
-				return err
-			}
-		}
-	}
-
 	return nil
 }
 
@@ -277,8 +276,9 @@ func sortedTargetKeys(td *typeDescriptor) []string {
 // is a bare string, not a list, when settled (one maximal write) — the
 // reader derives `conflicted` as row-count > 1 and the settled body as the
 // sole row, so a settled write still needs exactly one row here. An append
-// target carries no plan at all (see appendGroupPlan and
-// writeAppendGroupRows below) and so never reaches this function.
+// target has its own ChildTable-shaped plan too (AppendTable) but is
+// written by writeAppendRows instead, straight from orderedOps rather than
+// from the folded value, and so never reaches this function.
 func writeChildRows(tx *sql.Tx, plan *targetPlan, objectID string, val any) error {
 	var items []any
 	switch v := val.(type) {
@@ -309,150 +309,84 @@ func writeChildRows(tx *sql.Tx, plan *targetPlan, objectID string, val any) erro
 	return nil
 }
 
-// writeAppendGroupRows writes one row per op that matches any of an append
-// group's envelopes and isn't already quarantined into unknown_ops, in the
-// object's total order — the same op-level filter state.Fold and the typed
-// schema reducer (state.FoldSchema) both apply via fold.Uninterpretable
-// against the same rules, so a wholly rejected op contributes no row here
-// either. Each row carries one column per grouped target, NULL where that
-// particular op's body omitted the field: the row is the pairing, fixed
-// once at write time, rather than something a reader reconstructs by
-// zipping independently-ordered per-field lists back together (WRIT-189
-// round 2 MAJOR-1).
+// writeAppendRows writes one row per folded list entry for one append
+// target into its own table (targetPlan.AppendTable): for every op in
+// orderedOps not already quarantined into unknown_ops, for every one of the
+// target's rules (plan.AppendRules, pre-sorted into canonical rule order —
+// spec/fold.md §5) that matches that op via opMatchesRuleLite, for every
+// element the op's body carries at that rule's field, one row keyed
+// (object_id, op_seq, entry_idx).
 //
-// A target declared under more than one envelope (a version bump, or a
-// second op_type agreeing on every merge attribute, spec/schema-ops.md §8)
-// has to accept rows from every one of them, not just one representative,
-// to match what state.Fold's own target-keyed accumulator accumulates
-// (WRIT-189 round 3 MAJOR-1) — ag.Envelopes (built purely from the rule
-// index in ddl.go, via buildAppendGroups) is the full set.
+// op_seq is the op's own index in orderedOps — the object's total order L —
+// not a running counter: a quarantined op is skipped but still occupies its
+// position, so op_seq carries gaps rather than compacting around them. That
+// is what makes two append targets' tables joinable on a shared op without
+// either needing to know which ops the other happened to skip (WRIT-212)
+// — cross-target pairing, which the old shared one-row-per-op table used to
+// fix by construction, is redefined as "the same op_seq" instead of "the
+// same row". entry_idx resets to 0 for each op and counts the entries that
+// op alone contributes, across all of plan.AppendRules in canonical order —
+// so where two rules bound to this target both match one op (the
+// wildcard-op_version shape this ticket folds in, and the two-fields-one-
+// envelope shape WRIT-201 made legal), their entries interleave in
+// canonical rule order exactly as state.Fold's own accumulator dispatch
+// does, rather than in whatever order a caller's rule slice happened to
+// list them.
 //
-// This never inspects td, rules, or any field name: ag.Envelopes and
-// ag.Members are its only inputs besides the raw ops, so it materializes an
-// envelope declared by an arbitrary log schema with no special-casing for
-// any one type — writ hard-codes no object type but `schema`.
-func writeAppendGroupRows(tx *sql.Tx, ag appendGroupPlan, objectID string, orderedOps []codec.Op, skip map[string]bool) error {
-	idx := 0
-	for _, op := range orderedOps {
+// A JSON array at the field is flattened to one row per element, mirroring
+// engine/internal/fold's appendAccumulator.Apply exactly (an op writing
+// ["a","b"] contributes two entries, not one array-valued entry); an absent
+// field or an explicit JSON null contributes no row, also mirroring the
+// accumulator, which is a behavior change from the old shared table's
+// presence-gated NULL cell (WRIT-212 fixes the divergence the old comment
+// here used to claim, wrongly, was already the case).
+//
+// Iterating every rule in plan.AppendRules, not only the ones fold's own
+// matchedRulesByField admits (an op in this object's history actually
+// writing that rule's field), is safe without reimplementing that admission
+// logic: a rule no op ever writes contributes zero entries at every op, so
+// the entry set comes out identical either way.
+func writeAppendRows(tx *sql.Tx, plan *targetPlan, objectID string, orderedOps []codec.Op, skip map[string]bool) error {
+	for opSeq, op := range orderedOps {
 		if skip[op.ID] {
-			continue
-		}
-		if !appendGroupEnvelopeMatches(ag.Envelopes, op) {
 			continue
 		}
 
 		var body map[string]any
-		if len(op.Body) > 0 {
-			if err := json.Unmarshal(op.Body, &body); err != nil {
-				return fmt.Errorf("projection: unmarshal op %s body for %s: %w", op.ID, ag.Table, err)
-			}
-		}
-
-		cols := make([]string, 0, len(ag.Members)+2)
-		vals := make([]any, 0, len(ag.Members)+2)
-		cols = append(cols, "object_id", "idx")
-		vals = append(vals, objectID, idx)
-		for _, m := range ag.Members {
-			cols = append(cols, m.Column)
-			// A member's body key is per-envelope, not the target key
-			// itself: two envelopes can reach the same target through two
-			// different field names (a version bump, or a second op_type
-			// agreeing on every merge attribute, spec/schema-ops.md §8), and
-			// reading body[m.Key] — the target key — silently NULLs every
-			// row whenever a rule declares target(...) distinct from field,
-			// with the value landing in neither unknown_fields nor
-			// unknown_ops (WRIT-189 round 4 MAJOR-1). fieldForOp resolves
-			// the field this op's own envelope actually uses, mirroring
-			// state.Fold's per-op rule dispatch (engine/internal/fold).
-			field, ok := fieldForOp(m.Fields, op)
-			if !ok {
-				vals = append(vals, nil)
+		bodyLoaded := false
+		entryIdx := 0
+		for _, r := range plan.AppendRules {
+			if !opMatchesRuleLite(op, r) {
 				continue
 			}
-			// Presence alone gates a write, matching the fold (spec/fold.md
-			// §5.1's empty-scalar contract, mirrored by every accumulator
-			// including append's): an explicit JSON null is a written nil,
-			// not the same as the field never appearing in the body. Both
-			// still land as SQL NULL here — columnValue itself already
-			// treats a nil value as NULL for every value_type — but the
-			// gate is "was it present", not "was it present and non-null"
-			// (WRIT-189 round 3 MINOR-5).
-			if v, ok := body[field]; ok {
-				vals = append(vals, columnValue(m.ValueType, v))
-			} else {
-				vals = append(vals, nil)
+			if !bodyLoaded {
+				if len(op.Body) > 0 {
+					if err := json.Unmarshal(op.Body, &body); err != nil {
+						return fmt.Errorf("projection: unmarshal op %s body for %s: %w", op.ID, plan.AppendTable, err)
+					}
+				}
+				bodyLoaded = true
+			}
+			raw, ok := body[r.Field]
+			if !ok || raw == nil {
+				continue
+			}
+			elems, ok := raw.([]any)
+			if !ok {
+				elems = []any{raw}
+			}
+			for _, e := range elems {
+				if _, err := tx.Exec(
+					"INSERT INTO "+quoteIdent(plan.AppendTable)+" (object_id, op_seq, entry_idx, value) VALUES (?, ?, ?, ?)",
+					objectID, opSeq, entryIdx, columnValue(plan.ValueType, e),
+				); err != nil {
+					return fmt.Errorf("projection: insert %s row for %s: %w", plan.AppendTable, objectID, err)
+				}
+				entryIdx++
 			}
 		}
-
-		ph := strings.Repeat("?, ", len(cols)-1) + "?"
-		if _, err := tx.Exec("INSERT INTO "+quoteIdent(ag.Table)+" ("+strings.Join(cols, ", ")+") VALUES ("+ph+")", vals...); err != nil {
-			return fmt.Errorf("projection: insert %s row for %s: %w", ag.Table, objectID, err)
-		}
-		idx++
 	}
 	return nil
-}
-
-// appendGroupEnvelopeMatches reports whether op matches at least one of
-// envelopes — the same op_type/op_version wildcard semantics
-// opMatchesRuleLite applies for a single rule, applied here across every
-// envelope an append group's members are declared under (WRIT-189 round 3
-// MAJOR-1: a target declared under two envelopes must accept ops from
-// either, not just whichever one buildTypeDescriptor picked as its
-// representative rule).
-func appendGroupEnvelopeMatches(envelopes []appendGroupEnvelope, op codec.Op) bool {
-	for _, e := range envelopes {
-		if e.OpType != op.OpType {
-			continue
-		}
-		if e.OpVersion != 0 && op.OpVersion != 0 && op.OpVersion != e.OpVersion {
-			continue
-		}
-		return true
-	}
-	return false
-}
-
-// fieldForOp returns the body key op's own envelope reads a member's value
-// from: the Field of the one appendGroupFieldSource among fields whose
-// (op_type, op_version) matches op. false means no rule declaring this
-// member was declared under an envelope op matches, so it takes no value
-// from op at all — distinct from the field being merely absent from op's
-// body, which still yields a written NULL below.
-//
-// This is a plain first-match scan, and first-match is only safe because
-// fields cannot contain two entries sharing one exact (op_type, op_version)
-// envelope with two different Field values: ddl.go detects that shape while
-// building fields (the loop building appendGroupMember.Fields) and withholds
-// that one target alone — no column, recorded in WithheldTargets with its
-// fields routed to unknown_fields — before a typeDescriptor carrying it is
-// ever produced (WRIT-189 round 5 MAJOR-1, rescoped from a whole-type
-// withhold by WRIT-201, then rescoped again from a whole-group withhold to
-// this single-target scope by WRIT-201 review round 2 MEDIUM-1: state.Fold
-// appends both fields' entries, which one row per op cannot hold, but a
-// group-mate reached by one field per envelope is unaffected and keeps its
-// column). An earlier version of this comment claimed
-// first-match "reproduces" state.Fold's own per-op rule dispatch
-// (engine/internal/fold) — that was false independent of ordering: fold's
-// matchedRulesByField admits a rule only if some op in the object's history
-// actually writes that rule's Field, while fields here is unfiltered, so
-// first-match could select a field the fold would never have considered.
-// Withholding the ambiguous shape at the source, rather than trying to
-// mirror fold's admission logic here, is what makes fields safe to scan in
-// order at all: with the ambiguous shape gone, at most one entry can ever
-// match a given op's exact envelope, so which one is "first" no longer
-// matters.
-func fieldForOp(fields []appendGroupFieldSource, op codec.Op) (string, bool) {
-	for _, f := range fields {
-		if f.OpType != op.OpType {
-			continue
-		}
-		if f.OpVersion != 0 && op.OpVersion != 0 && f.OpVersion != op.OpVersion {
-			continue
-		}
-		return f.Field, true
-	}
-	return "", false
 }
 
 // writeMembersRows populates a target's generic members table from its
@@ -698,24 +632,23 @@ func positionOpID(orderedOps []codec.Op, objectType, targetKey string, rules []s
 // case is gone, so this is now simply the one implementation.
 //
 // withheldTargets are target keys the descriptor declined to give a column
-// (ddl.go's append-group loop, WRIT-201): a rule bound to one of them still
-// matched, so the op is not quarantined, but its field has nowhere to land
-// in SQL. It counts as unknown here rather than being dropped, which is what
-// spec/forward-compatibility.md §Targets a projection declines requires.
+// — today only a keyed-lww target whose bound rules disagree on Key
+// (ddl.go's keyed-lww case, WRIT-205; an append target was the other
+// reason before WRIT-212 gave every append target its own row-per-entry
+// table, which has nothing left to withhold): a rule bound to one of them
+// still matched, so the op is not quarantined, but its field has nowhere to
+// land in SQL. It counts as unknown here rather than being dropped, which is
+// what spec/forward-compatibility.md §Targets a projection declines
+// requires.
 //
-// That routing stops where this map does, and deliberately: a withheld append
-// target is an accumulator, but result is a per-key register, so a target
-// written by several ops keeps only the latest write per body field. The
-// entries the fold accumulated are complete only through the fold, never
-// through this column, and spec/forward-compatibility.md §Targets a
-// projection declines says exactly that rather than promising more.
-// Accumulating here instead would give one JSON blob two different
-// semantics — a register for a genuinely unknown field, a list for a
-// withheld target — that no consumer can tell apart without the schema, and
-// it still could not reproduce the fold's value, whose entries interleave
-// across the targets' fields in canonical rule order. The shape that does
-// hold them is the row-per-entry table redesign the append-group loop
-// defers, not a second meaning for this column.
+// That routing stops where this map does, and deliberately: a withheld
+// keyed-lww target is an accumulator (one register per key), but result is
+// a per-body-field register with no key at all, so a target written under
+// several keys keeps only the latest write per body field, collapsing the
+// key dimension entirely. The entries the fold accumulated are complete
+// only through the fold, never through this column, and
+// spec/forward-compatibility.md §Targets a projection declines says exactly
+// that rather than promising more.
 func computeUnknownFields(orderedOps []codec.Op, rules []state.Rule, unknownOps []state.UnknownOp, withheldTargets map[string]bool) string {
 	skip := make(map[string]bool, len(unknownOps))
 	for _, u := range unknownOps {

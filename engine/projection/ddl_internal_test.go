@@ -15,7 +15,7 @@ import (
 // loadTestRules is a schema-shaped rule index covering every table shape
 // this file's tests care about: an OR-set pair per target, two keyed-lww key
 // groups (one of them retargeting a field name the other also uses), and an
-// append group over two fields. Writ hard-codes no object type but `schema`,
+// append target pair, each with its own row-per-entry table. Writ hard-codes no object type but `schema`,
 // so there is no built-in vocabulary to derive one from — a consumer
 // declares these in the log, and the projection generates tables from
 // whatever it finds there.
@@ -303,33 +303,25 @@ func TestIntraTypeCollisionWithholdsTables(t *testing.T) {
 	}
 }
 
-// TestAmbiguousAppendFieldWithholdsTargetNotGroup covers two append-strategy
-// rules binding the same target key to two different Fields under one exact
-// (op_type, op_version) envelope. WRIT-201 made that shape normative:
-// spec/fold.md §5 rules that every matching rule applies, in canonical rule
-// order, so one op writing both fields appends both entries to one list.
-// The append group's table — one row per op, one column per member target —
-// structurally cannot hold two entries for one target from one op, so that
-// target is withheld.
+// TestAmbiguousAppendFieldMaterializesBothEntries covers two append-strategy
+// rules binding the same target key ("note") to two different Fields under
+// one exact (op_type, op_version) envelope — the WRIT-201 shape: spec/fold.md
+// §5 rules that every matching rule applies, in canonical rule order, so one
+// op writing both fields appends both entries to one list.
 //
-// What this pins is the scope of the withhold: the one unrepresentable
-// target, never the type and never the group (§Targets a projection declines). Two earlier scopes
-// were both too wide. WRIT-189 round 5 withheld the whole type, on the
-// premise that state.Fold picked one of the two values deterministically and
-// the projection merely could not tell which; WRIT-201 falsified that
-// premise (fold picks neither — it takes both). WRIT-201 round 1 narrowed it
-// to the append group, which is still wider than the unrepresentable unit:
-// buildAppendGroups unions every target co-occurring in an envelope, so the
-// wholly representable "tags" here — one field, one envelope, exactly the
-// shape the group table has always held — lost its table and rows purely
-// because "note" shares the envelope (round 2 MEDIUM-1).
-//
-// So: the type table and its unrelated targets build as usual, "tags" keeps
-// a table of its own, only "note" lands in WithheldTargets for materialize
-// to route into unknown_fields, and the surviving group's name and envelope
-// set are derived from the members that survived. Order-independent, as
-// before.
-func TestAmbiguousAppendFieldWithholdsTargetNotGroup(t *testing.T) {
+// Before WRIT-212, the shared one-row-per-op/one-column-per-target append
+// table could not hold two entries for one target from one op, so "note"
+// was withheld into WithheldTargets and only the group-mate "tags" (reached
+// by one field under the same envelope) kept a table. Row-per-entry removes
+// the table shape that made this unrepresentable: "note" now gets its own
+// AppendTable, fed by both rules in canonical rule order (ascending field,
+// since op_type and op_version tie), so it is materialized rather than
+// withheld — nothing lands in WithheldTargets here any more, and "tags"
+// keeps its own separate table exactly as it always did (targets no longer
+// share tables at all, so there is no group to protect it from). The actual
+// materialized row content and order is pinned at the DB level by
+// TestAppendAmbiguousFieldBothEntriesMaterialize (append_entries_test.go).
+func TestAmbiguousAppendFieldMaterializesBothEntries(t *testing.T) {
 	titleRule := state.Rule{OpType: "create", Field: "title", Strategy: "lww", ValueType: "string", ObjectType: "widget"}
 	noteFieldA := state.Rule{OpType: "note", OpVersion: 1, Field: "a", Target: "note", Strategy: "append", ValueType: "string", ObjectType: "widget"}
 	noteFieldB := state.Rule{OpType: "note", OpVersion: 1, Field: "b", Target: "note", Strategy: "append", ValueType: "string", ObjectType: "widget"}
@@ -348,36 +340,36 @@ func TestAmbiguousAppendFieldWithholdsTargetNotGroup(t *testing.T) {
 			}
 			td, ok := desc.types["widget"]
 			if !ok {
-				t.Fatalf("object type \"widget\" was withheld entirely; only the unrepresentable target should be")
+				t.Fatalf("object type \"widget\" was withheld entirely")
 			}
-			if !td.WithheldTargets["note"] {
-				t.Fatalf("WithheldTargets = %v, want the \"note\" target recorded", td.WithheldTargets)
+			if len(td.WithheldTargets) != 0 {
+				t.Fatalf("WithheldTargets = %v, want none — both \"note\" and \"tags\" are representable under row-per-entry", td.WithheldTargets)
 			}
-			if td.WithheldTargets["tags"] {
-				t.Fatalf("WithheldTargets = %v: \"tags\" is representable and must not be collateral (§Targets a projection declines)", td.WithheldTargets)
+
+			notePlan, ok := td.Targets["note"]
+			if !ok || notePlan.AppendTable == "" {
+				t.Fatalf("targets[\"note\"] = %+v, want an AppendTable of its own", notePlan)
 			}
-			if len(td.AppendGroups) != 1 {
-				t.Fatalf("AppendGroups = %+v, want exactly one — \"tags\" alone", td.AppendGroups)
+			if notePlan.AppendTable != "o_widget__note" {
+				t.Fatalf("note's AppendTable = %q, want \"o_widget__note\"", notePlan.AppendTable)
 			}
-			g := td.AppendGroups[0]
-			if g.Table != "o_widget__tags" {
-				t.Fatalf("group table = %q, want \"o_widget__tags\" (named for the retained members only)", g.Table)
+			if len(notePlan.AppendRules) != 2 || notePlan.AppendRules[0].Field != "a" || notePlan.AppendRules[1].Field != "b" {
+				t.Fatalf("note's AppendRules = %+v, want [a, b] in canonical (field-ascending) order", notePlan.AppendRules)
 			}
-			if len(g.Members) != 1 || g.Members[0].Key != "tags" || g.Members[0].Column != "f_tags" {
-				t.Fatalf("group members = %+v, want just the \"tags\"/f_tags member", g.Members)
+
+			tagsPlan, ok := td.Targets["tags"]
+			if !ok || tagsPlan.AppendTable != "o_widget__tags" {
+				t.Fatalf("targets[\"tags\"] = %+v, want AppendTable \"o_widget__tags\"", tagsPlan)
 			}
-			wantEnv := []appendGroupEnvelope{{OpType: "note", OpVersion: 1}}
-			if !reflect.DeepEqual(g.Envelopes, wantEnv) {
-				t.Fatalf("group envelopes = %+v, want %+v", g.Envelopes, wantEnv)
-			}
+
 			var names []string
 			for _, tbl := range desc.tables {
 				names = append(names, tbl.Name)
 			}
 			sort.Strings(names)
-			want := []string{"o_widget", "o_widget__tags"}
+			want := []string{"o_widget", "o_widget__note", "o_widget__tags"}
 			if !reflect.DeepEqual(names, want) {
-				t.Fatalf("generated tables = %v, want %v (no o_widget__note, no o_widget__note_tags)", names, want)
+				t.Fatalf("generated tables = %v, want %v", names, want)
 			}
 			var hasTitle bool
 			for _, c := range td.Table.Columns {
@@ -394,22 +386,23 @@ func TestAmbiguousAppendFieldWithholdsTargetNotGroup(t *testing.T) {
 
 // TestCollidingIdentifierWithholdsTables is WRIT-189 round 1's MAJOR-3
 // finding: a log-declared object type is free to pick any name legal under
-// op-envelope's grammar (^[a-z][a-z0-9-]*$), and "widget--base-head"
-// generates the exact same table name ("o_widget__base_head") as widget's
-// own base/head append-group table (ddl.go's appendGroupPlan — round 2
-// MAJOR-1 folded the separate "base" and "head" child tables into one
-// shared table, o_widget__base_head, so that is what a collision has to
-// target now). buildDescriptor used to return a hard error for this — which
-// bricked buildDescriptor's caller chain (ApplySchema -> writ.Open)
-// permanently, since nothing can be removed from the log to fix it. Data
-// someone else wrote must never brick the repository (the same ruling
-// WRIT-188 round 3 established): the colliding type is withheld exactly
-// like an invalid target above, and every other type's tables — including
-// the one it collided with — are unaffected.
+// op-envelope's grammar (^[a-z][a-z0-9-]*$), and "widget--base" generates
+// the exact same table name ("o_widget__base") as widget's own "base"
+// append target (WRIT-212: every append target gets a row-per-entry table
+// of its own, tableName + "__" + target, the same construction a
+// collection target already uses — "o_widget__base_head" was the shared
+// table two append targets used to fold into before this, which is what
+// this collision test used to target). buildDescriptor used to return a
+// hard error for this — which bricked buildDescriptor's caller chain
+// (ApplySchema -> writ.Open) permanently, since nothing can be removed from
+// the log to fix it. Data someone else wrote must never brick the
+// repository (the same ruling WRIT-188 round 3 established): the colliding
+// type is withheld exactly like an invalid target above, and every other
+// type's tables — including the one it collided with — are unaffected.
 func TestCollidingIdentifierWithholdsTables(t *testing.T) {
 	rules := loadTestRules(t)
-	rules["widget--base-head"] = []state.Rule{
-		{OpType: "create", Field: "title", Strategy: "lww", ValueType: "string", ObjectType: "widget--base-head"},
+	rules["widget--base"] = []state.Rule{
+		{OpType: "create", Field: "title", Strategy: "lww", ValueType: "string", ObjectType: "widget--base"},
 	}
 
 	desc, err := buildDescriptor(rules)
@@ -417,8 +410,8 @@ func TestCollidingIdentifierWithholdsTables(t *testing.T) {
 		t.Fatalf("buildDescriptor: %v", err)
 	}
 
-	if _, ok := desc.types["widget--base-head"]; ok {
-		t.Fatalf("expected colliding type %q to be withheld (no tables), but it has tables", "widget--base-head")
+	if _, ok := desc.types["widget--base"]; ok {
+		t.Fatalf("expected colliding type %q to be withheld (no tables), but it has tables", "widget--base")
 	}
 	widgetTD, ok := desc.types["widget"]
 	if !ok {
@@ -426,12 +419,12 @@ func TestCollidingIdentifierWithholdsTables(t *testing.T) {
 	}
 	foundBase := false
 	for _, ct := range widgetTD.Children {
-		if ct.Name == "o_widget__base_head" {
+		if ct.Name == "o_widget__base" {
 			foundBase = true
 		}
 	}
 	if !foundBase {
-		t.Fatalf("expected widget to still own o_widget__base_head, got children %+v", widgetTD.Children)
+		t.Fatalf("expected widget to still own o_widget__base, got children %+v", widgetTD.Children)
 	}
 
 	seen := make(map[string]bool)
