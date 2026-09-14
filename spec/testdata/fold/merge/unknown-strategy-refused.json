@@ -1,0 +1,22 @@
+{
+  "name": "unknown-strategy-refused",
+  "description": "A caller-supplied rule table declares an unrecognized strategy outside the closed catalogue. Fold refuses the rule table at accumulator construction with an error.",
+  "object_id": "obj-1",
+  "fields": {
+    "custom": {
+      "strategy": "no-such-strategy"
+    }
+  },
+  "ops": [
+    {
+      "id": "op-1",
+      "parents": [],
+      "time": 100,
+      "object_id": "obj-1",
+      "body": {
+        "custom": "value"
+      }
+    }
+  ],
+  "expected_refusal": true
+}
