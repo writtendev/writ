@@ -444,11 +444,17 @@ new version fold under the new ones. A version bump that changes
 order-dependent, or — for `key`/`key_types` — names two different
 register identities under one target: `fold.md` §5's generic fold groups
 matched rules by target key alone and instantiates one accumulator from
-whichever rule a caller's slice lists first, and a `keyed-lww`
-accumulator's key columns are fixed at generation time from whichever
-rule's key tuple wins that race. `engine/schemasrc.Compile` rejects all
-three at compile time, with a line and column, rather than deferring to
-the resolver: `compileType` runs this check once every field of the type
+whichever rule a caller's slice lists first. For `key`/`key_types` the
+hazard is not that race at all: a `keyed-lww` accumulator fixes nothing
+about its key shape when it is constructed, and instead rebuilds each
+entry's key tuple from that op's own matched rule's `Key`/`KeyTypes` on
+every single op (`keyedLWWAccumulator.Apply`,
+`engine/internal/fold/strategy.go`) — so when two bound rules disagree
+on key arity, the accumulator's `latest` map ends up holding key tuples
+of two different lengths side by side, regardless of which rule sorts
+first, which is exactly the shape `Result`'s sort comparator cannot
+handle. `engine/schemasrc.Compile` rejects all three at compile time,
+with a line and column, rather than deferring to the resolver: `compileType` runs this check once every field of the type
 has been compiled, after the field loop, so nothing about it needs to
 wait until the type's rules are assembled elsewhere. A version bump is
 only the within-class half of that check (§5): if the reused target is
