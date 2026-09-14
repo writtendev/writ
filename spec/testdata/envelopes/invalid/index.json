@@ -50,6 +50,11 @@
     "reason": "object_type contains more than one dot; the qualified form is exactly one optional dot separating two segments, not an arbitrary path (WRIT-217)"
   },
   {
+    "file": "object-type-trailing-lock.json",
+    "rejects": "schema",
+    "reason": "object_type ends in \".lock\"; git rejects any ref path component ending in \".lock\" outright, so such a value could never own a chain (spec/ref-layout.md §4)"
+  },
+  {
     "file": "object-type-segment-too-long-bare.json",
     "rejects": "schema",
     "reason": "object_type's single segment exceeds the per-segment 64-character limit (65 chars)"

@@ -75,6 +75,11 @@
       "object_type": "acme.standup"
     },
     {
+      "ref": "refs/writ/0123456789abcdef/lock",
+      "writer_id": "0123456789abcdef",
+      "object_type": "lock"
+    },
+    {
       "ref": "refs/writ/0123456789abcdef/a012345678901234567890123456789012345678901234567890123456789012.b012345678901234567890123456789012345678901234567890123456789012",
       "writer_id": "0123456789abcdef",
       "object_type": "a012345678901234567890123456789012345678901234567890123456789012.b012345678901234567890123456789012345678901234567890123456789012"
@@ -159,11 +164,11 @@
     },
     {
       "ref": "refs/writ/0123456789abcdef/widget.lock",
-      "reason": "object-type's trailing segment is exactly \"lock\" -- git rejects any slash-separated ref path component ending in .lock outright, regardless of the dot itself being a legal qualified-object_type separator (spec/ref-layout.md)"
+      "reason": "object-type ends in \".lock\" -- git rejects any slash-separated ref path component ending in .lock outright, regardless of the dot itself being a legal qualified-object_type separator (spec/ref-layout.md)"
     },
     {
       "ref": "refs/writ/0123456789abcdef/acme.lock",
-      "reason": "same .lock exclusion as widget.lock, but with a legal namespace prefix -- the trailing segment, not the presence of a dot, is what git rejects"
+      "reason": "same .lock exclusion as widget.lock, but with a legal namespace prefix -- git's rule is about the trailing \".lock\" suffix, not the presence of a dot"
     },
     {
       "ref": "refs/writ/0123456789abcdef/widget/sub",

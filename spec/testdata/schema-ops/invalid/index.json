@@ -20,6 +20,11 @@
     "reason": "type 'acme.foo.bar' contains more than one dot; the qualified form is exactly one optional dot separating two segments, not an arbitrary path (WRIT-217)"
   },
   {
+    "file": "define-type-trailing-lock.json",
+    "rejects": "schema",
+    "reason": "type 'acme.lock' ends in \".lock\"; git rejects any ref path component ending in \".lock\" outright, so such a value could never own a chain (spec/ref-layout.md §4)"
+  },
+  {
     "file": "define-field-missing-strategy.json",
     "rejects": "schema",
     "reason": "define-field op body is missing required strategy"

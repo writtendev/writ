@@ -109,6 +109,25 @@ func TestParseChainRef_RemoteTracking(t *testing.T) {
 			ref:     "refs/remotes/origin/writ/invalid-id/widget",
 			wantErr: true,
 		},
+		{
+			// Bare "lock" does not end in ".lock" -- git accepts
+			// refs/writ/<writer-id>/lock, so the remote-tracking arm must
+			// accept it too, the same as the local arm already does
+			// (spec/testdata/ref-names/vectors.json).
+			ref:            "refs/remotes/origin/writ/0123456789abcdef/lock",
+			wantRemote:     "origin",
+			wantWriterID:   "0123456789abcdef",
+			wantObjectType: "lock",
+			wantErr:        false,
+		},
+		{
+			// "acme.lock" ends in ".lock" -- git refuses any ref path
+			// component ending in ".lock" outright, so the remote-tracking
+			// arm must refuse it too. This is the one case the local arm's
+			// vectors.json coverage does not reach.
+			ref:     "refs/remotes/origin/writ/0123456789abcdef/acme.lock",
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {

@@ -16,7 +16,8 @@
       "type": "string",
       "maxLength": 129,
       "pattern": "^[a-z][a-z0-9-]{0,63}(\\.[a-z][a-z0-9-]{0,63})?$",
-      "description": "The collaborative object's type. `schema` is the one type this specification defines; every other value is declared by a schema object in the log, and is namespace-qualified as <namespace>.<type> (spec/schema-ops.md §2), each segment matching the bare form and its own 64-character bound, for 129 (64 + '.' + 64) total. Deliberately not an enum: readers must tolerate object types they do not know (preserve and ignore, never drop). This layer admits both the bare and qualified shapes and enforces nothing about which a given value must be; whether a non-schema object_type is required to be qualified is a schema-layer rule (spec/schema-ops.md §2) this envelope layer does not know or enforce."
+      "not": { "pattern": "\\.lock$" },
+      "description": "The collaborative object's type. `schema` is the one type this specification defines; every other value is declared by a schema object in the log, and is namespace-qualified as <namespace>.<type> (spec/schema-ops.md §2), each segment matching the bare form and its own 64-character bound, for 129 (64 + '.' + 64) total. Deliberately not an enum: readers must tolerate object types they do not know (preserve and ignore, never drop). This layer admits both the bare and qualified shapes and enforces nothing about which a given value must be; whether a non-schema object_type is required to be qualified is a schema-layer rule (spec/schema-ops.md §2) this envelope layer does not know or enforce. MUST NOT end in `.lock`: git rejects any ref path component ending in `.lock` outright, so such a value could never own a chain (spec/ref-layout.md §4). Bare `lock` is unaffected — the exclusion is on the trailing `.lock` suffix, not on the segment's content alone."
     },
     "op_type": {
       "type": "string",

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -450,6 +451,84 @@ func TestAppend_InvalidObjectType(t *testing.T) {
 	_, err = store.Append(context.Background(), env, nil)
 	if err == nil {
 		t.Fatalf("expected error on invalid object type")
+	}
+}
+
+// TestAppend_DotLockObjectTypeRefused pins WRIT-232's write-path
+// exclusion: an object type ending in ".lock" is refused before Append
+// ever reaches the CAS loop, since git refuses any ref path component
+// ending in ".lock" outright (refs.go's objectTypeEndsInDotLock) -- such
+// a type could never own a writ chain. "acme.lock" is grammar-legal
+// (objectTypeRegexp accepts it), so the refusal must name git's ref rule
+// ("cannot own a chain"), not the grammar ("invalid object type") --
+// exactly the message WRIT-232 corrected.
+func TestAppend_DotLockObjectTypeRefused(t *testing.T) {
+	dir, _ := initTestRepo(t)
+	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
+	store, err := dag.Open(dir, ident, withVocabularies())
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+
+	env := codec.Envelope{
+		ObjectID:   "w-1",
+		ObjectType: "acme.lock",
+		OpType:     "create",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{}`),
+	}
+
+	_, err = store.Append(context.Background(), env, nil)
+	if err == nil {
+		t.Fatalf("expected error on \".lock\"-ending object type")
+	}
+	if !strings.Contains(err.Error(), "cannot own a chain") {
+		t.Errorf("error = %q, want it to name git's ref rule (\"cannot own a chain\")", err.Error())
+	}
+	if strings.Contains(err.Error(), "invalid object type") {
+		t.Errorf("error = %q, should not blame the grammar (\"invalid object type\") for a grammar-legal name", err.Error())
+	}
+}
+
+// TestAppend_BareLockObjectTypeAccepted pins the over-strictness
+// correction WRIT-232 makes to the same gate: a bare "lock" object type
+// does not end in ".lock", and git accepts
+// refs/writ/<writer-id>/lock (verified against real git in the PR), so
+// Append must not refuse it at the ref-writability gate. This test
+// declares "lock" in its own vocabulary so a clean Append return proves
+// the gate let it through, rather than merely that some later, unrelated
+// refusal did not fire.
+func TestAppend_BareLockObjectTypeAccepted(t *testing.T) {
+	dir, _ := initTestRepo(t)
+	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
+
+	resolve := func() (codec.Vocabularies, error) {
+		return codec.Vocabularies{
+			"lock": declaredType("lock",
+				spec.FieldRule{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
+			),
+		}, nil
+	}
+
+	store, err := dag.Open(dir, ident, dag.WithProducerVocabularies(resolve))
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+
+	env := codec.Envelope{
+		ObjectID:   "w-1",
+		ObjectType: "lock",
+		OpType:     "create",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"title":"Widget 1"}`),
+	}
+
+	op, err := store.Append(context.Background(), env, nil)
+	if err != nil {
+		t.Fatalf("Append with bare \"lock\" object type failed: %v", err)
+	}
+	if op == nil {
+		t.Fatalf("Append returned nil op with nil error")
 	}
 }
 
