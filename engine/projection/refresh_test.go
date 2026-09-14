@@ -605,34 +605,6 @@ func TestRefreshIncrementalEmptyObjectType(t *testing.T) {
 	}
 }
 
-func TestDetermineObjectTypePrecedence(t *testing.T) {
-	// 1. Create op beats other ops even when not first
-	ops := []codec.Op{
-		{Envelope: codec.Envelope{ObjectType: "widget", OpType: "update"}},
-		{Envelope: codec.Envelope{ObjectType: "gadget", OpType: "create"}},
-	}
-	if got := projection.DetermineObjectType(ops); got != "gadget" {
-		t.Errorf("got %q, want 'gadget'", got)
-	}
-
-	// 2. First non-empty ObjectType when no create op
-	ops2 := []codec.Op{
-		{Envelope: codec.Envelope{ObjectType: "", OpType: "update"}},
-		{Envelope: codec.Envelope{ObjectType: "widget", OpType: "update"}},
-	}
-	if got := projection.DetermineObjectType(ops2); got != "widget" {
-		t.Errorf("got %q, want 'widget'", got)
-	}
-
-	// 3. Fallback when all empty
-	ops3 := []codec.Op{
-		{Envelope: codec.Envelope{ObjectType: "", OpType: "update"}},
-	}
-	if got := projection.DetermineObjectType(ops3); got != "" {
-		t.Errorf("got %q, want ''", got)
-	}
-}
-
 // TestCollidingLogDeclaredTypeStaysOpenable is WRIT-189 round 1's MAJOR-3
 // finding, exercised at the level Store.Open actually calls: a log-declared
 // object type ("widget--base") whose generated table name collides with

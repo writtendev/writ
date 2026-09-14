@@ -238,7 +238,7 @@ func (d *DB) Refresh(store *dag.Store, opts ...Option) (Stats, error) {
 		if len(ops) == 0 {
 			continue
 		}
-		objType := determineObjectType(ops)
+		objType := state.DetermineObjectType(ops)
 		if objType == "" {
 			var dbType string
 			err := d.db.QueryRow("SELECT object_type FROM objects WHERE object_id = ?", objID).Scan(&dbType)

@@ -58,6 +58,12 @@ var (
 	ErrMixedObjects = fold.ErrMixedObjects
 )
 
+// DetermineObjectType re-exports fold.DetermineObjectType so that
+// engine/projection — whose import allowlist admits engine/state but not
+// the internal engine/internal/fold package — can share the one
+// implementation instead of keeping its own copy.
+func DetermineObjectType(ops []codec.Op) string { return fold.DetermineObjectType(ops) }
+
 // internalRules converts the public rule table into the internal one. The
 // typed reducers below share it so that they and the generic driver decide
 // which operations are uninterpretable from the same rules.

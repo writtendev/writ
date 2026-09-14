@@ -125,15 +125,18 @@ func opMatchesRule(op codec.Op, r Rule) bool {
 	return true
 }
 
-// DetermineObjectType determines the object type from an ops slice, matching
-// the precedence in engine/projection/materialize.go: prioritize create ops
-// with non-empty ObjectType, then first non-empty ObjectType, then
-// ops[0].ObjectType if non-empty, else "". Exported so package writ's
-// Objects.Get (engine/objects.go) can reuse this instead of keeping its own
-// copy — Get has to know an object's type before it can select which rules
-// to fold against, which Fold below otherwise only ever does internally,
-// after the fact.
+// DetermineObjectType determines the object type from an ops slice:
+// prioritize create ops with non-empty ObjectType, then first non-empty
+// ObjectType, then ops[0].ObjectType if non-empty, else "". Exported so
+// package writ's Objects.Get (engine/objects.go), engine/scenario/runner.go,
+// and the projection (via engine/state.DetermineObjectType) can share one
+// implementation instead of each keeping its own copy — Get has to know an
+// object's type before it can select which rules to fold against, which
+// Fold below otherwise only ever does internally, after the fact.
 func DetermineObjectType(ops []codec.Op) string {
+	// The create-op preference is provisional: create is an example of a
+	// type's op vocabulary, not a requirement (spec/op-envelope.md), and
+	// what replaces it is WRIT-231's ruling. Do not change it here.
 	for _, op := range ops {
 		if op.OpType == "create" && op.ObjectType != "" {
 			return op.ObjectType

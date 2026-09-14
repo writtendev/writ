@@ -44,7 +44,7 @@ func materializeObject(tx *sql.Tx, desc *schemaDescriptor, objectID string, ops 
 	createdAt := firstOp.Author.When.UTC().Unix()
 	updatedAt := lastOp.Author.When.UTC().Unix()
 	lastOpID := lastOp.ID
-	objectType := determineObjectType(orderedOps)
+	objectType := state.DetermineObjectType(orderedOps)
 
 	if _, err := tx.Exec(
 		"INSERT INTO objects (object_id, object_type, op_count, last_op_id, author_name, author_email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -699,26 +699,6 @@ func computeUnknownFields(orderedOps []codec.Op, rules []state.Rule, unknownOps 
 		return ""
 	}
 	return string(b)
-}
-
-// determineObjectType determines the object type from an ops slice,
-// prioritizing create ops with non-empty ObjectType, then the first
-// non-empty ObjectType, then ops[0].ObjectType if non-empty, else "".
-func determineObjectType(ops []codec.Op) string {
-	for _, op := range ops {
-		if op.OpType == "create" && op.ObjectType != "" {
-			return op.ObjectType
-		}
-	}
-	for _, op := range ops {
-		if op.ObjectType != "" {
-			return op.ObjectType
-		}
-	}
-	if len(ops) > 0 {
-		return ops[0].ObjectType
-	}
-	return ""
 }
 
 // deleteObjectState removes objectID's row from substrate (objects,
