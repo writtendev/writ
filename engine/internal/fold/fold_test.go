@@ -99,7 +99,7 @@ func TestFoldObjectTypeInference(t *testing.T) {
 			wantType: "",
 		},
 		{
-			name: "subsequent create op takes precedence over first non-empty op",
+			name: "earliest op in canonical order names the type, even when that op is named create",
 			ops: []codec.Op{
 				{
 					ID: "op-update",
@@ -332,13 +332,14 @@ func TestDetermineObjectTypeCanonicalOrder(t *testing.T) {
 		t.Errorf("got %q, want 'gadget'", got)
 	}
 
-	// 2. Canonical order follows causality, not input slice order: op-child
-	// names op-parent as a parent, so op-parent orders first (t*=baseTime)
-	// even though it appears second in the input slice and its own
-	// timestamp is later than an unrelated op would need to beat.
+	// 2. Canonical order follows causality, not input slice order: op-parent's
+	// own wall-clock timestamp is later than op-child's, so without the
+	// Parents edge op-child (the earlier raw timestamp) would sort first and
+	// this test would want "widget", not "draft". The edge is what forces
+	// op-parent's t* to dominate and orders it first regardless.
 	ops2 := []codec.Op{
-		{ID: "op-child", Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "widget", OpType: "update"}, Parents: []string{"op-parent"}, Author: codec.Identity{When: baseTime.Add(time.Minute)}},
-		{ID: "op-parent", Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "draft", OpType: "open"}, Author: codec.Identity{When: baseTime}},
+		{ID: "op-child", Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "widget", OpType: "update"}, Parents: []string{"op-parent"}, Author: codec.Identity{When: baseTime}},
+		{ID: "op-parent", Envelope: codec.Envelope{ObjectID: "obj-1", ObjectType: "draft", OpType: "open"}, Author: codec.Identity{When: baseTime.Add(time.Minute)}},
 	}
 	if got := fold.DetermineObjectType(ops2); got != "draft" {
 		t.Errorf("got %q, want 'draft'", got)

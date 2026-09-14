@@ -44,7 +44,11 @@ func materializeObject(tx *sql.Tx, desc *schemaDescriptor, objectID string, ops 
 	createdAt := firstOp.Author.When.UTC().Unix()
 	updatedAt := lastOp.Author.When.UTC().Unix()
 	lastOpID := lastOp.ID
-	objectType := state.DetermineObjectType(orderedOps)
+	// orderedOps is already dag.Order's canonical order (above), so its
+	// earliest element names the type directly — calling
+	// state.DetermineObjectType here would re-run the same Kahn sort a
+	// second time over a slice already sorted by it.
+	objectType := orderedOps[0].ObjectType
 
 	if _, err := tx.Exec(
 		"INSERT INTO objects (object_id, object_type, op_count, last_op_id, author_name, author_email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
