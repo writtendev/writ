@@ -109,9 +109,15 @@ type ObjectState struct {
 // opMatchesRule returns true if op matches the rule's op_type, op_version and
 // object_type filters. object_type is read straight off op (spec/fold.md §5):
 // no clock, no I/O, no ambient state, and — unlike DetermineObjectType below,
-// which infers a whole op set's object type from create-op precedence for
-// ObjectState.ObjectType — this never resolves anything beyond the single op
-// in front of it.
+// which orders a whole op set to answer a caller that needs an object's type
+// before it has folded it (Objects.Get, engine/scenario/runner.go, and the
+// projection via state.DetermineObjectType) — this never resolves anything
+// beyond the single op in front of it. Fold below does not call
+// DetermineObjectType either: it reads orderedOps[0].Op.ObjectType directly
+// once it has already ordered the ops for its own purposes. That leaves three
+// independent expressions of "the object's type" — this filter, Fold's direct
+// read, and materialize.go's own direct read — with nothing asserting they
+// agree.
 func opMatchesRule(op codec.Op, r Rule) bool {
 	if r.OpType != "" && r.OpType != op.OpType {
 		return false
@@ -125,32 +131,29 @@ func opMatchesRule(op codec.Op, r Rule) bool {
 	return true
 }
 
-// DetermineObjectType determines the object type from an ops slice:
-// prioritize create ops with non-empty ObjectType, then first non-empty
-// ObjectType, then ops[0].ObjectType if non-empty, else "". Exported so
-// package writ's Objects.Get (engine/objects.go), engine/scenario/runner.go,
-// and the projection (via engine/state.DetermineObjectType) can share one
+// DetermineObjectType returns the object_type of ops' earliest op in the
+// canonical total order (spec/fold.md §4): the op that created the object
+// names its type, without assuming any particular op_type names creation —
+// a log-declared type may name its creating op anything (spec/op-envelope.md
+// gives "create" only as an example; WRIT-231). Exported so package writ's
+// Objects.Get (engine/objects.go), engine/scenario/runner.go, and the
+// projection (via engine/state.DetermineObjectType) can share one
 // implementation instead of each keeping its own copy — Get has to know an
 // object's type before it can select which rules to fold against, which
 // Fold below otherwise only ever does internally, after the fact.
+//
+// If ops cannot be ordered (ErrCycle, ErrDuplicateOpID, ErrMixedObjects — all
+// inputs whose Fold fails anyway), DetermineObjectType falls back to
+// ops[0].ObjectType so no caller grows a new error path.
 func DetermineObjectType(ops []codec.Op) string {
-	// The create-op preference is provisional: create is an example of a
-	// type's op vocabulary, not a requirement (spec/op-envelope.md), and
-	// what replaces it is WRIT-231's ruling. Do not change it here.
-	for _, op := range ops {
-		if op.OpType == "create" && op.ObjectType != "" {
-			return op.ObjectType
-		}
+	if len(ops) == 0 {
+		return ""
 	}
-	for _, op := range ops {
-		if op.ObjectType != "" {
-			return op.ObjectType
-		}
-	}
-	if len(ops) > 0 {
+	ordered, err := Order(ops)
+	if err != nil {
 		return ops[0].ObjectType
 	}
-	return ""
+	return ordered[0].ObjectType
 }
 
 // Fold executes deterministic fold reduction on an input set of operations
@@ -161,12 +164,12 @@ func Fold(ops []codec.Op, rules []Rule) (ObjectState, error) {
 	}
 
 	objectID := ops[0].ObjectID
-	objectType := DetermineObjectType(ops)
 
 	orderedOps, err := OrderWithTStar(ops)
 	if err != nil {
 		return ObjectState{}, err
 	}
+	objectType := orderedOps[0].Op.ObjectType
 
 	reach := BuildReachability(orderedOps)
 
