@@ -138,16 +138,16 @@ func BenchmarkVocabulariesCache(b *testing.B) {
 // ticket's PR description for this benchmark's own before/after numbers.
 //
 // What this measures, and what it does not. At -benchtime=200x the timed
-// loop spans several times the 100ms window (200 appends at ~1.3ms each),
-// so the window expires repeatedly inside it and the residual is measured
-// rather than hidden: the post-fix column still rises with refCount, with
-// the slope cut by roughly the number of appends one window covers. Read
-// it as an amortisation of a cost that remains linear in total ref count,
-// never as "refCount no longer matters" — it does. And the one warm-up
-// append runs before b.ResetTimer(), so nothing here speaks to the
-// cold-cache, single-append-per-process case (one CLI invocation, one
-// dag.Chains scan): that one is unhelped by construction and is
-// deliberately out of WRIT-202's scope.
+// loop spans several times the 100ms window (200 appends at ~1.2-2.2ms
+// each), so the window expires repeatedly inside it and the residual is
+// measured rather than hidden: the post-fix column still rises with
+// refCount, with the slope cut by roughly the number of appends one window
+// covers. Read it as an amortisation of a cost that remains linear in
+// total ref count, never as "refCount no longer matters" — it does. And
+// the one warm-up append runs before b.ResetTimer(), so nothing here
+// speaks to the cold-cache, single-append-per-process case (one CLI
+// invocation, one dag.Chains scan): that one is unhelped by construction
+// and is deliberately out of WRIT-202's scope.
 func BenchmarkAppendByRefCount(b *testing.B) {
 	for _, refCount := range []int{0, 200, 500, 2000} {
 		b.Run(fmt.Sprintf("refs=%d", refCount), func(b *testing.B) {

@@ -552,13 +552,13 @@ checks is never permitted.
 
 A producer's refusal to sign an op is therefore evidence that op violated the
 schema as of that view, not a guarantee that the log as a whole contains no
-op violating the schema's current state — a distinction §7.1 already forces
-for a foreign producer's ops, which a conforming reader MUST interpret to
-whatever extent the closed catalogue allows regardless of what that
-producer validated, or whether it validated anything at all. Bounding how
-stale a producer's own view may get before it revalidates is an
-implementation's own performance concern, not a wire-format rule this
-document constrains.
+op violating the schema's current state — a distinction
+[spec/fold.md](fold.md) §7.1 already forces for a foreign producer's ops,
+which a conforming reader MUST interpret to whatever extent the closed
+catalogue allows regardless of what that producer validated, or whether it
+validated anything at all. Bounding how stale a producer's own view may get
+before it revalidates is an implementation's own performance concern, not a
+wire-format rule this document constrains.
 
 ## Reader validation
 

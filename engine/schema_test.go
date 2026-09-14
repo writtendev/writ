@@ -2506,6 +2506,116 @@ type gizmo {
 	}
 }
 
+// TestVocabulariesForAppend_FullResolveStampsTheAppendWindow pins the
+// stamp on Store.vocabularies' *full-resolve* path — the other half of
+// WRIT-202's "stamps vocabObservedAt on BOTH branches", and the one line
+// round 2 found still had no regression net: deleting it left the whole
+// package green. Without it the call that pays for a full resolve never
+// opens a window, so the very next append delegates again and pays a
+// second dag.Chains ref walk — one extra walk per invalidation cycle,
+// silently, with nothing failing.
+//
+// Reaching that branch deterministically takes an invalidation first:
+// Store.Open's own initial-rules resolve leaves a fresh stamp behind, so
+// on an untouched handle every call is a window hit and the full-resolve
+// branch is never taken at all. Handle B's own "schema" append is the
+// invalidation — noteAppend zeroes vocabObservedAt and vocabChains
+// together — so the next call must take the full resolve.
+//
+// The observable is the same negative one as the fingerprint-hit test
+// above, and for the same reason: a stamp is visible only as staleness the
+// window is supposed to have. At 50ms B must still be serving the snapshot
+// its full resolve produced. Delete the stamp and the zero the schema
+// append left is still there, the IsZero guard forces a delegate, and B
+// re-resolves and sees peer.gizmo. The 150ms control keeps this from
+// passing merely because A's change never landed.
+func TestVocabulariesForAppend_FullResolveStampsTheAppendWindow(t *testing.T) {
+	dir, _ := setupConfiguredRepo(t)
+	ctx := context.Background()
+
+	handleA, err := writ.Open(dir, writ.WithSigner(dummySigner()), writ.WithCacheDir(t.TempDir()))
+	if err != nil {
+		t.Fatalf("Open handle A failed: %v", err)
+	}
+	defer handleA.Close()
+
+	// writ.WithoutAutoRefresh() is load-bearing here for the same reason it
+	// is on TestVocabulariesForAppend_LocalSchemaAppendForcesFreshResolve:
+	// under the default autoRefresh, ApplySchema's maybeAutoRefresh runs a
+	// Refresh -> rules -> vocabularies pass that resolves and stamps on its
+	// own, so the branch under test would be reached by that pass rather
+	// than by the call the assertions below look at.
+	handleB, err := writ.Open(dir, writ.WithSigner(dummySigner()), writ.WithCacheDir(t.TempDir()), writ.WithoutAutoRefresh())
+	if err != nil {
+		t.Fatalf("Open handle B failed: %v", err)
+	}
+	defer handleB.Close()
+
+	frozen := time.Now()
+	now := frozen
+	writ.SetStoreClock(handleB, func() time.Time { return now })
+
+	if err := handleB.ApplySchema(ctx, compileTestSchema(t, "sch-b-full-resolve", `namespace bee
+description "handle B's own vocabulary, appended to invalidate B's cache"
+
+type widget {
+  op create 1 {
+    title string(200) lww
+  }
+}
+`)); err != nil {
+		t.Fatalf("handle B ApplySchema failed: %v", err)
+	}
+
+	// t=0: the call the invalidation forces. This is the full resolve, and
+	// on shipped code it stamps vocabObservedAt = frozen.
+	warm, err := writ.StoreVocabulariesForAppend(handleB, ctx)
+	if err != nil {
+		t.Fatalf("StoreVocabulariesForAppend (full resolve) failed: %v", err)
+	}
+	if v, ok := warm["bee.widget"]; !ok || !v.Declared {
+		t.Fatalf("the resolve after handle B's own schema append does not see the type that append declared: this call was not the full-resolve branch the test needs")
+	}
+	if v, ok := warm["peer.gizmo"]; ok && v.Declared {
+		t.Fatalf("peer.gizmo unexpectedly already declared before handle A wrote it")
+	}
+
+	if err := handleA.ApplySchema(ctx, compileTestSchema(t, "sch-peer-full-resolve", `namespace peer
+description "peer vocabulary for the full-resolve stamp test"
+
+type gizmo {
+  op create 1 {
+    title string(200) lww
+  }
+}
+`)); err != nil {
+		t.Fatalf("handle A ApplySchema failed: %v", err)
+	}
+
+	// 50ms: half a window after the full resolve, so B must still be served
+	// out of the window that resolve opened — no ref access, no peer.gizmo.
+	now = frozen.Add(50 * time.Millisecond)
+	inside, err := writ.StoreVocabulariesForAppend(handleB, ctx)
+	if err != nil {
+		t.Fatalf("StoreVocabulariesForAppend (inside the full resolve's window) failed: %v", err)
+	}
+	if v, ok := inside["peer.gizmo"]; ok && v.Declared {
+		t.Fatalf("handle B re-derived at 50ms, half a window after paying for a full resolve: that resolve did not stamp vocabObservedAt, so every invalidation costs a second dag.Chains ref walk on the very next append")
+	}
+
+	// 150ms: past the window. Control — proves the assertion above is about
+	// the window, not about the peer's change being invisible for some other
+	// reason.
+	now = frozen.Add(150 * time.Millisecond)
+	after, err := writ.StoreVocabulariesForAppend(handleB, ctx)
+	if err != nil {
+		t.Fatalf("StoreVocabulariesForAppend (after the full resolve's window) failed: %v", err)
+	}
+	if v, ok := after["peer.gizmo"]; !ok || !v.Declared {
+		t.Fatalf("handle B still does not see handle A's schema change 150ms after its own full resolve")
+	}
+}
+
 // TestTypes_AlwaysSeesAnotherHandlesSchemaChange pins WRIT-202 item 4's
 // conservative split: Store.Types (through Store.declaredTypes and
 // Store.vocabularies) must keep re-deriving ground truth on every call,

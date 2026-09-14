@@ -85,19 +85,22 @@ func (s *Store) Schema(ctx context.Context) ([]state.Schema, error) {
 // cached producer-vocabularies snapshot without re-deriving it from
 // dag.Chains (WRIT-202). It exists because a cache *hit* in vocabularies
 // below still costs one full IterReferences pass over every ref in the
-// repository, which makes every Append linear in total ref count — round
-// 2's measurement: 0.75ms flat on main vs. 0.75ms -> 6.7ms -> 21ms ->
-// 114ms at 0/200/500/2,000 loose refs. The public write surface is one op
-// at a time (Objects.Create, Store.Append; there is no batch path), so an
-// agent writing 50 ops today pays for 50 full ref scans; this window lets
-// one dag.Chains pass amortise across a burst instead. 100ms is chosen to
-// comfortably cover a burst (BenchmarkAppendByRefCount's per-append cost
-// at 2,000 refs is ~114ms *before* this window — a single scan the window
-// then lets a whole burst share) without drifting so wide that the
-// accepted second-handle risk documented on vocabulariesForAppend below
-// widens with it. This is one fixed, unexported constant, not an Open
-// option (WRIT-202 item 2): if a caller ever needs different behaviour,
-// that is a separate ticket driven by that caller's own measurement.
+// repository, which makes every Append linear in total ref count —
+// BenchmarkAppendByRefCount on this branch's head with this window
+// disabled (Apple M2 Max, -benchtime=200x -count=3, medians of three):
+// 1.16ms -> 8.51ms -> 20.03ms -> 67.98ms at 0/200/500/2,000 loose refs,
+// against 1.20ms -> 1.26ms -> 1.40ms -> 2.24ms with it. The public write
+// surface is one op at a time (Objects.Create, Store.Append; there is no
+// batch path), so an agent writing 50 ops today pays for 50 full ref
+// scans; this window lets one dag.Chains pass amortise across a burst
+// instead. 100ms is chosen to comfortably cover a burst
+// (BenchmarkAppendByRefCount's per-append cost at 2,000 refs is ~68ms
+// *before* this window — a single scan the window then lets a whole burst
+// share) without drifting so wide that the accepted second-handle risk
+// documented on vocabulariesForAppend below widens with it. This is one
+// fixed, unexported constant, not an Open option (WRIT-202 item 2): if a
+// caller ever needs different behaviour, that is a separate ticket driven
+// by that caller's own measurement.
 const vocabFreshnessWindow = 100 * time.Millisecond
 
 // vocabularies resolves the log-sourced producer vocabularies
@@ -202,11 +205,19 @@ func (s *Store) vocabularies(ctx context.Context) (codec.Vocabularies, error) {
 // watching client, writ's normal case) can sign an op this window's stale
 // view would have refused, for up to vocabFreshnessWindow after the first
 // handle's ApplySchema — see TestVocabulariesForAppend_SecondHandleRisk.
-// Those ops are permanent, but the reader remains total (spec/fold.md
-// §7.1) and withholds or quarantines the affected field rather than
-// corrupting anything, so the outcome is visible even though it does not
-// un-happen. This is accepted, not a bug to "fix" by widening what this
-// function observes.
+// Those ops are permanent, and the reader stays total either way
+// (spec/fold.md §7.1): fold never errors, and one bad op costs that op,
+// never the object. But the unit of loss is the operation, not the field.
+// §7.1 rule 1 is "reject the whole operation, not the offending field", so
+// an op carrying a value some declared merge strategy cannot consume
+// contributes no field writes at all — the well-formed fields it also
+// carried included — and is quarantined as an FC-5 opaque record while
+// staying in the DAG byte-for-byte. Milder shapes cost less: an undeclared
+// field is preserved and ignored and the op folds, and a value that only
+// contradicts a declared value type folds as written, because §7.1
+// deliberately does not enforce declared value types. The outcome is
+// visible in every case; it just does not un-happen. This is accepted, not
+// a bug to "fix" by widening what this function observes.
 func (s *Store) vocabulariesForAppend(ctx context.Context) (codec.Vocabularies, error) {
 	if s == nil {
 		return nil, fmt.Errorf("writ: store is nil")
