@@ -303,9 +303,16 @@ func TestAppendVersionBumpIsDeterministic(t *testing.T) {
 // (see its own comment in ddl.go), the same surface WRIT-239 is about —
 // whether writ.Fold itself should be made total against caller-supplied
 // mismatched-arity keyed-lww rules is that ticket's question, not this
-// package's. This test does not exercise fold's comparator panic either
-// way: it only reaches buildTypeDescriptor's decline, which never
-// constructs a keyedLWWAccumulator for the withheld target.
+// package's. This test does exercise fold's comparator: materialize.go
+// hands state.Fold the unfiltered rule slice (WithheldTargets is only
+// consulted afterward, for unknown_fields), so a keyedLWWAccumulator is
+// constructed for the withheld "verdict" target and reaches Result()
+// with both v1's and v2's entries. It survives that only because both
+// verdict rules' key tuples are kept at the same arity (2) — a
+// differing-arity pair reaching that comparator panics intermittently
+// (spec/schema-source.md §7) — so this test is deliberately shaped to
+// exercise the fold path without tripping over it; do not widen either
+// tuple without preserving that equality.
 //
 // "revision" is a second target sharing verdict's v1 key tuple
 // (subject, revision) with no disagreement of its own, standing in for the

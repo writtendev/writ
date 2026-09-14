@@ -452,8 +452,16 @@ every single op (`keyedLWWAccumulator.Apply`,
 `engine/internal/fold/strategy.go`) — so when two bound rules disagree
 on key arity, the accumulator's `latest` map ends up holding key tuples
 of two different lengths side by side, regardless of which rule sorts
-first, which is exactly the shape `Result`'s sort comparator cannot
-handle. `engine/schemasrc.Compile` rejects all three at compile time,
+first. `Result`'s sort comparator (same file) walks the longer tuple's
+indices and reads the shorter one at each; when the shorter tuple's
+components are a strict prefix of the longer one's, nothing differs
+before the read runs past the shorter tuple's end, and the comparator
+panics on an out-of-range index. A mixed-arity pair that is not
+prefix-related differs inside the shared indices instead, returns
+before reaching the end, and never panics — differing length is
+necessary but not sufficient; the shorter tuple being a strict prefix
+of the longer one is the actual trigger. `engine/schemasrc.Compile`
+rejects all three at compile time,
 with a line and column, rather than deferring to the resolver: `compileType` runs this check once every field of the type
 has been compiled, after the field loop, so nothing about it needs to
 wait until the type's rules are assembled elsewhere. A version bump is
