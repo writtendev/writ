@@ -1,0 +1,29 @@
+{
+  "objects": [
+    {
+      "object_id": "ticket-canonical-01",
+      "object_type": "acme.ticket",
+      "total_order": [
+        {
+          "commit": "78e9f1db9e979ad14464588b390b31ea9bdfc516",
+          "label": "alice-open",
+          "t_star": 1767225600
+        },
+        {
+          "commit": "a5e0e053e835075faea36b2ecaf9aacb8ae026d6",
+          "label": "bob-create",
+          "t_star": 1767225660
+        },
+        {
+          "commit": "85ea7235f5297029e29de231360614c4a4d61ba3",
+          "label": "alice-update",
+          "t_star": 1767225720
+        }
+      ],
+      "state": {
+        "body": "mismatched type create op",
+        "title": "Updated Ticket"
+      }
+    }
+  ]
+}

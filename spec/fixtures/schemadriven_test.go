@@ -16,6 +16,7 @@ import (
 	"github.com/writtendev/writ/engine/codec/canonicaljson"
 	"github.com/writtendev/writ/engine/dag"
 	"github.com/writtendev/writ/engine/identity"
+	"github.com/writtendev/writ/engine/state"
 	"github.com/writtendev/writ/spec/fixtures"
 )
 
@@ -194,7 +195,7 @@ func runSchemaDrivenFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error)
 	sort.Strings(nonSchemaIDs)
 	for _, objID := range nonSchemaIDs {
 		ops := nonSchemaOps[objID]
-		objType := ops[0].ObjectType
+		objType := state.DetermineObjectType(ops)
 
 		objState, err := writ.Fold(ops, rules[objType])
 		if err != nil {

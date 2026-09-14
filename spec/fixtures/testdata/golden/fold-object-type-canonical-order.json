@@ -1,0 +1,131 @@
+{
+  "refs": [
+    {
+      "name": "refs/writ/0123456789abcdef/schema",
+      "commit": "eac7421b76ff16d2d7901c1454a01f4611fb2169"
+    },
+    {
+      "name": "refs/writ/0123456789abcdef/ticket",
+      "commit": "85ea7235f5297029e29de231360614c4a4d61ba3"
+    },
+    {
+      "name": "refs/writ/fedcba9876543210/ticket",
+      "commit": "a5e0e053e835075faea36b2ecaf9aacb8ae026d6"
+    }
+  ],
+  "generations": [
+    {
+      "ref": "refs/writ/0123456789abcdef/schema",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "7e7b98e49daea722263a972a87eb6425554eec85",
+          "tree": "2601775727c841f53a2960e4169e9a4a216f66d2",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:00:00Z",
+          "message": "writ: create schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "bd7e2d2ea145018aa92aaddafe90ff59e00eee3c",
+          "tree": "bc8957238ac31a634b455044a2d730a9653d3cee",
+          "parents": [
+            "7e7b98e49daea722263a972a87eb6425554eec85"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:01:00Z",
+          "message": "writ: define-type schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "da8fda91c58f4cb47777140f0e9f60fb5034ce74",
+          "tree": "a54cc4ce6ebd4c73eacd0bfd94325ec77177d978",
+          "parents": [
+            "bd7e2d2ea145018aa92aaddafe90ff59e00eee3c"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:02:00Z",
+          "message": "writ: define-type schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "e3c15c6793775ae3b11ec4ac36820e8e97960c86",
+          "tree": "0be9380a3dee168502fdab741625810695696c3c",
+          "parents": [
+            "da8fda91c58f4cb47777140f0e9f60fb5034ce74"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:03:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "8888723cceb2b0061165aa0e93220d921c929f33",
+          "tree": "748431374ea056471e664c717a2f6f500f42461c",
+          "parents": [
+            "e3c15c6793775ae3b11ec4ac36820e8e97960c86"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:04:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "eac7421b76ff16d2d7901c1454a01f4611fb2169",
+          "tree": "42e66432071941398188762b34811a362652bee8",
+          "parents": [
+            "8888723cceb2b0061165aa0e93220d921c929f33"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:05:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/ticket",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "78e9f1db9e979ad14464588b390b31ea9bdfc516",
+          "tree": "f600f0543a56e2a3e1f3d7e4e0857b0c4db3fe95",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "message": "writ: open acme.ticket/ticket-canonical-01\n",
+          "signed": true
+        },
+        {
+          "sha": "85ea7235f5297029e29de231360614c4a4d61ba3",
+          "tree": "1f4a90ad45a05a9a01aabd88671dab3c28f998a7",
+          "parents": [
+            "78e9f1db9e979ad14464588b390b31ea9bdfc516"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:02:00Z",
+          "message": "writ: update acme.ticket/ticket-canonical-01\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/fedcba9876543210/ticket",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "a5e0e053e835075faea36b2ecaf9aacb8ae026d6",
+          "tree": "0b680a1873a83956d6f2c35d1f4dece6a37109c6",
+          "parents": [
+            "78e9f1db9e979ad14464588b390b31ea9bdfc516"
+          ],
+          "author": "Bob Example \u003cbob@example.test\u003e",
+          "timestamp": "2026-01-01T00:01:00Z",
+          "message": "writ: create acme.comment/ticket-canonical-01\n",
+          "signed": true
+        }
+      ]
+    }
+  ]
+}
