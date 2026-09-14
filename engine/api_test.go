@@ -12,9 +12,6 @@ func TestAPIShapeNoGitInternalsLeak(t *testing.T) {
 	// Root types and handles to reflect over
 	targets := []any{
 		writ.Store{},
-		writ.Drafts{},
-		writ.Draft{},
-		writ.DraftFilter{},
 		writ.ReadState{},
 		writ.Query{},
 		writ.SyncResult{},

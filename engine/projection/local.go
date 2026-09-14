@@ -1,34 +1,11 @@
 package projection
 
 import (
-	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/writtendev/writ/engine/resolve"
 )
-
-// Draft represents an unpublished local draft.
-type Draft struct {
-	DraftID     string          `json:"draft_id"`
-	SubjectType string          `json:"subject_type"`
-	SubjectID   string          `json:"subject_id"`
-	InReplyTo   string          `json:"in_reply_to,omitempty"`
-	Anchor      *resolve.Anchor `json:"anchor,omitempty"`
-	Text        string          `json:"text"`
-	CreatedAt   time.Time       `json:"created_at"`
-	UpdatedAt   time.Time       `json:"updated_at"`
-}
-
-// DraftFilter specifies filtering criteria when querying drafts.
-type DraftFilter struct {
-	SubjectID   string `json:"subject_id,omitempty"`
-	SubjectType string `json:"subject_type,omitempty"`
-}
 
 // ReadMark represents a local read mark for an object.
 type ReadMark struct {
@@ -45,198 +22,12 @@ type SyncCursor struct {
 	LastSyncedAt time.Time `json:"last_synced_at"`
 }
 
-func mintDraftID() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		panic(fmt.Sprintf("projection: rand.Read failed: %v", err))
-	}
-	return "draft-" + hex.EncodeToString(b)
-}
-
 // LocalDB returns the underlying *sql.DB connection pool for the local database.
 func (d *DB) LocalDB() *sql.DB {
 	if d == nil {
 		return nil
 	}
 	return d.localDB
-}
-
-// SaveDraft inserts or updates a draft. If draft.DraftID is empty, a unique draft ID is minted.
-func (d *DB) SaveDraft(draft Draft) (string, error) {
-	if d == nil || d.localDB == nil {
-		return "", fmt.Errorf("projection: local database is closed")
-	}
-
-	if draft.DraftID == "" {
-		draft.DraftID = mintDraftID()
-	}
-
-	now := time.Now().UTC()
-	if draft.CreatedAt.IsZero() {
-		draft.CreatedAt = now
-	}
-	draft.UpdatedAt = now
-
-	var anchorStr string
-	if draft.Anchor != nil {
-		b, err := json.Marshal(draft.Anchor)
-		if err != nil {
-			return "", fmt.Errorf("projection: marshal draft anchor: %w", err)
-		}
-		anchorStr = string(b)
-	}
-
-	_, err := d.localDB.Exec(`
-		INSERT OR REPLACE INTO drafts (
-			draft_id, subject_type, subject_id, in_reply_to, anchor, text, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`,
-		draft.DraftID,
-		draft.SubjectType,
-		draft.SubjectID,
-		draft.InReplyTo,
-		anchorStr,
-		draft.Text,
-		draft.CreatedAt.Unix(),
-		draft.UpdatedAt.Unix(),
-	)
-	if err != nil {
-		return "", fmt.Errorf("projection: insert draft: %w", err)
-	}
-
-	return draft.DraftID, nil
-}
-
-// Draft retrieves a single draft by its draft ID.
-func (d *DB) Draft(draftID string) (Draft, error) {
-	if d == nil || d.localDB == nil {
-		return Draft{}, fmt.Errorf("projection: local database is closed")
-	}
-
-	var (
-		dr                                                   Draft
-		anchorStr                                            string
-		createdAtSec, updatedAtSec                           int64
-	)
-
-	err := d.localDB.QueryRow(`
-		SELECT draft_id, subject_type, subject_id, in_reply_to, anchor, text, created_at, updated_at
-		FROM drafts
-		WHERE draft_id = ?
-	`, draftID).Scan(
-		&dr.DraftID,
-		&dr.SubjectType,
-		&dr.SubjectID,
-		&dr.InReplyTo,
-		&anchorStr,
-		&dr.Text,
-		&createdAtSec,
-		&updatedAtSec,
-	)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return Draft{}, ErrNotFound
-		}
-		return Draft{}, fmt.Errorf("projection: query draft %s: %w", draftID, err)
-	}
-
-	dr.CreatedAt = time.Unix(createdAtSec, 0).UTC()
-	dr.UpdatedAt = time.Unix(updatedAtSec, 0).UTC()
-
-	if len(anchorStr) > 0 {
-		anc, err := resolve.ParseAnchor([]byte(anchorStr))
-		if err != nil {
-			return Draft{}, fmt.Errorf("projection: parse draft anchor %s: %w", draftID, err)
-		}
-		dr.Anchor = &anc
-	}
-
-	return dr, nil
-}
-
-// ListDrafts queries drafts matching the provided filter.
-func (d *DB) ListDrafts(filter DraftFilter) ([]Draft, error) {
-	if d == nil || d.localDB == nil {
-		return nil, fmt.Errorf("projection: local database is closed")
-	}
-
-	var sb strings.Builder
-	var args []any
-
-	sb.WriteString("SELECT draft_id, subject_type, subject_id, in_reply_to, anchor, text, created_at, updated_at FROM drafts WHERE 1=1")
-
-	if filter.SubjectID != "" {
-		sb.WriteString(" AND subject_id = ?")
-		args = append(args, filter.SubjectID)
-	}
-	if filter.SubjectType != "" {
-		sb.WriteString(" AND subject_type = ?")
-		args = append(args, filter.SubjectType)
-	}
-
-	sb.WriteString(" ORDER BY created_at ASC, draft_id ASC")
-
-	rows, err := d.localDB.Query(sb.String(), args...)
-	if err != nil {
-		return nil, fmt.Errorf("projection: query drafts: %w", err)
-	}
-	defer rows.Close()
-
-	var drafts []Draft
-	for rows.Next() {
-		var (
-			dr                         Draft
-			anchorStr                  string
-			createdAtSec, updatedAtSec int64
-		)
-
-		if err := rows.Scan(
-			&dr.DraftID,
-			&dr.SubjectType,
-			&dr.SubjectID,
-			&dr.InReplyTo,
-			&anchorStr,
-			&dr.Text,
-			&createdAtSec,
-			&updatedAtSec,
-		); err != nil {
-			return nil, fmt.Errorf("projection: scan draft row: %w", err)
-		}
-
-		dr.CreatedAt = time.Unix(createdAtSec, 0).UTC()
-		dr.UpdatedAt = time.Unix(updatedAtSec, 0).UTC()
-
-		if len(anchorStr) > 0 {
-			anc, err := resolve.ParseAnchor([]byte(anchorStr))
-			if err != nil {
-				return nil, fmt.Errorf("projection: parse draft anchor %s: %w", dr.DraftID, err)
-			}
-			dr.Anchor = &anc
-		}
-
-		drafts = append(drafts, dr)
-	}
-
-	return drafts, rows.Err()
-}
-
-// DeleteDraft removes a draft by its draft ID.
-func (d *DB) DeleteDraft(draftID string) error {
-	if d == nil || d.localDB == nil {
-		return fmt.Errorf("projection: local database is closed")
-	}
-
-	res, err := d.localDB.Exec("DELETE FROM drafts WHERE draft_id = ?", draftID)
-	if err != nil {
-		return fmt.Errorf("projection: delete draft %s: %w", draftID, err)
-	}
-
-	rows, err := res.RowsAffected()
-	if err == nil && rows == 0 {
-		return ErrNotFound
-	}
-
-	return nil
 }
 
 // MarkRead marks an object as read with the given timestamp and last-read op ID.

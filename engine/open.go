@@ -253,7 +253,6 @@ func Open(path string, opts ...Option) (*Store, error) {
 	}
 
 	s.Objects = &Objects{store: s}
-	s.Drafts = &Drafts{store: s}
 	s.ReadState = &ReadState{store: s}
 	s.Query = &Query{store: s}
 

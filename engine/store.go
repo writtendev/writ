@@ -42,9 +42,6 @@ type Store struct {
 	// collaborative objects of any schema-declared type.
 	Objects *Objects
 
-	// Drafts provides local draft creation, updates, listing, discarding, and publishing.
-	Drafts *Drafts
-
 	// ReadState provides local read/unread tracking across collaborative objects.
 	ReadState *ReadState
 
@@ -220,7 +217,7 @@ func (s *Store) Refresh(ctx context.Context) (RefreshStats, error) {
 }
 
 // Rebuild completely discards and recreates the folded projection cache from a cold walk of all writ chains.
-// Local-only state (drafts, read marks, sync cursors) is preserved. The cache file may also simply be deleted.
+// Local-only state (read marks, sync cursors) is preserved. The cache file may also simply be deleted.
 func (s *Store) Rebuild(ctx context.Context) (RefreshStats, error) {
 	if s == nil {
 		return RefreshStats{}, fmt.Errorf("writ: store is nil")

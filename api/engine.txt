@@ -52,31 +52,6 @@ type Anchor = resolve.Anchor
 
 type Author = projection.Author
 
-type Draft struct {
-	ID string `json:"id"`
-	SubjectType string `json:"subject_type"`
-	SubjectID string `json:"subject_id"`
-	InReplyTo string `json:"in_reply_to,omitempty"`
-	Anchor *resolve.Anchor `json:"anchor,omitempty"`
-	Text string `json:"text"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
-type DraftFilter struct {
-	SubjectID string `json:"subject_id,omitempty"`
-	SubjectType string `json:"subject_type,omitempty"`
-}
-
-type Drafts struct {
-	// unexported fields
-}
-func (*Drafts) Discard(ctx context.Context, id string) error
-func (*Drafts) Get(ctx context.Context, id string) (Draft, error)
-func (*Drafts) List(ctx context.Context, filter DraftFilter) ([]Draft, error)
-func (*Drafts) Publish(ctx context.Context, id, objectType string) (string, error)
-func (*Drafts) Save(ctx context.Context, draft Draft) (string, error)
-
 type Event struct {
 	Kind EventKind `json:"kind"`
 	ObjectType string `json:"object_type,omitempty"`
@@ -163,7 +138,6 @@ type Signer = codec.Signer
 
 type Store struct {
 	Objects *Objects
-	Drafts *Drafts
 	ReadState *ReadState
 	Query *Query
 	// unexported fields
@@ -581,13 +555,10 @@ func (*DB) ApplySchema(rules map[string][]state.Rule) error
 func (*DB) ClearRead(objectID string) error
 func (*DB) Close() error
 func (*DB) DB() *sql.DB
-func (*DB) DeleteDraft(draftID string) error
-func (*DB) Draft(draftID string) (Draft, error)
 func (*DB) DumpLocalTables() (map[string][]map[string]any, error)
 func (*DB) DumpTables() (map[string][]map[string]any, error)
 func (*DB) Frontier(objectID string) ([]string, error)
 func (*DB) HasGeneratedTables() bool
-func (*DB) ListDrafts(filter DraftFilter) ([]Draft, error)
 func (*DB) LocalDB() *sql.DB
 func (*DB) MarkRead(objectID, lastReadOpID string, readAt time.Time) error
 func (*DB) Object(objectID string) (ObjectResult, error)
@@ -595,26 +566,9 @@ func (*DB) Objects(f ObjectFilter) ([]ObjectResult, error)
 func (*DB) ReadMarks(objectIDs ...string) (map[string]ReadMark, error)
 func (*DB) Rebuild(store *dag.Store, opts ...Option) (Stats, error)
 func (*DB) Refresh(store *dag.Store, opts ...Option) (Stats, error)
-func (*DB) SaveDraft(draft Draft) (string, error)
 func (*DB) SetSyncCursor(remote, refName, tip string, lastSyncedAt time.Time) error
 func (*DB) String() string
 func (*DB) SyncCursors(remote string) ([]SyncCursor, error)
-
-type Draft struct {
-	DraftID string `json:"draft_id"`
-	SubjectType string `json:"subject_type"`
-	SubjectID string `json:"subject_id"`
-	InReplyTo string `json:"in_reply_to,omitempty"`
-	Anchor *resolve.Anchor `json:"anchor,omitempty"`
-	Text string `json:"text"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
-type DraftFilter struct {
-	SubjectID string `json:"subject_id,omitempty"`
-	SubjectType string `json:"subject_type,omitempty"`
-}
 
 type ObjectChange struct {
 	ObjectID string `json:"object_id"`
