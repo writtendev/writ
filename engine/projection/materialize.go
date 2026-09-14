@@ -312,13 +312,13 @@ func writeChildRows(tx *sql.Tx, plan *targetPlan, objectID string, val any) erro
 // writeAppendGroupRows writes one row per op that matches any of an append
 // group's envelopes and isn't already quarantined into unknown_ops, in the
 // object's total order — the same op-level filter state.Fold and the typed
-// review reducer both apply via fold.Uninterpretable against the same
-// rules, so a wholly rejected op contributes no row here either. Each row
-// carries one column per grouped target, NULL where that particular op's
-// body omitted the field: the row is the pairing, fixed once at write time,
-// rather than something a reader reconstructs by zipping
-// independently-ordered per-field lists back together (WRIT-189 round 2
-// MAJOR-1).
+// schema reducer (state.FoldSchema) both apply via fold.Uninterpretable
+// against the same rules, so a wholly rejected op contributes no row here
+// either. Each row carries one column per grouped target, NULL where that
+// particular op's body omitted the field: the row is the pairing, fixed
+// once at write time, rather than something a reader reconstructs by
+// zipping independently-ordered per-field lists back together (WRIT-189
+// round 2 MAJOR-1).
 //
 // A target declared under more than one envelope (a version bump, or a
 // second op_type agreeing on every merge attribute, spec/schema-ops.md §8)
@@ -461,7 +461,12 @@ func fieldForOp(fields []appendGroupFieldSource, op codec.Op) (string, bool) {
 // together via two indexed EXISTS lookups instead of an unindexed scan.
 // A value that is not object-shaped (or fails to decode) writes nothing —
 // the members table stays a pure performance index, never a second source
-// of truth for the scalar column, which already holds the value verbatim.
+// of truth for the scalar column, which already holds every member of the
+// value. How faithfully depends on the strategy, and this table is built
+// for only two of them (ddl.go: an untyped lww or create-once target, and
+// nothing else): a create-once column holds the op's bytes verbatim, an
+// lww one the re-marshal toText returns, with <, & and > escaped — see
+// columnValue.
 func writeMembersRows(tx *sql.Tx, table, objectID string, raw any) error {
 	var obj map[string]any
 	switch v := raw.(type) {
@@ -506,13 +511,38 @@ func writeMembersRows(tx *sql.Tx, table, objectID string, raw any) error {
 // create-once always hands back raw JSON bytes verbatim regardless of
 // value_type (byte-exact preservation for every non-normalizing value,
 // spec/value-types.md), so a create-once string, int, bool, or any other
-// typed field arrives here as json.RawMessage holding e.g. `"c-reply-1"` —
-// quotes included — not the Go string "c-reply-1". Every value_type except
-// the truly untyped one (value_type == "", where the raw bytes are the
-// point: an arbitrary JSON object like comment.subject, preserved verbatim
-// including unknown members and key order) decodes those bytes back into a
-// native Go value before the switch below runs, so a create-once column
-// reads back exactly as an lww column of the same value_type would.
+// typed field arrives here as json.RawMessage holding e.g. `"item-1"` —
+// quotes included — not the Go string "item-1". Every value_type except
+// the truly untyped one decodes those bytes back into a native Go value
+// before the switch below runs, so a create-once column reads back
+// exactly as an lww column of the same value_type would.
+//
+// "Truly untyped" is valueType == "" as ddl.go resolves it for the whole
+// target, across every rule bound to it: the resolved value_type is the
+// one every bound rule declares, so the target is untyped unless all of
+// them declare the same non-empty value_type. That single predicate — not
+// any particular combination of rules — is what this path turns on.
+// Typechecking meanwhile stays per op: every op is checked against its
+// own rule, so a value_type binds only the ops whose rule declares one.
+// That rule's own typecheck is all this says anything about — declaring
+// a value_type it admits only that type, declaring none it typechecks
+// against no type at all and passes an object as readily as a string. It
+// is not a claim about what the column can hold: other schema
+// constraints, not enumerated here, narrow a field independently of
+// value_type, and a value this typecheck admits can still be refused by
+// one of them before it reaches the column. However the target got
+// there, the raw bytes are the point, because no single declared type is
+// there to decode them back into. A top-level null is refused whichever
+// rule the op is checked against — by Producer validation rule 6
+// (spec/op-envelope.md) unless one of those other constraints refuses it
+// first.
+//
+// Untyped is the one case where that last equivalence does not hold,
+// because only create-once's accumulator hands back raw bytes: an untyped
+// create-once value reaches the column unchanged, unknown members and key
+// order included, while an untyped lww value arrives already decoded and
+// falls through to toText, which stores a JSON object re-marshaled (<, >
+// and & escaped) and a JSON string bare, without its quotes.
 func columnValue(valueType string, v any) any {
 	if v == nil {
 		return nil
@@ -573,10 +603,16 @@ func rawJSONBytes(v any) ([]byte, bool) {
 	return nil, false
 }
 
-// toText renders v as the string a TEXT column stores. create-once's raw
-// bytes (json.RawMessage, for an untyped target such as comment.subject)
-// pass through verbatim — the exact bytes a producer wrote, unknown members
-// and key order included — rather than being decoded and re-marshaled.
+// toText renders v as the string a TEXT column stores. Raw create-once
+// bytes (json.RawMessage, which columnValue forwards here undecoded for
+// any target ddl.go resolved to untyped — any target, that is, whose
+// bound rules do not all declare the same non-empty value_type) pass
+// through verbatim — the exact bytes the op stores, unknown members and
+// key order included. An already-decoded value takes one of the other
+// paths instead: a Go string is stored bare, without the JSON
+// quotes the raw bytes would have carried, and anything the switch below
+// does not special-case is re-marshaled by encoding/json, which escapes
+// <, & and > to \u003c, \u0026 and \u003e.
 func toText(v any) any {
 	switch t := v.(type) {
 	case string:
