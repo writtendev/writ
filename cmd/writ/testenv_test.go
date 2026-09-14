@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/go-git/go-git/v5"
+	"github.com/writtendev/writ/internal/gittest"
 )
 
 func requireGit(t *testing.T) {
@@ -51,6 +54,21 @@ func setupTestCLIEnv(t *testing.T) testCLIEnv {
 	return testCLIEnv{
 		repoDir:       repoDir,
 		globalCfgPath: globalCfgPath,
+	}
+}
+
+// initBareRepo creates a bare repository at dir with go-git.
+//
+// go-git's PlainInit does not read GIT_TEMPLATE_DIR, so the repository misses
+// the auto-maintenance config gittest.DisableAutoMaintenance installs through
+// the template and has to be given it directly.
+func initBareRepo(t *testing.T, dir string) {
+	t.Helper()
+	if _, err := git.PlainInit(dir, true); err != nil {
+		t.Fatalf("PlainInit bare %s: %v", dir, err)
+	}
+	if err := gittest.WriteAutoMaintenanceConfig(dir); err != nil {
+		t.Fatalf("disabling auto-maintenance in %s: %v", dir, err)
 	}
 }
 

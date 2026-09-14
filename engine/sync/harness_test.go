@@ -12,6 +12,7 @@ import (
 	"github.com/writtendev/writ/engine/codec"
 	"github.com/writtendev/writ/engine/dag"
 	"github.com/writtendev/writ/engine/identity"
+	"github.com/writtendev/writ/internal/gittest"
 	"github.com/writtendev/writ/spec"
 )
 
@@ -102,6 +103,14 @@ func initBareRepo(t *testing.T) (string, *git.Repository) {
 	if err != nil {
 		t.Fatalf("PlainInit bare failed: %v", err)
 	}
+
+	// go-git's PlainInit does not read GIT_TEMPLATE_DIR, so this repository
+	// misses the auto-maintenance config gittest.DisableAutoMaintenance
+	// installs through the template and has to be given it directly.
+	if err := gittest.WriteAutoMaintenanceConfig(dir); err != nil {
+		t.Fatalf("disabling auto-maintenance in %s: %v", dir, err)
+	}
+
 	return dir, repo
 }
 
