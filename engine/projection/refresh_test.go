@@ -713,7 +713,7 @@ func TestCollidingLogDeclaredTypeStaysOpenable(t *testing.T) {
 			"collider-1": {collidingOp},
 		},
 		Cursors: dag.CursorSet{
-			"refs/writ/0123456789abcdef/widget":            widgetOp.ID,
+			"refs/writ/0123456789abcdef/widget":       widgetOp.ID,
 			"refs/writ/0123456789abcdef/widget--base": "op-collider-1",
 		},
 		DecodedCommits: 1,

@@ -1,9 +1,12 @@
 package projection_test
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -83,6 +86,44 @@ func queryAppendValues(t *testing.T, db *sql.DB, table string) []string {
 			t.Fatalf("%s: unexpected NULL value — a row is only ever written for an actual entry (WRIT-212)", table)
 		}
 		out = append(out, v.String)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate %s: %v", table, err)
+	}
+	return out
+}
+
+// appendEntry is one row of an append target's row-per-entry table:
+// (op_seq, entry_idx, value), the three columns WRIT-212 gives a contract.
+// queryAppendValues above reads only the values, which is all fold parity
+// needs; pinning op_seq's own contract — that it is the op's index in the
+// object's total order L, gaps at quarantined ops included, and not a
+// counter compacting around them — needs all three.
+type appendEntry struct {
+	OpSeq    int
+	EntryIdx int
+	Value    string
+}
+
+func queryAppendEntries(t *testing.T, db *sql.DB, table, objectID string) []appendEntry {
+	t.Helper()
+	rows, err := db.Query("SELECT op_seq, entry_idx, value FROM "+table+" WHERE object_id = ? ORDER BY op_seq ASC, entry_idx ASC", objectID)
+	if err != nil {
+		t.Fatalf("query %s: %v", table, err)
+	}
+	defer rows.Close()
+	var out []appendEntry
+	for rows.Next() {
+		var e appendEntry
+		var v sql.NullString
+		if err := rows.Scan(&e.OpSeq, &e.EntryIdx, &v); err != nil {
+			t.Fatalf("scan %s: %v", table, err)
+		}
+		if !v.Valid {
+			t.Fatalf("%s: unexpected NULL value — a row is only ever written for an actual entry (WRIT-212)", table)
+		}
+		e.Value = v.String
+		out = append(out, e)
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatalf("iterate %s: %v", table, err)
@@ -545,13 +586,26 @@ func TestAppendArrayFieldFlattensToOneRowPerElement(t *testing.T) {
 	}
 }
 
-// TestAppendExplicitNullContributesNoRow pins the second of the ticket's
-// three folded-in latent defects: the old shared append table's materializer
-// gated on presence alone (`if v, ok := body[field]; ok`), so an explicit
-// JSON null wrote a NULL cell, while the append accumulator itself skips a
-// null exactly like an absent field (`!ok || raw == nil`). Row-per-entry
-// removes the divergence: an explicit null contributes no row at all, the
-// same as never having written the field.
+// TestAppendExplicitNullContributesNoRow pins the end-to-end outcome for an
+// explicit JSON null on a matched append field: no row lands, and the
+// entries either side of it are unaffected.
+//
+// It does not pin the writer's own null check, and does not redden if that
+// check is removed. The null never reaches writeAppendRows:
+// engine/internal/fold's Uninterpretable quarantines the whole op (a null
+// on any matched field, of any strategy, spec/fold.md §7.1), so the
+// materializer's skip set drops it one level up — and codec's producer
+// validation refuses a JSON null body value outright, so this shape is
+// reachable only through WithEnumOverrideForTest, never through
+// store.Append. What this test covers is that the two layers agree: the
+// projection lands exactly what state.Fold does.
+//
+// The writer's `raw == nil` branch — a defensive mirror of
+// appendAccumulator.Apply, and the second of the ticket's three folded-in
+// latent defects (the old shared append table gated on presence alone, `if
+// v, ok := body[field]; ok`, and wrote a NULL cell) — is pinned directly,
+// with an empty skip set, by materialize_internal_test.go's
+// TestWriteAppendRowsSkipsExplicitNullAtTheWriter.
 func TestAppendExplicitNullContributesNoRow(t *testing.T) {
 	base := time.Unix(1700000000, 0).UTC()
 	opCreate := makeWidgetOp("op-create-1", nil, "create", map[string]any{"title": "T"}, base)
@@ -688,16 +742,28 @@ func appendFoldParityOps() []codec.Op {
 // wildcard-op_version shapes at once, with two genuinely quarantined ops
 // (real op_seq gaps) interleaved among them.
 //
-// It also covers the droppable-cache bound: a second, completely
-// independent in-memory database, built from the identical op history via
-// its own cold Refresh, reproduces byte-identical rows in every append
-// table. db.Rebuild cannot stand in here — it re-walks the real store via
-// store.EnumerateSince(nil), ignoring WithEnumOverrideForTest, which this
-// synthetic op set (never actually written to the git store) never reaches
-// — so a fresh database per pass is the strongest form of this check
-// available to a test built this way (the same limitation
-// TestAppendMaterializationDeterministicUnderRuleShuffle works around
-// below).
+// It also pins op_seq's own contract, which the value-only parity check
+// above is blind to: op_seq is each contributing op's index in
+// dag.Order(ops) — the object's total order L — and not a running counter
+// over the ops that survive quarantine. The two quarantined ops here sit at
+// real positions in L, so the surviving rows must carry the gaps rather
+// than compacting around them. Without this, a counter that renumbers
+// around skipped ops passes every other test in the suite, and op_seq
+// quietly becomes a function of the schema as well as the log: installing
+// or removing a rule that changes what quarantines would renumber every
+// later entry under a consumer that had recorded one.
+//
+// It also covers the droppable-cache bound as far as a synthetic op set
+// can: a second, completely independent in-memory database, built from the
+// identical op history via its own cold Refresh, reproduces byte-identical
+// rows in every append table. db.Rebuild cannot stand in here — it re-walks
+// the real store via store.EnumerateSince(nil), ignoring
+// WithEnumOverrideForTest, which this op set (never actually written to the
+// git store) never reaches — so a fresh database per pass is the strongest
+// form of this check available to a test built this way (the same
+// limitation TestAppendMaterializationDeterministicUnderRuleShuffle works
+// around below). A real db.Rebuild over append tables, against ops actually
+// written to a git store, is TestAppendTablesSurviveDropAndRebuild.
 func TestAppendFoldParityAcrossTargets(t *testing.T) {
 	ops := appendFoldParityOps()
 	rules := appendFoldParityRules()
@@ -726,6 +792,43 @@ func TestAppendFoldParityAcrossTargets(t *testing.T) {
 		if !wantUnknown[u.Commit] {
 			t.Fatalf("test setup: state.Fold's UnknownOps = %+v, want exactly %v", want.UnknownOps, wantUnknown)
 		}
+	}
+
+	// seqOf is the ground truth op_seq is measured against: each op's index
+	// in the object's total order L, computed by the same dag.Order the
+	// materializer folds through. Quarantined ops occupy positions here too
+	// — that is exactly what makes the gaps below real.
+	order, err := dag.Order(ops)
+	if err != nil {
+		t.Fatalf("dag.Order failed: %v", err)
+	}
+	seqOf := make(map[string]int, len(order))
+	for i, op := range order {
+		seqOf[op.ID] = i
+	}
+	wantEntries := map[string][]appendEntry{
+		"o_widget__notes": {
+			{OpSeq: seqOf["op-note-1"], EntryIdx: 0, Value: "n1"},
+			{OpSeq: seqOf["op-note-2"], EntryIdx: 0, Value: "n2a"},
+			{OpSeq: seqOf["op-note-2"], EntryIdx: 1, Value: "n2b"},
+			{OpSeq: seqOf["op-note-4"], EntryIdx: 0, Value: "n4"},
+		},
+		"o_widget__tags": {
+			{OpSeq: seqOf["op-annotate-1"], EntryIdx: 0, Value: "xa1"},
+			{OpSeq: seqOf["op-annotate-1"], EntryIdx: 1, Value: "yb1"},
+		},
+		"o_widget__revisions": {
+			{OpSeq: seqOf["op-publish-1"], EntryIdx: 0, Value: "pa1"},
+			{OpSeq: seqOf["op-publish-1"], EntryIdx: 1, Value: "pb1"},
+		},
+	}
+	// The positions the two quarantined ops hold in L. No append table may
+	// carry a row at either, and — the half a compacting counter would break
+	// — every op after them must still sit at its own index in L, not at one
+	// reduced by the number of ops skipped before it.
+	quarantinedSeqs := map[int]string{
+		seqOf["op-note-3"]:     "op-note-3",
+		seqOf["op-escalate-1"]: "op-escalate-1",
 	}
 
 	rulesByType := map[string][]state.Rule{"widget": rules}
@@ -758,6 +861,16 @@ func TestAppendFoldParityAcrossTargets(t *testing.T) {
 			if !reflect.DeepEqual(got, want) {
 				t.Fatalf("%s: %s rows = %v, want (state.Fold) %v", stage, c.table, got, want)
 			}
+
+			gotEntries := queryAppendEntries(t, rawDB, c.table, "w-1")
+			if !reflect.DeepEqual(gotEntries, wantEntries[c.table]) {
+				t.Fatalf("%s: %s (op_seq, entry_idx, value) rows = %+v, want %+v — op_seq is each op's index in dag.Order's L, with the quarantined ops' positions left as gaps, not a counter compacting around them (WRIT-212)", stage, c.table, gotEntries, wantEntries[c.table])
+			}
+			for _, e := range gotEntries {
+				if id, quarantined := quarantinedSeqs[e.OpSeq]; quarantined {
+					t.Fatalf("%s: %s carries a row at op_seq %d, the position %s (quarantined into unknown_ops) holds in L", stage, c.table, e.OpSeq, id)
+				}
+			}
 		}
 	}
 
@@ -782,9 +895,11 @@ func TestAppendFoldParityAcrossTargets(t *testing.T) {
 // materialized content, shuffled several times: the same op history, folded
 // against several independently-shuffled orderings of the identical rule
 // set, must produce byte-identical DumpTables output every time. Building
-// each pass in a fresh in-memory database is the droppable-cache check in
-// its strongest form alongside TestAppendFoldParityAcrossTargets's Rebuild
-// leg.
+// each pass in a fresh in-memory database is this file's substitute for a
+// real db.Rebuild, which — like TestAppendFoldParityAcrossTargets — a
+// synthetic op set reaching Refresh through WithEnumOverrideForTest cannot
+// call: Rebuild re-walks the git store, which was never written. The real
+// drop-and-rebuild is TestAppendTablesSurviveDropAndRebuild.
 func TestAppendMaterializationDeterministicUnderRuleShuffle(t *testing.T) {
 	ops := appendFoldParityOps()
 	baseRules := appendFoldParityRules()
@@ -822,5 +937,169 @@ func TestAppendMaterializationDeterministicUnderRuleShuffle(t *testing.T) {
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("shuffle %d: DumpTables differs from the unshuffled rule order — materialized content is order-dependent\nwant: %+v\ngot:  %+v", i, want, got)
 		}
+	}
+}
+
+// appendRebuildRules is testRules() with widget's "tag" rules removed. The
+// producer vocabulary createTestStore's store validates writes against
+// (appendRules()) still declares them, so a "tag" op is a perfectly legal
+// write that this projection instance cannot interpret — it quarantines
+// into unknown_ops and leaves a real gap in op_seq. A repo resolves the
+// producer vocabulary and a projection's rule index independently, so the
+// two differing is a state writ reaches, not a fiction (see appendRules'
+// own doc).
+func appendRebuildRules() map[string][]state.Rule {
+	rules := testRules()
+	kept := make([]state.Rule, 0, len(rules["widget"]))
+	for _, r := range rules["widget"] {
+		if r.OpType == "tag" {
+			continue
+		}
+		kept = append(kept, r)
+	}
+	rules["widget"] = kept
+	return rules
+}
+
+// TestAppendTablesSurviveDropAndRebuild is the plan's acceptance item 8 for
+// the append tables: drop the projection file outright and db.Rebuild
+// reproduces it exactly — the same DumpTables, and the same (op_seq,
+// entry_idx, value) rows in every append table, gaps included.
+//
+// It is a distinct property from the second independent forward build
+// TestAppendFoldParityAcrossTargets runs, and cannot be checked there.
+// A forward build exercises Refresh over ops handed straight to it;
+// Rebuild truncates and re-walks the real git store through
+// readOpsForObject before re-deriving dag.Order, and it is that path the
+// droppable-cache invariant is about — so this test writes its ops to a
+// real store via store.Append rather than through
+// WithEnumOverrideForTest, which Rebuild ignores.
+//
+// TestDropAndRebuildReproducesFoldedState (local_test.go) runs the same
+// drop-and-rebuild but appends only create/update ops, so both its dumps
+// have empty append tables and it says nothing about them.
+func TestAppendTablesSurviveDropAndRebuild(t *testing.T) {
+	ctx := context.Background()
+	_, store := createTestStore(t, "0123456789abcdef")
+
+	tempDir := t.TempDir()
+	projPath := filepath.Join(tempDir, "projection.db")
+	localPath := filepath.Join(tempDir, "local.db")
+
+	db, err := projection.Open(projPath, projection.WithLocalPath(localPath))
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+
+	const objID = "w-rebuild"
+	const (
+		oid1 = "0000000000000000000000000000000000000001"
+		oid2 = "0000000000000000000000000000000000000002"
+		oid3 = "0000000000000000000000000000000000000003"
+		oid4 = "0000000000000000000000000000000000000004"
+		oid5 = "0000000000000000000000000000000000000005"
+	)
+
+	// One Refresh per Append, so the incremental leg is genuinely
+	// incremental. testRules declares "revision"'s base and head as two
+	// separate append targets written under one envelope, so step 1 and
+	// step 4 each contribute to both tables at a shared op_seq, and step 3
+	// to head alone.
+	steps := []codec.Envelope{
+		makeWidgetEnv(objID, "create", map[string]any{"title": "Rebuild Widget", "description": "initial"}),
+		makeWidgetEnv(objID, "revision", map[string]any{"base": oid1, "head": oid2}),
+		makeWidgetEnv(objID, "tag", map[string]any{"add": []any{"urgent"}}),
+		makeWidgetEnv(objID, "revision", map[string]any{"head": oid3}),
+		makeWidgetEnv(objID, "revision", map[string]any{"base": oid4, "head": oid5}),
+	}
+	var quarantinedOpID string
+	for i, env := range steps {
+		op, err := store.Append(ctx, env, nil)
+		if err != nil {
+			t.Fatalf("store.Append step %d (%s) failed: %v", i, env.OpType, err)
+		}
+		if env.OpType == "tag" {
+			quarantinedOpID = op.ID
+		}
+		if _, err := db.Refresh(store, projection.WithSchema(appendRebuildRules())); err != nil {
+			t.Fatalf("Refresh step %d failed: %v", i, err)
+		}
+	}
+
+	// The ops form a linear chain in append order, so each step's index
+	// above is its index in the object's total order L: create 0, revision
+	// 1, the quarantined tag op 2, revision 3, revision 4. op_seq 2 is
+	// therefore absent from both tables and every later op keeps its own
+	// index rather than sliding down one.
+	wantBase := []appendEntry{
+		{OpSeq: 1, EntryIdx: 0, Value: oid1},
+		{OpSeq: 4, EntryIdx: 0, Value: oid4},
+	}
+	wantHead := []appendEntry{
+		{OpSeq: 1, EntryIdx: 0, Value: oid2},
+		{OpSeq: 3, EntryIdx: 0, Value: oid3},
+		{OpSeq: 4, EntryIdx: 0, Value: oid5},
+	}
+
+	checkAppendRows := func(t *testing.T, stage string, rawDB *sql.DB) {
+		t.Helper()
+		for _, c := range []struct {
+			table string
+			want  []appendEntry
+		}{
+			{"o_widget__base", wantBase},
+			{"o_widget__head", wantHead},
+		} {
+			got := queryAppendEntries(t, rawDB, c.table, objID)
+			if !reflect.DeepEqual(got, c.want) {
+				t.Fatalf("%s: %s rows = %+v, want %+v", stage, c.table, got, c.want)
+			}
+		}
+		var gotUnknown string
+		if err := rawDB.QueryRow("SELECT op_id FROM unknown_ops WHERE object_id = ?", objID).Scan(&gotUnknown); err != nil {
+			t.Fatalf("%s: query unknown_ops: %v", stage, err)
+		}
+		if gotUnknown != quarantinedOpID {
+			t.Fatalf("%s: unknown_ops op_id = %s, want %s (the tag op this schema cannot interpret)", stage, gotUnknown, quarantinedOpID)
+		}
+	}
+
+	checkAppendRows(t, "incremental", db.DB())
+
+	incrementalDump, err := db.DumpTables()
+	if err != nil {
+		t.Fatalf("DumpTables incremental failed: %v", err)
+	}
+
+	// Drop the cache outright: close the handle and delete the file.
+	if err := db.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+	if err := os.Remove(projPath); err != nil {
+		t.Fatalf("Remove projection.db failed: %v", err)
+	}
+
+	dbFresh, err := projection.Open(projPath, projection.WithLocalPath(localPath))
+	if err != nil {
+		t.Fatalf("Open dbFresh failed: %v", err)
+	}
+	defer dbFresh.Close()
+
+	stats, err := dbFresh.Rebuild(store, projection.WithSchema(appendRebuildRules()))
+	if err != nil {
+		t.Fatalf("Rebuild failed: %v", err)
+	}
+	if !stats.Rebuilt || stats.ObjectsTouched != 1 {
+		t.Fatalf("unexpected rebuild stats: %+v", stats)
+	}
+
+	checkAppendRows(t, "rebuild", dbFresh.DB())
+
+	coldDump, err := dbFresh.DumpTables()
+	if err != nil {
+		t.Fatalf("DumpTables cold failed: %v", err)
+	}
+	if !reflect.DeepEqual(incrementalDump, coldDump) {
+		t.Fatalf("incremental dump != cold dump after dropping the projection and rebuilding:\nincremental: %+v\ncold: %+v", incrementalDump, coldDump)
 	}
 }

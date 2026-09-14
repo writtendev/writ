@@ -211,9 +211,10 @@ func (o *Objects) Apply(ctx context.Context, objectID string, op NewOp) error {
 // Get from the generated projection tables instead would mean inverting
 // writeTypeRow (engine/projection/materialize.go) back into state.Fold's
 // exact output shape across scalar columns, child tables, keyed-lww groups,
-// append groups, __members and unknown_fields, and a subtly wrong inversion
-// is a silent correctness bug, not a visible failure. That optimisation
-// belongs in its own ticket, with evidence behind it — not this one.
+// per-target append tables, __members and unknown_fields, and a subtly
+// wrong inversion is a silent correctness bug, not a visible failure. That
+// optimisation belongs in its own ticket, with evidence behind it — not
+// this one.
 //
 // Get never mutates the DAG and never modifies state.Fold's own behavior:
 // it does I/O to fetch ops and then calls the pure fold, exactly as the

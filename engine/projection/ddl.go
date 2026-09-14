@@ -603,18 +603,18 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 	// declaration wrote last decided the shape every earlier target's plan
 	// still pointed at, hard-erroring at materialize and bricking every
 	// Refresh from then on. Every legitimate write below happens exactly
-	// once per declaration (a keyed-lww or append-envelope group's table is
-	// built once, after every member is gathered, never once per member),
-	// so any second write to a name is a genuine collision, never a
-	// legitimate merge — collided withholds the whole type for it, exactly
-	// like the cross-type collision identCollision already catches.
+	// once per declaration (a keyed-lww group's table is built once, after
+	// every member is gathered, never once per member; an append target's
+	// table is written once per target, right here, like multi-value's), so
+	// any second write to a name is a genuine collision, never a legitimate
+	// merge — collided withholds the whole type for it, exactly like the
+	// cross-type collision identCollision already catches.
 	// withheldTargets collects target keys this type declines a column for
-	// entirely — populated here for a keyed-lww target whose bound rules
-	// disagree on Key (see the resolved-attribute comment above), and again
-	// below for an append target whose bound rules disagree on Field under
-	// one envelope. Declared once, ahead of both, so a single map is
-	// threaded through the whole function rather than merged after the
-	// fact.
+	// entirely — populated in exactly one place, the keyed-lww case below,
+	// for a target whose bound rules disagree on Key (see the
+	// resolved-attribute comment above). Append has nothing left to
+	// withhold under the row-per-entry table (WRIT-212), so the second
+	// populator this comment used to point at is gone.
 	withheldTargets := make(map[string]bool)
 
 	collided := false
@@ -755,12 +755,12 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 				// spec/fold.md §5 #8 keys each op on its own rule's key
 				// list, so a v2 op would mis-key into v1's columns rather
 				// than merely mis-type them. Genuinely unrepresentable, so
-				// decline it the same way an unrepresentable append shape
-				// is declined below: no column, no group-table
-				// participation, its body fields land in unknown_fields
-				// instead (spec/forward-compatibility.md §"Targets a
-				// projection declines"). Its group-mates and the type
-				// itself are unaffected.
+				// declined: no column, no group-table participation, its
+				// body fields land in unknown_fields instead
+				// (spec/forward-compatibility.md §"Targets a projection
+				// declines"). It is the only shape this function declines
+				// — the append case above declines nothing (WRIT-212). Its
+				// group-mates and the type itself are unaffected.
 				withheldTargets[tk] = true
 				continue
 			}
