@@ -109,9 +109,15 @@ type ObjectState struct {
 // opMatchesRule returns true if op matches the rule's op_type, op_version and
 // object_type filters. object_type is read straight off op (spec/fold.md §5):
 // no clock, no I/O, no ambient state, and — unlike DetermineObjectType below,
-// which infers a whole op set's object type from the earliest op in the
-// canonical total order for ObjectState.ObjectType — this never resolves
-// anything beyond the single op in front of it.
+// which orders a whole op set to answer a caller that needs an object's type
+// before it has folded it (Objects.Get, engine/scenario/runner.go, and the
+// projection via state.DetermineObjectType) — this never resolves anything
+// beyond the single op in front of it. Fold below does not call
+// DetermineObjectType either: it reads orderedOps[0].Op.ObjectType directly
+// once it has already ordered the ops for its own purposes. That leaves three
+// independent expressions of "the object's type" — this filter, Fold's direct
+// read, and materialize.go's own direct read — with nothing asserting they
+// agree.
 func opMatchesRule(op codec.Op, r Rule) bool {
 	if r.OpType != "" && r.OpType != op.OpType {
 		return false
