@@ -247,15 +247,17 @@ func MergeVectors() ([]MergeVector, error) {
 		if len(vec.Fields) == 0 {
 			return nil, fmt.Errorf("spec: merge vector %q has no declared fields", vec.Name)
 		}
-		for fieldName, cfg := range vec.Fields {
-			if !KnownCatalogueStrategies[cfg.Strategy] {
-				return nil, fmt.Errorf("spec: merge vector %q field %q has unknown strategy %q", vec.Name, fieldName, cfg.Strategy)
-			}
-			if cfg.Strategy == "lattice" && len(cfg.Lattice) == 0 {
-				return nil, fmt.Errorf("spec: merge vector %q field %q uses lattice strategy but defines no lattice elements", vec.Name, fieldName)
-			}
-			if cfg.Strategy == "keyed-lww" && len(cfg.Key) == 0 {
-				return nil, fmt.Errorf("spec: merge vector %q field %q uses keyed-lww strategy but declares no key", vec.Name, fieldName)
+		if !vec.ExpectedRefusal {
+			for fieldName, cfg := range vec.Fields {
+				if !KnownCatalogueStrategies[cfg.Strategy] {
+					return nil, fmt.Errorf("spec: merge vector %q field %q has unknown strategy %q", vec.Name, fieldName, cfg.Strategy)
+				}
+				if cfg.Strategy == "lattice" && len(cfg.Lattice) == 0 {
+					return nil, fmt.Errorf("spec: merge vector %q field %q uses lattice strategy but defines no lattice elements", vec.Name, fieldName)
+				}
+				if cfg.Strategy == "keyed-lww" && len(cfg.Key) == 0 {
+					return nil, fmt.Errorf("spec: merge vector %q field %q uses keyed-lww strategy but declares no key", vec.Name, fieldName)
+				}
 			}
 		}
 		if len(vec.Ops) == 0 {

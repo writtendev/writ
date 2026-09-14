@@ -1,0 +1,23 @@
+{
+  "name": "keyed-lww-empty-key-refused",
+  "description": "A caller-supplied rule table declares a keyed-lww strategy with an empty key array ([]). Fold refuses the rule table at accumulator construction rather than building a keyed-lww accumulator with no key columns.",
+  "object_id": "obj-1",
+  "fields": {
+    "verdict": {
+      "strategy": "keyed-lww",
+      "key": []
+    }
+  },
+  "ops": [
+    {
+      "id": "op-1",
+      "parents": [],
+      "time": 100,
+      "object_id": "obj-1",
+      "body": {
+        "verdict": "approve"
+      }
+    }
+  ],
+  "expected_refusal": true
+}

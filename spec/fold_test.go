@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -324,6 +325,9 @@ func TestMergeCoverage(t *testing.T) {
 
 	covered := make(map[string]bool)
 	for _, vec := range vectors {
+		if vec.ExpectedRefusal {
+			continue
+		}
 		for _, cfg := range vec.Fields {
 			covered[cfg.Strategy] = true
 		}
@@ -333,6 +337,129 @@ func TestMergeCoverage(t *testing.T) {
 		if !covered[strat] {
 			t.Errorf("catalogue strategy %q has no test vector in testdata/fold/merge/", strat)
 		}
+	}
+}
+
+func TestFold_KeyedLWWEmptyKeyRefused(t *testing.T) {
+	ops := []spec.MergeOp{
+		{
+			ID:       "op-1",
+			ObjectID: "obj-1",
+			Body:     map[string]any{"verdict": "approve"},
+		},
+	}
+	rules := []spec.FieldRule{
+		{Field: "verdict", Target: "verdict", Strategy: "keyed-lww", Key: []string{}},
+	}
+	if _, err := spec.Fold(ops, rules); err == nil {
+		t.Fatal("spec.Fold: expected an error for keyed-lww with empty key, got nil")
+	}
+}
+
+func TestFold_UnknownStrategyRefused(t *testing.T) {
+	ops := []spec.MergeOp{
+		{
+			ID:       "op-1",
+			ObjectID: "obj-1",
+			Body:     map[string]any{"custom": "value"},
+		},
+	}
+	rules := []spec.FieldRule{
+		{Field: "custom", Target: "custom", Strategy: "no-such-strategy"},
+	}
+	if _, err := spec.Fold(ops, rules); err == nil {
+		t.Fatal("spec.Fold: expected an error for unknown strategy, got nil")
+	}
+}
+
+func TestFold_LatticeEmptyElementsRefused(t *testing.T) {
+	ops := []spec.MergeOp{
+		{
+			ID:       "op-1",
+			ObjectID: "obj-1",
+			Body:     map[string]any{"status": "pending"},
+		},
+	}
+	rules := []spec.FieldRule{
+		{Field: "status", Target: "status", Strategy: "lattice", Lattice: []string{}},
+	}
+	if _, err := spec.Fold(ops, rules); err == nil {
+		t.Fatal("spec.Fold: expected an error for lattice with empty elements, got nil")
+	}
+}
+
+// TestFold_TargetNamingParity verifies deterministic target-naming parity:
+// given target "a" with empty key and target "b" with arity mismatch,
+// both writ.Fold and spec.Fold must fail on target "a" (verifying target sort order consistency).
+func TestFold_TargetNamingParity(t *testing.T) {
+	specOps := []spec.MergeOp{
+		{
+			ID:        "op-1",
+			ObjectID:  "obj-1",
+			OpType:    "endorse",
+			OpVersion: 1,
+			Body:      map[string]any{"a": "val-a", "b": "val-b", "k": "key1"},
+		},
+		{
+			ID:        "op-2",
+			Parents:   []string{"op-1"},
+			ObjectID:  "obj-1",
+			OpType:    "endorse",
+			OpVersion: 2,
+			Body:      map[string]any{"b": "val-b2", "k": "key1", "k2": "key2"},
+		},
+	}
+	specRules := []spec.FieldRule{
+		// Target "a": keyed-lww with empty key
+		{OpType: "endorse", OpVersion: 1, Field: "a", Target: "a", Strategy: "keyed-lww", Key: []string{}},
+		// Target "b": keyed-lww with arity mismatch across op_versions
+		{OpType: "endorse", OpVersion: 1, Field: "b", Target: "b", Strategy: "keyed-lww", Key: []string{"k"}},
+		{OpType: "endorse", OpVersion: 2, Field: "b", Target: "b", Strategy: "keyed-lww", Key: []string{"k", "k2"}},
+	}
+
+	_, specErr := spec.Fold(specOps, specRules)
+	if specErr == nil {
+		t.Fatal("spec.Fold: expected error, got nil")
+	}
+	if !strings.Contains(specErr.Error(), `target "a"`) {
+		t.Fatalf("spec.Fold: expected error naming target \"a\", got: %v", specErr)
+	}
+
+	engineOps := []codec.Op{
+		{
+			ID: "op-1",
+			Envelope: codec.Envelope{
+				ObjectID:  "obj-1",
+				OpType:    "endorse",
+				OpVersion: 1,
+				Body:      json.RawMessage(`{"a":"val-a","b":"val-b","k":"key1"}`),
+			},
+			Author: codec.Identity{When: time.Unix(100, 0).UTC()},
+		},
+		{
+			ID:      "op-2",
+			Parents: []string{"op-1"},
+			Envelope: codec.Envelope{
+				ObjectID:  "obj-1",
+				OpType:    "endorse",
+				OpVersion: 2,
+				Body:      json.RawMessage(`{"b":"val-b2","k":"key1","k2":"key2"}`),
+			},
+			Author: codec.Identity{When: time.Unix(200, 0).UTC()},
+		},
+	}
+	engineRules := []writ.Rule{
+		{OpType: "endorse", OpVersion: 1, Field: "a", Target: "a", Strategy: "keyed-lww", Key: []string{}},
+		{OpType: "endorse", OpVersion: 1, Field: "b", Target: "b", Strategy: "keyed-lww", Key: []string{"k"}},
+		{OpType: "endorse", OpVersion: 2, Field: "b", Target: "b", Strategy: "keyed-lww", Key: []string{"k", "k2"}},
+	}
+
+	_, engineErr := writ.Fold(engineOps, engineRules)
+	if engineErr == nil {
+		t.Fatal("writ.Fold: expected error, got nil")
+	}
+	if !strings.Contains(engineErr.Error(), `target "a"`) {
+		t.Fatalf("writ.Fold: expected error naming target \"a\", got: %v", engineErr)
 	}
 }
 

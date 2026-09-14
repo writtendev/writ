@@ -1,0 +1,23 @@
+{
+  "name": "lattice-empty-elements-refused",
+  "description": "A caller-supplied rule table declares a lattice strategy with an empty lattice array ([]). Fold refuses the rule table at accumulator construction rather than building a lattice accumulator with no elements.",
+  "object_id": "obj-1",
+  "fields": {
+    "status": {
+      "strategy": "lattice",
+      "lattice": []
+    }
+  },
+  "ops": [
+    {
+      "id": "op-1",
+      "parents": [],
+      "time": 100,
+      "object_id": "obj-1",
+      "body": {
+        "status": "pending"
+      }
+    }
+  ],
+  "expected_refusal": true
+}

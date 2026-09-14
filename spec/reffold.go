@@ -1251,6 +1251,9 @@ func Fold(ops []MergeOp, rules []FieldRule) (FoldResult, error) {
 			}
 
 		case "lattice":
+			if len(primaryRule.Lattice) == 0 {
+				return FoldResult{}, fmt.Errorf("spec: target %q: lattice strategy for field %q requires non-empty lattice elements", targetKey, primaryRule.Field)
+			}
 			rankMap := make(map[string]int, len(primaryRule.Lattice))
 			for i, elem := range primaryRule.Lattice {
 				rankMap[elem] = i
@@ -1308,6 +1311,9 @@ func Fold(ops []MergeOp, rules []FieldRule) (FoldResult, error) {
 					err := fmt.Errorf("keyed-lww rules disagree on key arity (%d vs %d)", len(primaryRule.Key), len(fr.Key))
 					return FoldResult{}, fmt.Errorf("spec: target %q: %w", targetKey, err)
 				}
+			}
+			if len(primaryRule.Key) == 0 {
+				return FoldResult{}, fmt.Errorf("spec: target %q: keyed-lww strategy for field %q requires non-empty key", targetKey, primaryRule.Field)
 			}
 
 			type keyedEntry struct {
@@ -1425,6 +1431,9 @@ func Fold(ops []MergeOp, rules []FieldRule) (FoldResult, error) {
 					state[targetKey] = vals
 				}
 			}
+
+		default:
+			return FoldResult{}, fmt.Errorf("spec: target %q: unknown strategy %q", targetKey, primaryRule.Strategy)
 		}
 	}
 
