@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os/exec"
 	"strings"
 
 	"github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/engine/identity"
+	"github.com/writtendev/writ/internal/textsafe"
 )
 
 type notFoundError struct {
@@ -36,32 +38,152 @@ func openStore(dir string, opts ...writ.Option) (*writ.Store, error) {
 	return writ.Open(dir, opts...)
 }
 
+// renderErr prints err as the CLI's human error report and returns the
+// exit code that goes with it.
+//
+// The report is escaped by escapeErrReport on its way out -- once, here,
+// rather than at each of errLine's arms or at each error construction
+// upstream. An engine error's text can carry a log-sourced string that
+// nothing on the read path gates: the reachable case is a fetched
+// define-field's body `enum` members, which spec.ValidateFieldRule never
+// constrains (it gates the field, target and key columns against
+// identifierGrammar and value_type/strategy against their closed
+// catalogues, and stops there) and which engine/internal/value.Check then
+// formats into its membership error with a bare %v. renderErr is the one
+// place an engine error reaches a human's stderr, so escaping here covers
+// that whole class instead of one message of it, and cannot be forgotten
+// by the next error message added anywhere below it. It is a no-op on the
+// fixed strings errLine returns and on any span Go's %q has already
+// escaped (strconv.Quote escapes every textsafe.Forbidden rune), so it
+// costs nothing where there is nothing to escape.
+//
+// Escaping inside the engine instead would be the wrong place: that error
+// text is the public API's, shared with callers that are not a terminal.
+// This is writ's own rendering, which is where WRIT-226 puts the escape.
 func renderErr(w io.Writer, err error) int {
 	if err == nil {
 		return 0
 	}
+	fmt.Fprintln(w, escapeErrReport(errLine(err), subprocessFailure(err)))
+	return 1
+}
 
+// subprocessFailure reports whether err's chain carries the failure of a
+// subprocess writ ran -- the one condition under which a U+000A in the
+// assembled report is structure one of writ's own format strings wrote,
+// rather than data a string interpolated into it happens to contain.
+//
+// engine/codec/sign.go's `fmt.Errorf("codec: ssh-keygen -Y sign: %w\n%s",
+// err, strings.TrimSpace(string(out)))` is the only error format string in
+// the tree that writes a U+000A as structure (grep every Errorf and
+// errors.New: the one other hit is spec/fixtures' test harness, which never
+// reaches a CLI), and its %w is whatever os/exec returned -- *exec.ExitError
+// when ssh-keygen ran and exited non-zero, *exec.Error when it could not be
+// started at all.
+//
+// A hostile peer cannot get either type into an error chain: log-sourced
+// text reaches renderErr through fold, schema validation and codec, none of
+// which run a subprocess. So this distinguishes writ's line structure from a
+// peer's bytes without having to tell them apart inside the assembled
+// string, which is the thing cmd/writ cannot do.
+func subprocessFailure(err error) bool {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return true
+	}
+	var execErr *exec.Error
+	return errors.As(err, &execErr)
+}
+
+// escapeErrReport returns line -- errLine's assembled error report -- with
+// every textsafe.Forbidden code point escaped as \uXXXX. U+000A is escaped
+// with the rest unless keepLineBreaks, which renderErr sets only for the
+// reports subprocessFailure identifies: there, and only there, a U+000A in
+// the report is a break writ's own format string wrote around a failed
+// subprocess's diagnostic.
+//
+// Both halves of that are load-bearing, and each was a round of review.
+//
+// Escaping U+000A unconditionally -- as this did when it was a plain
+// textsafe.EscapeForbidden over the assembled line, Forbidden covering the
+// whole C0 range -- flattens engine/codec/sign.go's ssh-keygen failure onto
+// one line with a literal escape where the break belonged, losing the
+// diagnostic that capturing the subprocess's combined output exists to
+// surface. A missing, unreadable or passphrase-protected signing key is a
+// first-run misconfiguration, not an exotic state, so that was a regression
+// against main on a common, non-hostile path (round 4 review of PR #195).
+//
+// Sparing U+000A unconditionally -- the round-4 fix, shaped after
+// escapeRenderedSchemaSource in schema.go -- leaves a log-sourced U+000A
+// unneutralised, and that is not the small concession round 4 recorded it
+// as. A fetched define-field's enum member is not gated by anything on the
+// read path (spec.ValidateFieldRule gates the field, target and key columns
+// against identifierGrammar and value_type/strategy against their closed
+// catalogues, and never looks at the members), and
+// engine/internal/value.Check formats the declared list into its membership
+// error with a bare %v. A member with a U+000A at *both* ends of its payload
+// therefore puts the format string's trailing text on a line of its own and
+// leaves the peer with a whole stderr line of its choosing -- byte for byte,
+// convincing "writ: " prefix and all, indistinguishable from writ's own
+// diagnostics. That is the spoofing class WRIT-226 exists to close, not a
+// weaker cousin of it (round 5 review of PR #195, correcting round 4's
+// claim that such a line still carries the format's trailing bracket).
+//
+// Conditioning on the error rather than on the code point gets both:
+// sign.go's break survives, every log-sourced break is escaped, and the two
+// are told apart by something a peer cannot forge -- see subprocessFailure.
+// U+0009 is escaped throughout: no error format string in the tree writes a
+// tab as structure, so escaping tabs mangles nothing.
+//
+// Escaping inside the engine instead was never the alternative: that error
+// text is the public API's, shared with callers that are not a terminal.
+// This is writ's own rendering, which is where WRIT-226 puts the escape.
+func escapeErrReport(line string, keepLineBreaks bool) string {
+	escapes := func(r rune) bool {
+		if r == '\n' {
+			return !keepLineBreaks
+		}
+		return textsafe.Forbidden(r)
+	}
+	if !strings.ContainsFunc(line, escapes) {
+		return line
+	}
+	var b strings.Builder
+	b.Grow(len(line))
+	for _, r := range line {
+		if !escapes(r) {
+			b.WriteRune(r)
+			continue
+		}
+		fmt.Fprintf(&b, `\u%04x`, r)
+	}
+	return b.String()
+}
+
+// errLine is the error report renderErr prints for err, unescaped. Its arms
+// return one line each, but the message an arm wraps need not be one line:
+// engine/codec/sign.go's ssh-keygen failure carries its diagnostic on a
+// second, and a log-sourced string can carry U+000A of its own -- which is
+// why renderErr escapes what comes back rather than trusting it (see
+// escapeErrReport).
+func errLine(err error) string {
 	var cfgErr *identity.ConfigError
 	if errors.As(err, &cfgErr) {
-		fmt.Fprintf(w, "writ: %v\n", cfgErr)
-		return 1
+		return fmt.Sprintf("writ: %v", cfgErr)
 	}
 
 	if errors.Is(err, writ.ErrNoIdentity) {
-		fmt.Fprintln(w, "writ: no writer identity configured (run 'writ init' to configure)")
-		return 1
+		return "writ: no writer identity configured (run 'writ init' to configure)"
 	}
 
 	if errors.Is(err, writ.ErrNoSigningKey) {
-		fmt.Fprintln(w, "writ: no signing key configured (run 'writ init' to configure)")
-		return 1
+		return "writ: no signing key configured (run 'writ init' to configure)"
 	}
 
 	if errors.Is(err, writ.ErrNotFound) {
 		var nf notFoundError
 		if errors.As(err, &nf) {
-			fmt.Fprintf(w, "writ: %s\n", nf.Error())
-			return 1
+			return "writ: " + nf.Error()
 		}
 	}
 
@@ -69,8 +191,7 @@ func renderErr(w io.Writer, err error) int {
 	if !strings.HasPrefix(msg, "writ: ") {
 		msg = "writ: " + msg
 	}
-	fmt.Fprintln(w, msg)
-	return 1
+	return msg
 }
 
 // validSortOrders lists parseOrderBy's canonical --sort keys, for use in its

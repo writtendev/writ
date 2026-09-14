@@ -196,7 +196,18 @@ func runSchemaApply(ctx context.Context, defaultDir string, args []string, stdou
 		if len(planRes.namespaces) != 1 {
 			word = "namespaces"
 		}
-		fmt.Fprintf(stdout, "This repository now declares %d %s: %s.\n", len(planRes.namespaces), word, strings.Join(planRes.namespaces, ", "))
+		// Every entry is a folded schema object's `namespace`, taken from a
+		// create op's *body* -- the slot op-envelope.schema.json leaves as a
+		// bare {"type": "object"}, so a fetched peer's namespace reaches
+		// here with no repertoire gate behind it (WRIT-226 round 1). Escape
+		// at the render, one entry at a time, so planRes.namespaces itself
+		// stays the raw folded value for --json, where emitJSON does its own
+		// pass.
+		display := make([]string, len(planRes.namespaces))
+		for i, ns := range planRes.namespaces {
+			display[i] = textsafe.EscapeForbidden(ns)
+		}
+		fmt.Fprintf(stdout, "This repository now declares %d %s: %s.\n", len(planRes.namespaces), word, strings.Join(display, ", "))
 	} else {
 		fmt.Fprintf(stdout, "Updated schema object %s (namespace %q).\n", planRes.objectID, planRes.namespace)
 	}
@@ -242,24 +253,48 @@ func (e *schemaError) Error() string {
 	return strings.Join(e.msgs, "\n")
 }
 
+// renderSchemaError prints err as the `schema` subcommands' human error
+// report and returns the exit code that goes with it.
+//
+// Its three own arms print before falling through to renderErr, so each of
+// them escapes what it prints with escapeErrReport — the same chokepoint,
+// for the same reason. A refusal message writ assembles from folded state
+// can carry a log-sourced string that nothing on the read path gates: the
+// reachable case is schemaRemovals interpolating a fetched define-op's
+// body `op_type`, which op-envelope.schema.json leaves ungated for a
+// fetched op and which this path reads upstream of the resolver's
+// validOpTypeGrammar drop. Escaping here rather than at each interpolation
+// covers every message these arms print, including the next one added,
+// instead of one message at a time.
+//
+// keepLineBreaks is false for all three. Each arm prints one Fprintln per
+// element — a schemaError's msgs, an ErrorList's entries — and every
+// element is one line by construction: a fixed string, a single Sprintf,
+// or a "  - " bullet under a heading, with the newline between them
+// supplied here. A U+000A inside an element is therefore always data
+// breaking the structure the arm assumes, never a break one of writ's own
+// format strings wrote; unlike renderErr, none of these arms can be
+// reporting a failed subprocess (see subprocessFailure). schemasrc's
+// SyntaxError.Error() is one line too, "file:line:col: msg" from a parse of
+// the working-tree file.
 func renderSchemaError(w io.Writer, err error) int {
 	var se *schemaError
 	if errors.As(err, &se) {
 		for _, m := range se.msgs {
-			fmt.Fprintln(w, m)
+			fmt.Fprintln(w, escapeErrReport(m, false))
 		}
 		return 1
 	}
 	var synErrs schemasrc.ErrorList
 	if errors.As(err, &synErrs) {
 		for _, e := range synErrs {
-			fmt.Fprintln(w, e.Error())
+			fmt.Fprintln(w, escapeErrReport(e.Error(), false))
 		}
 		return 1
 	}
 	var synErr *schemasrc.SyntaxError
 	if errors.As(err, &synErr) {
-		fmt.Fprintln(w, synErr.Error())
+		fmt.Fprintln(w, escapeErrReport(synErr.Error(), false))
 		return 1
 	}
 	return renderErr(w, err)
@@ -633,6 +668,14 @@ func conflictKey(c writ.SchemaConflict) string {
 // rendering chokepoint like any other and needs the same escape (round 5
 // review of PR #185 found it and routed it to WRIT-226 as unreachable in
 // practice; closed here instead of relying on that argument holding).
+//
+// That escape is now belt-and-braces rather than load-bearing: this
+// function's one call site assembles a schemaError, and renderSchemaError
+// escapes every line of one on its way to stderr. It stays because it is
+// idempotent (escapeErrReport is a no-op on an already-escaped span, since
+// \uXXXX carries no forbidden code point of its own) and because this
+// returns a string rather than printing one — a second caller need not be
+// a terminal.
 func describeSchemaConflict(c writ.SchemaConflict) string {
 	reason := textsafe.EscapeForbidden(c.Reason)
 	switch {
@@ -838,6 +881,18 @@ func rawFieldString(raw map[string]json.RawMessage, key string) string {
 // folded state (current), never source text — comments, spacing, and
 // declaration order in the file have no bearing on this check, by
 // construction.
+//
+// Every name interpolated below comes from current, i.e. straight out of a
+// folded op body, which op-envelope.schema.json leaves ungated on the read
+// path — a fetched define-op or define-field carries whatever its writer
+// chose, and this path runs upstream of the resolver's own
+// validOpTypeGrammar drop, so that gate does not cover it. The op types are
+// nonetheless interpolated with a bare %s: these problems have exactly one
+// destination, the schemaError buildSchemaPlan wraps them in, and
+// renderSchemaError escapes every line of that on its way to stderr
+// (WRIT-226). Escaping them again here would be a second copy of the same
+// rule to keep current, and would go stale the first time a message is
+// added without one.
 func schemaRemovals(current, planned state.Schema, compiled []codec.Envelope) ([]string, error) {
 	var problems []string
 

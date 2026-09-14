@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -556,6 +557,137 @@ func TestSchemaPlanPorcelain_DiffIsInjectiveAcrossLiteralEscapeText(t *testing.T
 	}
 }
 
+// TestSchemaShow_HostileTypeNameRendersEscaped is WRIT-226's reachability
+// spike and acceptance test: a define-type op's body `type` is the one
+// foreign-sourced string that survives every existing gate --
+// codec.ValidateEnvelope's decode-path schema leaves `body` unconstrained,
+// FoldSchema only checks `type != ""`, and typeIsQualifiedForNamespace
+// checks only the namespace prefix and single-segment shape, never
+// character grammar -- so a hostile type name installs into Schema.Types
+// and, before this ticket's fix, printed raw through both of `schema
+// show`'s porcelain arms (the bare list and the single-type view).
+//
+// The hostile op is planted with writeForeignOp, not by constructing a
+// state.Schema directly: that is what makes it fetched-equivalent (as if
+// received from a hostile remote peer) rather than locally constructed,
+// the same mechanism WRIT-137's accepted test
+// (TestObjectShow_HostilePersonRefRendersEscaped) used. The object id is
+// derived the same way `writ schema apply` derives it
+// (deriveSchemaObjectID: "schema:" + namespace) so this foreign op lands
+// on the very schema object `schema apply` below just created, on a
+// different writer ref -- exactly what a non-conforming second writer
+// contesting a legitimate schema object looks like.
+func TestSchemaShow_HostileTypeNameRendersEscaped(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, fullTestSchema)
+
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	hostile := "acme.a" + string(rune(0x202E)) + "b"
+
+	writeForeignOp(t, env.repoDir, "fedcba9876543210", "schema", "schema:acme", "define-type", 1, map[string]any{
+		"type": hostile,
+	})
+
+	escapeSeq := []byte(fmt.Sprintf("\\u%04x", 0x202E))
+	assertNoRawOverride := func(label string, out []byte) {
+		t.Helper()
+		if bytes.ContainsRune(out, 0x202E) {
+			t.Errorf("%s contains a raw U+202E byte sequence: %s", label, out)
+		}
+		if !bytes.Contains(out, escapeSeq) {
+			t.Errorf("%s = %s, want it to contain the %s escape", label, out, escapeSeq)
+		}
+	}
+
+	// `writ schema show` with no argument: the bare porcelain type-name
+	// listing (object.go's ":984" site) -- the most exposed of the three,
+	// since it needs no prior knowledge of the hostile name to reach.
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"schema", "show", "-C", env.repoDir}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema show (list) failed with %d; stderr: %s", code, stderr.String())
+	}
+	assertNoRawOverride("schema show (list)", stdout.Bytes())
+
+	// `writ schema show <hostile-name>`: the single-type porcelain view
+	// (":1025" and the ":1030" namespace row).
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"schema", "show", "-C", env.repoDir, hostile}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema show <name> failed with %d; stderr: %s", code, stderr.String())
+	}
+	assertNoRawOverride("schema show <name>", stdout.Bytes())
+
+	// --json must still round-trip the exact hostile string losslessly
+	// (already covered by emitJSON's WRIT-137 pass; pinned here too so a
+	// regression in that pass would still be caught alongside this one).
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"schema", "show", "-C", env.repoDir, hostile, "--json"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema show <name> --json failed with %d; stderr: %s", code, stderr.String())
+	}
+	if bytes.ContainsRune(stdout.Bytes(), 0x202E) {
+		t.Errorf("schema show <name> --json contains a raw U+202E byte sequence: %s", stdout.Bytes())
+	}
+
+	var typeInfo wire.SchemaTypeInfo
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindSchemaShow, &typeInfo)
+	if typeInfo.Name != hostile {
+		t.Errorf("decoded type name = %q, want the original hostile value %q (lossless round trip)", typeInfo.Name, hostile)
+	}
+}
+
+// TestDecodeGate_RefusesForbiddenCodePointInEnvelope pins the claim
+// object.go's comments now make about object_type and op_type: both are
+// constrained at decode by spec/schemas/op-envelope.schema.json's
+// patterns (^[a-z][a-z0-9-]{0,63}(\.[a-z][a-z0-9-]{0,63})?$ and
+// ^[a-z][a-z0-9-]*$ respectively), so a payload carrying a forbidden code
+// point in either is refused by codec.ValidateEnvelope before it ever
+// folds -- it never reaches the three sites in object.go this ticket
+// escaped for consistency rather than as live holes. If
+// op-envelope.schema.json's patterns are ever loosened, this test fails
+// rather than letting those three sites silently become live holes with a
+// comment that no longer matches reality.
+func TestDecodeGate_RefusesForbiddenCodePointInEnvelope(t *testing.T) {
+	hostile := "acme.a" + string(rune(0x202E)) + "b"
+
+	base := func() map[string]any {
+		return map[string]any{
+			"object_id":   "obj-1",
+			"object_type": "acme.standup",
+			"op_type":     "create",
+			"op_version":  1,
+			"body":        map[string]any{},
+		}
+	}
+
+	for _, tc := range []struct {
+		name  string
+		field string
+	}{
+		{name: "object_type", field: "object_type"},
+		{name: "op_type", field: "op_type"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := base()
+			payload[tc.field] = hostile
+
+			raw, err := json.Marshal(payload)
+			if err != nil {
+				t.Fatalf("marshal payload: %v", err)
+			}
+
+			if err := codec.ValidateEnvelope(raw); err == nil {
+				t.Fatalf("ValidateEnvelope(%s) = nil, want a schema-violation error refusing the forbidden code point in %s", raw, tc.field)
+			}
+		})
+	}
+}
+
 // TestSchemaPlanJSON_SourceFieldsStayRawAcrossHostileDescription pins
 // docs/cli-json.md's promise for current_source and planned_source: each
 // is "writ.schema source text rendered from the log's own folded state",
@@ -604,5 +736,347 @@ func TestSchemaPlanJSON_SourceFieldsStayRawAcrossHostileDescription(t *testing.T
 	// not only that the raw rune is present.
 	if strings.Contains(plan.CurrentSource, `\\u202e`) {
 		t.Errorf("current_source (decoded) = %q, contains double-escaped literal text -- want Render's raw code point, not a pre-escaped copy", plan.CurrentSource)
+	}
+}
+
+// TestSchemaApply_HostileFetchedNamespaceRendersEscaped is round 1's
+// finding 1 on PR #195: a schema object's `namespace` is folded from a
+// `create` op's *body* (engine/state/schema.go, `case "create"`), the same
+// ungated slot as define-type's body `type` -- op-envelope.schema.json
+// leaves `body` a bare {"type": "object"}, and typeIsQualifiedForNamespace
+// compares a type's prefix against the namespace without ever validating
+// the namespace itself. schemaNamespaces takes s.Namespace straight out of
+// every folded schema object, and `schema apply`'s mint summary joined
+// them with %s, so a fetched hostile namespace printed raw in a human view.
+//
+// The ordinary reachable order is the one exercised here: a hostile peer's
+// schema chain is already present when the local repository runs its own
+// first `schema apply` (the `created` arm -- the `Updated` arm is safe
+// only because it uses %q).
+func TestSchemaApply_HostileFetchedNamespaceRendersEscaped(t *testing.T) {
+	env := initTestRepo(t)
+
+	hostile := "ev" + string(rune(0x202E)) + "il"
+
+	// A foreign writer's own schema object, on its own writer ref -- what
+	// fetching a hostile peer's schema chain leaves behind.
+	writeForeignOp(t, env.repoDir, "fedcba9876543210", "schema", "schema:evil", "create", 1, map[string]any{
+		"namespace": hostile,
+	})
+
+	writeSchemaFile(t, env.repoDir, fullTestSchema)
+
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	out := stdout.Bytes()
+	if !bytes.Contains(out, []byte("namespaces:")) {
+		t.Fatalf("schema apply output = %s, want the mint summary's namespace list", out)
+	}
+	if bytes.ContainsRune(out, 0x202E) {
+		t.Errorf("schema apply contains a raw U+202E byte sequence: %s", out)
+	}
+	escapeSeq := []byte(fmt.Sprintf("\\u%04x", 0x202E))
+	if !bytes.Contains(out, escapeSeq) {
+		t.Errorf("schema apply = %s, want it to contain the %s escape", out, escapeSeq)
+	}
+}
+
+// TestSchemaPlan_HostileFetchedOpTypeRendersEscaped is round 1's finding 2
+// on PR #195: `schema plan`'s removal-refusal messages formatted a folded
+// define-op's / define-field's body `op_type` with %s, right beside a
+// %q-escaped type or field name (Go's %q escapes Cf; %s does not). The
+// value comes from the same ungated body slot as everything else this
+// ticket covers.
+//
+// Reachability is the default consequence of fetching any hostile
+// define-op, not an exotic arrangement: the local writ.schema never
+// declares that op, so the delta reads as a removal and `schema plan`
+// refuses with the attacker-chosen name in the message a human is reading
+// to decide what to do. The resolver's own grammar gate (validOpTypeGrammar
+// in resolveSchemaTypes) does not cover this path -- the plan delta
+// compares against raw folded state.Schema, upstream of the resolver.
+func TestSchemaPlan_HostileFetchedOpTypeRendersEscaped(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, fullTestSchema)
+
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	hostile := "a" + string(rune(0x202E)) + "b"
+
+	// Both removal-refusal arms that interpolate an op type: the define-op
+	// one ("op %s version %d on type %q was removed") and the define-field
+	// one ("field %q on op %s version %d of type %q was removed").
+	writeForeignOp(t, env.repoDir, "fedcba9876543210", "schema", "schema:acme", "define-op", 1, map[string]any{
+		"type":        "acme.standup",
+		"op_type":     hostile,
+		"op_version":  "1",
+		"description": "hostile op",
+	})
+	writeForeignOp(t, env.repoDir, "fedcba9876543211", "schema", "schema:acme", "define-field", 1, map[string]any{
+		"type":       "acme.standup",
+		"op_type":    hostile,
+		"op_version": "1",
+		"field":      "note",
+		"value_type": "string",
+		"strategy":   "lww",
+	})
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "plan"}, &stdout, &stderr); code != 1 {
+		t.Fatalf("schema plan exited %d, want 1 (refusing to plan); stdout: %s stderr: %s", code, stdout.String(), stderr.String())
+	}
+
+	out := stderr.Bytes()
+	if !bytes.Contains(out, []byte("refusing to plan")) {
+		t.Fatalf("schema plan stderr = %s, want the removal-refusal message", out)
+	}
+	if bytes.ContainsRune(out, 0x202E) {
+		t.Errorf("schema plan refusal contains a raw U+202E byte sequence: %s", out)
+	}
+	escapeSeq := []byte(fmt.Sprintf("\\u%04x", 0x202E))
+	if !bytes.Contains(out, escapeSeq) {
+		t.Errorf("schema plan refusal = %s, want it to contain the %s escape", out, escapeSeq)
+	}
+}
+
+// TestObjectUnknownType_HostileDeclaredTypeListRendersEscaped covers the
+// third caller of a folded define-type body `type`: declaredTypeNames
+// (object.go), whose sorted list is joined into the "not declared by the
+// installed vocabulary (declares: ...)" message emitted by both
+// `writ object list <type>` and `writ object create`/`apply` (through
+// resolveOpVersion). It is the same value TestSchemaShow_HostileTypeNameRendersEscaped
+// plants, reached by a lower-friction route: a plain typo in the type
+// argument prints the attacker-chosen string beside a %q-quoted (and so
+// already escaped) copy of the user's own input.
+func TestObjectUnknownType_HostileDeclaredTypeListRendersEscaped(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, fullTestSchema)
+
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	hostile := "acme.a" + string(rune(0x202E)) + "b"
+
+	writeForeignOp(t, env.repoDir, "fedcba9876543210", "schema", "schema:acme", "define-type", 1, map[string]any{
+		"type": hostile,
+	})
+
+	escapeSeq := []byte(fmt.Sprintf("\\u%04x", 0x202E))
+	assertNoRawOverride := func(label string, out []byte) {
+		t.Helper()
+		if bytes.ContainsRune(out, 0x202E) {
+			t.Errorf("%s contains a raw U+202E byte sequence: %s", label, out)
+		}
+		if !bytes.Contains(out, escapeSeq) {
+			t.Errorf("%s = %s, want it to contain the %s escape", label, out, escapeSeq)
+		}
+	}
+
+	// `writ object list <undeclared>`: the declares: list goes straight to
+	// stderr, no renderErr in between.
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"object", "list", "-C", env.repoDir, "acme.nosuch"}, &stdout, &stderr); code == 0 {
+		t.Fatalf("object list with an undeclared type unexpectedly succeeded; stdout: %s", stdout.String())
+	}
+	assertNoRawOverride("object list (undeclared type)", stderr.Bytes())
+
+	// `writ object create <undeclared> <op>`: the same list, from
+	// resolveOpVersion's error, printed straight to stderr as well.
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"object", "create", "-C", env.repoDir, "acme.nosuch", "create"}, &stdout, &stderr); code == 0 {
+		t.Fatalf("object create with an undeclared type unexpectedly succeeded; stdout: %s", stdout.String())
+	}
+	assertNoRawOverride("object create (undeclared type)", stderr.Bytes())
+}
+
+// TestObjectCreate_HostileFetchedEnumRendersEscaped covers the one
+// foreign-sourced string that reaches a human view through an *engine
+// error* rather than through a value writ formats itself: a fetched
+// define-field's body `enum` members.
+//
+// Nothing on the read path gates them. spec.ValidateFieldRule constrains
+// the field, target and key columns against identifierGrammar and the
+// value_type/strategy names against their closed catalogues, but it never
+// looks at the members of an enum -- so a peer's entirely valid,
+// namespace-qualified vocabulary installs cleanly with whatever it chose
+// there. `writ schema plan` reports no conflict, and the first a local
+// user hears of it is engine/internal/value.Check's membership error,
+// which formats the declared list with a bare %v and reaches stderr
+// through renderErr.
+//
+// Friction is one typo on a peer-published type, in the error a human is
+// reading to work out what they mistyped -- beside a %q-quoted, and so
+// already escaped, copy of their own input.
+func TestObjectCreate_HostileFetchedEnumRendersEscaped(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, fullTestSchema)
+
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	hostile := "clo" + string(rune(0x202E)) + "sed"
+
+	// A peer publishing its own namespace-qualified vocabulary, one op per
+	// foreign writer (writeForeignOp plants a single-op chain per writer).
+	peer := func(writerID, opType string, body map[string]any) {
+		t.Helper()
+		writeForeignOp(t, env.repoDir, writerID, "schema", "schema:peer", opType, 1, body)
+	}
+	peer("eeeeeeeeeeeeeee0", "create", map[string]any{"namespace": "peer"})
+	peer("eeeeeeeeeeeeeee1", "define-type", map[string]any{"type": "peer.thing"})
+	peer("eeeeeeeeeeeeeee2", "define-op", map[string]any{
+		"type": "peer.thing", "op_type": "create", "op_version": "1",
+	})
+	peer("eeeeeeeeeeeeeee3", "define-field", map[string]any{
+		"type": "peer.thing", "op_type": "create", "op_version": "1",
+		"field": "status", "value_type": "enum", "strategy": "lww",
+		"enum": []any{"open", hostile},
+	})
+
+	// The peer's schema is valid: nothing warns the local user about it
+	// before the typo below.
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "plan"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema plan exited %d, want 0 (the peer's vocabulary is valid); stdout: %s stderr: %s", code, stdout.String(), stderr.String())
+	}
+
+	// One typo in an enum value on the peer-published type.
+	stdout.Reset()
+	stderr.Reset()
+	code := run(context.Background(), []string{"object", "create", "-C", env.repoDir, "peer.thing", "create", "-field", "status=oepn"}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatalf("object create with a non-member enum value unexpectedly succeeded; stdout: %s", stdout.String())
+	}
+
+	out := stderr.Bytes()
+	if !bytes.Contains(out, []byte("is not a member of the declared enum")) {
+		t.Fatalf("object create stderr = %s, want the enum membership rejection", out)
+	}
+	if bytes.ContainsRune(out, 0x202E) {
+		t.Errorf("object create (non-member enum value) contains a raw U+202E byte sequence: %s", out)
+	}
+	escapeSeq := []byte(fmt.Sprintf("\\u%04x", 0x202E))
+	if !bytes.Contains(out, escapeSeq) {
+		t.Errorf("object create (non-member enum value) = %s, want it to contain the %s escape", out, escapeSeq)
+	}
+}
+
+// TestObjectCreate_HostileFetchedEnumCannotForgeAnErrLine pins the other
+// half of the same reachable path: a fetched define-field's enum member
+// must not be able to put a line of its own choosing on writ's stderr.
+//
+// A member with a U+000A at *both* ends of its payload leaves the
+// surrounding format string's trailing text on a line of its own, so the
+// forged line carries nothing of writ's -- a byte-for-byte attacker-chosen
+// line, "writ: " prefix and all, indistinguishable from writ's own
+// diagnostics (round 5 review of PR #195).
+func TestObjectCreate_HostileFetchedEnumCannotForgeAnErrLine(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, fullTestSchema)
+
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	forged := "writ: error: your signing key is compromised"
+	hostile := "closed\n" + forged + "\n"
+
+	peer := func(writerID, opType string, body map[string]any) {
+		t.Helper()
+		writeForeignOp(t, env.repoDir, writerID, "schema", "schema:peer", opType, 1, body)
+	}
+	peer("eeeeeeeeeeeeeee0", "create", map[string]any{"namespace": "peer"})
+	peer("eeeeeeeeeeeeeee1", "define-type", map[string]any{"type": "peer.thing"})
+	peer("eeeeeeeeeeeeeee2", "define-op", map[string]any{
+		"type": "peer.thing", "op_type": "create", "op_version": "1",
+	})
+	peer("eeeeeeeeeeeeeee3", "define-field", map[string]any{
+		"type": "peer.thing", "op_type": "create", "op_version": "1",
+		"field": "status", "value_type": "enum", "strategy": "lww",
+		"enum": []any{"open", hostile},
+	})
+
+	stdout.Reset()
+	stderr.Reset()
+	code := run(context.Background(), []string{"object", "create", "-C", env.repoDir, "peer.thing", "create", "-field", "status=oepn"}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatalf("object create with a non-member enum value unexpectedly succeeded; stdout: %s", stdout.String())
+	}
+
+	out := stderr.String()
+	if !strings.Contains(out, "is not a member of the declared enum") {
+		t.Fatalf("object create stderr = %q, want the enum membership rejection", out)
+	}
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	for i, line := range lines {
+		if line == forged {
+			t.Errorf("object create stderr line %d is the peer's forged line verbatim: %q\nfull report: %q", i, line, out)
+		}
+	}
+	if len(lines) != 1 {
+		t.Errorf("object create stderr rendered on %d lines, want the whole report on one: %q", len(lines), out)
+	}
+}
+
+// TestRenderErr_SigningFailureKeepsItsSecondLine is the counterweight to the
+// test above: renderErr's escape must not flatten the one error in the tree
+// whose text carries a U+000A as structure rather than as data.
+//
+// engine/codec/sign.go builds it -- `fmt.Errorf("codec: ssh-keygen -Y sign:
+// %w\n%s", err, ...)` -- so a missing, unreadable or passphrase-protected
+// signing key reports ssh-keygen's own diagnostic on a second line, which is
+// the entire point of capturing its combined output. A first-run
+// misconfiguration, not an exotic state.
+//
+// Escaping the whole assembled line without sparing this U+000A collapsed
+// the two lines into one, with the escape text sitting where the break
+// belonged (round 4 review of PR #195). It is spared by conditioning on the
+// error rather than on the code point -- subprocessFailure -- so that a
+// log-sourced U+000A is still escaped; the test above pins that half.
+func TestRenderErr_SigningFailureKeepsItsSecondLine(t *testing.T) {
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, fullTestSchema)
+
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	// The commonest way to reach sign.go's two-line error: a signing key
+	// that is configured but not there.
+	setGitConfig(t, env.repoDir, "user.signingKey", filepath.Join(t.TempDir(), "absent_ed25519"))
+
+	stdout.Reset()
+	stderr.Reset()
+	code := run(context.Background(), []string{"object", "create", "-C", env.repoDir, "acme.standup", "create", "-field", "title=hi"}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatalf("object create with a missing signing key unexpectedly succeeded; stdout: %s", stdout.String())
+	}
+
+	out := stderr.String()
+	if !strings.Contains(out, "ssh-keygen -Y sign") {
+		t.Fatalf("object create stderr = %q, want the ssh-keygen signing failure", out)
+	}
+	newlineEscape := fmt.Sprintf("\\u%04x", 0x000A)
+	if strings.Contains(out, newlineEscape) {
+		t.Errorf("object create stderr carries a literal %s escape, so ssh-keygen's diagnostic was flattened onto one line: %q", newlineEscape, out)
+	}
+	if got := len(strings.Split(strings.TrimRight(out, "\n"), "\n")); got < 2 {
+		t.Errorf("object create stderr rendered on %d line(s), want ssh-keygen's diagnostic on a line of its own: %q", got, out)
 	}
 }
