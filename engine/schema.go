@@ -201,6 +201,15 @@ func (s *Store) vocabularies(ctx context.Context) (codec.Vocabularies, error) {
 	rules, _ := RulesFromSchemas(schemas)
 	res := resolveSchemaTypes(schemas)
 
+	// This write-back is unconditional, so a derive already in flight when a
+	// concurrent noteAppend("schema") or invalidateVocabularies lands installs
+	// its own pre-change snapshot over the invalidation, stamp included — the
+	// one residual the round-5 fingerprint clear in noteAppend does not close,
+	// and the reason ARCHITECTURE.md §Producer validation states what is
+	// enforced rather than an absolute. It is bounded by the same window and
+	// stays inside WRIT-202's accepted risk; closing it needs a cache
+	// generation counter checked here, which is a wider change than the bound
+	// it would buy and is deliberately not made.
 	s.vocabMu.Lock()
 	s.vocabCache = vocabularies
 	s.ruleCache = rules
@@ -360,12 +369,33 @@ func (s *Store) declaredTypes(ctx context.Context) (resolvedSchemaTypes, error) 
 // computed fingerprint disagree with the (now absent) cache and pays for
 // one full resolve, correctly, because this append — unlike the many
 // non-"schema" ones surrounding it — really might have moved the schema.
+//
+// That branch clears vocabFingerprint alongside them, and the clear is not
+// redundant with zeroing the stamp (WRIT-202 review round 5). Sequentially
+// it changes nothing: this append moved this writer's own tip, so the next
+// vocabularies call's freshly computed fingerprint already disagrees with
+// the cached one. It matters against a reader on another goroutine of this
+// same handle that computed its dag.Chains fingerprint before this append
+// and has not yet reached vocabMu. With the old fingerprint left standing,
+// that reader takes vocabularies' fingerprint-hit branch on a pre-append
+// snapshot and re-stamps vocabObservedAt on it, handing this handle's own
+// next Append exactly the view this append invalidated. Clearing the
+// fingerprint turns that reader's stale value into a guaranteed miss, so it
+// full-resolves against the log as it now stands.
+// invalidateVocabularies clears all four fields for the same reason. The
+// clear only works because fingerprintChains never returns "" (see its
+// marker below): a repository with no writ chains would otherwise
+// fingerprint to the same value this writes and match it. Both lines are
+// netted by TestNoteAppend_SchemaAppendLeavesNoFingerprintForAParkedReader;
+// for the residual neither closes, see Store.vocabularies' write-back above
+// and ARCHITECTURE.md §Producer validation.
 func (s *Store) noteAppend(objectType string, newTip plumbing.Hash) {
 	s.vocabMu.Lock()
 	defer s.vocabMu.Unlock()
 
 	if objectType == "schema" {
 		s.vocabChains = nil
+		s.vocabFingerprint = ""
 		s.vocabObservedAt = time.Time{}
 		return
 	}
@@ -396,6 +426,16 @@ func fingerprintChains(chains map[string]dag.DiscoveredChain) string {
 	sort.Strings(names)
 
 	var b strings.Builder
+	// A leading marker, so a fingerprint is never the empty string. "" is
+	// what Store.noteAppend's "schema" branch and invalidateVocabularies
+	// write to mean "no valid fingerprint", and a repository with no writ
+	// chains at all — the bootstrap case, before anything has been appended —
+	// fingerprints to exactly that without this. It would then match the
+	// sentinel, and the fingerprint-hit branch in Store.vocabularies would
+	// serve a snapshot noteAppend had just invalidated (WRIT-202 review round
+	// 5). Nothing outside this cache reads the string; only its equality
+	// matters.
+	b.WriteString("chains:")
 	for _, name := range names {
 		b.WriteString(name)
 		b.WriteByte('\n')

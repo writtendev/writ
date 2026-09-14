@@ -2616,6 +2616,102 @@ type gizmo {
 	}
 }
 
+// TestNoteAppend_SchemaAppendLeavesNoFingerprintForAParkedReader nets the
+// vocabFingerprint clear in Store.noteAppend's "schema" branch (WRIT-202
+// review round 5). Zeroing vocabObservedAt is not enough on its own: a
+// reader on another goroutine of the *same* handle computes its dag.Chains
+// fingerprint outside vocabMu, so one that read the refs before a schema
+// append and reaches the lock after it still matches the cached
+// pre-append fingerprint, takes vocabularies' fingerprint-hit branch, and
+// re-stamps the window on a snapshot that append already invalidated —
+// hiding this handle's own schema append from its own append-path
+// pre-flight for the rest of the window. Clearing the fingerprint makes
+// that reader miss instead, so it resolves against the log as it now
+// stands.
+//
+// Deterministic, not timing-dependent: StoreParkNextChainsScan holds the
+// reader's ref scan still after it has read the (pre-append) refs, the
+// ApplySchema lands entirely inside that gap, and only then is the reader
+// released — so the interleaving is forced by the test rather than raced
+// for. The clock is frozen, so the final pre-flight is a window hit either
+// way and the only thing under assertion is *which* snapshot that hit
+// serves.
+//
+// It nets fingerprintChains' leading marker as well, and deliberately runs
+// against a repository with no writ chains yet — the bootstrap case. Without
+// the marker an empty chain set fingerprints to "", which is the same value
+// the clear writes, so the clear would be a no-op here and the parked reader
+// would match anyway. Delete either line and this test fails.
+func TestNoteAppend_SchemaAppendLeavesNoFingerprintForAParkedReader(t *testing.T) {
+	dir, _ := setupConfiguredRepo(t)
+	ctx := context.Background()
+
+	// Auto-refresh off for the same reason as the other window tests: a
+	// Refresh riding along on ApplySchema would resolve and re-stamp on its
+	// own, and the assertion below would be satisfied by that rather than
+	// by anything noteAppend did.
+	store, err := writ.Open(dir, writ.WithSigner(dummySigner()), writ.WithoutAutoRefresh())
+	if err != nil {
+		t.Fatalf("writ.Open failed: %v", err)
+	}
+	defer store.Close()
+
+	frozen := time.Now()
+	writ.SetStoreClock(store, func() time.Time { return frozen })
+
+	// Warm the cache so vocabCache, vocabChains, and vocabFingerprint all
+	// hold the pre-append values the parked reader is about to match
+	// against.
+	if _, err := writ.StoreVocabularies(store, ctx); err != nil {
+		t.Fatalf("StoreVocabularies (warm) failed: %v", err)
+	}
+
+	parked, release, restore := writ.StoreParkNextChainsScan(store)
+	defer restore()
+	defer release()
+
+	readerDone := make(chan error, 1)
+	go func() {
+		_, err := writ.StoreVocabularies(store, ctx)
+		readerDone <- err
+	}()
+
+	// The reader is now holding the refs as they stood before the append,
+	// and has not yet reached vocabMu.
+	<-parked
+
+	if err := store.ApplySchema(ctx, compileTestSchema(t, "sch-parked-reader", `namespace acme
+description "schema append landing while a reader's chains scan is parked"
+
+type gizmo {
+  op create 1 {
+    title string(200) lww
+  }
+}
+`)); err != nil {
+		t.Fatalf("ApplySchema failed: %v", err)
+	}
+
+	// noteAppend has run. Let the reader finish and write its snapshot back.
+	release()
+	if err := <-readerDone; err != nil {
+		t.Fatalf("parked StoreVocabularies failed: %v", err)
+	}
+
+	// The clock never moved, so this is a window hit whatever happened
+	// above. With the fingerprint left standing, the reader re-stamped the
+	// pre-append snapshot and this hit serves it; with the fingerprint
+	// cleared, the reader missed, re-resolved against the post-append log,
+	// and this hit serves that.
+	got, err := writ.StoreVocabulariesForAppend(store, ctx)
+	if err != nil {
+		t.Fatalf("StoreVocabulariesForAppend failed: %v", err)
+	}
+	if v, ok := got["acme.gizmo"]; !ok || !v.Declared {
+		t.Fatalf("this handle's own append-path pre-flight does not see this handle's own schema append: a reader parked across the append matched the fingerprint noteAppend's \"schema\" branch left standing and re-stamped the pre-append snapshot")
+	}
+}
+
 // TestTypes_AlwaysSeesAnotherHandlesSchemaChange pins WRIT-202 item 4's
 // conservative split: Store.Types (through Store.declaredTypes and
 // Store.vocabularies) must keep re-deriving ground truth on every call,
