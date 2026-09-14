@@ -1296,6 +1296,28 @@ func Fold(ops []MergeOp, rules []FieldRule) (FoldResult, error) {
 			}
 
 		case "keyed-lww":
+			// A caller-supplied rule table, unlike one derived from a schema
+			// in the log (WRIT-234 withholds the whole target there), can
+			// bind one keyed-lww target to rules whose Key tuples differ in
+			// length. The ordering below compares key components pairwise
+			// (spec/fold.md §5's "ordered by their key tuples, compared
+			// component-wise"), which is undefined across tuples of
+			// different length and previously panicked with index out of
+			// range. Refuse the rule table outright rather than making the
+			// comparator defensively total: silently ordering shorter-first
+			// would bless two prefix-related tuples as permanent distinct
+			// registers, inventing a merge semantics nobody asked for
+			// (WRIT-234's ruling, carried forward by WRIT-239's). This
+			// checks arity, not full Key equality: rules sharing a target
+			// may legally disagree on which columns make up an equal-length
+			// key (TestFoldKeyedLWWMultiRuleField).
+			for _, fr := range frs[1:] {
+				if len(fr.Key) != len(primaryRule.Key) {
+					err := fmt.Errorf("keyed-lww rules disagree on key arity (%d vs %d)", len(primaryRule.Key), len(fr.Key))
+					return FoldResult{}, fmt.Errorf("spec: target %q: %w", targetKey, err)
+				}
+			}
+
 			type keyedEntry struct {
 				key   []string
 				value any

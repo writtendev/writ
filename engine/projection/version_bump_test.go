@@ -300,19 +300,19 @@ func TestAppendVersionBumpIsDeterministic(t *testing.T) {
 // caller-side, handing them to projection.WithSchema directly rather than
 // resolving them from a log-sourced schema: buildTypeDescriptor's Key-
 // disagreement decline is kept for exactly that caller-supplied surface
-// (see its own comment in ddl.go), the same surface WRIT-239 is about —
-// whether writ.Fold itself should be made total against caller-supplied
-// mismatched-arity keyed-lww rules is that ticket's question, not this
-// package's. This test does exercise fold's comparator: materialize.go
+// (see its own comment in ddl.go), the same surface WRIT-239 answered —
+// writ.Fold now refuses, rather than panics on, a caller-supplied rule
+// table binding one keyed-lww target to rules whose Key tuples disagree
+// in length. This test does exercise fold's comparator: materialize.go
 // hands state.Fold the unfiltered rule slice (WithheldTargets is only
 // consulted afterward, for unknown_fields), so a keyedLWWAccumulator is
 // constructed for the withheld "verdict" target and reaches Result()
 // with both v1's and v2's entries. It survives that only because both
 // verdict rules' key tuples are kept at the same arity (2) — a
-// differing-arity pair reaching that comparator panics intermittently
-// (spec/schema-source.md §7) — so this test is deliberately shaped to
-// exercise the fold path without tripping over it; do not widen either
-// tuple without preserving that equality.
+// differing-arity pair now makes fold refuse the rule table outright
+// (WRIT-239) rather than reach that comparator at all — so this test is
+// deliberately shaped to exercise the fold path without tripping over
+// it; do not widen either tuple without preserving that equality.
 //
 // "revision" is a second target sharing verdict's v1 key tuple
 // (subject, revision) with no disagreement of its own, standing in for the
