@@ -19,13 +19,16 @@ LDFLAGS = -X $(PKG)/internal/version.Version=$(VERSION)
 # `make -s hugo-version` in .github/workflows/docs.yml.
 HUGO_VERSION := 0.165.0
 
-.PHONY: build test fuzz install gofmt fmt gofmt-check fmt-check api api-check api-compat cli-docs cli-docs-check snapshot release hugo-version docs docs-serve casts render-tape
+.PHONY: build test lint fuzz install gofmt fmt gofmt-check fmt-check api api-check api-compat cli-docs cli-docs-check snapshot release hugo-version docs docs-serve casts render-tape
 
 build:
 	go build ./...
 
 test:
 	go test ./...
+
+lint: ## Check that cmd/writ porcelain print sites use porcelainf/porcelainln
+	go test ./cmd/writ -run TestPorcelainPrintSites
 
 FUZZTIME ?= 30s
 

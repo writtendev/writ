@@ -54,7 +54,7 @@ func runObject(ctx context.Context, defaultDir string, args []string, stdout, st
 	case "list":
 		return runObjectList(ctx, defaultDir, args[1:], stdout, stderr)
 	default:
-		fmt.Fprintf(stderr, "writ object: unknown subcommand %q\n\n", args[0])
+		porcelainf(stderr, "writ object: unknown subcommand %q\n\n", args[0])
 		renderUsage(stderr, []string{"object"}, objectCmd)
 		return 2
 	}
@@ -459,7 +459,7 @@ func renderObjectMutationErr(w io.Writer, err error) int {
 	code := renderErr(w, err)
 	var rejErr *codec.RejectError
 	if errors.As(err, &rejErr) && rejErr.Reason == codec.RejectSchemaViolation && strings.Contains(rejErr.Error(), "key column") {
-		fmt.Fprintln(w, "writ: a keyed-lww key column's value must already be its exact wire encoding -- "+
+		porcelainln(w, "writ: a keyed-lww key column's value must already be its exact wire encoding -- "+
 			"-field-json <key>=<json> sets it as literal JSON instead of -field's pass-through/conversion")
 	}
 	return code
@@ -500,12 +500,12 @@ func runObjectCreate(ctx context.Context, defaultDir string, args []string, stdo
 	}
 
 	if len(posArgs) < 2 {
-		fmt.Fprintln(stderr, "writ object create: <type> and <op-type> are required")
+		porcelainln(stderr, "writ object create: <type> and <op-type> are required")
 		fs.Usage()
 		return 2
 	}
 	if len(posArgs) > 2 {
-		fmt.Fprintf(stderr, "writ object create: unexpected arguments: %s\n", strings.Join(posArgs[2:], " "))
+		porcelainf(stderr, "writ object create: unexpected arguments: %s\n", strings.Join(posArgs[2:], " "))
 		fs.Usage()
 		return 2
 	}
@@ -529,13 +529,13 @@ func runObjectCreate(ctx context.Context, defaultDir string, args []string, stdo
 
 	version, err := resolveOpVersion(types, objectType, opType, opts.opVer)
 	if err != nil {
-		fmt.Fprintf(stderr, "writ object create: %v\n", err)
+		porcelainf(stderr, "writ object create: %v\n", err)
 		return 1
 	}
 
 	fields, err := parseFieldFlags(opts.fields, opts.fieldJSON, objectType, opType, version, types)
 	if err != nil {
-		fmt.Fprintf(stderr, "writ object create: %v\n", err)
+		porcelainf(stderr, "writ object create: %v\n", err)
 		return 1
 	}
 
@@ -546,13 +546,13 @@ func runObjectCreate(ctx context.Context, defaultDir string, args []string, stdo
 
 	if opts.jsonMode {
 		if err := emitJSON(stdout, wire.KindObjectCreate, wire.ObjectCreated{ObjectID: id, ObjectType: objectType}); err != nil {
-			fmt.Fprintf(stderr, "writ object create: marshal json: %v\n", err)
+			porcelainf(stderr, "writ object create: marshal json: %v\n", err)
 			return 1
 		}
 		return 0
 	}
 
-	fmt.Fprintln(stdout, id)
+	porcelainln(stdout, id)
 	return 0
 }
 
@@ -591,12 +591,12 @@ func runObjectApply(ctx context.Context, defaultDir string, args []string, stdou
 	}
 
 	if len(posArgs) < 2 {
-		fmt.Fprintln(stderr, "writ object apply: <object-id> and <op-type> are required")
+		porcelainln(stderr, "writ object apply: <object-id> and <op-type> are required")
 		fs.Usage()
 		return 2
 	}
 	if len(posArgs) > 2 {
-		fmt.Fprintf(stderr, "writ object apply: unexpected arguments: %s\n", strings.Join(posArgs[2:], " "))
+		porcelainf(stderr, "writ object apply: unexpected arguments: %s\n", strings.Join(posArgs[2:], " "))
 		fs.Usage()
 		return 2
 	}
@@ -630,13 +630,13 @@ func runObjectApply(ctx context.Context, defaultDir string, args []string, stdou
 
 	version, err := resolveOpVersion(types, existing.ObjectType, opType, opts.opVer)
 	if err != nil {
-		fmt.Fprintf(stderr, "writ object apply: %v\n", err)
+		porcelainf(stderr, "writ object apply: %v\n", err)
 		return 1
 	}
 
 	fields, err := parseFieldFlags(opts.fields, opts.fieldJSON, existing.ObjectType, opType, version, types)
 	if err != nil {
-		fmt.Fprintf(stderr, "writ object apply: %v\n", err)
+		porcelainf(stderr, "writ object apply: %v\n", err)
 		return 1
 	}
 
@@ -646,13 +646,13 @@ func runObjectApply(ctx context.Context, defaultDir string, args []string, stdou
 
 	if opts.jsonMode {
 		if err := emitJSON(stdout, wire.KindObjectApply, wire.ObjectApplied{ObjectID: objectID, OpType: opType}); err != nil {
-			fmt.Fprintf(stderr, "writ object apply: marshal json: %v\n", err)
+			porcelainf(stderr, "writ object apply: marshal json: %v\n", err)
 			return 1
 		}
 		return 0
 	}
 
-	fmt.Fprintf(stdout, "%s: applied %s\n", objectID, opType)
+	porcelainf(stdout, "%s: applied %s\n", objectID, opType)
 	return 0
 }
 
@@ -685,12 +685,12 @@ func runObjectShow(ctx context.Context, defaultDir string, args []string, stdout
 	}
 
 	if len(posArgs) == 0 || posArgs[0] == "" {
-		fmt.Fprintln(stderr, "writ object show: object ID is required")
+		porcelainln(stderr, "writ object show: object ID is required")
 		fs.Usage()
 		return 2
 	}
 	if len(posArgs) > 1 {
-		fmt.Fprintf(stderr, "writ object show: unexpected arguments: %s\n", strings.Join(posArgs[1:], " "))
+		porcelainf(stderr, "writ object show: unexpected arguments: %s\n", strings.Join(posArgs[1:], " "))
 		fs.Usage()
 		return 2
 	}
@@ -718,7 +718,7 @@ func runObjectShow(ctx context.Context, defaultDir string, args []string, stdout
 
 	if opts.jsonMode {
 		if err := emitJSON(stdout, wire.KindObjectShow, wire.FromObject(obj)); err != nil {
-			fmt.Fprintf(stderr, "writ object show: marshal json: %v\n", err)
+			porcelainf(stderr, "writ object show: marshal json: %v\n", err)
 			return 1
 		}
 		return 0
@@ -731,7 +731,7 @@ func runObjectShow(ctx context.Context, defaultDir string, args []string, stdout
 	sort.Strings(keys)
 
 	tw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintf(tw, "object_id\t%s\n", obj.ObjectID)
+	porcelainf(tw, "object_id\t%s\n", obj.ObjectID)
 	// obj.ObjectType is envelope-derived (DetermineObjectType,
 	// engine/internal/fold/fold.go) and so already grammar-gated at decode
 	// by spec/schemas/op-envelope.schema.json's object_type pattern -- a
@@ -740,20 +740,20 @@ func runObjectShow(ctx context.Context, defaultDir string, args []string, stdout
 	// wire.FromObject serializes, this one included) and pinned by
 	// TestDecodeGate_RefusesForbiddenCodePointInEnvelope so this comment
 	// cannot silently rot into a false claim.
-	fmt.Fprintf(tw, "object_type\t%s\n", textsafe.EscapeForbidden(obj.ObjectType))
+	porcelainf(tw, "object_type\t%s\n", obj.ObjectType)
 	for _, k := range keys {
-		fmt.Fprintf(tw, "%s\t%s\n", k, fieldDisplay(obj.Fields[k]))
+		porcelainf(tw, "%s\t%s\n", k, fieldDisplay(obj.Fields[k]))
 	}
 	_ = tw.Flush()
 
 	if len(obj.UnknownOps) > 0 {
-		fmt.Fprintln(stdout, "Unknown ops:")
+		porcelainln(stdout, "Unknown ops:")
 		for _, u := range obj.UnknownOps {
 			// u.ObjectType and u.OpType are likewise envelope-derived
 			// (engine/internal/fold/fold.go:214) and decode-gated the same
 			// way obj.ObjectType above is -- see that comment. Escaped for
 			// the same consistency reason, not because this is a live hole.
-			fmt.Fprintf(stdout, "  %s %s v%d (%s)\n", textsafe.EscapeForbidden(u.ObjectType), textsafe.EscapeForbidden(u.OpType), u.OpVersion, u.Commit)
+			porcelainf(stdout, "  %s %s v%d (%s)\n", u.ObjectType, u.OpType, u.OpVersion, u.Commit)
 		}
 	}
 
@@ -825,18 +825,18 @@ func runObjectList(ctx context.Context, defaultDir string, args []string, stdout
 	}
 
 	if len(posArgs) > 1 {
-		fmt.Fprintf(stderr, "writ object list: unexpected arguments: %s\n", strings.Join(posArgs[1:], " "))
+		porcelainf(stderr, "writ object list: unexpected arguments: %s\n", strings.Join(posArgs[1:], " "))
 		fs.Usage()
 		return 2
 	}
 
 	if opts.limit < 0 {
-		fmt.Fprintf(stderr, "writ object list: -limit must be non-negative, got %d\n", opts.limit)
+		porcelainf(stderr, "writ object list: -limit must be non-negative, got %d\n", opts.limit)
 		fs.Usage()
 		return 2
 	}
 	if opts.offset < 0 {
-		fmt.Fprintf(stderr, "writ object list: -offset must be non-negative, got %d\n", opts.offset)
+		porcelainf(stderr, "writ object list: -offset must be non-negative, got %d\n", opts.offset)
 		fs.Usage()
 		return 2
 	}
@@ -845,7 +845,7 @@ func runObjectList(ctx context.Context, defaultDir string, args []string, stdout
 	if opts.sortOrder != "" {
 		orderBy, err = parseOrderBy(opts.sortOrder)
 		if err != nil {
-			fmt.Fprintf(stderr, "writ object list: %v\n", err)
+			porcelainf(stderr, "writ object list: %v\n", err)
 			fs.Usage()
 			return 2
 		}
@@ -869,7 +869,7 @@ func runObjectList(ctx context.Context, defaultDir string, args []string, stdout
 			return renderErr(stderr, err)
 		}
 		if !typeIsQueryable(types, posArgs[0]) {
-			fmt.Fprintf(stderr, "writ object list: object type %q is not declared by the installed vocabulary (declares: %s)\n", posArgs[0], strings.Join(declaredTypeNames(types), ", "))
+			porcelainf(stderr, "writ object list: object type %q is not declared by the installed vocabulary (declares: %s)\n", posArgs[0], strings.Join(declaredTypeNames(types), ", "))
 			return 1
 		}
 		typeFilter = []string{posArgs[0]}
@@ -890,7 +890,7 @@ func runObjectList(ctx context.Context, defaultDir string, args []string, stdout
 
 	if opts.jsonMode {
 		if err := emitJSON(stdout, wire.KindObjectList, wire.FromObjectResultSummaries(results)); err != nil {
-			fmt.Fprintf(stderr, "writ object list: marshal json: %v\n", err)
+			porcelainf(stderr, "writ object list: marshal json: %v\n", err)
 			return 1
 		}
 		return 0
@@ -908,7 +908,7 @@ func runObjectList(ctx context.Context, defaultDir string, args []string, stdout
 		// and decode-gated the same way runObjectShow's obj.ObjectType is --
 		// see that comment. Escaped for consistency, not because this column
 		// is a live hole.
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", shortID, textsafe.EscapeForbidden(r.ObjectType), author, updatedAt)
+		porcelainf(tw, "%s\t%s\t%s\t%s\n", shortID, r.ObjectType, author, updatedAt)
 	}
 	_ = tw.Flush()
 	return 0
@@ -974,7 +974,7 @@ func runSchemaShow(ctx context.Context, defaultDir string, args []string, stdout
 	}
 
 	if len(posArgs) > 1 {
-		fmt.Fprintf(stderr, "writ schema show: unexpected arguments: %s\n", strings.Join(posArgs[1:], " "))
+		porcelainf(stderr, "writ schema show: unexpected arguments: %s\n", strings.Join(posArgs[1:], " "))
 		fs.Usage()
 		return 2
 	}
@@ -998,7 +998,7 @@ func runSchemaShow(ctx context.Context, defaultDir string, args []string, stdout
 	if len(posArgs) == 0 {
 		if opts.jsonMode {
 			if err := emitJSON(stdout, wire.KindSchemaShow, wire.FromSchemaTypeInfos(types)); err != nil {
-				fmt.Fprintf(stderr, "writ schema show: marshal json: %v\n", err)
+				porcelainf(stderr, "writ schema show: marshal json: %v\n", err)
 				return 1
 			}
 			return 0
@@ -1022,7 +1022,7 @@ func runSchemaShow(ctx context.Context, defaultDir string, args []string, stdout
 		// two callers) -- see TestSchemaShow_HostileTypeNameRendersEscaped
 		// and TestObjectUnknownType_HostileDeclaredTypeListRendersEscaped.
 		for _, t := range types {
-			fmt.Fprintln(stdout, textsafe.EscapeForbidden(t.Name))
+			porcelainln(stdout, t.Name)
 		}
 		return 0
 	}
@@ -1050,7 +1050,7 @@ func runSchemaShow(ctx context.Context, defaultDir string, args []string, stdout
 
 	if opts.jsonMode {
 		if err := emitJSON(stdout, wire.KindSchemaShow, wire.FromSchemaTypeInfo(*found)); err != nil {
-			fmt.Fprintf(stderr, "writ schema show: marshal json: %v\n", err)
+			porcelainf(stderr, "writ schema show: marshal json: %v\n", err)
 			return 1
 		}
 		return 0
@@ -1069,7 +1069,7 @@ func runSchemaShow(ctx context.Context, defaultDir string, args []string, stdout
 	// conforming producer would have refused), so it is escaped here for
 	// the same reason as Description: the escape is display, not data.
 	tw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintf(tw, "type\t%s\n", textsafe.EscapeForbidden(found.Name))
+	porcelainf(tw, "type\t%s\n", found.Name)
 	// resolveSchemaTypes qualifies every installed type as
 	// "<namespace>.<type>" except the bootstrap "schema" itself (never
 	// qualified, never anyone's namespace), so a single Cut is total: found
@@ -1077,34 +1077,34 @@ func runSchemaShow(ctx context.Context, defaultDir string, args []string, stdout
 	// the raw name, not the escaped one, so the "." split still works on
 	// the original value -- only the printed remainder needs escaping.
 	if namespace, _, ok := strings.Cut(found.Name, "."); ok {
-		fmt.Fprintf(tw, "namespace\t%s\n", textsafe.EscapeForbidden(namespace))
+		porcelainf(tw, "namespace\t%s\n", namespace)
 	}
 	if found.Description != "" {
-		fmt.Fprintf(tw, "description\t%s\n", textsafe.EscapeForbidden(found.Description))
+		porcelainf(tw, "description\t%s\n", found.Description)
 	}
 	if found.Deprecated {
-		fmt.Fprintf(tw, "deprecated\t%v\n", found.Deprecated)
+		porcelainf(tw, "deprecated\t%v\n", found.Deprecated)
 	}
 	_ = tw.Flush()
 
 	if len(found.Ops) > 0 {
-		fmt.Fprintln(stdout, "Ops:")
+		porcelainln(stdout, "Ops:")
 		otw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
 		for _, o := range found.Ops {
-			fmt.Fprintf(otw, "  %s\tv%d\t%s\n", o.OpType, o.OpVersion, textsafe.EscapeForbidden(o.Description))
+			porcelainf(otw, "  %s\tv%d\t%s\n", o.OpType, o.OpVersion, o.Description)
 		}
 		_ = otw.Flush()
 	}
 
 	if len(found.Fields) > 0 {
-		fmt.Fprintln(stdout, "Fields:")
+		porcelainln(stdout, "Fields:")
 		ftw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
 		for _, f := range found.Fields {
 			target := ""
 			if f.Target != "" {
 				target = "-> " + f.Target
 			}
-			fmt.Fprintf(ftw, "  %s\t%s v%d\t%s\t%s\t%s\n", f.Name, f.OpType, f.OpVersion, f.ValueType, f.Strategy, target)
+			porcelainf(ftw, "  %s\t%s v%d\t%s\t%s\t%s\n", f.Name, f.OpType, f.OpVersion, f.ValueType, f.Strategy, target)
 		}
 		_ = ftw.Flush()
 	}

@@ -51,20 +51,20 @@ func runSync(ctx context.Context, defaultDir string, args []string, stdout, stde
 
 	store, err := writ.Open(targetDir)
 	if err != nil {
-		fmt.Fprintf(stderr, "writ sync: %v\n", err)
+		porcelainf(stderr, "writ sync: %v\n", err)
 		return 5
 	}
 	defer store.Close()
 
 	if store.Writer().ID == "" {
-		fmt.Fprintln(stderr, "warning: no writer identity configured (run 'writ init' to configure)")
+		porcelainln(stderr, "warning: no writer identity configured (run 'writ init' to configure)")
 	}
 
 	remotes := fs.Args()
 	if len(remotes) == 0 {
 		configuredRemotes, err := listGitRemotes(ctx, targetDir)
 		if err != nil {
-			fmt.Fprintf(stderr, "writ sync: list remotes: %v\n", err)
+			porcelainf(stderr, "writ sync: list remotes: %v\n", err)
 			return 1
 		}
 		hasOrigin := false
@@ -79,10 +79,10 @@ func runSync(ctx context.Context, defaultDir string, args []string, stdout, stde
 		} else if len(configuredRemotes) == 1 {
 			remotes = []string{configuredRemotes[0]}
 		} else if len(configuredRemotes) == 0 {
-			fmt.Fprintln(stderr, "writ sync: no remotes configured; specify a remote or add one with 'git remote add'")
+			porcelainln(stderr, "writ sync: no remotes configured; specify a remote or add one with 'git remote add'")
 			return 2
 		} else {
-			fmt.Fprintln(stderr, "writ sync: multiple remotes configured but none named 'origin'; specify a remote explicitly")
+			porcelainln(stderr, "writ sync: multiple remotes configured but none named 'origin'; specify a remote explicitly")
 			return 2
 		}
 	}
@@ -109,7 +109,7 @@ func runSync(ctx context.Context, defaultDir string, args []string, stdout, stde
 			if opts.jsonMode {
 				syncStatuses = append(syncStatuses, wire.FromSyncStatus(status))
 			} else {
-				fmt.Fprintln(stdout, formatSyncStatus(remote, status))
+				porcelainln(stdout, formatSyncStatus(remote, status))
 			}
 		} else {
 			res, err := store.Sync(ctx, remote)
@@ -128,7 +128,7 @@ func runSync(ctx context.Context, defaultDir string, args []string, stdout, stde
 			if opts.jsonMode {
 				syncResults = append(syncResults, wire.FromSyncResult(remote, res))
 			} else {
-				fmt.Fprintln(stdout, formatSyncResult(remote, res))
+				porcelainln(stdout, formatSyncResult(remote, res))
 			}
 		}
 	}
@@ -139,7 +139,7 @@ func runSync(ctx context.Context, defaultDir string, args []string, stdout, stde
 				syncStatuses = []wire.SyncStatus{}
 			}
 			if err := emitJSON(stdout, wire.KindSyncStatus, syncStatuses); err != nil {
-				fmt.Fprintf(stderr, "writ sync: marshal json: %v\n", err)
+				porcelainf(stderr, "writ sync: marshal json: %v\n", err)
 				return 1
 			}
 		} else {
@@ -147,7 +147,7 @@ func runSync(ctx context.Context, defaultDir string, args []string, stdout, stde
 				syncResults = []wire.SyncResult{}
 			}
 			if err := emitJSON(stdout, wire.KindSyncResult, syncResults); err != nil {
-				fmt.Fprintf(stderr, "writ sync: marshal json: %v\n", err)
+				porcelainf(stderr, "writ sync: marshal json: %v\n", err)
 				return 1
 			}
 		}
@@ -242,12 +242,12 @@ func exitCodeFor(err error) int {
 func printSyncError(stderr io.Writer, remote string, err error) {
 	var syncErr *writ.SyncError
 	if errors.As(err, &syncErr) {
-		fmt.Fprintf(stderr, "writ sync: %s: %s: %s\n", remote, syncErr.Kind, syncErr.Message)
+		porcelainf(stderr, "writ sync: %s: %s: %s\n", remote, syncErr.Kind, syncErr.Message)
 		if syncErr.Advice != "" {
-			fmt.Fprintf(stderr, "  advice: %s\n", syncErr.Advice)
+			porcelainf(stderr, "  advice: %s\n", syncErr.Advice)
 		}
 		if syncErr.Unsynced > 0 {
-			fmt.Fprintf(stderr, "  %d %s unsynced\n", syncErr.Unsynced, plural(syncErr.Unsynced, "op", "ops"))
+			porcelainf(stderr, "  %d %s unsynced\n", syncErr.Unsynced, plural(syncErr.Unsynced, "op", "ops"))
 		}
 		return
 	}
@@ -258,14 +258,14 @@ func printSyncError(stderr io.Writer, remote string, err error) {
 		if msg == "" && gitErr.Err != nil {
 			msg = gitErr.Err.Error()
 		}
-		fmt.Fprintf(stderr, "writ sync: %s: %s: %s\n", remote, gitErr.Kind, msg)
+		porcelainf(stderr, "writ sync: %s: %s: %s\n", remote, gitErr.Kind, msg)
 		if gitErr.Advice != "" {
-			fmt.Fprintf(stderr, "  advice: %s\n", gitErr.Advice)
+			porcelainf(stderr, "  advice: %s\n", gitErr.Advice)
 		}
 		return
 	}
 
-	fmt.Fprintf(stderr, "writ sync: %s: %v\n", remote, err)
+	porcelainf(stderr, "writ sync: %s: %v\n", remote, err)
 }
 
 func plural(n int, singular, pluralStr string) string {
