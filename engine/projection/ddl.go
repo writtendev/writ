@@ -450,8 +450,8 @@ func persistedQueryShapes(desc *schemaDescriptor) []persistedQueryShape {
 // already registered. Either withholds the whole type, and buildDescriptor
 // never fails the whole schema build over it. A colliding type is data
 // someone else wrote — a legal object type name under op-envelope's
-// grammar, such as "ticket--base", can still generate a table name
-// ("o_ticket__base") another type already owns — and WRIT-188 round 3's
+// grammar, such as "widget--base", can still generate a table name
+// ("o_widget__base") another type already owns — and WRIT-188 round 3's
 // ruling applies here just as much as there: data another writer wrote must
 // never brick the repository. A withheld type's objects fall to unknown_ops
 // through the same absent-typeDescriptor path an invalid target already
@@ -666,10 +666,12 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 				anchorRefs = append(anchorRefs, anchorColumnRef{Table: tableName, Column: col, Target: tk, ObjectType: objectType})
 			}
 			// An untyped lww or create-once target's folded value can be an
-			// arbitrary JSON object — any lww or create-once field a schema
-			// declares with no value_type — so its column carries no index
-			// and a filter on it can't use whole-blob equality — create-once
-			// preserves raw bytes including unknown members and key order.
+			// arbitrary JSON object — any lww or create-once target that
+			// resolved to untyped (r.ValueType == "", because not every
+			// bound rule declared the same non-empty value_type) — so its
+			// column carries no index and a filter on it can't use
+			// whole-blob equality — create-once preserves raw bytes
+			// including unknown members and key order.
 			// The generic remedy, independent of what this particular
 			// target happens to be: a members child table, one row per
 			// object-valued key, indexed on (member, value), so a reader

@@ -121,7 +121,7 @@ func benchWriteThroughput(repo *git.Repository, n int) plumbing.Hash {
 	start := time.Now()
 	last := parent
 	for i := 0; i < n; i++ {
-		payload := fmt.Sprintf(`{"op_id":"bench-%d","type":"comment.create","object_id":"spike-review","body":"benchmark op payload %d","ts":%d}`, i, i, time.Now().UnixNano())
+		payload := fmt.Sprintf(`{"op_id":"bench-%d","type":"item.create","object_id":"spike-item","body":"benchmark op payload %d","ts":%d}`, i, i, time.Now().UnixNano())
 		commit := &object.Commit{
 			Author:    object.Signature{Name: "writ-4-bench", Email: "bench@example.invalid", When: time.Now()},
 			Committer: object.Signature{Name: "writ-4-bench", Email: "bench@example.invalid", When: time.Now()},

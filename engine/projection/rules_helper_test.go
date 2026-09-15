@@ -43,12 +43,12 @@ func testRules() map[string][]state.Rule {
 	}
 }
 
-// neutralTestRules declares one schema-shaped type, "ticket", for tests
+// neutralTestRules declares one schema-shaped type, "record", for tests
 // exercising the generic Objects/Object query path that have no reason to
 // depend on the fuller table above.
 func neutralTestRules() map[string][]state.Rule {
 	return map[string][]state.Rule{
-		"ticket": {
+		"record": {
 			{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
 			{OpType: "create", OpVersion: 1, Field: "status", Strategy: "lww", ValueType: "string"},
 			{OpType: "update", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},

@@ -17,25 +17,24 @@ import (
 // This file restores, generically, the corpus-wide "Projection == Fold"
 // agreement check that fixtures_test.go's
 // TestFixturesIncrementalVsColdAndFoldAgreement used to run against the
-// (now-deleted) typed Fold*/projection.Review-style readers (round 1 MAJOR
+// (now-deleted) typed fold/projection readers (round 1 MAJOR
 // finding). The property under test was never typed: it is writeTypeRow's
 // inversion of state.Fold's output into generated scalar columns, keyed-lww
 // groups, per-target append tables, and unknown_ops — entirely generic
 // machinery — so this cross-checks it directly against state.Fold over a
-// schema-declared type the engine has never heard of ("ticket"), built from
+// schema-declared type the engine has never heard of ("record"), built from
 // two independent writer identities' concurrent and causally-ordered ops,
-// exactly as makeReviewEnv/makeWidgetOp build ops elsewhere in this
-// package: hand-built codec.Op values with an explicit parent DAG, reaching
-// Refresh through WithEnumOverrideForTest with no producer-validation gate
-// to route around
+// exactly as makeWidgetOp builds ops elsewhere in this package: hand-built
+// codec.Op values with an explicit parent DAG, reaching Refresh through
+// WithEnumOverrideForTest with no producer-validation gate to route around
 // (op-envelope's producer validation lives in dag.Store.Append/codec.BuildCommit,
 // neither of which this touches).
 
-func makeTicketEnv(objID, opType string, body map[string]any) codec.Envelope {
+func makeRecordEnv(objID, opType string, body map[string]any) codec.Envelope {
 	bodyRaw, _ := json.Marshal(body)
 	env := codec.Envelope{
 		ObjectID:   objID,
-		ObjectType: "ticket",
+		ObjectType: "record",
 		OpType:     opType,
 		OpVersion:  1,
 		Body:       bodyRaw,
@@ -45,8 +44,8 @@ func makeTicketEnv(objID, opType string, body map[string]any) codec.Envelope {
 	return env
 }
 
-func makeTicketOp(objID, id string, parents []string, opType string, body map[string]any, authorName, authorEmail string, when time.Time) codec.Op {
-	env := makeTicketEnv(objID, opType, body)
+func makeRecordOp(objID, id string, parents []string, opType string, body map[string]any, authorName, authorEmail string, when time.Time) codec.Op {
+	env := makeRecordEnv(objID, opType, body)
 	author := codec.Identity{Name: authorName, Email: authorEmail, When: when}
 	return codec.Op{
 		Envelope:  env,
@@ -54,7 +53,7 @@ func makeTicketOp(objID, id string, parents []string, opType string, body map[st
 		Parents:   parents,
 		Author:    author,
 		Committer: author,
-		Message:   "writ: " + opType + " ticket/" + objID + "\n",
+		Message:   "writ: " + opType + " record/" + objID + "\n",
 	}
 }
 
@@ -79,7 +78,7 @@ func queryStrings(t *testing.T, db *sql.DB, query string, args ...any) []string 
 	return out
 }
 
-// TestProjectionMatchesFoldAcrossStrategies builds one "ticket" object from
+// TestProjectionMatchesFoldAcrossStrategies builds one "record" object from
 // two writers (Alice, Bob) exercising lww (title, and a genuinely
 // concurrent status write to force a real tie-break rather than a
 // single-writer sequential one), set-observed-remove (concurrent assignee
@@ -91,13 +90,13 @@ func queryStrings(t *testing.T, db *sql.DB, query string, args ...any) []string 
 // materialized values back with plain SQL exactly as an external tool
 // would, never through a typed reader.
 func TestProjectionMatchesFoldAcrossStrategies(t *testing.T) {
-	const objID = "ticket-1"
+	const objID = "record-1"
 	base := time.Unix(1700000000, 0).UTC()
 	alice := func(id string, parents []string, opType string, body map[string]any, offset int) codec.Op {
-		return makeTicketOp(objID, id, parents, opType, body, "Alice", "alice@example.com", base.Add(time.Duration(offset)*time.Second))
+		return makeRecordOp(objID, id, parents, opType, body, "Alice", "alice@example.com", base.Add(time.Duration(offset)*time.Second))
 	}
 	bob := func(id string, parents []string, opType string, body map[string]any, offset int) codec.Op {
-		return makeTicketOp(objID, id, parents, opType, body, "Bob", "bob@example.com", base.Add(time.Duration(offset)*time.Second))
+		return makeRecordOp(objID, id, parents, opType, body, "Bob", "bob@example.com", base.Add(time.Duration(offset)*time.Second))
 	}
 
 	opCreate := alice("op-create", nil, "create", map[string]any{"title": "Q3 rollout"}, 0)
@@ -122,7 +121,7 @@ func TestProjectionMatchesFoldAcrossStrategies(t *testing.T) {
 	opTriageFrontend2 := bob("op-triage-fe2", []string{opTriageFrontend1.ID}, "triage", map[string]any{"component": "frontend", "level": "medium"}, 6)
 	opTriageBackend := alice("op-triage-be", []string{opArchive.ID}, "triage", map[string]any{"component": "backend", "level": "low"}, 5)
 
-	// Unknown op type: no rule below names "escalate" for "ticket" —
+	// Unknown op type: no rule below names "escalate" for "record" —
 	// forward-compat preservation, not an error.
 	opUnknown := alice("op-unknown", []string{opTriageBackend.ID}, "escalate", map[string]any{"reason": "urgent"}, 7)
 
@@ -132,19 +131,19 @@ func TestProjectionMatchesFoldAcrossStrategies(t *testing.T) {
 		opTriageBackend, opUnknown,
 	}
 
-	ticketRules := []state.Rule{
-		{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string", ObjectType: "ticket"},
-		{OpType: "set-status", OpVersion: 1, Field: "status", Strategy: "lww", ValueType: "string", ObjectType: "ticket"},
-		{OpType: "assign", OpVersion: 1, Field: "add", Target: "assignees", Strategy: "set-observed-remove", ValueType: "string", ObjectType: "ticket"},
-		{OpType: "assign", OpVersion: 1, Field: "remove", Target: "assignees", Strategy: "set-observed-remove", ValueType: "string", ObjectType: "ticket"},
-		{OpType: "archive", OpVersion: 1, Field: "archived", Strategy: "tombstone", ValueType: "bool", ObjectType: "ticket"},
-		{OpType: "note", OpVersion: 1, Field: "note", Strategy: "append", ValueType: "string", ObjectType: "ticket"},
-		{OpType: "triage", OpVersion: 1, Field: "level", Strategy: "keyed-lww", Key: []string{"component"}, KeyTypes: map[string]string{"component": "string"}, ValueType: "string", ObjectType: "ticket"},
+	recordRules := []state.Rule{
+		{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string", ObjectType: "record"},
+		{OpType: "set-status", OpVersion: 1, Field: "status", Strategy: "lww", ValueType: "string", ObjectType: "record"},
+		{OpType: "assign", OpVersion: 1, Field: "add", Target: "assignees", Strategy: "set-observed-remove", ValueType: "string", ObjectType: "record"},
+		{OpType: "assign", OpVersion: 1, Field: "remove", Target: "assignees", Strategy: "set-observed-remove", ValueType: "string", ObjectType: "record"},
+		{OpType: "archive", OpVersion: 1, Field: "archived", Strategy: "tombstone", ValueType: "bool", ObjectType: "record"},
+		{OpType: "note", OpVersion: 1, Field: "note", Strategy: "append", ValueType: "string", ObjectType: "record"},
+		{OpType: "triage", OpVersion: 1, Field: "level", Strategy: "keyed-lww", Key: []string{"component"}, KeyTypes: map[string]string{"component": "string"}, ValueType: "string", ObjectType: "record"},
 	}
-	rulesByType := map[string][]state.Rule{"ticket": ticketRules}
+	rulesByType := map[string][]state.Rule{"record": recordRules}
 
 	// The reference this generic materialization has to match.
-	want, err := state.Fold(ops, ticketRules)
+	want, err := state.Fold(ops, recordRules)
 	if err != nil {
 		t.Fatalf("state.Fold: %v", err)
 	}
@@ -159,7 +158,7 @@ func TestProjectionMatchesFoldAcrossStrategies(t *testing.T) {
 	enumRes := &dag.EnumerateResult{
 		Ops: map[string][]codec.Op{objID: ops},
 		Cursors: dag.CursorSet{
-			"refs/writ/0123456789abcdef/ticket": "op-unknown",
+			"refs/writ/0123456789abcdef/record": "op-unknown",
 		},
 		DecodedCommits: len(ops),
 	}
@@ -173,9 +172,9 @@ func TestProjectionMatchesFoldAcrossStrategies(t *testing.T) {
 	wantStatus, _ := want.State["status"].(string)
 	var gotTitle, gotStatus sql.NullString
 	var gotArchived sql.NullInt64
-	if err := rawDB.QueryRow("SELECT f_title, f_status, f_archived FROM o_ticket WHERE object_id = ?", objID).
+	if err := rawDB.QueryRow("SELECT f_title, f_status, f_archived FROM o_record WHERE object_id = ?", objID).
 		Scan(&gotTitle, &gotStatus, &gotArchived); err != nil {
-		t.Fatalf("query o_ticket: %v", err)
+		t.Fatalf("query o_record: %v", err)
 	}
 	if wantTitle == "" || gotTitle.String != wantTitle {
 		t.Fatalf("f_title = %q, want (state.Fold) %q", gotTitle.String, wantTitle)
@@ -195,9 +194,9 @@ func TestProjectionMatchesFoldAcrossStrategies(t *testing.T) {
 
 	// set-observed-remove: assignees, from two concurrent writers.
 	wantAssignees, _ := want.State["assignees"].([]string)
-	gotAssignees := queryStrings(t, rawDB, "SELECT item FROM o_ticket__assignees WHERE object_id = ? ORDER BY item ASC", objID)
+	gotAssignees := queryStrings(t, rawDB, "SELECT item FROM o_record__assignees WHERE object_id = ? ORDER BY item ASC", objID)
 	if !reflect.DeepEqual(gotAssignees, wantAssignees) {
-		t.Fatalf("o_ticket__assignees = %v, want (state.Fold) %v", gotAssignees, wantAssignees)
+		t.Fatalf("o_record__assignees = %v, want (state.Fold) %v", gotAssignees, wantAssignees)
 	}
 	if !reflect.DeepEqual(wantAssignees, []string{"alice", "bob"}) {
 		t.Fatalf("test setup: state.Fold's assignees = %v, want [alice bob] — both concurrent adds must survive", wantAssignees)
@@ -206,13 +205,13 @@ func TestProjectionMatchesFoldAcrossStrategies(t *testing.T) {
 	// append: note, from two concurrent writers — order matters here, so
 	// this is compared positionally, not as a set.
 	wantNotes, _ := want.State["note"].([]any)
-	gotNotes := queryStrings(t, rawDB, "SELECT value FROM o_ticket__note WHERE object_id = ? ORDER BY op_seq ASC, entry_idx ASC", objID)
+	gotNotes := queryStrings(t, rawDB, "SELECT value FROM o_record__note WHERE object_id = ? ORDER BY op_seq ASC, entry_idx ASC", objID)
 	if len(gotNotes) != len(wantNotes) {
-		t.Fatalf("o_ticket__note has %d rows, state.Fold's note has %d entries: got %v, want %v", len(gotNotes), len(wantNotes), gotNotes, wantNotes)
+		t.Fatalf("o_record__note has %d rows, state.Fold's note has %d entries: got %v, want %v", len(gotNotes), len(wantNotes), gotNotes, wantNotes)
 	}
 	for i := range wantNotes {
 		if gotNotes[i] != wantNotes[i] {
-			t.Fatalf("o_ticket__note[%d] = %q, want (state.Fold) %q — append ordering disagrees with the pure fold", i, gotNotes[i], wantNotes[i])
+			t.Fatalf("o_record__note[%d] = %q, want (state.Fold) %q — append ordering disagrees with the pure fold", i, gotNotes[i], wantNotes[i])
 		}
 	}
 
@@ -221,24 +220,24 @@ func TestProjectionMatchesFoldAcrossStrategies(t *testing.T) {
 	if !ok || len(wantLevels) != 2 {
 		t.Fatalf("test setup: state.Fold's level = %#v, want 2 keyed entries", want.State["level"])
 	}
-	rows, err := rawDB.Query("SELECT k_component, f_level FROM o_ticket__k_component WHERE object_id = ? ORDER BY k_component ASC", objID)
+	rows, err := rawDB.Query("SELECT k_component, f_level FROM o_record__k_component WHERE object_id = ? ORDER BY k_component ASC", objID)
 	if err != nil {
-		t.Fatalf("query o_ticket__k_component: %v", err)
+		t.Fatalf("query o_record__k_component: %v", err)
 	}
 	defer rows.Close()
 	var gotLevels []struct{ component, level string }
 	for rows.Next() {
 		var c, l string
 		if err := rows.Scan(&c, &l); err != nil {
-			t.Fatalf("scan o_ticket__k_component: %v", err)
+			t.Fatalf("scan o_record__k_component: %v", err)
 		}
 		gotLevels = append(gotLevels, struct{ component, level string }{c, l})
 	}
 	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate o_ticket__k_component: %v", err)
+		t.Fatalf("iterate o_record__k_component: %v", err)
 	}
 	if len(gotLevels) != 2 {
-		t.Fatalf("o_ticket__k_component has %d rows, want 2: %+v", len(gotLevels), gotLevels)
+		t.Fatalf("o_record__k_component has %d rows, want 2: %+v", len(gotLevels), gotLevels)
 	}
 	for i, entry := range wantLevels {
 		m, ok := entry.(map[string]any)
@@ -248,7 +247,7 @@ func TestProjectionMatchesFoldAcrossStrategies(t *testing.T) {
 		key, _ := m["key"].([]string)
 		val, _ := m["value"].(string)
 		if len(key) != 1 || key[0] != gotLevels[i].component || val != gotLevels[i].level {
-			t.Fatalf("o_ticket__k_component row %d = %+v, want key %v value %q (state.Fold)", i, gotLevels[i], key, val)
+			t.Fatalf("o_record__k_component row %d = %+v, want key %v value %q (state.Fold)", i, gotLevels[i], key, val)
 		}
 	}
 	if gotLevels[0].component != "backend" || gotLevels[0].level != "low" {
@@ -276,24 +275,24 @@ func TestProjectionMatchesFoldAcrossStrategies(t *testing.T) {
 // state.Fold over that identical prefix — not the full history, which the
 // partial projection never saw.
 func TestProjectionMatchesFoldOnTruncatedAncestry(t *testing.T) {
-	const objID = "ticket-2"
+	const objID = "record-2"
 	base := time.Unix(1700000000, 0).UTC()
 
-	opCreate := makeTicketOp(objID, "op-create", nil, "create", map[string]any{"title": "Truncated"}, "Alice", "alice@example.com", base)
-	opNote1 := makeTicketOp(objID, "op-note-1", []string{opCreate.ID}, "note", map[string]any{"note": "first"}, "Alice", "alice@example.com", base.Add(1*time.Second))
+	opCreate := makeRecordOp(objID, "op-create", nil, "create", map[string]any{"title": "Truncated"}, "Alice", "alice@example.com", base)
+	opNote1 := makeRecordOp(objID, "op-note-1", []string{opCreate.ID}, "note", map[string]any{"note": "first"}, "Alice", "alice@example.com", base.Add(1*time.Second))
 	// opNote2 exists in the log but is never fetched by this projection
 	// build below — the "truncated" half of the ancestry.
-	_ = makeTicketOp(objID, "op-note-2", []string{opNote1.ID}, "note", map[string]any{"note": "second"}, "Alice", "alice@example.com", base.Add(2*time.Second))
+	_ = makeRecordOp(objID, "op-note-2", []string{opNote1.ID}, "note", map[string]any{"note": "second"}, "Alice", "alice@example.com", base.Add(2*time.Second))
 
-	ticketRules := []state.Rule{
-		{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string", ObjectType: "ticket"},
-		{OpType: "note", OpVersion: 1, Field: "note", Strategy: "append", ValueType: "string", ObjectType: "ticket"},
+	recordRules := []state.Rule{
+		{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string", ObjectType: "record"},
+		{OpType: "note", OpVersion: 1, Field: "note", Strategy: "append", ValueType: "string", ObjectType: "record"},
 	}
-	rulesByType := map[string][]state.Rule{"ticket": ticketRules}
+	rulesByType := map[string][]state.Rule{"record": recordRules}
 
 	truncatedOps := []codec.Op{opCreate, opNote1}
 
-	want, err := state.Fold(truncatedOps, ticketRules)
+	want, err := state.Fold(truncatedOps, recordRules)
 	if err != nil {
 		t.Fatalf("state.Fold: %v", err)
 	}
@@ -312,7 +311,7 @@ func TestProjectionMatchesFoldOnTruncatedAncestry(t *testing.T) {
 	enumRes := &dag.EnumerateResult{
 		Ops: map[string][]codec.Op{objID: truncatedOps},
 		Cursors: dag.CursorSet{
-			string(dag.LocalRefName(identity.WriterID("0123456789abcdef"), "ticket")): "op-note-1",
+			string(dag.LocalRefName(identity.WriterID("0123456789abcdef"), "record")): "op-note-1",
 		},
 		DecodedCommits: len(truncatedOps),
 	}
@@ -322,15 +321,15 @@ func TestProjectionMatchesFoldOnTruncatedAncestry(t *testing.T) {
 
 	rawDB := db.DB()
 	var gotTitle string
-	if err := rawDB.QueryRow("SELECT f_title FROM o_ticket WHERE object_id = ?", objID).Scan(&gotTitle); err != nil {
-		t.Fatalf("query o_ticket: %v", err)
+	if err := rawDB.QueryRow("SELECT f_title FROM o_record WHERE object_id = ?", objID).Scan(&gotTitle); err != nil {
+		t.Fatalf("query o_record: %v", err)
 	}
 	if gotTitle != "Truncated" {
 		t.Fatalf("f_title = %q, want %q", gotTitle, "Truncated")
 	}
 
-	gotNotes := queryStrings(t, rawDB, "SELECT value FROM o_ticket__note WHERE object_id = ? ORDER BY op_seq ASC, entry_idx ASC", objID)
+	gotNotes := queryStrings(t, rawDB, "SELECT value FROM o_record__note WHERE object_id = ? ORDER BY op_seq ASC, entry_idx ASC", objID)
 	if len(gotNotes) != 1 || gotNotes[0] != "first" {
-		t.Fatalf("o_ticket__note over the truncated prefix = %v, want [first] (state.Fold agrees, and must not see the un-fetched \"second\" op)", gotNotes)
+		t.Fatalf("o_record__note over the truncated prefix = %v, want [first] (state.Fold agrees, and must not see the un-fetched \"second\" op)", gotNotes)
 	}
 }

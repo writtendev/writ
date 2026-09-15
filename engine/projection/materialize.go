@@ -595,11 +595,10 @@ func opMatchesRuleLite(op codec.Op, r state.Rule) bool {
 // positionOpID finds, among ops matching a rule bound to targetKey, the id
 // of the last op in the total order that carried a string at that rule's
 // field — the id ORDER BY position ASC, ..._op_id ASC tiebreaks on. One
-// generic helper replaces the three near-identical per-type ones
-// (issuePositionOpID, sectionPositionOpID, workflowStatePositionOpID) that
-// existed before every position target got this companion column
-// mechanically. This is a projection-side derivation over ops the fold
-// already ordered: no fold change, no I/O.
+// generic helper replaces the hand-written per-type helpers that existed
+// before every position target got this companion column mechanically.
+// This is a projection-side derivation over ops the fold already ordered:
+// no fold change, no I/O.
 func positionOpID(orderedOps []codec.Op, objectType, targetKey string, rules []state.Rule) string {
 	var posOpID string
 	for _, op := range orderedOps {
@@ -742,7 +741,7 @@ func deleteObjectState(tx *sql.Tx, desc *schemaDescriptor, objectID string) erro
 	return nil
 }
 
-type commentToResolve struct {
+type anchorToResolve struct {
 	objectID   string
 	objectType string
 	target     string
@@ -780,28 +779,28 @@ func materializeAnchors(tx *sql.Tx, desc *schemaDescriptor, s storage.Storer) (i
 		return 0, nil
 	}
 
-	var comments []commentToResolve
+	var anchors []anchorToResolve
 	for _, ref := range desc.anchorColumns {
 		cRows, err := tx.Query("SELECT object_id, " + ref.Column + " FROM " + quoteIdent(ref.Table) + " WHERE " + ref.Column + " IS NOT NULL AND " + ref.Column + " != '' AND " + ref.Column + " != 'null'")
 		if err != nil {
 			return 0, fmt.Errorf("projection: query anchors from %s.%s: %w", ref.Table, ref.Column, err)
 		}
 		for cRows.Next() {
-			var c commentToResolve
-			if err := cRows.Scan(&c.objectID, &c.anchorJSON); err != nil {
+			var a anchorToResolve
+			if err := cRows.Scan(&a.objectID, &a.anchorJSON); err != nil {
 				_ = cRows.Close()
 				return 0, fmt.Errorf("projection: scan anchor from %s.%s: %w", ref.Table, ref.Column, err)
 			}
-			c.target = ref.Target
-			c.objectType = ref.ObjectType
-			comments = append(comments, c)
+			a.target = ref.Target
+			a.objectType = ref.ObjectType
+			anchors = append(anchors, a)
 		}
 		_ = cRows.Close()
 		if err := cRows.Err(); err != nil {
 			return 0, fmt.Errorf("projection: iterate anchors from %s.%s: %w", ref.Table, ref.Column, err)
 		}
 	}
-	if len(comments) == 0 {
+	if len(anchors) == 0 {
 		return 0, nil
 	}
 
@@ -826,8 +825,8 @@ func materializeAnchors(tx *sql.Tx, desc *schemaDescriptor, s storage.Storer) (i
 			return resolvedCount, fmt.Errorf("projection: iterate existing resolutions: %w", err)
 		}
 
-		for _, comm := range comments {
-			if existing[comm.objectID] {
+		for _, a := range anchors {
+			if existing[a.objectID] {
 				continue
 			}
 
@@ -845,9 +844,9 @@ func materializeAnchors(tx *sql.Tx, desc *schemaDescriptor, s storage.Storer) (i
 				treeCache[targetCommit] = targetTree
 			}
 
-			anchor, err := resolve.ParseAnchor([]byte(comm.anchorJSON))
+			anchor, err := resolve.ParseAnchor([]byte(a.anchorJSON))
 			if err != nil {
-				return resolvedCount, fmt.Errorf("projection: parse anchor for %s %s: %w", comm.objectType, comm.objectID, err)
+				return resolvedCount, fmt.Errorf("projection: parse anchor for %s %s: %w", a.objectType, a.objectID, err)
 			}
 
 			res := resolve.Resolve(anchor, targetTree)
@@ -860,10 +859,10 @@ func materializeAnchors(tx *sql.Tx, desc *schemaDescriptor, s storage.Storer) (i
 				}
 				_, err = tx.Exec(
 					"INSERT OR REPLACE INTO anchor_resolutions (object_id, target, target_commit, side, outcome, match, path, start_line, end_line, reason) VALUES (?, ?, ?, 'old', ?, ?, ?, ?, ?, ?)",
-					comm.objectID, comm.target, targetCommit, res.Old.Outcome, res.Old.Match, res.Old.Path, startLine, endLine, res.Old.Reason,
+					a.objectID, a.target, targetCommit, res.Old.Outcome, res.Old.Match, res.Old.Path, startLine, endLine, res.Old.Reason,
 				)
 				if err != nil {
-					return resolvedCount, fmt.Errorf("projection: insert anchor resolution old (%s, %s): %w", comm.objectID, targetCommit, err)
+					return resolvedCount, fmt.Errorf("projection: insert anchor resolution old (%s, %s): %w", a.objectID, targetCommit, err)
 				}
 				resolvedCount++
 			}
@@ -876,10 +875,10 @@ func materializeAnchors(tx *sql.Tx, desc *schemaDescriptor, s storage.Storer) (i
 				}
 				_, err = tx.Exec(
 					"INSERT OR REPLACE INTO anchor_resolutions (object_id, target, target_commit, side, outcome, match, path, start_line, end_line, reason) VALUES (?, ?, ?, 'new', ?, ?, ?, ?, ?, ?)",
-					comm.objectID, comm.target, targetCommit, res.New.Outcome, res.New.Match, res.New.Path, startLine, endLine, res.New.Reason,
+					a.objectID, a.target, targetCommit, res.New.Outcome, res.New.Match, res.New.Path, startLine, endLine, res.New.Reason,
 				)
 				if err != nil {
-					return resolvedCount, fmt.Errorf("projection: insert anchor resolution new (%s, %s): %w", comm.objectID, targetCommit, err)
+					return resolvedCount, fmt.Errorf("projection: insert anchor resolution new (%s, %s): %w", a.objectID, targetCommit, err)
 				}
 				resolvedCount++
 			}

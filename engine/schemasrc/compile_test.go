@@ -206,8 +206,8 @@ type ticket {
 // default, the field name) across different op_types must agree on
 // value_type, not just strategy. Before the widening, "owner" on create
 // (person-ref) and "owner" on assign (object-ref), both lww, compiled
-// silently — exactly the shape of WRIT-198's five colliding review/issue
-// targets, which all agreed on strategy and disagreed only on value_type.
+// silently — exactly the shape of WRIT-198's colliding targets, which all
+// agreed on strategy and disagreed only on value_type.
 func TestCompileCrossOpTypeTargetReuseWithDifferentValueTypeIsRejected(t *testing.T) {
 	src := `namespace acme
 

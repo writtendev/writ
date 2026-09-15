@@ -30,7 +30,7 @@ func openDB(b *testing.B, driverName string) *sql.DB {
 	return db
 }
 
-// bulkInsert loads numReviews reviews and numComments comments in one
+// bulkInsert loads numItems items and numEntries entries in one
 // transaction per table, the shape a from-scratch refold takes: everything
 // derived from the op log, committed once, not row by row.
 func bulkInsert(b *testing.B, db *sql.DB, driverName string) {
@@ -40,30 +40,30 @@ func bulkInsert(b *testing.B, db *sql.DB, driverName string) {
 	if err != nil {
 		b.Fatalf("%s: begin: %v", driverName, err)
 	}
-	reviewStmt, err := tx.Prepare("INSERT INTO reviews (id, status, base, head) VALUES (?, ?, ?, ?)")
+	itemStmt, err := tx.Prepare("INSERT INTO items (id, status, base, head) VALUES (?, ?, ?, ?)")
 	if err != nil {
-		b.Fatalf("%s: prepare reviews: %v", driverName, err)
+		b.Fatalf("%s: prepare items: %v", driverName, err)
 	}
-	for i := 0; i < numReviews; i++ {
-		id := fmt.Sprintf("review-%d", i)
-		if _, err := reviewStmt.Exec(id, "open", "deadbeef", "cafebabe"); err != nil {
-			b.Fatalf("%s: insert review: %v", driverName, err)
+	for i := 0; i < numItems; i++ {
+		id := fmt.Sprintf("item-%d", i)
+		if _, err := itemStmt.Exec(id, "open", "deadbeef", "cafebabe"); err != nil {
+			b.Fatalf("%s: insert item: %v", driverName, err)
 		}
 	}
-	reviewStmt.Close()
+	itemStmt.Close()
 
-	commentStmt, err := tx.Prepare("INSERT INTO comments (id, review_id, author, body, blob_hash, created_at, resolved) VALUES (?, ?, ?, ?, ?, ?, ?)")
+	entryStmt, err := tx.Prepare("INSERT INTO entries (id, item_id, author, body, blob_hash, created_at, resolved) VALUES (?, ?, ?, ?, ?, ?, ?)")
 	if err != nil {
-		b.Fatalf("%s: prepare comments: %v", driverName, err)
+		b.Fatalf("%s: prepare entries: %v", driverName, err)
 	}
-	for i := 0; i < numComments; i++ {
-		reviewID := fmt.Sprintf("review-%d", i%numReviews)
-		id := fmt.Sprintf("comment-%d", i)
-		if _, err := commentStmt.Exec(id, reviewID, "alice", "looks good to me, one nit below", "abc123", int64(i), 0); err != nil {
-			b.Fatalf("%s: insert comment: %v", driverName, err)
+	for i := 0; i < numEntries; i++ {
+		itemID := fmt.Sprintf("item-%d", i%numItems)
+		id := fmt.Sprintf("entry-%d", i)
+		if _, err := entryStmt.Exec(id, itemID, "alice", "looks good to me, one nit below", "abc123", int64(i), 0); err != nil {
+			b.Fatalf("%s: insert entry: %v", driverName, err)
 		}
 	}
-	commentStmt.Close()
+	entryStmt.Close()
 
 	if err := tx.Commit(); err != nil {
 		b.Fatalf("%s: commit: %v", driverName, err)
@@ -98,12 +98,12 @@ func BenchmarkBulkInsert_Modernc(b *testing.B) {
 	}
 }
 
-// indexedRead exercises the query shape a review view uses: every comment
-// on one review, via the review_id index.
+// indexedRead exercises the query shape an item view uses: every entry
+// on one item, via the item_id index.
 func indexedRead(b *testing.B, db *sql.DB, driverName string, rng *rand.Rand) {
 	b.Helper()
-	reviewID := fmt.Sprintf("review-%d", rng.Intn(numReviews))
-	rows, err := db.Query("SELECT id, author, body FROM comments WHERE review_id = ?", reviewID)
+	itemID := fmt.Sprintf("item-%d", rng.Intn(numItems))
+	rows, err := db.Query("SELECT id, author, body FROM entries WHERE item_id = ?", itemID)
 	if err != nil {
 		b.Fatalf("%s: query: %v", driverName, err)
 	}
@@ -116,8 +116,8 @@ func indexedRead(b *testing.B, db *sql.DB, driverName string, rng *rand.Rand) {
 		count++
 	}
 	rows.Close()
-	if count != commentsPerReview {
-		b.Fatalf("%s: expected %d comments, got %d", driverName, commentsPerReview, count)
+	if count != entriesPerItem {
+		b.Fatalf("%s: expected %d entries, got %d", driverName, entriesPerItem, count)
 	}
 }
 
