@@ -44,7 +44,7 @@ func runSchema(ctx context.Context, defaultDir string, args []string, stdout, st
 	case "show":
 		return runSchemaShow(ctx, defaultDir, args[1:], stdout, stderr)
 	default:
-		fmt.Fprintf(stderr, "writ schema: unknown command %q\n\n", args[0])
+		porcelainf(stderr, "writ schema: unknown command %q\n\n", args[0])
 		renderUsage(stderr, []string{"schema"}, schemaCmd)
 		return 2
 	}
@@ -88,7 +88,7 @@ func runSchemaPlan(ctx context.Context, defaultDir string, args []string, stdout
 		return 2
 	}
 	if len(posArgs) > 0 {
-		fmt.Fprintf(stderr, "writ schema plan: unexpected arguments: %s\n", strings.Join(posArgs, " "))
+		porcelainf(stderr, "writ schema plan: unexpected arguments: %s\n", strings.Join(posArgs, " "))
 		fs.Usage()
 		return 2
 	}
@@ -114,7 +114,7 @@ func runSchemaPlan(ctx context.Context, defaultDir string, args []string, stdout
 
 	if opts.jsonMode {
 		if err := emitJSON(stdout, wire.KindSchemaPlan, planRes.toWirePlan()); err != nil {
-			fmt.Fprintf(stderr, "writ schema plan: marshal json: %v\n", err)
+			porcelainf(stderr, "writ schema plan: marshal json: %v\n", err)
 			return 1
 		}
 		return 0
@@ -136,7 +136,7 @@ func runSchemaApply(ctx context.Context, defaultDir string, args []string, stdou
 		return 2
 	}
 	if len(posArgs) > 0 {
-		fmt.Fprintf(stderr, "writ schema apply: unexpected arguments: %s\n", strings.Join(posArgs, " "))
+		porcelainf(stderr, "writ schema apply: unexpected arguments: %s\n", strings.Join(posArgs, " "))
 		fs.Usage()
 		return 2
 	}
@@ -173,18 +173,18 @@ func runSchemaApply(ctx context.Context, defaultDir string, args []string, stdou
 			ops:        planRes.ops,
 		}
 		if err := emitJSON(stdout, wire.KindSchemaApply, applyRes.toWireApply()); err != nil {
-			fmt.Fprintf(stderr, "writ schema apply: marshal json: %v\n", err)
+			porcelainf(stderr, "writ schema apply: marshal json: %v\n", err)
 			return 1
 		}
 		return 0
 	}
 
 	if len(planRes.ops) == 0 {
-		fmt.Fprintln(stdout, "writ.schema matches the schema in the log; nothing to apply.")
+		porcelainln(stdout, "writ.schema matches the schema in the log; nothing to apply.")
 		return 0
 	}
 	if planRes.created {
-		fmt.Fprintf(stdout, "Created schema object %s (namespace %q).\n", planRes.objectID, planRes.namespace)
+		porcelainf(stdout, "Created schema object %s (namespace %q).\n", planRes.objectID, planRes.namespace)
 		// Printed on every mint, including the first ever apply in a
 		// repository (WRIT-223): what was missing was never the fact that
 		// something was created -- schema.go already reported that since
@@ -207,11 +207,11 @@ func runSchemaApply(ctx context.Context, defaultDir string, args []string, stdou
 		for i, ns := range planRes.namespaces {
 			display[i] = textsafe.EscapeForbidden(ns)
 		}
-		fmt.Fprintf(stdout, "This repository now declares %d %s: %s.\n", len(planRes.namespaces), word, strings.Join(display, ", "))
+		porcelainf(stdout, "This repository now declares %d %s: %s.\n", len(planRes.namespaces), word, strings.Join(display, ", "))
 	} else {
-		fmt.Fprintf(stdout, "Updated schema object %s (namespace %q).\n", planRes.objectID, planRes.namespace)
+		porcelainf(stdout, "Updated schema object %s (namespace %q).\n", planRes.objectID, planRes.namespace)
 	}
-	fmt.Fprintf(stdout, "Appended %d op(s).\n", len(planRes.ops))
+	porcelainf(stdout, "Appended %d op(s).\n", len(planRes.ops))
 	return 0
 }
 
@@ -281,20 +281,20 @@ func renderSchemaError(w io.Writer, err error) int {
 	var se *schemaError
 	if errors.As(err, &se) {
 		for _, m := range se.msgs {
-			fmt.Fprintln(w, escapeErrReport(m, false))
+			porcelainln(w, escapeErrReport(m, false))
 		}
 		return 1
 	}
 	var synErrs schemasrc.ErrorList
 	if errors.As(err, &synErrs) {
 		for _, e := range synErrs {
-			fmt.Fprintln(w, escapeErrReport(e.Error(), false))
+			porcelainln(w, escapeErrReport(e.Error(), false))
 		}
 		return 1
 	}
 	var synErr *schemasrc.SyntaxError
 	if errors.As(err, &synErr) {
-		fmt.Fprintln(w, escapeErrReport(synErr.Error(), false))
+		porcelainln(w, escapeErrReport(synErr.Error(), false))
 		return 1
 	}
 	return renderErr(w, err)
@@ -1188,11 +1188,11 @@ func renderSchemaPlanPorcelain(w io.Writer, r *schemaPlanResult) {
 	// fieldDisplay/authorDisplay and needs the same escape (round 4 review
 	// of PR #185, finding 1).
 	for _, c := range r.conflicts {
-		fmt.Fprintf(w, "conflict: %s\n", textsafe.EscapeForbidden(c.Reason))
+		porcelainf(w, "conflict: %s\n", c.Reason)
 	}
 
 	if r.upToDate {
-		fmt.Fprintln(w, "writ.schema matches the schema in the log.")
+		porcelainln(w, "writ.schema matches the schema in the log.")
 		return
 	}
 
@@ -1207,6 +1207,7 @@ func renderSchemaPlanPorcelain(w io.Writer, r *schemaPlanResult) {
 		"writ.schema", escapeRenderedSchemaSource(r.plannedSource),
 	)
 	if diff != "" {
+		// exemption: unified diff already escaped by escapeRenderedSchemaSource
 		fmt.Fprint(w, diff)
 	}
 
@@ -1223,11 +1224,11 @@ func renderSchemaPlanPorcelain(w io.Writer, r *schemaPlanResult) {
 		parts = append(parts, fmt.Sprintf("%d %s", counts[opType], opType))
 	}
 	if r.created {
-		fmt.Fprintf(w, "%d op(s) to append (will create a new schema object): %s\n", len(r.ops), strings.Join(parts, ", "))
+		porcelainf(w, "%d op(s) to append (will create a new schema object): %s\n", len(r.ops), strings.Join(parts, ", "))
 	} else {
-		fmt.Fprintf(w, "%d op(s) to append: %s\n", len(r.ops), strings.Join(parts, ", "))
+		porcelainf(w, "%d op(s) to append: %s\n", len(r.ops), strings.Join(parts, ", "))
 	}
-	fmt.Fprintln(w, "run `writ schema apply` to sign and append them")
+	porcelainln(w, "run `writ schema apply` to sign and append them")
 }
 
 // escapeRenderedSchemaSource returns src -- schemasrc.Render's output --
@@ -1288,6 +1289,7 @@ func escapeRenderedSchemaSource(src []byte) string {
 			b.WriteRune(r)
 			continue
 		}
+		// exemption: internal formatting into strings.Builder
 		fmt.Fprintf(&b, `\u%04x`, r)
 	}
 	return b.String()
