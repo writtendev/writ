@@ -76,4 +76,3 @@ func LoadCorpusFromDir(dir string) ([]*Description, error) {
 func sortExtMatch(filename, ext string) bool {
 	return len(filename) >= len(ext) && filename[len(filename)-len(ext):] == ext
 }
-

@@ -36,9 +36,9 @@ var streamSafeInputs = []string{
 	"user:a" + strings.Repeat("̖", 30), // exactly at the limit
 	"user:a" + strings.Repeat("̖", 31), // one past it
 	"user:a" + strings.Repeat("̖", 40), // well past it
-	"user:Åௗ̖́",         // a run broken by a ccc-0 blocker
+	"user:Åௗ̖́",                        // a run broken by a ccc-0 blocker
 	"user:a" + longMarkRun + "́",       // normalizePersonInputs' boundary case: composes to a 31-run
-	"alice@example.com",                     // colonless, but still has a value to measure
+	"alice@example.com",                // colonless, but still has a value to measure
 	"user:a\xff́",                      // invalid UTF-8
 }
 

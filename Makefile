@@ -19,7 +19,7 @@ LDFLAGS = -X $(PKG)/internal/version.Version=$(VERSION)
 # `make -s hugo-version` in .github/workflows/docs.yml.
 HUGO_VERSION := 0.165.0
 
-.PHONY: build test fuzz install api api-check api-compat cli-docs cli-docs-check snapshot release hugo-version docs docs-serve casts render-tape
+.PHONY: build test fuzz install gofmt fmt gofmt-check fmt-check api api-check api-compat cli-docs cli-docs-check snapshot release hugo-version docs docs-serve casts render-tape
 
 build:
 	go build ./...
@@ -143,6 +143,31 @@ cli-docs: ## Regenerate docs/cli.md from the command table
 
 cli-docs-check: ## Fail if docs/cli.md is stale (the CI gate)
 	go test ./cmd/writ -run TestDocsGolden
+
+gofmt: ## Format all Go source files with gofmt
+	@set -e; \
+	files=$$(git ls-files --cached --others --exclude-standard '*.go'); \
+	if [ -n "$$files" ]; then \
+		echo "$$files" | xargs gofmt -w; \
+	fi
+
+fmt: gofmt ## Alias for gofmt
+
+gofmt-check: ## Fail if any Go source files are not formatted with gofmt (the CI gate)
+	@set -e; \
+	files=$$(git ls-files --cached --others --exclude-standard '*.go'); \
+	if [ -n "$$files" ]; then \
+		unformatted=$$(echo "$$files" | xargs gofmt -l); \
+		if [ -n "$$unformatted" ]; then \
+			printf 'gofmt-check: the following files are not formatted with gofmt:\n\n'; \
+			echo "$$unformatted" | sed 's/^/  /'; \
+			printf '\ngofmt-check: run `make gofmt` and commit the result.\n'; \
+			exit 1; \
+		fi; \
+	fi
+
+fmt-check: gofmt-check ## Alias for gofmt-check
+
 
 # --------------------------------------------------------------------------
 # Releases

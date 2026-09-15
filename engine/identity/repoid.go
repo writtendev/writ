@@ -69,10 +69,10 @@ func LoadRepoID(ctx context.Context, repoDir string) (RepoID, error) {
 
 // EnsureRepoID resolves or mints a RepoID for the repository at repoDir:
 //
-// 1. If writ.repoId is already present in merged git config, it is validated
-//    and reused as-is without modifying repository config.
-// 2. Otherwise, a new RepoID is minted and persisted to local repository
-//    configuration via 'git config --local writ.repoId <id>'.
+//  1. If writ.repoId is already present in merged git config, it is validated
+//     and reused as-is without modifying repository config.
+//  2. Otherwise, a new RepoID is minted and persisted to local repository
+//     configuration via 'git config --local writ.repoId <id>'.
 //
 // The returned boolean reports whether a new RepoID was minted (true) or an existing
 // ID was reused (false).

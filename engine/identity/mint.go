@@ -23,10 +23,10 @@ func MintWriterID() (WriterID, error) {
 // EnsureWriterID resolves or mints a WriterID for the repository at repoDir,
 // implementing spec/ref-layout.md §Sourcing precedence:
 //
-// 1. If writ.writerId is already present in merged git config (local or global),
-//    it is validated and reused as-is without modifying repository config.
-// 2. Otherwise, a new WriterID is minted (retrying if taken returns true)
-//    and persisted to local repository configuration via 'git config --local writ.writerId <id>'.
+//  1. If writ.writerId is already present in merged git config (local or global),
+//     it is validated and reused as-is without modifying repository config.
+//  2. Otherwise, a new WriterID is minted (retrying if taken returns true)
+//     and persisted to local repository configuration via 'git config --local writ.writerId <id>'.
 //
 // The returned boolean reports whether a new WriterID was minted (true) or an existing
 // ID was reused (false).

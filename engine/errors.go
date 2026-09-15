@@ -36,4 +36,3 @@ var (
 	// ErrRefRejected indicates that the remote rejected one or more ref updates.
 	ErrRefRejected = writsync.ErrRefRejected
 )
-

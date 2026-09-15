@@ -300,4 +300,3 @@ func TestHarness_CommitSHALookup(t *testing.T) {
 
 	Run(t, family)
 }
-

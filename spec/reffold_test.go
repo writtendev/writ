@@ -57,23 +57,24 @@ var normalizePersonInputs = []string{
 	"  日本語  ",
 	"\u00a0NBSP@Example.COM\u00a0",
 	// The folding algorithm, step by step.
-	"user:\u0130",                             // the pinned case fold, on the character that motivated pinning it
-	"user:\u00df",                             // full folding, not simple
-	"user:\u1e9e",                             // the capital, which simple folding would send to U+00DF instead
-	"user:Jos\u0065\u0301",                    // NFC composes a decomposed value
-	"user:Jos\u00e9",                          // and leaves the precomposed spelling alone
-	"user:\u017f\u0301",                       // folding leaves s+U+0301, which the second NFC composes
-	"user:\u13a0",                             // Cherokee uppercase: a fold fixed point x/text toggles
-	"user:\uab70",                             // Cherokee lowercase, which folds up (AB70..ABBF -> 13A0..13EF)
-	"user:\u13f8",                             // and Cherokee's *second* fold range (13F8..13FD -> 13F0..13F5)
-	"user:\U00010041\u0300",                   // a supplementary starter that must not compose with its mark
-	"user:\U00011099\U000110ba",               // a supplementary pair that must
-	"user:\U00011347\U0001133e",               // and one whose second element is a starter
-	"user:\u1100\u1161",                       // Hangul, the composition between two starters
-	"user:\u00e9\U00010041\u0300\u0065\u0301", // a false composition must not cost its neighbours
-	"user:x\U000113c2\U000113c2y",             // Unicode 17 backward-combining starter in context
-	"\u0130:alice",                            // a non-conforming scheme, where the two copies still must agree
-	"\U00010041\u0300@example.com",            // colonless, and past the ASCII fast path
+	"user:\u0130",               // the pinned case fold, on the character that motivated pinning it
+	"user:\u00df",               // full folding, not simple
+	"user:\u1e9e",               // the capital, which simple folding would send to U+00DF instead
+	"user:Jos\u0065\u0301",      // NFC composes a decomposed value
+	"user:Jos\u00e9",            // and leaves the precomposed spelling alone
+	"user:\u017f\u0301",         // folding leaves s+U+0301, which the second NFC composes
+	"user:\u13a0",               // Cherokee uppercase: a fold fixed point x/text toggles
+	"user:\uab70",               // Cherokee lowercase, which folds up (AB70..ABBF -> 13A0..13EF)
+	"user:\u13f8",               // and Cherokee's *second* fold range (13F8..13FD -> 13F0..13F5)
+	"user:\U00010041\u0300",     // a supplementary starter that must not compose with its mark
+	"user:\U00011099\U000110ba", // a supplementary pair that must
+	"user:\U00011347\U0001133e", // and one whose second element is a starter
+	"user:\u1100\u1161",         // Hangul, the composition between two starters
+	// A false composition must not cost its neighbours.
+	"user:\u00e9\U00010041\u0300\u0065\u0301",
+	"user:x\U000113c2\U000113c2y",  // Unicode 17 backward-combining starter in context
+	"\u0130:alice",                 // a non-conforming scheme, where the two copies still must agree
+	"\U00010041\u0300@example.com", // colonless, and past the ASCII fast path
 	// One input per defect the folding implementations work around, mirroring
 	// the list in the nfc doc comment. Every one of these has actually
 	// diverged between the two copies at some point: a hand-written table only

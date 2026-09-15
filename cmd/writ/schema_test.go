@@ -937,7 +937,6 @@ type standup {
 	}
 }
 
-
 // TestSchemaCLI_ReuseRefusesContestedType and
 // TestSchemaCLI_ReuseRefusesFutureBootstrapCollision /
 // TestSchemaCLI_CreateRefusesFutureBootstrapCollision are removed

@@ -252,9 +252,11 @@ func checkFileConstraints(path string) error {
 }
 
 // checkFilenameConstraint reports whether a non-test file name matches any of:
-//   *_GOOS.go
-//   *_GOARCH.go
-//   *_GOOS_GOARCH.go
+//
+//	*_GOOS.go
+//	*_GOARCH.go
+//	*_GOOS_GOARCH.go
+//
 // returning a description of the matched suffix, or "" if unconstrained.
 func checkFilenameConstraint(path string) string {
 	base := filepath.Base(path)

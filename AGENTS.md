@@ -120,7 +120,7 @@ The per-repo configuration those four skills read. Every value they
 would otherwise have to hardcode lives here.
 
 - **Linear team key**: `WRIT` (ticket ids are `WRIT-<n>`).
-- **Check command**: `make build test api-check cli-docs-check` — must
+- **Check command**: `make build test api-check cli-docs-check gofmt-check` — must
   pass locally before any push, by an implementer, a fixer, or a human.
 - **Base branch**: `main`.
 - **Worktrees**: `.claude/worktrees/` — one detached worktree per

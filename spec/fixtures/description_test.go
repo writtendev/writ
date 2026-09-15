@@ -538,5 +538,3 @@ resolutions:
 		t.Errorf("unexpected resolution 1: %+v", desc.Resolutions[1])
 	}
 }
-
-
