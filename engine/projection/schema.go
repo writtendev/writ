@@ -60,7 +60,7 @@ var substrateTableQueries = map[string]string{
 // SDLC type: `meta`, `chain_tips`, `code_tips`, `ops`, `objects`,
 // `unknown_ops` are untouched from before this ticket, and
 // `anchor_resolutions` is generalized to a target/value_type-driven shape
-// rather than a hard-coded read of a `comments.anchor` column.
+// rather than a hard-coded read of a single type's anchor column.
 const substrateSQL = `
 CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,

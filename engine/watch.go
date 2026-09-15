@@ -28,7 +28,7 @@ type Event struct {
 	Kind EventKind `json:"kind"`
 
 	// ObjectType is the type of collaborative object affected, whatever the
-	// installed schema declares it to be (e.g. "ticket").
+	// installed schema declares it to be (e.g. "widget").
 	ObjectType string `json:"object_type,omitempty"`
 
 	// ObjectID is the unique identifier of the collaborative object.

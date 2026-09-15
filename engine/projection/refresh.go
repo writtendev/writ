@@ -23,7 +23,7 @@ type ObjectChange struct {
 	ObjectID string `json:"object_id"`
 
 	// ObjectType is the type of collaborative object, whatever the installed
-	// schema declares it to be (e.g. "ticket").
+	// schema declares it to be (e.g. "widget").
 	ObjectType string `json:"object_type"`
 
 	// OpTypes lists the distinct operation types applied to the object in this refresh batch.

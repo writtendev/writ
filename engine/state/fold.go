@@ -20,13 +20,12 @@ type Rule struct {
 	KeyTypes  map[string]string `json:"key_types,omitempty"`
 	// ObjectType scopes the rule to one object type (spec/fold.md §5): empty
 	// on either the rule or the op matches anything. Before WRIT-195 it was
-	// left empty on every hand-written Go rule table (ReviewRules,
-	// IssueRules, etc.) rather than set to the table's own type — those
-	// tables were already selected per object type by their callers and the
-	// typed reducers, so an empty ObjectType changed nothing for them — and
-	// WRIT-195 deleted the tables outright rather than retrofit them. Only
-	// log-sourced rules (RulesFromSchemas) and rules built from
-	// spec.FieldRules() carry it.
+	// left empty on every hand-written Go rule table rather than set to each
+	// table's own type — those tables were already selected per object type
+	// by their callers and the typed reducers, so an empty ObjectType changed
+	// nothing for them — and WRIT-195 deleted the tables outright rather than
+	// retrofit them. Only log-sourced rules (RulesFromSchemas) and rules
+	// built from spec.FieldRules() carry it.
 	ObjectType string `json:"object_type,omitempty"`
 	// Deprecated is carried through from a schema-declared field's
 	// deprecate-field state (spec/schema-ops.md §4.6, §5): it is metadata

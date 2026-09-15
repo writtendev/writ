@@ -173,8 +173,8 @@ func TestQueryFullSuite(t *testing.T) {
 		t.Errorf("expected 7 objects total, got %d", len(objects))
 	}
 
-	// Test note content and threading via Fields, since the per-type
-	// thread reader no longer exists.
+	// Test note content and threading via Fields, since per-type reader
+	// methods are gone.
 	objN1, err := s.Objects.Get(ctx, n1)
 	if err != nil {
 		t.Fatalf("Objects.Get(n1): %v", err)
