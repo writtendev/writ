@@ -146,7 +146,8 @@ cli-docs-check: ## Fail if docs/cli.md is stale (the CI gate)
 
 gofmt: ## Format all Go source files with gofmt
 	@set -e; \
-	files=$$(git ls-files --cached --others --exclude-standard '*.go'); \
+	files=$$(git ls-files --cached --others --exclude-standard '*.go' | \
+		while IFS= read -r f; do if [ -f "$$f" ]; then echo "$$f"; fi; done); \
 	if [ -n "$$files" ]; then \
 		echo "$$files" | xargs gofmt -w; \
 	fi
@@ -155,7 +156,8 @@ fmt: gofmt ## Alias for gofmt
 
 gofmt-check: ## Fail if any Go source files are not formatted with gofmt (the CI gate)
 	@set -e; \
-	files=$$(git ls-files --cached --others --exclude-standard '*.go'); \
+	files=$$(git ls-files --cached --others --exclude-standard '*.go' | \
+		while IFS= read -r f; do if [ -f "$$f" ]; then echo "$$f"; fi; done); \
 	if [ -n "$$files" ]; then \
 		unformatted=$$(echo "$$files" | xargs gofmt -l); \
 		if [ -n "$$unformatted" ]; then \
