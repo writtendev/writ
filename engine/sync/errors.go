@@ -95,4 +95,3 @@ func (e *GitError) Error() string {
 func (e *GitError) Unwrap() error {
 	return e.Err
 }
-

@@ -94,4 +94,3 @@ func TestDiff_TrailingNewlineDifference(t *testing.T) {
 		t.Errorf("expected old newline notice in diff, got:\n%s", diffRev)
 	}
 }
-

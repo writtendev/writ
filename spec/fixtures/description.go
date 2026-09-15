@@ -119,7 +119,7 @@ type ResolutionDesc struct {
 type ResolutionAnchorDesc struct {
 	At    string              `yaml:"at,omitempty"`
 	Path  string              `yaml:"path,omitempty"`
-	Side  string              `yaml:"side,omitempty"` // "new" | "old" | "both" (defaults to "new")
+	Side  string              `yaml:"side,omitempty"`  // "new" | "old" | "both" (defaults to "new")
 	Range []int               `yaml:"range,omitempty"` // [start, end]
 	Old   *ResolutionSideDesc `yaml:"old,omitempty"`
 	New   *ResolutionSideDesc `yaml:"new,omitempty"`

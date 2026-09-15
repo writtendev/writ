@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	s "github.com/writtendev/writ/engine/state"
 	"github.com/writtendev/writ/engine/codec"
 	"github.com/writtendev/writ/engine/codec/canonicaljson"
 	"github.com/writtendev/writ/engine/dag"
+	s "github.com/writtendev/writ/engine/state"
 	"github.com/writtendev/writ/spec"
 )
 

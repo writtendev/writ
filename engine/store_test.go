@@ -325,4 +325,3 @@ func TestStoreMissingSigningKey(t *testing.T) {
 		t.Fatal("expected non-empty widget ID")
 	}
 }
-

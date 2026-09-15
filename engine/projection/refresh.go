@@ -478,11 +478,11 @@ func readOpsForObject(tx *sql.Tx, objectID string) ([]codec.Op, error) {
 	var ops []codec.Op
 	for rows.Next() {
 		var (
-			opID, parentsJSON, authorName, authorEmail, authorTZ       string
-			authorTime, committerTime                                  int64
-			committerName, committerEmail, committerTZ, message        string
-			sig                                                        sql.NullString
-			payload                                                    []byte
+			opID, parentsJSON, authorName, authorEmail, authorTZ string
+			authorTime, committerTime                            int64
+			committerName, committerEmail, committerTZ, message  string
+			sig                                                  sql.NullString
+			payload                                              []byte
 		)
 
 		if err := rows.Scan(

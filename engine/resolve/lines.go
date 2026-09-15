@@ -5,10 +5,10 @@ import (
 )
 
 // SplitLines splits blob contents into lines following spec/anchors.md §Lines and encoding:
-// 1. Splitting: byte-level split at LF (0x0A). Trailing LF produces no empty final line.
-//    CR (0x0D) is preserved verbatim. Empty content produces nil.
-// 2. Decoding: decoded as UTF-8, replacing each invalid byte with U+FFFD.
-// 3. Truncation: lines longer than 1000 Unicode code points are truncated to the first 1000.
+//  1. Splitting: byte-level split at LF (0x0A). Trailing LF produces no empty final line.
+//     CR (0x0D) is preserved verbatim. Empty content produces nil.
+//  2. Decoding: decoded as UTF-8, replacing each invalid byte with U+FFFD.
+//  3. Truncation: lines longer than 1000 Unicode code points are truncated to the first 1000.
 func SplitLines(content []byte) []string {
 	if len(content) == 0 {
 		return nil

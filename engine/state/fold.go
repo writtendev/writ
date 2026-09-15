@@ -122,4 +122,3 @@ func Fold(ops []codec.Op, rules []Rule) (ObjectState, error) {
 		UnknownOps: unknownOps,
 	}, nil
 }
-

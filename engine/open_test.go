@@ -253,4 +253,3 @@ func TestOpenLinkedWorktreeWithExtensions(t *testing.T) {
 		t.Fatalf("unexpected gadgets query result: %+v", gadgets)
 	}
 }
-
