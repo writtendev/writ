@@ -33,11 +33,6 @@ var Known = map[string]bool{
 	"anchor":     true,
 }
 
-// maxSafeInt is the canonical-encoding bound of spec/canonicalization.md:
-// integers beyond ±2^53-1 silently lose precision once round-tripped through
-// an IEEE-754 double, so int and number are both bounded here.
-const maxSafeInt = 1<<53 - 1
-
 // Params carries the parameterisation a value type MAY declare per
 // spec/value-types.md: enum's member list, and string/text's max_length
 // (counted in Unicode code points, per spec/value-types.md §Length units).
@@ -82,8 +77,8 @@ func Validate(valueType string, params Params, v any) error {
 		if n != float64(int64(n)) {
 			return fmt.Errorf("value: int value %v is not an integer", v)
 		}
-		if n < -maxSafeInt || n > maxSafeInt {
-			return fmt.Errorf("value: int value %v exceeds spec/canonicalization.md's ±2^53-1 bound", v)
+		if n < -anchorshape.MaxSafeInt || n > anchorshape.MaxSafeInt {
+			return fmt.Errorf("value: int value %v exceeds spec/value-types.md's ±2^53-1 bound", v)
 		}
 		return nil
 	case "number":
@@ -91,8 +86,8 @@ func Validate(valueType string, params Params, v any) error {
 		if !ok {
 			return fmt.Errorf("value: number value must be a JSON number")
 		}
-		if n < -maxSafeInt || n > maxSafeInt {
-			return fmt.Errorf("value: number value %v exceeds spec/canonicalization.md's ±2^53-1 bound", v)
+		if n < -anchorshape.MaxSafeInt || n > anchorshape.MaxSafeInt {
+			return fmt.Errorf("value: number value %v exceeds spec/value-types.md's ±2^53-1 bound", v)
 		}
 		return nil
 	case "bool":

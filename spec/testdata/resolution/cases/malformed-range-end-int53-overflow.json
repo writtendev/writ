@@ -1,6 +1,6 @@
 {
   "name": "malformed-range-end-int53-overflow",
-  "description": "range.end is the JSON number 9223372036854776000 (2^63, past the +/-2^53 exact-integer bound spec/resolution.md's Structural Pre-Check now states) with start and omitted chosen so the arithmetic is self-consistent against int64's saturating conversion of that value -- decoding it as an int at all, on any platform, must fail before any float-to-int conversion happens, not convert it and rely on an architecture-dependent result (WRIT-252 round 3 repro: accepted on darwin/arm64, refused on amd64, for these exact bytes)",
+  "description": "range.end is the JSON number 9223372036854776000 (2^63, past the +/-(2^53-1) exact-integer bound spec/resolution.md's Structural Pre-Check now states) with start and omitted chosen so the arithmetic is self-consistent against int64's saturating conversion of that value -- decoding it as an int at all, on any platform, must fail before any float-to-int conversion happens, not convert it and rely on an architecture-dependent result (WRIT-252 round 3 repro: accepted on darwin/arm64, refused on amd64, for these exact bytes)",
   "anchor": {
     "version": 1,
     "new": {

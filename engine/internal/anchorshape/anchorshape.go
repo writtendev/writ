@@ -74,11 +74,11 @@ func SideWellFormed(side any) bool {
 	if !ok {
 		return false
 	}
-	start, ok := jsonInt(rangeMap["start"])
+	start, ok := JSONInt(rangeMap["start"])
 	if !ok {
 		return false
 	}
-	end, ok := jsonInt(rangeMap["end"])
+	end, ok := JSONInt(rangeMap["end"])
 	if !ok {
 		return false
 	}
@@ -102,7 +102,7 @@ func SideWellFormed(side any) bool {
 	hasOmitted := false
 	if omittedVal, present := contextMap["omitted"]; present {
 		hasOmitted = true
-		omitted, ok = jsonInt(omittedVal)
+		omitted, ok = JSONInt(omittedVal)
 		if !ok {
 			return false
 		}
@@ -125,10 +125,10 @@ func SideWellFormed(side any) bool {
 // Go-constructed-anchor path reduce to, so the numbers cannot drift between
 // them the way the two hand-written copies this replaces did. Both callers
 // reach here only with start/end/omitted already bounded to
-// [-maxSafeJSONInt, maxSafeJSONInt] by jsonInt (ladder.go's r.Start/r.End
+// [-MaxSafeInt, MaxSafeInt] by JSONInt (ladder.go's r.Start/r.End
 // were themselves decoded through it, via parseSideAnchor), so size :=
 // end - start + 1 below cannot overflow int on any platform this project
-// targets (2*maxSafeJSONInt is well under math.MaxInt64).
+// targets (2*MaxSafeInt is well under math.MaxInt64).
 func RangeContextWellFormed(start, end, linesLen, omitted int, hasOmitted bool) bool {
 	if start < 1 || end < start {
 		return false
@@ -147,32 +147,53 @@ func RangeContextWellFormed(start, end, linesLen, omitted int, hasOmitted bool) 
 	return linesLen == 64 && omitted == size-64
 }
 
-// maxSafeJSONInt is the largest integer magnitude a float64 — and thus any
-// JSON number decoded through Go's generic interface{} representation —
-// represents exactly (spec/canonicalization.md's "integers beyond 2^53
-// silently lose precision"). jsonInt refuses anything outside
-// [-maxSafeJSONInt, maxSafeJSONInt] before ever converting it to int:
-// converting an out-of-range float64 to int is implementation-defined by
-// the Go spec, and round 3 of this PR's review found it platform-dependent
-// in practice — a side carrying range.end: 9223372036854776000 with a
-// matching omitted resolved on darwin/arm64 but was refused as malformed
-// on amd64, because the two architectures saturate an out-of-range
-// float-to-int conversion differently.
-const maxSafeJSONInt = 1 << 53
+// MaxSafeInt is the exact-integer bound spec/value-types.md's `int` and
+// `number` rows give — ±2⁵³−1 — the largest integer magnitude a float64 is
+// guaranteed to represent exactly (spec/canonicalization.md's "integers
+// beyond 2⁵³ silently lose precision"; 2⁵³ itself is still exactly
+// representable, but the catalogue draws its line one below it, at
+// 2⁵³−1, and every caller of JSONInt is held to that same line, not to
+// float64's own precision boundary).
+//
+// This is the one definition of that bound in the codebase:
+// engine/internal/value (a fellow stdlib-only leaf that already imports
+// this package) uses MaxSafeInt for its own `int`/`number` value_type
+// validation instead of hardcoding a second copy, and engine/resolve's
+// decodeNonNullInt (the anchor-level "version" field) calls JSONInt below
+// directly so that "version" is bound by exactly the same rule as a side's
+// range.start, range.end, and context.omitted — round 4 review of this PR
+// found "version" decoded under a different rule instead (Go's own
+// int-literal parsing), which disagreed with the shared rule on both
+// integrality ("1.0") and the bound itself.
+//
+// JSONInt refuses anything outside [-MaxSafeInt, MaxSafeInt] before ever
+// converting it to int: converting an out-of-range float64 to int is
+// implementation-defined by the Go spec, and round 3 of this PR's review
+// found it platform-dependent in practice — a side carrying range.end:
+// 9223372036854776000 with a matching omitted resolved on darwin/arm64 but
+// was refused as malformed on amd64, because the two architectures saturate
+// an out-of-range float-to-int conversion differently.
+const MaxSafeInt = 1<<53 - 1
 
-// jsonInt decodes v (a value from Go's generic JSON representation) as an
+// JSONInt decodes v (a value from Go's generic JSON representation) as an
 // integer, refusing anything that isn't a JSON number with zero fractional
-// part and a magnitude within maxSafeJSONInt — encoding/json always decodes
+// part and a magnitude within MaxSafeInt — encoding/json always decodes
 // a JSON number into float64 when the target is interface{}, so an
 // integer-valued float within that bound is the only signal that v was a
 // JSON integer rather than "1.5", a too-large number, or a non-numeric type
 // (including null, which fails the initial type assertion outright).
-func jsonInt(v any) (int, bool) {
+//
+// JSONInt is exported so every caller that needs "is this JSON value an
+// integer within writ's one safe-integer bound" — SideWellFormed above,
+// engine/resolve's anchor-level "version" decode, anything else that reads
+// an int/number value type — asks it the same way instead of each growing
+// its own copy of this arithmetic.
+func JSONInt(v any) (int, bool) {
 	f, ok := v.(float64)
 	if !ok {
 		return 0, false
 	}
-	if f < -maxSafeJSONInt || f > maxSafeJSONInt {
+	if f < -MaxSafeInt || f > MaxSafeInt {
 		return 0, false
 	}
 	i := int(f)

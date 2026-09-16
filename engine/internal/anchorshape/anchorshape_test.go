@@ -59,8 +59,15 @@ func makeLines(n int) []any {
 // 2^63 (JSON's "9223372036854776000") and a start/omitted chosen so the
 // rest of the arithmetic lines up against MaxInt64 was well-formed on
 // arm64 but malformed on amd64, for the exact same bytes.
+//
+// The boundary itself is round 4's finding: it must be the same
+// ±(2^53-1) safe-integer bound as everywhere else in writ
+// (spec/value-types.md's int/number rows, engine/internal/value's
+// maxSafeInt, engine/codec/valuetype_test.go's "int bound"/"number bound"
+// vectors) -- not ±2^53, which is one past the boundary those already
+// treat as invalid.
 func TestSideWellFormedIntegerBound(t *testing.T) {
-	const maxSafe = float64(1 << 53)
+	const maxSafe = float64(1<<53 - 1)
 
 	cases := []struct {
 		name string
@@ -68,8 +75,8 @@ func TestSideWellFormedIntegerBound(t *testing.T) {
 		want bool
 	}{
 		{
-			name: "end at the float64-exact-integer boundary is well-formed",
-			// start=1, end=2^53 => size = 2^53; omitted must be size-64.
+			name: "end at the ±(2^53-1) boundary is well-formed",
+			// start=1, end=2^53-1 => size = 2^53-1; omitted must be size-64.
 			side: wellFormedSide(
 				map[string]any{"start": float64(1), "end": maxSafe},
 				map[string]any{"lines": makeLines(64), "omitted": maxSafe - 64},
@@ -77,14 +84,15 @@ func TestSideWellFormedIntegerBound(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "end one representable step past the boundary is malformed",
-			// The next float64 above 2^53 is 2^53+2 (doubles that large
-			// step by 2). It is still integral, but outside the
-			// [-maxSafeJSONInt, maxSafeJSONInt] bound jsonInt now enforces
-			// before any float->int conversion.
+			name: "end one past the ±(2^53-1) boundary, at 2^53, is malformed",
+			// 2^53 is still exactly float64-representable (the doubling
+			// step to 2 per integer only starts above 2^53), so this is
+			// not a precision-loss case -- it is squarely the bound
+			// jsonInt must enforce: anything outside ±(2^53-1) is
+			// malformed even though the float64 itself is exact.
 			side: wellFormedSide(
-				map[string]any{"start": float64(1), "end": maxSafe + 2},
-				map[string]any{"lines": makeLines(64), "omitted": maxSafe + 2 - 64},
+				map[string]any{"start": float64(1), "end": maxSafe + 1},
+				map[string]any{"lines": makeLines(64), "omitted": maxSafe + 1 - 64},
 			),
 			want: false,
 		},

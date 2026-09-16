@@ -290,20 +290,42 @@ func toNonNullStrings(v any) []string {
 	return out
 }
 
-// decodeNonNullInt decodes raw as a JSON integer, refusing null and refusing
-// a non-integer number (json.Unmarshal into *int already errors on "1.5" or
-// `"1"`; only null needed the pointer indirection to catch). Used for the
-// anchor-level "version" field, which parseSideAnchor/anchorshape do not
-// touch — version sits outside any side.
+// errNotJSONInt reports that decodeNonNullInt's value decoded as JSON but
+// failed anchorshape.JSONInt's integrality/bound check: it is not a JSON
+// number, has a fractional part, or falls outside the ±(2^53-1)
+// exact-integer bound spec/value-types.md gives every catalogue int/number.
+var errNotJSONInt = errors.New("resolve: value is not a JSON integer within the ±(2^53-1) exact-integer bound")
+
+// decodeNonNullInt decodes raw as a JSON integer under the exact same rule
+// anchorshape.JSONInt applies to a side's range.start, range.end, and
+// context.omitted, refusing null and refusing anything that isn't an
+// integer within ±(2^53-1). Used for the anchor-level "version" field,
+// which parseSideAnchor/anchorshape do not otherwise touch — version sits
+// outside any side.
+//
+// Round 4 review of this PR found the previous implementation decoded
+// version through Go's own int-literal parsing (json.Unmarshal into *int)
+// instead of this shared rule: that accepted an out-of-bound literal like
+// 9007199254740992 verbatim as the exact int64 9007199254740992, comparing
+// it to 1 and giving "unsupported-version" where the shared rule says the
+// number itself is out of bounds and the result must be "malformed" — and
+// it rejected 1.0 outright as "malformed", where the same literal in
+// range.start decodes to the integer 1 under the shared rule. Version
+// disagreed with every side field on the identical numbers for no
+// principled reason.
 func decodeNonNullInt(raw json.RawMessage) (int, error) {
-	var v *int
+	var v any
 	if err := json.Unmarshal(raw, &v); err != nil {
 		return 0, err
 	}
 	if v == nil {
 		return 0, errNullValue
 	}
-	return *v, nil
+	n, ok := anchorshape.JSONInt(v)
+	if !ok {
+		return 0, errNotJSONInt
+	}
+	return n, nil
 }
 
 // SideResult represents the resolution outcome for one side of an anchor.

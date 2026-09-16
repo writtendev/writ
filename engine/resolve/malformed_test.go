@@ -219,6 +219,35 @@ func TestResolveRawHostileShapesNoPanic(t *testing.T) {
 			wantNew: resolve.ReasonUnsupportedVersion,
 		},
 		{
+			// WRIT-252 round 4: version must be decoded under the exact
+			// same ±(2^53-1) exact-integer rule as range.start/range.end/
+			// context.omitted (spec/value-types.md), not Go's own int
+			// literal parsing, which parses this 19-digit literal as the
+			// exact int64 9007199254740992 and only then compares it to 1
+			// -- giving "unsupported-version" where the shared rule (which
+			// every side field is already held to) says the number itself
+			// is out of bounds and thus malformed.
+			name:    "version-one-past-safe-integer-bound-is-malformed",
+			raw:     `{"version":9007199254740992,"new":{"commit":"1111111111111111111111111111111111111111","path":"main.go","blob":"2222222222222222222222222222222222222222"}}`,
+			wantNew: resolve.ReasonMalformed,
+		},
+		{
+			// WRIT-252 round 4: "1.0" is a JSON integer under the shared
+			// rule (float64(1.0) round-trips through int exactly), the
+			// same as range.start/range.end already accept it, so version
+			// must resolve as version 1 and proceed to the ladder rather
+			// than orphan "malformed" the way Go's own int-literal parsing
+			// used to (it errors on the decimal point). The side has no
+			// range/context, so it is a whole-file anchor; "main.go"
+			// exists in the target tree but the blob given here never
+			// matches it, so the ladder's only reachable outcome is
+			// "no-candidate" -- which is itself proof version 1.0 reached
+			// the ladder at all instead of orphaning at the version gate.
+			name:    "version-1.0-is-accepted-as-version-1",
+			raw:     `{"version":1.0,"new":{"commit":"1111111111111111111111111111111111111111","path":"main.go","blob":"2222222222222222222222222222222222222222"}}`,
+			wantNew: resolve.ReasonNoCandidate,
+		},
+		{
 			name: "non-object-anchor",
 			raw:  `"just a string"`,
 		},

@@ -157,6 +157,14 @@ The check proceeds in fixed order:
      about the anchor's shape.
    - A missing `version`, or a `version` that is present but not a JSON
      integer (for example the string `"1"`), is `"malformed"`.
+   - "JSON integer" here is the same exact-integer bound step 2 below gives
+     `range.start`, `range.end`, and `context.omitted`: ±2⁵³−1
+     (`spec/value-types.md`). A `version` within that bound decodes to an
+     integer and is compared to `1` as above; a `version` outside it — for
+     example `9007199254740992` (2⁵³) — is not an integer under this rule
+     and is therefore `"malformed"`, not `"unsupported-version"`, exactly
+     as an out-of-bound `range.end` is `"malformed"` rather than treated as
+     some other kind of number.
    - An anchor-level decode failure of this kind orphans **every side
      present** at the top level (`old` and/or `new`) as `"malformed"` — there
      is no per-side information left to distinguish them.
@@ -190,8 +198,9 @@ The check proceeds in fixed order:
      one carrying `"omitted": 0` decodes here but then fails step 3's
      `context.omitted >= 1` below. Neither is reinterpreted as `omitted`
      being absent just because its value is falsy.
-   - An `int` above is required to be within ±2⁵³ — the exact-integer bound
-     `spec/canonicalization.md` already gives a JSON-encoded double — so a
+   - An `int` above is required to be within ±2⁵³−1 — the exact-integer
+     bound `spec/value-types.md` gives every catalogue `int`/`number`
+     field, which step 1's `version` check above uses too — so a
      `range.start`, `range.end`, or `context.omitted` outside that bound
      fails this step exactly as a non-integer number would.
 3. **Arithmetic.** A side that decoded successfully is checked against the
