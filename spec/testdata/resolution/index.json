@@ -49,6 +49,11 @@
     "match": "exact-path-blob",
     "outcome": "resolved"
   },
+  "malformed-anchor-decode-both-sides.json": {
+    "description": "Anchor-level decode failure (missing version) with both old and new present; every side present orphans malformed, not just one (WRIT-252 round 6 review)",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
   "malformed-before-null.json": {
     "description": "context.before is JSON null rather than a string array; a null collar array must not decode as an empty array",
     "outcome": "orphaned",
@@ -69,10 +74,37 @@
     "outcome": "orphaned",
     "reason": "malformed"
   },
+  "malformed-context-without-range.json": {
+    "description": "Side carries context with no range key at all; the mirror of malformed-range-without-context (WRIT-252 round 6 review)",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
+  "malformed-cross-side-decode-new.json": {
+    "description": "Mirror of malformed-cross-side-decode-old: new fails side decode (null commit) and old resolves exactly (WRIT-252 round 6 review)",
+    "match": "exact-path-blob",
+    "outcome": "partial",
+    "reason": "malformed"
+  },
+  "malformed-cross-side-decode-old.json": {
+    "description": "Two-sided anchor where old fails side decode (null commit, not arithmetic) and new resolves exactly; pins that side-level decode failure is scoped per-side (WRIT-252 round 6 review)",
+    "match": "exact-path-blob",
+    "outcome": "partial",
+    "reason": "malformed"
+  },
   "malformed-cross-side.json": {
     "description": "Old side fails the structural pre-check (elided context shorter than 64 lines) while new side resolves exactly; scope is per-side, so the anchor resolves partial",
     "match": "exact-path-blob",
     "outcome": "partial",
+    "reason": "malformed"
+  },
+  "malformed-elided-lines-not-64.json": {
+    "description": "context.omitted present (36) and arithmetically self-consistent with range 1-100, but context.lines holds only 30 entries instead of 64; step 3 requires len(context.lines) == 64 whenever omitted is present, independently of the omitted arithmetic (WRIT-252 round 6 review)",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
+  "malformed-empty-lines.json": {
+    "description": "context.lines is an empty array; step 3 requires context.lines to be non-empty (WRIT-252 round 6 review)",
+    "outcome": "orphaned",
     "reason": "malformed"
   },
   "malformed-lines-null-entry.json": {
@@ -87,6 +119,26 @@
   },
   "malformed-missing-commit.json": {
     "description": "Side omits the required commit key entirely; anchor.schema.json requires commit, path, and blob on a side, so an absent key fails to decode as a v1 side anchor exactly as a wrongly-typed one does",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
+  "malformed-missing-path.json": {
+    "description": "Side omits the required path key entirely; mirrors malformed-missing-commit for the path field (WRIT-252 round 6 review)",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
+  "malformed-non-elided-length-mismatch.json": {
+    "description": "context.omitted absent and context.lines has 2 entries while range covers 3 lines; step 3 requires len(context.lines) == range.end - range.start + 1 when omitted is absent (WRIT-252 round 6 review)",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
+  "malformed-non-elided-range-over-64.json": {
+    "description": "context.omitted absent and range covers 70 matching lines; step 3 caps a non-elided range at 64 lines regardless of context.lines matching (WRIT-252 round 6 review)",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
+  "malformed-omitted-int53-boundary.json": {
+    "description": "context.omitted is 2^53, one past the +/-(2^53-1) exact-integer bound, with range and context.lines otherwise well-formed; existing bound vectors only ever exercise version and range.end (WRIT-252 round 6 review)",
     "outcome": "orphaned",
     "reason": "malformed"
   },
@@ -105,13 +157,38 @@
     "outcome": "orphaned",
     "reason": "malformed"
   },
+  "malformed-range-end-before-start.json": {
+    "description": "range.end (3) is less than range.start (5); step 3 requires range.end \u003e= range.start (WRIT-252 round 6 review)",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
   "malformed-range-end-int53-exact-boundary.json": {
     "description": "range.end is exactly 2^53, one past the +/-(2^53-1) exact-integer bound; unlike malformed-range-end-int53-overflow.json's 2^63, this pins the exact edge of the bound rather than a value any bound from 2^53 up would also reject (WRIT-252 round 5 review)",
     "outcome": "orphaned",
     "reason": "malformed"
   },
+  "malformed-range-end-int53-negative-boundary.json": {
+    "description": "range.end is -2^53, one past the negative edge of the +/-(2^53-1) exact-integer bound; existing range.end bound vectors only ever exercise the positive direction (WRIT-252 round 6 review)",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
   "malformed-range-end-int53-overflow.json": {
     "description": "range.end is 2^63, past the +/-(2^53-1) exact-integer bound a JSON number must decode within; start/omitted are chosen so the arithmetic would self-consistently look valid against an out-of-range float's architecture-dependent int conversion, which is exactly why the bound must be checked before converting at all (WRIT-252 round 3)",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
+  "malformed-range-start-int53-boundary.json": {
+    "description": "range.start is 2^53, one past the +/-(2^53-1) exact-integer bound; existing bound vectors only ever exercise range.end (WRIT-252 round 6 review)",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
+  "malformed-range-start-zero.json": {
+    "description": "range.start is 0; step 3 requires range.start \u003e= 1 (WRIT-252 round 6 review)",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
+  "malformed-range-without-context.json": {
+    "description": "Side carries range with no context key at all; step 3 requires range present if and only if context is present (WRIT-252 round 6 review)",
     "outcome": "orphaned",
     "reason": "malformed"
   },
@@ -132,6 +209,11 @@
   },
   "malformed-version-int53-overflow.json": {
     "description": "Anchor version is the JSON number 2^53, past the +/-(2^53-1) exact-integer bound every catalogue int field must decode within; malformed, not compared to 1 as unsupported-version (WRIT-252 round 5 review)",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
+  "malformed-version-missing-old-only.json": {
+    "description": "Anchor-level decode failure (missing version) on an old-only anchor; pins that the anchor-level failure orphans old, mirroring the existing new-only vector (WRIT-252 round 6 review)",
     "outcome": "orphaned",
     "reason": "malformed"
   },

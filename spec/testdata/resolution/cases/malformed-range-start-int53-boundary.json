@@ -1,0 +1,53 @@
+{
+  "name": "malformed-range-start-int53-boundary",
+  "description": "range.start is 2^53 (9007199254740992), one past the +/-(2^53-1) exact-integer bound spec/value-types.md gives every catalogue int field; the existing bound vectors only ever exercise range.end, so nothing pins that the same bound applies to range.start (WRIT-252 round 6 review)",
+  "anchor": {
+    "version": 1,
+    "new": {
+      "commit": "1111111111111111111111111111111111111111",
+      "path": "main.go",
+      "blob": "1111111111111111111111111111111111111111",
+      "range": {
+        "start": 9007199254740992,
+        "end": 9007199254740992
+      },
+      "context": {
+        "before": [],
+        "lines": [
+          "x"
+        ],
+        "after": []
+      }
+    }
+  },
+  "target": {
+    "files": {
+      "main.go": "package main\n"
+    }
+  },
+  "expect": {
+    "anchor": {
+      "version": 1,
+      "new": {
+        "commit": "1111111111111111111111111111111111111111",
+        "path": "main.go",
+        "blob": "1111111111111111111111111111111111111111",
+        "range": {
+          "start": 9007199254740992,
+          "end": 9007199254740992
+        },
+        "context": {
+          "before": [],
+          "lines": [
+            "x"
+          ],
+          "after": []
+        }
+      }
+    },
+    "new": {
+      "outcome": "orphaned",
+      "reason": "malformed"
+    }
+  }
+}

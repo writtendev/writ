@@ -1,0 +1,53 @@
+{
+  "name": "malformed-range-end-int53-negative-boundary",
+  "description": "range.end is -2^53 (-9007199254740992), one past the negative edge of the +/-(2^53-1) exact-integer bound; the existing range.end bound vectors (malformed-range-end-int53-exact-boundary, malformed-range-end-int53-overflow) only ever exercise the positive direction, so nothing pins that the bound is symmetric (WRIT-252 round 6 review)",
+  "anchor": {
+    "version": 1,
+    "new": {
+      "commit": "1111111111111111111111111111111111111111",
+      "path": "main.go",
+      "blob": "1111111111111111111111111111111111111111",
+      "range": {
+        "start": 1,
+        "end": -9007199254740992
+      },
+      "context": {
+        "before": [],
+        "lines": [
+          "x"
+        ],
+        "after": []
+      }
+    }
+  },
+  "target": {
+    "files": {
+      "main.go": "package main\n"
+    }
+  },
+  "expect": {
+    "anchor": {
+      "version": 1,
+      "new": {
+        "commit": "1111111111111111111111111111111111111111",
+        "path": "main.go",
+        "blob": "1111111111111111111111111111111111111111",
+        "range": {
+          "start": 1,
+          "end": -9007199254740992
+        },
+        "context": {
+          "before": [],
+          "lines": [
+            "x"
+          ],
+          "after": []
+        }
+      }
+    },
+    "new": {
+      "outcome": "orphaned",
+      "reason": "malformed"
+    }
+  }
+}

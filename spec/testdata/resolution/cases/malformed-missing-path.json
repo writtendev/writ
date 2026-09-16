@@ -1,0 +1,29 @@
+{
+  "name": "malformed-missing-path",
+  "description": "Side omits the required path key entirely; anchor.schema.json requires commit, path, and blob on a side, so an absent path fails to decode as a v1 side anchor exactly as an absent commit does (malformed-missing-commit's mirror for path; WRIT-252 round 6 review)",
+  "anchor": {
+    "version": 1,
+    "new": {
+      "commit": "1111111111111111111111111111111111111111",
+      "blob": "1111111111111111111111111111111111111111"
+    }
+  },
+  "target": {
+    "files": {
+      "main.go": "package main\n"
+    }
+  },
+  "expect": {
+    "anchor": {
+      "version": 1,
+      "new": {
+        "commit": "1111111111111111111111111111111111111111",
+        "blob": "1111111111111111111111111111111111111111"
+      }
+    },
+    "new": {
+      "outcome": "orphaned",
+      "reason": "malformed"
+    }
+  }
+}
