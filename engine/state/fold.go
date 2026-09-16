@@ -103,13 +103,24 @@ func Fold(ops []codec.Op, rules []Rule) (ObjectState, error) {
 		}
 	}
 
+	// verificationByCommit is a pure data lookup, not a fold decision:
+	// fold.Fold (above) never sees Verification at all, and this only
+	// copies each quarantined op's own outcome onto its UnknownOp entry
+	// (AGENTS.md "Fold is pure and deterministic" — no branch on the value,
+	// just a pass-through keyed by the commit id fold.Fold already reports).
+	verificationByCommit := make(map[string]string, len(ops))
+	for _, op := range ops {
+		verificationByCommit[op.ID] = string(op.Verification.Outcome)
+	}
+
 	unknownOps := make([]UnknownOp, len(res.UnknownOps))
 	for i, u := range res.UnknownOps {
 		unknownOps[i] = UnknownOp{
-			Commit:     u.Commit,
-			ObjectType: u.ObjectType,
-			OpType:     u.OpType,
-			OpVersion:  u.OpVersion,
+			Commit:       u.Commit,
+			ObjectType:   u.ObjectType,
+			OpType:       u.OpType,
+			OpVersion:    u.OpVersion,
+			Verification: verificationByCommit[u.Commit],
 		}
 	}
 

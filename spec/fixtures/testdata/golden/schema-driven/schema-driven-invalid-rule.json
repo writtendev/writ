@@ -120,25 +120,29 @@
           "commit": "dc2932995b8ecbc5343a51d99141c7491bce3030",
           "object_type": "acme.gadget",
           "op_type": "set-status",
-          "op_version": 1
+          "op_version": 1,
+          "verification": "wrong-key"
         },
         {
           "commit": "1acf6961a0dc296be4055dd4fcdf830290c3e88b",
           "object_type": "acme.gadget",
           "op_type": "set-kind",
-          "op_version": 1
+          "op_version": 1,
+          "verification": "wrong-key"
         },
         {
           "commit": "bffe5b160c2b8fcacbe225fca95f247f31b78307",
           "object_type": "acme.gadget",
           "op_type": "set-note",
-          "op_version": 1
+          "op_version": 1,
+          "verification": "wrong-key"
         },
         {
           "commit": "d9328a2db3c89a8d8f3d4ce22a6728c5e1d4821d",
           "object_type": "acme.gadget",
           "op_type": "set-pair",
-          "op_version": 1
+          "op_version": 1,
+          "verification": "wrong-key"
         }
       ]
     }

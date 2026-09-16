@@ -1,7 +1,10 @@
 package writ
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -10,6 +13,7 @@ import (
 
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/writtendev/writ/engine/codec"
+	"github.com/writtendev/writ/engine/codec/sshsig"
 	"github.com/writtendev/writ/engine/dag"
 	"github.com/writtendev/writ/engine/identity"
 	"github.com/writtendev/writ/engine/projection"
@@ -172,6 +176,38 @@ func Open(path string, opts ...Option) (*Store, error) {
 	if hasSigner {
 		dagOpts = append(dagOpts, dag.WithSigner(signer))
 	}
+
+	// Trust store (WRIT-251 rulings 2 and 4): resolved through
+	// identity.AllowedSignersFile, independently of ident/identErr above —
+	// that helper's own doc comment explains why Load's early returns make
+	// Identity.AllowedSigners unreliable for a read-only repository. Open
+	// never refuses to open on account of any of this: an unset, missing,
+	// or unparseable file is treated as no trust store configured, and
+	// trustDigest still changes when the file does, so fixing it later
+	// trips a projection rebuild (ApplySchema) instead of leaving stale
+	// wrong-key rows behind.
+	var trustStore codec.TrustStore
+	var trustDigest string
+	if signersPath, pathErr := identity.AllowedSignersFile(context.Background(), repoDir); pathErr == nil && signersPath != "" {
+		if raw, readErr := os.ReadFile(signersPath); readErr == nil {
+			if ts, parseErr := sshsig.ParseAllowedSigners(bytes.NewReader(raw)); parseErr == nil {
+				// ts is never a nil *sshsig.TrustStore on a successful parse,
+				// so wrapping it in the codec.TrustStore interface here never
+				// hits the typed-nil trap dag.WithTrustStore's doc comment
+				// warns about.
+				trustStore = ts
+				trustDigest = trustStoreDigest(raw)
+			} else {
+				trustDigest = unreadableTrustDigest(signersPath)
+			}
+		} else {
+			trustDigest = unreadableTrustDigest(signersPath)
+		}
+	}
+	if trustStore != nil {
+		dagOpts = append(dagOpts, dag.WithTrustStore(trustStore))
+	}
+
 	dagStore, err := dag.OpenStorage(storer, ident, dagOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("writ: open dag store: %w: %w", ErrStoreOpen, err)
@@ -188,7 +224,7 @@ func Open(path string, opts ...Option) (*Store, error) {
 
 	dbPath := filepath.Join(cacheDir, "projection.db")
 	localPath := filepath.Join(cacheDir, "local.db")
-	projDB, err := projection.Open(dbPath, projection.WithLocalPath(localPath))
+	projDB, err := projection.Open(dbPath, projection.WithLocalPath(localPath), projection.WithTrustStoreDigest(trustDigest))
 	if err != nil {
 		return nil, fmt.Errorf("writ: open projection db %s: %w: %w", dbPath, ErrStoreOpen, err)
 	}
@@ -257,4 +293,25 @@ func Open(path string, opts ...Option) (*Store, error) {
 	s.Query = &Query{store: s}
 
 	return s, nil
+}
+
+// trustStoreDigest fingerprints an allowed_signers file's raw bytes, so
+// projection.WithTrustStoreDigest can fold a change to the file into
+// ApplySchema's schema_digest comparison (WRIT-251 ruling 4): editing the
+// trust store then trips needs_rebuild on the next Refresh, the same way a
+// real schema change does.
+func trustStoreDigest(raw []byte) string {
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
+// unreadableTrustDigest fingerprints an allowed_signers path that Open
+// could not read or parse, distinctly from both "unconfigured" (empty
+// digest) and any digest a readable file's bytes would produce — so
+// fixing the file later still changes the digest and trips a rebuild,
+// even though the broken file was treated as no trust store at all
+// (ruling 2, extended to this case per WRIT-251's plan).
+func unreadableTrustDigest(path string) string {
+	sum := sha256.Sum256([]byte("unreadable:" + path))
+	return hex.EncodeToString(sum[:])
 }

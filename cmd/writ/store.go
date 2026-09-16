@@ -38,6 +38,29 @@ func openStore(dir string, opts ...writ.Option) (*writ.Store, error) {
 	return writ.Open(dir, opts...)
 }
 
+// trustStoreUnconfigured reports whether dir's repository has no
+// gpg.ssh.allowedSignersFile configured, for the object show/list stderr
+// hint that fires when a rendered verification outcome isn't valid.
+// It resolves the git directory independently of openStore/writ.Open,
+// the same way engine/open.go itself resolves repoDir before calling
+// identity.AllowedSignersFile — see that function's own doc comment for
+// why this cannot simply read Store's already-loaded identity.
+func trustStoreUnconfigured(ctx context.Context, dir string) bool {
+	gitInfo, err := writ.ResolveGitDir(dir)
+	if err != nil {
+		return false
+	}
+	repoDir := gitInfo.WorkTree
+	if repoDir == "" {
+		repoDir = gitInfo.GitDir
+	}
+	path, err := identity.AllowedSignersFile(ctx, repoDir)
+	if err != nil {
+		return false
+	}
+	return path == ""
+}
+
 // renderErr prints err as the CLI's human error report and returns the
 // exit code that goes with it.
 //

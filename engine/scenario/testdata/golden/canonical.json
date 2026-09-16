@@ -90,115 +90,134 @@
             "commit": "cea7e05e4c434be34c5d3691cf7267c15ec22ed6",
             "object_type": "schema",
             "op_type": "create",
-            "op_version": 1
+            "op_version": 1,
+            "verification": "unsigned"
           },
           {
             "commit": "0bcb501e608f67fc6af0b610e1c5f313aaa0690d",
             "object_type": "schema",
             "op_type": "define-type",
-            "op_version": 1
+            "op_version": 1,
+            "verification": "unsigned"
           },
           {
             "commit": "e36817fd6ec9bc99332fb06ccba3283a6cb1c0d3",
             "object_type": "schema",
             "op_type": "define-op",
-            "op_version": 1
+            "op_version": 1,
+            "verification": "unsigned"
           },
           {
             "commit": "8d6961161a37e255d501074858d3c664ebe18eb7",
             "object_type": "schema",
             "op_type": "define-field",
-            "op_version": 1
+            "op_version": 1,
+            "verification": "unsigned"
           },
           {
             "commit": "6893de5f47e8434320ce4d19784433810232cd2f",
             "object_type": "schema",
             "op_type": "define-field",
-            "op_version": 1
+            "op_version": 1,
+            "verification": "unsigned"
           },
           {
             "commit": "e6bef1a270301688aeef43b76fafda3b4af7df1f",
             "object_type": "schema",
             "op_type": "define-field",
-            "op_version": 1
+            "op_version": 1,
+            "verification": "unsigned"
           },
           {
             "commit": "b789af7090c3c5ef5ff533d325d950691ca88ec1",
             "object_type": "schema",
             "op_type": "define-field",
-            "op_version": 1
+            "op_version": 1,
+            "verification": "unsigned"
           },
           {
             "commit": "ee2edaaa51992270be64c54180dc6f1c63860a1a",
             "object_type": "schema",
             "op_type": "define-type",
-            "op_version": 1
+            "op_version": 1,
+            "verification": "unsigned"
           },
           {
             "commit": "ac3404ee60bdc83a9bbede0f94dc0ca56a2e5720",
             "object_type": "schema",
             "op_type": "define-op",
-            "op_version": 1
+            "op_version": 1,
+            "verification": "unsigned"
           },
           {
             "commit": "6e6e3b0a6153068009c29c769fc29c6380ad4485",
             "object_type": "schema",
             "op_type": "define-op",
-            "op_version": 1
+            "op_version": 1,
+            "verification": "unsigned"
           },
           {
             "commit": "090f329cd2ac921cd8ae939d52ff21d011c96aab",
             "object_type": "schema",
             "op_type": "define-op",
-            "op_version": 1
+            "op_version": 1,
+            "verification": "unsigned"
           },
           {
             "commit": "01fff6df0fe8061d3c432c5c92e1c09e9eb46807",
             "object_type": "schema",
             "op_type": "define-field",
-            "op_version": 1
+            "op_version": 1,
+            "verification": "unsigned"
           },
           {
             "commit": "91f696d0d9493c0a796b5405db9ed78358b3b31d",
             "object_type": "schema",
             "op_type": "define-field",
-            "op_version": 1
+            "op_version": 1,
+            "verification": "unsigned"
           },
           {
             "commit": "4880f6bb06723fdfc796a4322ed9a3fb77b33c47",
             "object_type": "schema",
             "op_type": "define-field",
-            "op_version": 1
+            "op_version": 1,
+            "verification": "unsigned"
           },
           {
             "commit": "8790634dfecd8a665f4b4c784b68300eba600a47",
             "object_type": "schema",
             "op_type": "define-field",
-            "op_version": 1
+            "op_version": 1,
+            "verification": "unsigned"
           },
           {
             "commit": "e66738f8429f09b83ced3f47abf2e913409947cc",
             "object_type": "schema",
             "op_type": "define-field",
-            "op_version": 1
+            "op_version": 1,
+            "verification": "unsigned"
           },
           {
             "commit": "428c58a619e5cd6885cb115f8db30cd0021a3049",
             "object_type": "schema",
             "op_type": "define-field",
-            "op_version": 1
+            "op_version": 1,
+            "verification": "unsigned"
           },
           {
             "commit": "e88981a801aed2e6d1672a3edd0ce0439c3774f7",
             "object_type": "schema",
             "op_type": "define-field",
-            "op_version": 1
+            "op_version": 1,
+            "verification": "unsigned"
           },
           {
             "commit": "d135089ec41c0735adaeaaf301cd33330f16220e",
             "object_type": "schema",
             "op_type": "define-field",
-            "op_version": 1
+            "op_version": 1,
+            "verification": "unsigned"
           }
         ]
       }

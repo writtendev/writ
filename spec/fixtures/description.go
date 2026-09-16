@@ -52,10 +52,15 @@ type Generation struct {
 }
 
 // ExpectDesc specifies the declared machine-readable expectation for an op commit:
-// either accept, or reject with a reason from the closed set.
+// either accept, or reject with a reason from the closed set. Verification
+// is an optional accept-only refinement (WRIT-251 ruling 1): signature
+// verification never gates fold, so a bad signature is no longer a reject
+// reason, but an accepted commit can still pin the verification outcome
+// codec.Verify must observe, defaulting to "valid" when omitted.
 type ExpectDesc struct {
-	Accept bool   `yaml:"accept,omitempty"`
-	Reject string `yaml:"reject,omitempty"`
+	Accept       bool   `yaml:"accept,omitempty"`
+	Reject       string `yaml:"reject,omitempty"`
+	Verification string `yaml:"verification,omitempty"`
 }
 
 func (e *ExpectDesc) UnmarshalYAML(value *yaml.Node) error {
@@ -69,8 +74,9 @@ func (e *ExpectDesc) UnmarshalYAML(value *yaml.Node) error {
 	}
 	if value.Kind == yaml.MappingNode {
 		var m struct {
-			Accept bool   `yaml:"accept"`
-			Reject string `yaml:"reject"`
+			Accept       bool   `yaml:"accept"`
+			Reject       string `yaml:"reject"`
+			Verification string `yaml:"verification"`
 		}
 		if err := value.Decode(&m); err != nil {
 			return err
@@ -81,8 +87,12 @@ func (e *ExpectDesc) UnmarshalYAML(value *yaml.Node) error {
 		if !m.Accept && m.Reject == "" {
 			return fmt.Errorf("expect must specify either accept: true or reject: <reason>")
 		}
+		if m.Verification != "" && !m.Accept {
+			return fmt.Errorf("expect.verification may only be set alongside accept: true")
+		}
 		e.Accept = m.Accept
 		e.Reject = m.Reject
+		e.Verification = m.Verification
 		return nil
 	}
 	return fmt.Errorf("expect must be a scalar ('accept') or a mapping ({reject: <reason>})")
@@ -172,10 +182,6 @@ var validOutcomes = map[string]bool{
 }
 
 var validRejectReasons = map[string]bool{
-	"wrong-key":             true,
-	"payload-mutated":       true,
-	"corrupted-signature":   true,
-	"unsigned":              true,
 	"non-canonical-payload": true,
 	"duplicate-key":         true,
 	"lone-surrogate":        true,
@@ -186,6 +192,19 @@ var validRejectReasons = map[string]bool{
 	"invalid-op-json-mode":  true,
 	"committer-mismatch":    true,
 	"payload-too-large":     true,
+}
+
+// validVerificationOutcomes is codec.VerificationOutcome's closed set,
+// mirrored here so a fixture's expect.verification is validated against
+// the same vocabulary codec.Verify emits (WRIT-251 ruling 1). Signature
+// outcomes were reject reasons before this ruling; they moved here because
+// fold no longer treats any of them as a reason to drop the op.
+var validVerificationOutcomes = map[string]bool{
+	"valid":               true,
+	"wrong-key":           true,
+	"unsigned":            true,
+	"corrupted-signature": true,
+	"payload-mutated":     true,
 }
 
 // Load parses a single fixture description from YAML and validates its integrity.
@@ -283,6 +302,11 @@ func Load(data []byte) (*Description, error) {
 				if c.Expect != nil && c.Expect.Reject != "" {
 					if !validRejectReasons[c.Expect.Reject] {
 						return nil, fmt.Errorf("fixtures: description %q ref %q generation %d commit %d invalid reject reason %q (must be closed enum)", d.Name, r.Name, gi, ci, c.Expect.Reject)
+					}
+				}
+				if c.Expect != nil && c.Expect.Verification != "" {
+					if !validVerificationOutcomes[c.Expect.Verification] {
+						return nil, fmt.Errorf("fixtures: description %q ref %q generation %d commit %d invalid verification outcome %q (must be closed enum)", d.Name, r.Name, gi, ci, c.Expect.Verification)
 					}
 				}
 				if c.Disposition != "" {

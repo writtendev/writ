@@ -81,6 +81,7 @@ type Object struct {
 	ObjectType string
 	Fields map[string]any
 	UnknownOps []UnknownOp
+	Verification string
 }
 
 type ObjectChange = projection.ObjectChange
@@ -233,6 +234,7 @@ func ToGitCommit(c Commit) (*object.Commit, error)
 func ValidateBody(env Envelope, vocabularies Vocabularies) error
 func ValidateEnvelope(raw []byte) error
 func Verify(c Commit, ts TrustStore) Verification
+func WorstOutcome(outcomes ...VerificationOutcome) VerificationOutcome
 func WriteCommit(ctx context.Context, s storage.Storer, commit *Commit, signer Signer) (plumbing.Hash, error)
 
 type Commit struct {
@@ -278,6 +280,7 @@ type Op struct {
 	Committer Identity `json:"committer"`
 	Message string `json:"message"`
 	Signature string `json:"signature,omitempty"`
+	Verification Verification `json:"verification"`
 }
 
 type OpVersionKey struct {
@@ -333,6 +336,7 @@ type Verification struct {
 }
 
 type VerificationOutcome string
+func (VerificationOutcome) Rank() int
 
 type Vocabularies map[string]Vocabulary
 
@@ -413,6 +417,7 @@ func WithChainObserver(observe func(objectType string, newTip plumbing.Hash)) Op
 func WithNow(now func() time.Time) Option
 func WithProducerVocabularies(resolve func() (codec.Vocabularies, error)) Option
 func WithSigner(signer Signer) Option
+func WithTrustStore(ts codec.TrustStore) Option
 
 type ChainRef struct {
 	Name plumbing.ReferenceName `json:"name"`
@@ -469,6 +474,7 @@ var ErrInvalid = errors.New("invalid configuration")
 var ErrMissing = errors.New("missing configuration")
 var ErrUnsupportedFormat = errors.New("unsupported format")
 
+func AllowedSignersFile(ctx context.Context, repoDir string) (string, error)
 func DerivePersonID(cfg map[string]string) (string, error)
 func EnsureRepoID(ctx context.Context, repoDir string) (RepoID, bool, error)
 func EnsureWriterID(ctx context.Context, repoDir string, taken func(WriterID) bool) (WriterID, bool, error)
@@ -546,6 +552,7 @@ func SchemaVersion() int
 func WithLocalPath(path string) OpenOption
 func WithSchema(rules map[string][]state.Rule) Option
 func WithTargetRefs(refs ...string) Option
+func WithTrustStoreDigest(digest string) OpenOption
 
 type Author struct {
 	Name string `json:"name"`
@@ -599,6 +606,7 @@ type ObjectResult struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	OpCount int `json:"op_count"`
 	LastOpID string `json:"last_op_id"`
+	Verification string `json:"verification"`
 }
 
 type OpenOption func(*openConfig)
@@ -1006,6 +1014,7 @@ type UnknownOp struct {
 	ObjectType string `json:"object_type"`
 	OpType string `json:"op_type"`
 	OpVersion int64 `json:"op_version"`
+	Verification string `json:"verification"`
 }
 
 package sync // github.com/writtendev/writ/engine/sync

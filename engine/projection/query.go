@@ -28,6 +28,12 @@ type ObjectResult struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 	OpCount    int       `json:"op_count"`
 	LastOpID   string    `json:"last_op_id"`
+	// Verification is the worst signature-verification outcome (WRIT-251
+	// ruling 3's ordering) among the object's contributing ops, cached in
+	// the objects table's own column by the materializer at Refresh/Rebuild
+	// time — an envelope-level fact like Author and CreatedAt, not
+	// something a caller needs to ask the DAG for separately.
+	Verification string `json:"verification"`
 }
 
 // objectTextColumns returns shape's generated table name and the sorted
@@ -171,7 +177,7 @@ func (d *DB) Objects(f ObjectFilter) ([]ObjectResult, error) {
 	var args []any
 
 	sb.WriteString("SELECT o.object_id, o.object_type, o.op_count, o.last_op_id, ")
-	sb.WriteString("o.author_name, o.author_email, o.created_at, o.updated_at ")
+	sb.WriteString("o.author_name, o.author_email, o.created_at, o.updated_at, o.verification ")
 	sb.WriteString("FROM objects o WHERE 1=1")
 
 	if len(f.Type) > 0 {
@@ -239,7 +245,7 @@ func (d *DB) Objects(f ObjectFilter) ([]ObjectResult, error) {
 		var createdAt, updatedAt int64
 		if err := rows.Scan(
 			&or.ObjectID, &or.ObjectType, &or.OpCount, &or.LastOpID,
-			&or.Author.Name, &or.Author.Email, &createdAt, &updatedAt,
+			&or.Author.Name, &or.Author.Email, &createdAt, &updatedAt, &or.Verification,
 		); err != nil {
 			return nil, fmt.Errorf("projection: scan object: %w", err)
 		}
@@ -274,7 +280,7 @@ func (d *DB) Object(objectID string) (ObjectResult, error) {
 	)
 
 	err := d.db.QueryRow(`
-		SELECT object_id, object_type, op_count, last_op_id, author_name, author_email, created_at, updated_at
+		SELECT object_id, object_type, op_count, last_op_id, author_name, author_email, created_at, updated_at, verification
 		FROM objects
 		WHERE object_id = ?
 	`, objectID).Scan(
@@ -286,6 +292,7 @@ func (d *DB) Object(objectID string) (ObjectResult, error) {
 		&res.Author.Email,
 		&createdAtSec,
 		&updatedAtSec,
+		&res.Verification,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {

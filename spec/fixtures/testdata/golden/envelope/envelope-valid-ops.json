@@ -19,6 +19,7 @@
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "valid",
+      "expected_verification": "valid",
       "expected": {
         "disposition": "accept"
       },
@@ -47,6 +48,7 @@
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "valid",
+      "expected_verification": "valid",
       "expected": {
         "disposition": "accept"
       },
@@ -75,6 +77,7 @@
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "valid",
+      "expected_verification": "valid",
       "expected": {
         "disposition": "accept"
       },
@@ -103,6 +106,7 @@
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "valid",
+      "expected_verification": "valid",
       "expected": {
         "disposition": "accept"
       },
@@ -129,6 +133,7 @@
       "signed": true,
       "signature_key_fingerprint": "SHA256:O/tazBDLdOtpewVOG55l3W8ZJOSCXXSbkFws9gBOhYc",
       "verification_outcome": "valid",
+      "expected_verification": "valid",
       "expected": {
         "disposition": "accept"
       },
@@ -158,6 +163,7 @@
       "signed": true,
       "signature_key_fingerprint": "SHA256:O/tazBDLdOtpewVOG55l3W8ZJOSCXXSbkFws9gBOhYc",
       "verification_outcome": "valid",
+      "expected_verification": "valid",
       "expected": {
         "disposition": "accept"
       },

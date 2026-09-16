@@ -50,9 +50,19 @@ func materializeObject(tx *sql.Tx, desc *schemaDescriptor, objectID string, ops 
 	// second time over a slice already sorted by it.
 	objectType := orderedOps[0].ObjectType
 
+	// The object-level Verification summary (WRIT-251 ruling 3) is the
+	// worst outcome among every op that contributed to it, known or
+	// unknown alike: an unknown op's signature is exactly as forgeable as
+	// a known one's, so it must weigh in on the same summary.
+	outcomes := make([]codec.VerificationOutcome, len(ops))
+	for i, op := range ops {
+		outcomes[i] = op.Verification.Outcome
+	}
+	verification := string(codec.WorstOutcome(outcomes...))
+
 	if _, err := tx.Exec(
-		"INSERT INTO objects (object_id, object_type, op_count, last_op_id, author_name, author_email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		objectID, objectType, len(ops), lastOpID, authorName, authorEmail, createdAt, updatedAt,
+		"INSERT INTO objects (object_id, object_type, op_count, last_op_id, author_name, author_email, created_at, updated_at, verification) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		objectID, objectType, len(ops), lastOpID, authorName, authorEmail, createdAt, updatedAt, verification,
 	); err != nil {
 		return fmt.Errorf("projection: insert object %s: %w", objectID, err)
 	}
@@ -83,8 +93,8 @@ func materializeObject(tx *sql.Tx, desc *schemaDescriptor, objectID string, ops 
 
 	for i, u := range folded.UnknownOps {
 		if _, err := tx.Exec(
-			"INSERT OR REPLACE INTO unknown_ops (object_id, op_id, object_type, op_type, op_version, op_index) VALUES (?, ?, ?, ?, ?, ?)",
-			objectID, u.Commit, u.ObjectType, u.OpType, u.OpVersion, i,
+			"INSERT OR REPLACE INTO unknown_ops (object_id, op_id, object_type, op_type, op_version, op_index, verification) VALUES (?, ?, ?, ?, ?, ?, ?)",
+			objectID, u.Commit, u.ObjectType, u.OpType, u.OpVersion, i, u.Verification,
 		); err != nil {
 			return fmt.Errorf("projection: insert unknown op %s: %w", u.Commit, err)
 		}
@@ -96,8 +106,8 @@ func materializeObject(tx *sql.Tx, desc *schemaDescriptor, objectID string, ops 
 func insertUnknownOps(tx *sql.Tx, objectID string, ops []codec.Op) error {
 	for i, op := range ops {
 		if _, err := tx.Exec(
-			"INSERT OR REPLACE INTO unknown_ops (object_id, op_id, object_type, op_type, op_version, op_index) VALUES (?, ?, ?, ?, ?, ?)",
-			objectID, op.ID, op.ObjectType, op.OpType, op.OpVersion, i,
+			"INSERT OR REPLACE INTO unknown_ops (object_id, op_id, object_type, op_type, op_version, op_index, verification) VALUES (?, ?, ?, ?, ?, ?, ?)",
+			objectID, op.ID, op.ObjectType, op.OpType, op.OpVersion, i, string(op.Verification.Outcome),
 		); err != nil {
 			return fmt.Errorf("projection: insert unreduced op %s: %w", op.ID, err)
 		}

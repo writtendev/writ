@@ -41,6 +41,44 @@ type Verification struct {
 	Err            error               `json:"-"`
 }
 
+// outcomeRank orders VerificationOutcome from best to worst, per ruling 1
+// (WRIT-251): valid < wrong-key < unsigned < corrupted-signature <
+// payload-mutated. Used to pick the worst-of summary across an object's
+// ops (Rank, WorstOutcome).
+var outcomeRank = map[VerificationOutcome]int{
+	OutcomeValid:              0,
+	OutcomeWrongKey:           1,
+	OutcomeUnsigned:           2,
+	OutcomeCorruptedSignature: 3,
+	OutcomePayloadMutated:     4,
+}
+
+// Rank returns o's position in the outcome ordering WorstOutcome picks
+// from: valid < wrong-key < unsigned < corrupted-signature <
+// payload-mutated. An outcome outside the closed set ranks below valid and
+// above every other outcome... it is not a value verification ever emits.
+func (o VerificationOutcome) Rank() int {
+	if r, ok := outcomeRank[o]; ok {
+		return r
+	}
+	return len(outcomeRank)
+}
+
+// WorstOutcome returns the highest-rank (least trustworthy) outcome among
+// outcomes, or OutcomeValid if outcomes is empty. Objects.Get and the
+// projection's materializer both call this to reduce an object's per-op
+// Verification.Outcome values to the one summary Object/ObjectResult
+// expose, so the two share a single ordering (WRIT-251 ruling 3).
+func WorstOutcome(outcomes ...VerificationOutcome) VerificationOutcome {
+	worst := OutcomeValid
+	for _, o := range outcomes {
+		if o.Rank() > worst.Rank() {
+			worst = o
+		}
+	}
+	return worst
+}
+
 // TrustStore authorizes public keys for given principals, namespaces, and timestamps.
 type TrustStore interface {
 	IsAuthorized(pubKey ssh.PublicKey, principal, namespace string, when time.Time) bool

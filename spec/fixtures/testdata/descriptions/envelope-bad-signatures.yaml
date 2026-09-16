@@ -1,8 +1,11 @@
 name: envelope-bad-signatures
 description: >
-  Negative signature test cases: op signed by the wrong identity key,
-  op payload mutated after signing, corrupted armored signature header,
-  and unsigned commit.
+  Signature verification outcome cases: op signed by the wrong identity
+  key, op payload mutated after signing, corrupted armored signature
+  header, and unsigned commit. Every one of these still folds (WRIT-251
+  ruling 1: verification never gates fold), so each commit is accepted
+  and pins the verification outcome codec.Verify must observe rather than
+  a reject reason.
 
 refs:
   - name: refs/writ/alice/widget
@@ -20,7 +23,8 @@ refs:
               body:
                 title: "Signed with Bob's key instead of Alice's"
             expect:
-              reject: wrong-key
+              accept: true
+              verification: wrong-key
           - id: bad-sig-payload-mutated
             author: alice
             tamper: payload-byte
@@ -33,7 +37,8 @@ refs:
               body:
                 title: "Payload mutated after signing"
             expect:
-              reject: payload-mutated
+              accept: true
+              verification: payload-mutated
           - id: bad-sig-corrupted
             author: alice
             tamper: signature
@@ -46,7 +51,8 @@ refs:
               body:
                 title: "Corrupted armor signature"
             expect:
-              reject: corrupted-signature
+              accept: true
+              verification: corrupted-signature
           - id: bad-sig-unsigned
             author: alice
             unsigned: true
@@ -59,4 +65,5 @@ refs:
               body:
                 title: "Unsigned commit"
             expect:
-              reject: unsigned
+              accept: true
+              verification: unsigned

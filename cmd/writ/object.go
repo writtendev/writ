@@ -741,6 +741,7 @@ func runObjectShow(ctx context.Context, defaultDir string, args []string, stdout
 	// TestDecodeGate_RefusesForbiddenCodePointInEnvelope so this comment
 	// cannot silently rot into a false claim.
 	porcelainf(tw, "object_type\t%s\n", obj.ObjectType)
+	porcelainf(tw, "verification\t%s\n", obj.Verification)
 	for _, k := range keys {
 		porcelainf(tw, "%s\t%s\n", k, fieldDisplay(obj.Fields[k]))
 	}
@@ -753,11 +754,34 @@ func runObjectShow(ctx context.Context, defaultDir string, args []string, stdout
 			// (engine/internal/fold/fold.go:214) and decode-gated the same
 			// way obj.ObjectType above is -- see that comment. Escaped for
 			// the same consistency reason, not because this is a live hole.
-			porcelainf(stdout, "  %s %s v%d (%s)\n", u.ObjectType, u.OpType, u.OpVersion, u.Commit)
+			porcelainf(stdout, "  %s %s v%d (%s) verification=%s\n", u.ObjectType, u.OpType, u.OpVersion, u.Commit, u.Verification)
 		}
 	}
 
+	maybePrintTrustHint(ctx, stderr, targetDir, obj.Verification == "" || obj.Verification == string(codec.OutcomeValid))
+
 	return 0
+}
+
+// maybePrintTrustHint prints a one-line stderr hint, once, when a rendered
+// verification outcome isn't valid and the repository has no
+// gpg.ssh.allowedSignersFile configured (WRIT-251 ruling 2): an
+// unconfigured trust store is exactly why an otherwise-legitimate
+// signature reports wrong-key rather than valid, and that is easy to
+// mistake for tampering without this. allValid short-circuits the hint
+// when every rendered outcome is already valid -- the common case, and
+// the one where trustStoreUnconfigured's own git-config read would be
+// pure overhead. Porcelain only: --json output carries the outcome
+// itself, and a script parsing it has no use for a line on stderr it
+// probably discards.
+func maybePrintTrustHint(ctx context.Context, stderr io.Writer, dir string, allValid bool) {
+	if allValid {
+		return
+	}
+	if !trustStoreUnconfigured(ctx, dir) {
+		return
+	}
+	porcelainln(stderr, "hint: no gpg.ssh.allowedSignersFile configured; signatures cannot be verified as valid")
 }
 
 // fieldDisplay renders one Object.Fields value for the human tabwriter
@@ -896,6 +920,7 @@ func runObjectList(ctx context.Context, defaultDir string, args []string, stdout
 		return 0
 	}
 
+	allValid := true
 	tw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
 	for _, r := range results {
 		shortID := r.ObjectID
@@ -908,9 +933,27 @@ func runObjectList(ctx context.Context, defaultDir string, args []string, stdout
 		// and decode-gated the same way runObjectShow's obj.ObjectType is --
 		// see that comment. Escaped for consistency, not because this column
 		// is a live hole.
-		porcelainf(tw, "%s\t%s\t%s\t%s\n", shortID, r.ObjectType, author, updatedAt)
+		//
+		// The verification marker is appended only when it isn't valid,
+		// matching the existing style of this dense, header-less listing:
+		// every other column is always present, but a marker column that
+		// is empty for the overwhelmingly common case would just be
+		// trailing whitespace on every row. Tabs stay in the format
+		// string, never inside an escaped %s argument -- porcelainf
+		// escapes U+0009 in data (textsafe.Forbidden), so building this
+		// line by string concatenation first would mangle the very tabs
+		// tabwriter aligns on.
+		if r.Verification != "" && r.Verification != string(codec.OutcomeValid) {
+			allValid = false
+			porcelainf(tw, "%s\t%s\t%s\t%s\t[verification: %s]\n", shortID, r.ObjectType, author, updatedAt, r.Verification)
+		} else {
+			porcelainf(tw, "%s\t%s\t%s\t%s\n", shortID, r.ObjectType, author, updatedAt)
+		}
 	}
 	_ = tw.Flush()
+
+	maybePrintTrustHint(ctx, stderr, targetDir, allValid)
+
 	return 0
 }
 

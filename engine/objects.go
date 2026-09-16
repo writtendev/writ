@@ -61,6 +61,14 @@ type Object struct {
 	ObjectType string
 	Fields     map[string]any
 	UnknownOps []UnknownOp
+	// Verification is the worst signature-verification outcome (codec's
+	// valid < wrong-key < unsigned < corrupted-signature < payload-mutated
+	// ordering) among every op that folded into this object, known and
+	// unknown alike. It is an envelope-level fact, like an op's author or
+	// timestamp, and never affects Fields: every op folds regardless of
+	// its outcome (AGENTS.md "Fold is pure and deterministic"; WRIT-251
+	// ruling 1).
+	Verification string
 }
 
 // Objects provides generic create, apply, and get operations over
@@ -254,11 +262,17 @@ func (o *Objects) Get(ctx context.Context, objectID string) (Object, error) {
 		fields = map[string]any{}
 	}
 
+	outcomes := make([]codec.VerificationOutcome, len(ops))
+	for i, op := range ops {
+		outcomes[i] = op.Verification.Outcome
+	}
+
 	return Object{
-		ObjectID:   objectID,
-		ObjectType: objectType,
-		Fields:     fields,
-		UnknownOps: st.UnknownOps,
+		ObjectID:     objectID,
+		ObjectType:   objectType,
+		Fields:       fields,
+		UnknownOps:   st.UnknownOps,
+		Verification: string(codec.WorstOutcome(outcomes...)),
 	}, nil
 }
 

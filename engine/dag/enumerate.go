@@ -174,6 +174,10 @@ func (s *Store) EnumerateSince(cursors CursorSet) (*EnumerateResult, error) {
 	// before it happened.
 	cachedStorer := packidx.WithCache(s.storer)
 	for _, commitObj := range commitsToDecode {
+		// pureCommit.Payload comes from FromGitCommit, which derives it from
+		// the commit's own object bytes (gogit.go) rather than trusting a
+		// caller-supplied value — codec/verify.go's caller-supplied-Payload
+		// trust point is not reachable from this path.
 		pureCommit, err := codec.FromGitCommit(cachedStorer, commitObj)
 		if err != nil {
 			result.Rejections = append(result.Rejections, Rejection{
@@ -198,6 +202,11 @@ func (s *Store) EnumerateSince(cursors CursorSet) (*EnumerateResult, error) {
 			})
 			continue
 		}
+
+		// Ingest-time verification (spec/signing.md): the outcome travels
+		// with the op as data and never gates whether it folds (ruling 1,
+		// WRIT-251). Not a Rejection — WRIT-271 owns surfacing those.
+		op.Verification = codec.Verify(pureCommit, s.trustStore)
 
 		result.Ops[op.ObjectID] = append(result.Ops[op.ObjectID], op)
 	}

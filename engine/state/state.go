@@ -33,6 +33,14 @@ type UnknownOp struct {
 	ObjectType string `json:"object_type"`
 	OpType     string `json:"op_type"`
 	OpVersion  int64  `json:"op_version"`
+	// Verification is the op's signature verification outcome (an envelope-
+	// level fact, like Commit itself — see this type's doc comment on why
+	// carrying an op identifier here is not the general op-history leak
+	// ARCHITECTURE.md's "no SHAs, no refspecs" rule otherwise forbids).
+	// Fold does not compute this: Fold copies it straight from the input
+	// op's codec.Op.Verification.Outcome, a pure data pass-through with no
+	// branch on its value (AGENTS.md "Fold is pure and deterministic").
+	Verification string `json:"verification"`
 }
 
 // ObjectState is the folded state produced by the fold driver for a collaborative object.

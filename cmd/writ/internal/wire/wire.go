@@ -44,10 +44,11 @@ type Author struct {
 
 // UnknownOp records an unrecognized operation preserved for forward compatibility.
 type UnknownOp struct {
-	Commit     string `json:"commit"`
-	ObjectType string `json:"object_type"`
-	OpType     string `json:"op_type"`
-	OpVersion  int64  `json:"op_version"`
+	Commit       string `json:"commit"`
+	ObjectType   string `json:"object_type"`
+	OpType       string `json:"op_type"`
+	OpVersion    int64  `json:"op_version"`
+	Verification string `json:"verification"`
 }
 
 // Failure represents structured error reporting for a failed sync operation.
@@ -241,7 +242,7 @@ type SchemaApply struct {
 func FromUnknownOps(ops []writ.UnknownOp) []UnknownOp {
 	out := make([]UnknownOp, len(ops))
 	for i, u := range ops {
-		out[i] = UnknownOp{Commit: u.Commit, ObjectType: u.ObjectType, OpType: u.OpType, OpVersion: u.OpVersion}
+		out[i] = UnknownOp{Commit: u.Commit, ObjectType: u.ObjectType, OpType: u.OpType, OpVersion: u.OpVersion, Verification: u.Verification}
 	}
 	return out
 }
@@ -265,10 +266,11 @@ type ObjectApplied struct {
 // schema-shaped carve-out, because the object type it describes is data,
 // not a Go struct this package ships.
 type Object struct {
-	ObjectID   string         `json:"object_id"`
-	ObjectType string         `json:"object_type"`
-	Fields     map[string]any `json:"fields"`
-	UnknownOps []UnknownOp    `json:"unknown_ops"`
+	ObjectID     string         `json:"object_id"`
+	ObjectType   string         `json:"object_type"`
+	Fields       map[string]any `json:"fields"`
+	UnknownOps   []UnknownOp    `json:"unknown_ops"`
+	Verification string         `json:"verification"`
 }
 
 // FromObject converts a folded writ.Object to wire form.
@@ -278,10 +280,11 @@ func FromObject(o writ.Object) Object {
 		fields = map[string]any{}
 	}
 	return Object{
-		ObjectID:   o.ObjectID,
-		ObjectType: o.ObjectType,
-		Fields:     fields,
-		UnknownOps: FromUnknownOps(o.UnknownOps),
+		ObjectID:     o.ObjectID,
+		ObjectType:   o.ObjectType,
+		Fields:       fields,
+		UnknownOps:   FromUnknownOps(o.UnknownOps),
+		Verification: o.Verification,
 	}
 }
 
@@ -291,23 +294,25 @@ func FromObject(o writ.Object) Object {
 // ask, and a list row is not asking. op_count is fine, since it is a count,
 // not an identifier.
 type ObjectSummary struct {
-	ObjectID   string    `json:"object_id"`
-	ObjectType string    `json:"object_type"`
-	Author     Author    `json:"author"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
-	OpCount    int       `json:"op_count"`
+	ObjectID     string    `json:"object_id"`
+	ObjectType   string    `json:"object_type"`
+	Author       Author    `json:"author"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	OpCount      int       `json:"op_count"`
+	Verification string    `json:"verification"`
 }
 
 // FromObjectResultSummary converts one cross-type object query row to wire form.
 func FromObjectResultSummary(r writ.ObjectResult) ObjectSummary {
 	return ObjectSummary{
-		ObjectID:   r.ObjectID,
-		ObjectType: r.ObjectType,
-		Author:     Author{Name: r.Author.Name, Email: r.Author.Email},
-		CreatedAt:  r.CreatedAt,
-		UpdatedAt:  r.UpdatedAt,
-		OpCount:    r.OpCount,
+		ObjectID:     r.ObjectID,
+		ObjectType:   r.ObjectType,
+		Author:       Author{Name: r.Author.Name, Email: r.Author.Email},
+		CreatedAt:    r.CreatedAt,
+		UpdatedAt:    r.UpdatedAt,
+		OpCount:      r.OpCount,
+		Verification: r.Verification,
 	}
 }
 

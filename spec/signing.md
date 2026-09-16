@@ -45,7 +45,11 @@ state out, no I/O") and WRIT-3:
    independently of signature state.
 3. **Ingest-time verification:** Signature verification is performed at the
    ingest boundary (when an op is read from a ref into the local DAG store).
-   Its result travels with the op as data.
+   Its result travels with the op as data. It never gates whether the op
+   folds or is included in the projection: an op folds regardless of its
+   verification outcome (AGENTS.md "Fold is pure and deterministic"), the
+   same way `git` verifies a commit's signature and reports its status
+   without ever refusing to store or show the commit.
 
 ### Trust Store and Principal Validation
 

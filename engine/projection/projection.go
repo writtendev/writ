@@ -3,7 +3,9 @@
 package projection
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,7 +22,8 @@ import (
 type OpenOption func(*openConfig)
 
 type openConfig struct {
-	localPath string
+	localPath        string
+	trustStoreDigest string
 }
 
 // WithLocalPath configures an explicit custom filesystem path for the local SQLite database.
@@ -30,12 +33,30 @@ func WithLocalPath(path string) OpenOption {
 	}
 }
 
+// WithTrustStoreDigest folds a fingerprint of the reader's allowed_signers
+// file into ApplySchema's schema_digest comparison (WRIT-251 ruling 4), so
+// editing the trust store trips needs_rebuild on the next Refresh exactly
+// as a real schema change does — cached Verification outcomes are stale
+// otherwise, since they were computed against the old file's rules. An
+// empty digest (no trust store configured, or Open could not read/parse
+// one) leaves ApplySchema's digest exactly newDesc.digest, so a repository
+// with no trust store at all sees no digest change from this option ever
+// existing.
+func WithTrustStoreDigest(digest string) OpenOption {
+	return func(c *openConfig) {
+		c.trustStoreDigest = digest
+	}
+}
+
 // DB represents a handle to the projection SQLite cache and accompanying local-only database.
 type DB struct {
 	db        *sql.DB
 	path      string
 	localDB   *sql.DB
 	localPath string
+	// trustStoreDigest is WithTrustStoreDigest's value, folded into
+	// ApplySchema's schema_digest comparison. See that option's doc comment.
+	trustStoreDigest string
 
 	// descMu guards desc: ApplySchema (called from Refresh/Rebuild, and
 	// directly by callers driving the projection package on its own) writes
@@ -103,10 +124,11 @@ func Open(path string, opts ...OpenOption) (*DB, error) {
 	}
 
 	proj := &DB{
-		db:        db,
-		path:      path,
-		localDB:   localDB,
-		localPath: localPath,
+		db:               db,
+		path:             path,
+		localDB:          localDB,
+		localPath:        localPath,
+		trustStoreDigest: cfg.trustStoreDigest,
 	}
 
 	if err := proj.ensureSchema(); err != nil {
@@ -344,8 +366,21 @@ func (d *DB) ApplySchema(rules map[string][]state.Rule) error {
 	d.descMu.Lock()
 	defer d.descMu.Unlock()
 
+	// Fold the trust-store digest into the compared/stored digest (ruling
+	// 4): an unconfigured or unreadable trust store leaves trustStoreDigest
+	// empty, and effectiveDigest then equals newDesc.digest exactly, so a
+	// repository with no trust store at all sees no change from this ever
+	// existing. A configured trust store changes effectiveDigest whenever
+	// its bytes change, independently of newDesc.digest, so editing
+	// allowed_signers trips needs_rebuild below on its own.
+	effectiveDigest := newDesc.digest
+	if d.trustStoreDigest != "" {
+		sum := sha256.Sum256([]byte(newDesc.digest + "\n" + d.trustStoreDigest))
+		effectiveDigest = hex.EncodeToString(sum[:])
+	}
+
 	storedDigest, hadPrior := loadMetaString(d.db, "schema_digest")
-	sameDigest := storedDigest == newDesc.digest
+	sameDigest := storedDigest == effectiveDigest
 
 	tx, err := d.db.Begin()
 	if err != nil {
@@ -447,7 +482,7 @@ func (d *DB) ApplySchema(rules map[string][]state.Rule) error {
 	if err != nil {
 		return fmt.Errorf("projection: marshal persisted query shapes: %w", err)
 	}
-	metaWrites["schema_digest"] = newDesc.digest
+	metaWrites["schema_digest"] = effectiveDigest
 	metaWrites["schema_tables"] = string(tablesJSON)
 	metaWrites["schema_descriptor"] = string(newDesc.canonicalJSON)
 	metaWrites["schema_query_shapes"] = string(queryShapesJSON)

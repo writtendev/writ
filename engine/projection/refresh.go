@@ -442,18 +442,23 @@ func insertOp(tx *sql.Tx, op codec.Op) error {
 		sig = sql.NullString{String: op.Signature, Valid: true}
 	}
 
+	var fingerprint sql.NullString
+	if op.Verification.KeyFingerprint != "" {
+		fingerprint = sql.NullString{String: op.Verification.KeyFingerprint, Valid: true}
+	}
+
 	_, err = tx.Exec(`
 		INSERT OR REPLACE INTO ops (
 			op_id, object_id, object_type, op_type, op_version,
 			parents, author_name, author_email, author_time, author_tz,
 			committer_name, committer_email, committer_time, committer_tz,
-			message, signature, payload
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			message, signature, payload, verification, key_fingerprint
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		op.ID, op.ObjectID, op.ObjectType, op.OpType, op.OpVersion,
 		string(parentsJSON), op.Author.Name, op.Author.Email, authorTime, authorTZ,
 		op.Committer.Name, op.Committer.Email, committerTime, committerTZ,
-		op.Message, sig, payload,
+		op.Message, sig, payload, string(op.Verification.Outcome), fingerprint,
 	)
 	if err != nil {
 		return fmt.Errorf("projection: insert op %s: %w", op.ID, err)
@@ -465,7 +470,7 @@ func readOpsForObject(tx *sql.Tx, objectID string) ([]codec.Op, error) {
 	rows, err := tx.Query(`
 		SELECT op_id, parents, author_name, author_email, author_time, author_tz,
 		       committer_name, committer_email, committer_time, committer_tz,
-		       message, signature, payload
+		       message, signature, payload, verification, key_fingerprint
 		FROM ops
 		WHERE object_id = ?
 		ORDER BY op_id ASC
@@ -481,14 +486,15 @@ func readOpsForObject(tx *sql.Tx, objectID string) ([]codec.Op, error) {
 			opID, parentsJSON, authorName, authorEmail, authorTZ string
 			authorTime, committerTime                            int64
 			committerName, committerEmail, committerTZ, message  string
-			sig                                                  sql.NullString
+			sig, fingerprint                                     sql.NullString
 			payload                                              []byte
+			verification                                         string
 		)
 
 		if err := rows.Scan(
 			&opID, &parentsJSON, &authorName, &authorEmail, &authorTime, &authorTZ,
 			&committerName, &committerEmail, &committerTime, &committerTZ,
-			&message, &sig, &payload,
+			&message, &sig, &payload, &verification, &fingerprint,
 		); err != nil {
 			return nil, err
 		}
@@ -513,6 +519,11 @@ func readOpsForObject(tx *sql.Tx, objectID string) ([]codec.Op, error) {
 			signature = sig.String
 		}
 
+		var keyFingerprint string
+		if fingerprint.Valid {
+			keyFingerprint = fingerprint.String
+		}
+
 		ops = append(ops, codec.Op{
 			Envelope:  env,
 			ID:        opID,
@@ -521,6 +532,12 @@ func readOpsForObject(tx *sql.Tx, objectID string) ([]codec.Op, error) {
 			Committer: codec.Identity{Name: committerName, Email: committerEmail, When: committerWhen},
 			Message:   message,
 			Signature: signature,
+			Verification: codec.Verification{
+				Valid:          codec.VerificationOutcome(verification) == codec.OutcomeValid,
+				Outcome:        codec.VerificationOutcome(verification),
+				KeyFingerprint: keyFingerprint,
+				Principal:      authorEmail,
+			},
 		})
 	}
 

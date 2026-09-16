@@ -29,9 +29,12 @@ func TestOpenCloseMemory(t *testing.T) {
 	// table. WRIT-182 took it to 14, dropping the repos/repo_remotes tables.
 	// WRIT-189 took it to 15: every per-type table is now generated from the
 	// schema in the log instead of hand-written, invalidated by a separate
-	// digest key rather than this one.
-	if v := projection.SchemaVersion(); v != 15 {
-		t.Fatalf("expected schema version 15, got %d", v)
+	// digest key rather than this one. WRIT-251 took it to 16, adding
+	// verification (and, on ops, key_fingerprint) columns to ops, objects,
+	// and unknown_ops so ingest-time signature verification has somewhere
+	// to be cached.
+	if v := projection.SchemaVersion(); v != 16 {
+		t.Fatalf("expected schema version 16, got %d", v)
 	}
 
 	var version string

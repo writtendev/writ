@@ -77,7 +77,8 @@
           "commit": "4805bf74ac8beffd6b15deb147be067d5e047d90",
           "object_type": "shared-vocab.gadget",
           "op_type": "create",
-          "op_version": 1
+          "op_version": 1,
+          "verification": "wrong-key"
         }
       ]
     }

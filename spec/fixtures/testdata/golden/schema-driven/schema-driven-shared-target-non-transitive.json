@@ -70,19 +70,22 @@
           "commit": "2e1b85879273b258545ca862f7762881e5f06bad",
           "object_type": "acme.gadget",
           "op_type": "configure",
-          "op_version": 1
+          "op_version": 1,
+          "verification": "wrong-key"
         },
         {
           "commit": "6c15955296cfdcede6546856d32f67172cc76ff1",
           "object_type": "acme.gadget",
           "op_type": "configure",
-          "op_version": 2
+          "op_version": 2,
+          "verification": "wrong-key"
         },
         {
           "commit": "4edc2148f30d60885cf968af064e46636c23d9eb",
           "object_type": "acme.gadget",
           "op_type": "reset",
-          "op_version": 1
+          "op_version": 1,
+          "verification": "wrong-key"
         }
       ]
     }

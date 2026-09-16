@@ -125,10 +125,11 @@ func FoldSchema(ops []codec.Op) (Schema, error) {
 		op := o.Op
 		if op.ObjectType != "schema" || op.OpVersion != 1 {
 			unknownOps = append(unknownOps, UnknownOp{
-				Commit:     op.ID,
-				ObjectType: op.ObjectType,
-				OpType:     op.OpType,
-				OpVersion:  op.OpVersion,
+				Commit:       op.ID,
+				ObjectType:   op.ObjectType,
+				OpType:       op.OpType,
+				OpVersion:    op.OpVersion,
+				Verification: string(op.Verification.Outcome),
 			})
 			continue
 		}
@@ -149,10 +150,11 @@ func FoldSchema(ops []codec.Op) (Schema, error) {
 		// applies, so the typed reducer and fold.Fold reject the same ops.
 		if fold.Uninterpretable(op, body, rules) {
 			unknownOps = append(unknownOps, UnknownOp{
-				Commit:     op.ID,
-				ObjectType: op.ObjectType,
-				OpType:     op.OpType,
-				OpVersion:  op.OpVersion,
+				Commit:       op.ID,
+				ObjectType:   op.ObjectType,
+				OpType:       op.OpType,
+				OpVersion:    op.OpVersion,
+				Verification: string(op.Verification.Outcome),
 			})
 			continue
 		}
@@ -171,10 +173,11 @@ func FoldSchema(ops []codec.Op) (Schema, error) {
 		if op.OpType == "define-op" || op.OpType == "define-field" || op.OpType == "deprecate-field" {
 			if !canonicalOpVersion(stringField(body, "op_version")) {
 				unknownOps = append(unknownOps, UnknownOp{
-					Commit:     op.ID,
-					ObjectType: op.ObjectType,
-					OpType:     op.OpType,
-					OpVersion:  op.OpVersion,
+					Commit:       op.ID,
+					ObjectType:   op.ObjectType,
+					OpType:       op.OpType,
+					OpVersion:    op.OpVersion,
+					Verification: string(op.Verification.Outcome),
 				})
 				continue
 			}
@@ -268,10 +271,11 @@ func FoldSchema(ops []codec.Op) (Schema, error) {
 
 		default:
 			unknownOps = append(unknownOps, UnknownOp{
-				Commit:     op.ID,
-				ObjectType: op.ObjectType,
-				OpType:     op.OpType,
-				OpVersion:  op.OpVersion,
+				Commit:       op.ID,
+				ObjectType:   op.ObjectType,
+				OpType:       op.OpType,
+				OpVersion:    op.OpVersion,
+				Verification: string(op.Verification.Outcome),
 			})
 		}
 	}
