@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"reflect"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -615,5 +616,92 @@ func TestWatchWithoutAutoRefresh(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for event after explicit Refresh")
+	}
+}
+
+// nonStdlibContext wraps context.Background but is deliberately not a
+// *context.cancelCtx (or any other stdlib context type), and its Done()
+// channel is never closed. That forces context.AfterFunc to spawn and park
+// a dedicated goroutine waiting on Done() for every registration, the same
+// shape as a long-lived caller context (e.g. context.Background() itself)
+// that never fires cancellation on its own.
+type nonStdlibContext struct {
+	context.Context
+	done chan struct{}
+}
+
+func (c *nonStdlibContext) Done() <-chan struct{} { return c.done }
+
+// TestWatchCloseReleasesContextWatcher confirms that Store.Close releases the
+// per-subscriber context registration made in Watch, rather than leaving a
+// goroutine parked on ctx.Done() forever when ctx is never cancelled. Before
+// the fix, each Watch(longLivedCtx) call leaked one goroutine that Close did
+// nothing to reclaim; this test fails on that code by observing the
+// goroutine count fail to return to baseline after Close.
+func TestWatchCloseReleasesContextWatcher(t *testing.T) {
+	repoDir, _ := setupConfiguredRepo(t)
+	ctx := context.Background()
+
+	store, err := writ.Open(repoDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+
+	applyCoreSchema(t, ctx, store)
+
+	runtime.GC()
+	baseline := runtime.NumGoroutine()
+
+	const n = 10
+	channels := make([]<-chan writ.Event, 0, n)
+	for i := 0; i < n; i++ {
+		watchCtx := &nonStdlibContext{Context: ctx, done: make(chan struct{})}
+		channels = append(channels, store.Watch(watchCtx))
+	}
+
+	// A subscriber on a stdlib cancellable context, registered before Close,
+	// to confirm cancelling it *after* Close does not double-close its
+	// already-removed subscriber's channel.
+	cancelCtx, cancel := context.WithCancel(ctx)
+	cancelSub := store.Watch(cancelCtx)
+
+	if err := store.Close(); err != nil {
+		t.Fatalf("store.Close failed: %v", err)
+	}
+
+	for i, ch := range channels {
+		select {
+		case _, ok := <-ch:
+			if ok {
+				t.Fatalf("expected channel %d to be closed after store.Close", i)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("timed out waiting for channel %d to close", i)
+		}
+	}
+
+	select {
+	case _, ok := <-cancelSub:
+		if ok {
+			t.Fatal("expected cancelSub channel to be closed after store.Close")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for cancelSub channel to close")
+	}
+
+	// Must not panic: the registration was already spent by Close.
+	cancel()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		runtime.GC()
+		got := runtime.NumGoroutine()
+		if got <= baseline {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("goroutines not released after Close: got %d, baseline %d", got, baseline)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
