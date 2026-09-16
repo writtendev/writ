@@ -46,7 +46,7 @@ type OpGoldenState struct {
 	Signed                  bool             `json:"signed"`
 	SignatureKeyFingerprint string           `json:"signature_key_fingerprint,omitempty"`
 	VerificationOutcome     string           `json:"verification_outcome"`
-	ExpectedVerification    string           `json:"expected_verification"`
+	ExpectedVerification    string           `json:"expected_verification,omitempty"`
 	Expected                DispositionState `json:"expected"`
 	Observed                DispositionState `json:"observed"`
 }
@@ -196,14 +196,21 @@ func evaluateOpCommit(t *testing.T, fix *fixtures.Fixture, refName string, commi
 
 	// Assert declared (or defaulted) expected verification outcome matches
 	// observed, for accepted commits only -- a rejected commit's signature
-	// state is not what its expect: block is describing.
-	expectedVerification := string(codec.OutcomeValid)
-	if cd.Expect != nil && cd.Expect.Verification != "" {
-		expectedVerification = cd.Expect.Verification
-	}
-	if observed.Disposition == "accept" && expectedVerification != string(verResult.Outcome) {
-		t.Fatalf("fixture %s commit %s: expected verification %q, observed %q",
-			fix.Name, commit.Hash.String(), expectedVerification, verResult.Outcome)
+	// state is not what its expect: block is describing, and
+	// expectedVerification stays "" for one so the golden never pins a
+	// value that contradicts verification_outcome (the description loader
+	// already refuses expect.verification on a reject expectation;
+	// UnmarshalYAML above).
+	var expectedVerification string
+	if observed.Disposition == "accept" {
+		expectedVerification = string(codec.OutcomeValid)
+		if cd.Expect != nil && cd.Expect.Verification != "" {
+			expectedVerification = cd.Expect.Verification
+		}
+		if expectedVerification != string(verResult.Outcome) {
+			t.Fatalf("fixture %s commit %s: expected verification %q, observed %q",
+				fix.Name, commit.Hash.String(), expectedVerification, verResult.Outcome)
+		}
 	}
 
 	parents := make([]string, len(commit.ParentHashes))

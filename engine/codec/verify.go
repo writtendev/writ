@@ -54,9 +54,12 @@ var outcomeRank = map[VerificationOutcome]int{
 }
 
 // Rank returns o's position in the outcome ordering WorstOutcome picks
-// from: valid < wrong-key < unsigned < corrupted-signature <
-// payload-mutated. An outcome outside the closed set ranks below valid and
-// above every other outcome... it is not a value verification ever emits.
+// from, best to worst: valid < wrong-key < unsigned < corrupted-signature
+// < payload-mutated. An outcome outside this closed set ranks worse than
+// every one of them, including payload-mutated — it is not a value
+// verification ever emits, and WorstOutcome must still treat it as the
+// least trustworthy possibility rather than silently preferring it to a
+// real outcome.
 func (o VerificationOutcome) Rank() int {
 	if r, ok := outcomeRank[o]; ok {
 		return r
@@ -77,6 +80,16 @@ func WorstOutcome(outcomes ...VerificationOutcome) VerificationOutcome {
 		}
 	}
 	return worst
+}
+
+// Verify verifies o's signature against ts, using the pure commit
+// DecodeCommit built o from. It is equivalent to the verification
+// EnumerateSince performs by default at ingest, for a caller — currently
+// only writ.Objects.Get — that enumerated with dag.SkipVerification and
+// needs the outcome for just this op, rather than paying for every op in
+// the repo (WRIT-251 round 2 perf finding).
+func (o Op) Verify(ts TrustStore) Verification {
+	return Verify(o.sourceCommit, ts)
 }
 
 // TrustStore authorizes public keys for given principals, namespaces, and timestamps.

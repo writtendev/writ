@@ -40,6 +40,52 @@ type EnumerateResult struct {
 	DecodedCommits int `json:"decoded_commits"`
 }
 
+// enumerateConfig collects per-call knobs for Enumerate/EnumerateSince
+// beyond the Store's own persistent configuration (signer, trustStore,
+// etc., set once at Open). Unexported: this is not a general extension
+// point, and neither knob below is meant for an arbitrary caller.
+type enumerateConfig struct {
+	skipVerify    bool
+	trustStore    codec.TrustStore
+	trustStoreSet bool
+}
+
+// EnumerateOption configures a single Enumerate or EnumerateSince call,
+// without touching the Store's own persistent configuration.
+type EnumerateOption func(*enumerateConfig)
+
+// SkipVerification skips per-commit signature verification for this call:
+// every decoded Op's Verification stays the zero value until a caller
+// verifies it itself via codec.Op.Verify. Used only by writ.Objects.Get,
+// which needs the outcome for just the few ops belonging to one object
+// and would otherwise pay full-repo verification cost — real ed25519
+// verification runs tens of microseconds per op, independent of the
+// object it belongs to — on every live read (WRIT-251 round 2 perf
+// finding). Every other caller of Enumerate/EnumerateSince — projection
+// Refresh/Rebuild, Store.Schema — needs every op's outcome upfront and
+// must not pass this.
+func SkipVerification() EnumerateOption {
+	return func(c *enumerateConfig) { c.skipVerify = true }
+}
+
+// WithLiveTrustStore overrides, for this call only, the trust store
+// EnumerateSince verifies decoded commits against, leaving the Store's
+// own configured trust store untouched for every other call. A nil ts
+// here still means "no trust store" (Verify then reports wrong-key),
+// exactly like an unconfigured Store — this is how a caller that reloads
+// allowed_signers fresh before every pass (Store.Refresh, Store.Rebuild)
+// supplies a store parsed from the file's current contents instead of
+// the one dag.Open froze for the Store's whole lifetime (WRIT-251 round 2
+// finding: two long-lived handles disagreeing about the file's contents
+// fought over one shared projection cache forever, and a long-lived
+// handle never picked up an edit).
+func WithLiveTrustStore(ts codec.TrustStore) EnumerateOption {
+	return func(c *enumerateConfig) {
+		c.trustStore = ts
+		c.trustStoreSet = true
+	}
+}
+
 // Enumerate discovers all writ chains and enumerates all ops cold (equivalent to EnumerateSince(nil)).
 //
 // Neither Enumerate nor EnumerateSince may take Store.mu: Append holds it
@@ -47,15 +93,23 @@ type EnumerateResult struct {
 // way writ.Store wires it — re-enters Enumerate/EnumerateSince on this same
 // Store on a cache miss. Taking mu here would deadlock that call, silently,
 // on every cold-cache non-"schema" Append. See the mu field's doc comment.
-func (s *Store) Enumerate() (*EnumerateResult, error) {
-	return s.EnumerateSince(nil)
+func (s *Store) Enumerate(opts ...EnumerateOption) (*EnumerateResult, error) {
+	return s.EnumerateSince(nil, opts...)
 }
 
 // EnumerateSince walks every local and remote-tracking writ chain from the provided
 // cursors, decodes new commits through codec, and groups valid ops by ObjectID.
 //
 // Must not take Store.mu — see Enumerate's doc comment.
-func (s *Store) EnumerateSince(cursors CursorSet) (*EnumerateResult, error) {
+func (s *Store) EnumerateSince(cursors CursorSet, opts ...EnumerateOption) (*EnumerateResult, error) {
+	cfg := enumerateConfig{}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	trustStore := s.trustStore
+	if cfg.trustStoreSet {
+		trustStore = cfg.trustStore
+	}
 	// Step 1: Single IterReferences pass
 	chains, err := Chains(s.storer)
 	if err != nil {
@@ -174,10 +228,14 @@ func (s *Store) EnumerateSince(cursors CursorSet) (*EnumerateResult, error) {
 	// before it happened.
 	cachedStorer := packidx.WithCache(s.storer)
 	for _, commitObj := range commitsToDecode {
-		// pureCommit.Payload comes from FromGitCommit, which derives it from
-		// the commit's own object bytes (gogit.go) rather than trusting a
-		// caller-supplied value — codec/verify.go's caller-supplied-Payload
-		// trust point is not reachable from this path.
+		// pureCommit.Payload comes from FromGitCommit (gogit.go), which
+		// builds it by re-encoding go-git's already-parsed *object.Commit
+		// (EncodeWithoutSignature) rather than reading the commit's raw
+		// object bytes: object.Commit doesn't model every header a raw
+		// commit can carry, so this is not guaranteed byte-identical to the
+		// original object. It is still not a caller-supplied value, though:
+		// codec/verify.go's caller-supplied-Payload trust point is not
+		// reachable from this path.
 		pureCommit, err := codec.FromGitCommit(cachedStorer, commitObj)
 		if err != nil {
 			result.Rejections = append(result.Rejections, Rejection{
@@ -206,7 +264,13 @@ func (s *Store) EnumerateSince(cursors CursorSet) (*EnumerateResult, error) {
 		// Ingest-time verification (spec/signing.md): the outcome travels
 		// with the op as data and never gates whether it folds (ruling 1,
 		// WRIT-251). Not a Rejection — WRIT-271 owns surfacing those.
-		op.Verification = codec.Verify(pureCommit, s.trustStore)
+		// Skipped when cfg.skipVerify is set (SkipVerification): op still
+		// retains the pure commit it decoded from (codec.Op.sourceCommit),
+		// so a caller that skipped this can verify just the ops it needs
+		// afterward via codec.Op.Verify.
+		if !cfg.skipVerify {
+			op.Verification = codec.Verify(pureCommit, trustStore)
+		}
 
 		result.Ops[op.ObjectID] = append(result.Ops[op.ObjectID], op)
 	}

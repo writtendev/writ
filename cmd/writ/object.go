@@ -764,24 +764,29 @@ func runObjectShow(ctx context.Context, defaultDir string, args []string, stdout
 }
 
 // maybePrintTrustHint prints a one-line stderr hint, once, when a rendered
-// verification outcome isn't valid and the repository has no
-// gpg.ssh.allowedSignersFile configured (WRIT-251 ruling 2): an
-// unconfigured trust store is exactly why an otherwise-legitimate
-// signature reports wrong-key rather than valid, and that is easy to
-// mistake for tampering without this. allValid short-circuits the hint
-// when every rendered outcome is already valid -- the common case, and
-// the one where trustStoreUnconfigured's own git-config read would be
-// pure overhead. Porcelain only: --json output carries the outcome
-// itself, and a script parsing it has no use for a line on stderr it
-// probably discards.
+// verification outcome isn't valid and the repository's trust store can't
+// back a "valid" outcome for one of two reasons (WRIT-251 ruling 2 and its
+// extension): no gpg.ssh.allowedSignersFile is configured at all, or one
+// is configured but its file can't be read or parsed -- Open treats the
+// latter the same as unconfigured, so it is just as easy to mistake for
+// tampering without a hint naming it specifically (round 2 review finding:
+// the original hint fired only for the first reason, leaving "wrong-key on
+// everything, no hint at all" for a typo'd or broken path). allValid
+// short-circuits the hint when every rendered outcome is already valid --
+// the common case, and the one where checkTrustStore's own git-config read
+// would be pure overhead. Porcelain only: --json output carries the
+// outcome itself, and a script parsing it has no use for a line on stderr
+// it probably discards.
 func maybePrintTrustHint(ctx context.Context, stderr io.Writer, dir string, allValid bool) {
 	if allValid {
 		return
 	}
-	if !trustStoreUnconfigured(ctx, dir) {
-		return
+	switch checkTrustStore(ctx, dir) {
+	case trustStoreUnconfigured:
+		porcelainln(stderr, "hint: no gpg.ssh.allowedSignersFile configured; signatures cannot be verified as valid")
+	case trustStoreUnreadable:
+		porcelainln(stderr, "hint: gpg.ssh.allowedSignersFile is set but its file could not be read or parsed; signatures cannot be verified as valid")
 	}
-	porcelainln(stderr, "hint: no gpg.ssh.allowedSignersFile configured; signatures cannot be verified as valid")
 }
 
 // fieldDisplay renders one Object.Fields value for the human tabwriter

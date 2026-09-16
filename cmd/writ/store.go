@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/writtendev/writ/engine"
+	"github.com/writtendev/writ/engine/codec"
 	"github.com/writtendev/writ/engine/identity"
 	"github.com/writtendev/writ/internal/textsafe"
 )
@@ -38,27 +39,52 @@ func openStore(dir string, opts ...writ.Option) (*writ.Store, error) {
 	return writ.Open(dir, opts...)
 }
 
-// trustStoreUnconfigured reports whether dir's repository has no
-// gpg.ssh.allowedSignersFile configured, for the object show/list stderr
-// hint that fires when a rendered verification outcome isn't valid.
-// It resolves the git directory independently of openStore/writ.Open,
-// the same way engine/open.go itself resolves repoDir before calling
-// identity.AllowedSignersFile — see that function's own doc comment for
-// why this cannot simply read Store's already-loaded identity.
-func trustStoreUnconfigured(ctx context.Context, dir string) bool {
+// trustStoreHintReason classifies why dir's repository's trust store
+// configuration can't back a "valid" verification outcome, for the object
+// show/list stderr hint (maybePrintTrustHint) that fires when a rendered
+// verification outcome isn't valid.
+type trustStoreHintReason int
+
+const (
+	// trustStoreOK means a gpg.ssh.allowedSignersFile is configured and
+	// its file reads and parses: no hint is warranted for this reason (a
+	// non-valid outcome here is a real wrong-key/unsigned/etc., not an
+	// unconfigured-trust-store artifact).
+	trustStoreOK trustStoreHintReason = iota
+	// trustStoreUnconfigured means no gpg.ssh.allowedSignersFile key is
+	// set at all.
+	trustStoreUnconfigured
+	// trustStoreUnreadable means a gpg.ssh.allowedSignersFile key is set,
+	// but the file it names could not be read or parsed. engine/open.go's
+	// Open treats that the same as unconfigured (ruling 2's extension) —
+	// wrong-key everywhere, for exactly the same underlying reason as the
+	// unconfigured case, just a different cause to name.
+	trustStoreUnreadable
+)
+
+// checkTrustStore classifies dir's repository's trust store configuration
+// for maybePrintTrustHint. It resolves the git directory independently of
+// openStore/writ.Open, the same way engine/open.go itself resolves
+// repoDir before calling identity.AllowedSignersFile — see that
+// function's own doc comment for why this cannot simply read Store's
+// already-loaded identity.
+func checkTrustStore(ctx context.Context, dir string) trustStoreHintReason {
 	gitInfo, err := writ.ResolveGitDir(dir)
 	if err != nil {
-		return false
+		return trustStoreOK
 	}
 	repoDir := gitInfo.WorkTree
 	if repoDir == "" {
 		repoDir = gitInfo.GitDir
 	}
 	path, err := identity.AllowedSignersFile(ctx, repoDir)
-	if err != nil {
-		return false
+	if err != nil || path == "" {
+		return trustStoreUnconfigured
 	}
-	return path == ""
+	if _, err := codec.LoadTrustStore(path); err != nil {
+		return trustStoreUnreadable
+	}
+	return trustStoreOK
 }
 
 // renderErr prints err as the CLI's human error report and returns the

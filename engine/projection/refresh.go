@@ -53,9 +53,12 @@ type Stats struct {
 }
 
 type refreshConfig struct {
-	targetRefs   []string
-	enumOverride *dag.EnumerateResult
-	rules        map[string][]state.Rule
+	targetRefs         []string
+	enumOverride       *dag.EnumerateResult
+	rules              map[string][]state.Rule
+	trustStore         codec.TrustStore
+	trustStoreDigest   string
+	trustStoreOverride bool
 }
 
 // Option configures a Refresh or Rebuild pass.
@@ -82,6 +85,36 @@ func WithSchema(rules map[string][]state.Rule) Option {
 	}
 }
 
+// WithLiveTrustStore supplies the trust store to verify decoded commits
+// against and the fingerprint of its allowed_signers file's current
+// contents, both read fresh by the caller immediately before this call —
+// not the ones projection.Open or dag.Open froze at construction time
+// (WRIT-251 round 2 finding: freezing either let two long-lived handles
+// disagree about the file forever, fighting over one shared projection
+// cache, and let a long-lived handle never pick up an edit). ts flows
+// into this pass's EnumerateSince call (dag.WithLiveTrustStore); digest
+// flows into this pass's ApplySchema call, so an edited allowed_signers
+// trips needs_rebuild exactly as a real schema change does (ruling 4). A
+// nil ts and empty digest are the same as never calling this at all —
+// "no trust store configured or readable".
+func WithLiveTrustStore(ts codec.TrustStore, digest string) Option {
+	return func(c *refreshConfig) {
+		c.trustStore = ts
+		c.trustStoreDigest = digest
+		c.trustStoreOverride = true
+	}
+}
+
+// enumerateOptions translates this pass's trust-store override, if any,
+// into the dag.EnumerateOption EnumerateSince needs to verify against it
+// instead of the Store's own Open-time trust store.
+func (c *refreshConfig) enumerateOptions() []dag.EnumerateOption {
+	if !c.trustStoreOverride {
+		return nil
+	}
+	return []dag.EnumerateOption{dag.WithLiveTrustStore(c.trustStore)}
+}
+
 // Refresh incrementally brings the projection SQLite cache up to date with the underlying DAG store.
 // If a chain rollback or deleted chain ref is detected, Refresh falls through to a full rebuild.
 func (d *DB) Refresh(store *dag.Store, opts ...Option) (Stats, error) {
@@ -97,6 +130,12 @@ func (d *DB) Refresh(store *dag.Store, opts ...Option) (Stats, error) {
 		opt(cfg)
 	}
 
+	// Fold in this pass's freshly-read trust-store digest (WithLiveTrustStore)
+	// before ApplySchema compares it, instead of whatever projection.Open
+	// froze at construction (WRIT-251 round 2 finding).
+	if cfg.trustStoreOverride {
+		d.trustStoreDigest = cfg.trustStoreDigest
+	}
 	if cfg.rules != nil {
 		if err := d.ApplySchema(cfg.rules); err != nil {
 			return Stats{}, fmt.Errorf("projection: apply schema: %w", err)
@@ -154,7 +193,7 @@ func (d *DB) Refresh(store *dag.Store, opts ...Option) (Stats, error) {
 	if cfg.enumOverride != nil {
 		enumRes = cfg.enumOverride
 	} else {
-		res, err := store.EnumerateSince(storedCursors)
+		res, err := store.EnumerateSince(storedCursors, cfg.enumerateOptions()...)
 		if err != nil {
 			return Stats{}, fmt.Errorf("projection: enumerate since cursors: %w", err)
 		}
@@ -292,6 +331,11 @@ func (d *DB) Rebuild(store *dag.Store, opts ...Option) (Stats, error) {
 		opt(cfg)
 	}
 
+	// See the matching comment in Refresh: fold in the freshly-read digest
+	// before ApplySchema compares it.
+	if cfg.trustStoreOverride {
+		d.trustStoreDigest = cfg.trustStoreDigest
+	}
 	if cfg.rules != nil {
 		if err := d.ApplySchema(cfg.rules); err != nil {
 			return Stats{}, fmt.Errorf("projection: apply schema: %w", err)
@@ -310,7 +354,7 @@ func (d *DB) Rebuild(store *dag.Store, opts ...Option) (Stats, error) {
 }
 
 func (d *DB) rebuildWithConfig(store *dag.Store, cfg *refreshConfig, targetTips map[string]string) (Stats, error) {
-	enumRes, err := store.EnumerateSince(nil)
+	enumRes, err := store.EnumerateSince(nil, cfg.enumerateOptions()...)
 	if err != nil {
 		return Stats{}, fmt.Errorf("projection: cold enumerate: %w", err)
 	}

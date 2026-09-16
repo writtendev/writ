@@ -24,7 +24,6 @@
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "valid",
-      "expected_verification": "valid",
       "expected": {
         "disposition": "reject",
         "reason": "extra-tree-entry"
@@ -53,7 +52,6 @@
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "valid",
-      "expected_verification": "valid",
       "expected": {
         "disposition": "reject",
         "reason": "op-json-subdirectory"
@@ -82,7 +80,6 @@
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "valid",
-      "expected_verification": "valid",
       "expected": {
         "disposition": "reject",
         "reason": "missing-op-json"
@@ -113,7 +110,6 @@
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "payload-mutated",
-      "expected_verification": "valid",
       "expected": {
         "disposition": "reject",
         "reason": "invalid-op-json-mode"
@@ -144,7 +140,6 @@
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "valid",
-      "expected_verification": "valid",
       "expected": {
         "disposition": "reject",
         "reason": "committer-mismatch"

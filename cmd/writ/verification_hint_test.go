@@ -15,6 +15,12 @@ import (
 // gpg.ssh.allowedSignersFile configured (WRIT-251 ruling 2).
 const trustHintText = "hint: no gpg.ssh.allowedSignersFile configured; signatures cannot be verified as valid"
 
+// unreadableTrustHintText is the exact stderr line maybePrintTrustHint
+// prints for a non-valid verification outcome when
+// gpg.ssh.allowedSignersFile is configured but its file can't be read or
+// parsed (WRIT-251 round 2 review finding).
+const unreadableTrustHintText = "hint: gpg.ssh.allowedSignersFile is set but its file could not be read or parsed; signatures cannot be verified as valid"
+
 // createTicketObject creates one acme.ticket object via the CLI and
 // returns its object id.
 func createTicketObject(t *testing.T, dir string) string {
@@ -142,5 +148,37 @@ func TestObjectCLI_TrustHint_AbsentWhenValid(t *testing.T) {
 	}
 	if strings.Contains(stderr.String(), trustHintText) {
 		t.Errorf("stderr = %q, must not print the hint once verification is valid", stderr.String())
+	}
+}
+
+// TestObjectCLI_TrustHint_UnreadableFilePorcelainOnly pins the hint's
+// second cause (WRIT-251 round 2 review finding): a
+// gpg.ssh.allowedSignersFile pointing at a path that doesn't exist is
+// treated the same as unconfigured by engine/open.go's Open (wrong-key
+// everywhere, never a refusal to open), but the round-1 hint checked only
+// whether the config key itself was empty, so a typo'd or broken path
+// gave wrong-key on everything with no hint at all. This must fail on the
+// round-1 trustStoreUnconfigured, which returns false (no hint) here
+// because the key is non-empty.
+func TestObjectCLI_TrustHint_UnreadableFilePorcelainOnly(t *testing.T) {
+	env := initTestRepo(t)
+	applyTicketObjectSchema(t, env.repoDir)
+	objectID := createTicketObject(t, env.repoDir)
+
+	setGitConfig(t, env.repoDir, "gpg.ssh.allowedSignersFile", filepath.Join(t.TempDir(), "does-not-exist"))
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"object", "show", "-C", env.repoDir, objectID}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("object show failed with %d; stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "wrong-key") {
+		t.Errorf("stdout = %q, want a verification row reporting wrong-key", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), unreadableTrustHintText) {
+		t.Errorf("stderr = %q, want it to contain the unreadable-trust-store hint", stderr.String())
+	}
+	if strings.Contains(stderr.String(), trustHintText) {
+		t.Errorf("stderr = %q, must not print the unconfigured hint for a configured-but-broken path", stderr.String())
 	}
 }

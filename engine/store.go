@@ -236,7 +236,11 @@ func (s *Store) Refresh(ctx context.Context) (RefreshStats, error) {
 	rules := s.ruleCache
 	s.vocabMu.Unlock()
 
-	opts := []projection.Option{projection.WithSchema(rules)}
+	// Trust store read fresh for this pass (WRIT-251 round 2 finding):
+	// see currentTrustStore's doc comment for why this must not be the
+	// one Open froze when s was constructed.
+	ts, digest := s.currentTrustStore()
+	opts := []projection.Option{projection.WithSchema(rules), projection.WithLiveTrustStore(ts, digest)}
 	if len(s.targetRefs) > 0 {
 		opts = append(opts, projection.WithTargetRefs(s.targetRefs...))
 	}
@@ -277,7 +281,11 @@ func (s *Store) Rebuild(ctx context.Context) (RefreshStats, error) {
 	rules := s.ruleCache
 	s.vocabMu.Unlock()
 
-	opts := []projection.Option{projection.WithSchema(rules)}
+	// Trust store read fresh for this pass (WRIT-251 round 2 finding):
+	// see currentTrustStore's doc comment for why this must not be the
+	// one Open froze when s was constructed.
+	ts, digest := s.currentTrustStore()
+	opts := []projection.Option{projection.WithSchema(rules), projection.WithLiveTrustStore(ts, digest)}
 	if len(s.targetRefs) > 0 {
 		opts = append(opts, projection.WithTargetRefs(s.targetRefs...))
 	}

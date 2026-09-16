@@ -62,4 +62,13 @@ type Op struct {
 	// never reads it and every op folds regardless of its outcome
 	// (AGENTS.md "Fold is pure and deterministic").
 	Verification Verification `json:"verification"`
+	// sourceCommit is the pure Commit DecodeCommit built this Op from,
+	// retained so a caller that enumerated with dag.SkipVerification —
+	// currently only writ.Objects.Get — can verify just this op afterward
+	// via Verify, without re-walking or re-decoding (WRIT-251 round 2 perf
+	// finding: EnumerateSince verifying every op in the repo, rather than
+	// only the requested object's ops, added tens of milliseconds to a
+	// single Get on a repo of a few thousand real-signed ops). Unexported:
+	// not part of Op's public shape.
+	sourceCommit Commit
 }

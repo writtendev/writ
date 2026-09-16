@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/writtendev/writ/engine/codec"
+	"github.com/writtendev/writ/engine/dag"
 	"github.com/writtendev/writ/engine/internal/fold"
 	"github.com/writtendev/writ/engine/state"
 )
@@ -224,6 +225,17 @@ func (o *Objects) Apply(ctx context.Context, objectID string, op NewOp) error {
 // optimisation belongs in its own ticket, with evidence behind it — not
 // this one.
 //
+// Signature verification is scoped to this object, not the whole
+// enumeration: Enumerate runs with dag.SkipVerification (decode-only,
+// real ed25519 verification skipped for every op) and Get verifies just
+// the few ops belonging to objectID afterward, via codec.Op.Verify —
+// with a trust store read fresh from disk (see currentTrustStore), never
+// the one Open froze. Verifying every op in the repo on every Get,
+// against a real trust store, cost roughly (op count) x (one ed25519
+// verify) regardless of which object was asked for — tens of
+// milliseconds on a repo of a few thousand ops (WRIT-251 round 2 perf
+// finding; see BenchmarkObjectGetLiveVerification).
+//
 // Get never mutates the DAG and never modifies state.Fold's own behavior:
 // it does I/O to fetch ops and then calls the pure fold, exactly as the
 // projection's own materializer does.
@@ -235,7 +247,7 @@ func (o *Objects) Get(ctx context.Context, objectID string) (Object, error) {
 		return Object{}, fmt.Errorf("writ: object id cannot be empty")
 	}
 
-	enumRes, err := o.store.dagStore.Enumerate()
+	enumRes, err := o.store.dagStore.Enumerate(dag.SkipVerification())
 	if err != nil {
 		return Object{}, fmt.Errorf("writ: get object: enumerate: %w", err)
 	}
@@ -243,6 +255,13 @@ func (o *Objects) Get(ctx context.Context, objectID string) (Object, error) {
 	ops := enumRes.Ops[objectID]
 	if len(ops) == 0 {
 		return Object{}, ErrNotFound
+	}
+
+	// Verify live, just for this object's ops (see the doc comment above):
+	// ts is read fresh from disk on every call, never the one Open froze.
+	ts, _ := o.store.currentTrustStore()
+	for i := range ops {
+		ops[i].Verification = ops[i].Verify(ts)
 	}
 
 	objectType := fold.DetermineObjectType(ops)

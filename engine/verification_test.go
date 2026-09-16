@@ -33,7 +33,7 @@ const malloryWriterID = identity.WriterID("fedcba9876543210")
 
 // genSSHKey generates a fresh ed25519 keypair in dir and returns the
 // private key path and the public key's allowed_signers-ready line.
-func genSSHKey(t *testing.T, dir, name string) (privPath, pubLine string) {
+func genSSHKey(t testing.TB, dir, name string) (privPath, pubLine string) {
 	t.Helper()
 	if _, err := exec.LookPath("ssh-keygen"); err != nil {
 		t.Skip("ssh-keygen not found on PATH")
@@ -53,7 +53,7 @@ func genSSHKey(t *testing.T, dir, name string) (privPath, pubLine string) {
 // writeAllowedSigners writes an OpenSSH allowed_signers file authorizing
 // principal for pubLine (or nothing, when pubLine is "") and returns its
 // path.
-func writeAllowedSigners(t *testing.T, path, principal, pubLine string) string {
+func writeAllowedSigners(t testing.TB, path, principal, pubLine string) string {
 	t.Helper()
 	content := ""
 	if pubLine != "" {
@@ -113,15 +113,15 @@ func forgeOp(t *testing.T, repo *git.Repository, forgerID identity.WriterID, obj
 // ed25519 signer and, if allowedSignersPath is non-empty, points
 // gpg.ssh.allowedSignersFile at it (the file need not exist yet). It
 // returns the repo dir and a Signer wired to the generated key.
-func setupSignedRepo(t *testing.T, allowedSignersPath string) (dir string, signer writ.Signer, privPath, pubLine string) {
+func setupSignedRepo(t testing.TB, allowedSignersPath string) (dir string, signer writ.Signer, privPath, pubLine string) {
 	t.Helper()
 	dir = t.TempDir()
-	runGitCmd(t, dir, "init")
-	runGitCmd(t, dir, "config", "user.name", "Alice")
-	runGitCmd(t, dir, "config", "user.email", "alice@example.com")
-	runGitCmd(t, dir, "config", "writ.writerId", "0123456789abcdef")
+	runGitCmdTB(t, dir, "init")
+	runGitCmdTB(t, dir, "config", "user.name", "Alice")
+	runGitCmdTB(t, dir, "config", "user.email", "alice@example.com")
+	runGitCmdTB(t, dir, "config", "writ.writerId", "0123456789abcdef")
 	if allowedSignersPath != "" {
-		runGitCmd(t, dir, "config", "gpg.ssh.allowedSignersFile", allowedSignersPath)
+		runGitCmdTB(t, dir, "config", "gpg.ssh.allowedSignersFile", allowedSignersPath)
 	}
 
 	privPath, pubLine = genSSHKey(t, dir, "id_alice")
@@ -363,5 +363,103 @@ func TestVerification_UnconfiguredAndUnreadableTrustStore(t *testing.T) {
 				t.Errorf("ObjectResult.Verification = %q, want %q", res.Verification, "wrong-key")
 			}
 		})
+	}
+}
+
+// TestVerification_TwoHandlesAgreeAfterTrustStoreEdit pins the round 2
+// review finding on engine/open.go: freezing the trust-store digest (and
+// the parsed trust store itself) at Open let two long-lived handles that
+// disagreed about allowed_signers's contents fight over the one shared
+// projection cache forever -- every Refresh from either handle forced a
+// full rebuild, indefinitely, alternating the cached ObjectResult.Verification
+// between "valid" and "wrong-key" depending only on which handle refreshed
+// last, and the older handle (A, opened before the file was fixed) never
+// picked up the edit at all, no matter how many times it refreshed.
+//
+// Reading the file fresh at Refresh/Rebuild time (Store.currentTrustStore)
+// fixes both: A picks up the fix on its very next Refresh even though it
+// was opened before it, and once both handles' digests agree with the
+// file's current contents, neither forces another rebuild.
+//
+// This fails on the round-1 code: A's dag.Store.trustStore and
+// projection.DB.trustStoreDigest are fixed at Open (when allowed_signers
+// authorized nobody) and never updated, so every A.Refresh keeps writing
+// a stale, mismatching digest and re-verifying against the stale store --
+// resA.Verification stays "wrong-key" forever, and iterations after the
+// first keep reporting Rebuilt on both handles instead of settling.
+func TestVerification_TwoHandlesAgreeAfterTrustStoreEdit(t *testing.T) {
+	allowedPath := filepath.Join(t.TempDir(), "allowed_signers")
+	dir, signer, _, pubLine := setupSignedRepo(t, allowedPath)
+	// A opens while allowed_signers exists but authorizes nobody.
+	writeAllowedSigners(t, allowedPath, "alice@example.com", "")
+
+	ctx := context.Background()
+	storeA, err := writ.Open(dir, writ.WithSigner(signer))
+	if err != nil {
+		t.Fatalf("writ.Open (A): %v", err)
+	}
+	defer storeA.Close()
+	applyCoreSchema(t, ctx, storeA)
+
+	id, err := storeA.Objects.Create(ctx, "acme.widget", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Basecamp"},
+	})
+	if err != nil {
+		t.Fatalf("Objects.Create: %v", err)
+	}
+	if _, err := storeA.Refresh(ctx); err != nil {
+		t.Fatalf("Refresh (A, initial): %v", err)
+	}
+	if res, err := storeA.Query.Object(id); err != nil {
+		t.Fatalf("Query.Object (A, initial): %v", err)
+	} else if res.Verification != "wrong-key" {
+		t.Fatalf("initial ObjectResult.Verification = %q, want %q", res.Verification, "wrong-key")
+	}
+
+	// Fix the file, then open B fresh: B's own Open-time read already
+	// sees the fix, but that is not what this test is pinning -- see
+	// below.
+	writeAllowedSigners(t, allowedPath, "alice@example.com", pubLine)
+	storeB, err := writ.Open(dir)
+	if err != nil {
+		t.Fatalf("writ.Open (B): %v", err)
+	}
+	defer storeB.Close()
+
+	// Alternate B.Refresh and A.Refresh. Rebuilding once, to reconcile the
+	// stale cache with the now-fixed file, is expected and fine; a rebuild
+	// on every later iteration, from either handle, is the bug.
+	for i := 0; i < 4; i++ {
+		statsB, err := storeB.Refresh(ctx)
+		if err != nil {
+			t.Fatalf("Refresh (B, iter %d): %v", i, err)
+		}
+		resB, err := storeB.Query.Object(id)
+		if err != nil {
+			t.Fatalf("Query.Object (B, iter %d): %v", i, err)
+		}
+		if resB.Verification != "valid" {
+			t.Errorf("iter %d: B's ObjectResult.Verification = %q, want %q (stats=%+v)", i, resB.Verification, "valid", statsB)
+		}
+
+		statsA, err := storeA.Refresh(ctx)
+		if err != nil {
+			t.Fatalf("Refresh (A, iter %d): %v", i, err)
+		}
+		resA, err := storeA.Query.Object(id)
+		if err != nil {
+			t.Fatalf("Query.Object (A, iter %d): %v", i, err)
+		}
+		// The old store must pick up the edit: A was opened while the
+		// file authorized nobody, but by now the file is fixed, and A
+		// has refreshed since.
+		if resA.Verification != "valid" {
+			t.Errorf("iter %d: A's ObjectResult.Verification = %q, want %q (stats=%+v) -- the old handle must pick up the trust-store edit", i, resA.Verification, "valid", statsA)
+		}
+
+		if i >= 1 && (statsA.Rebuilt || statsB.Rebuilt) {
+			t.Errorf("iter %d: unexpected rebuild after reconciliation should have settled (statsA.Rebuilt=%v statsB.Rebuilt=%v)", i, statsA.Rebuilt, statsB.Rebuilt)
+		}
 	}
 }
