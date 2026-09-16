@@ -12,8 +12,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+
 	writ "github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/engine/codec"
+	"github.com/writtendev/writ/engine/codec/canonicaljson"
 	"github.com/writtendev/writ/engine/dag"
 	"github.com/writtendev/writ/engine/identity"
 	"github.com/writtendev/writ/engine/schemasrc"
@@ -330,6 +334,217 @@ func TestRulesFromSchemas_UngrammaticalDeclarationDroppedNotInstalled(t *testing
 				t.Errorf("sibling type %q installed=%v, want %v (conflicts: %+v)", siblingType, siblingInstalled, tc.wantSiblingInstalled, conflicts)
 			}
 		})
+	}
+}
+
+// writeForeignSchemaOp appends a raw "schema" op commit directly to
+// refs/writ/<writerID>/schema in dir's repository, bypassing
+// engine/codec.BuildCommit entirely -- and with it the bootstrap JSON
+// Schema validation dag.Store.Append always runs for object_type "schema"
+// (validateAgainstBootstrap), which enforces spec/schemas/schema-ops.schema.json's
+// type_name pattern on a define-type's own "type" field. A conforming
+// Store.ApplySchema call can therefore never carry an ungrammatical
+// declared type past the producer boundary at all: the scenario WRIT-253's
+// resolver gate defends against is "nothing on the read path checks a
+// schema op's declared type... against the grammar this section requires
+// of them" (spec/schema-ops.md §2) -- a hand-crafted commit, or a
+// non-conforming peer, that never went through a conforming producer in
+// the first place. Mirrors cmd/writ/textsafe_render_test.go's
+// writeForeignOp, which does the same thing for a hostile person-ref
+// value, for the identical reason.
+//
+// parent is the previous op's commit hash in this chain (empty for the
+// first op), and seq spaces out each commit's author timestamp so the
+// causal chain and total order agree unambiguously. The new commit's hash
+// is returned so the caller can chain the next op onto it.
+func writeForeignSchemaOp(t *testing.T, dir, writerID, parent, objectID, opType string, body map[string]any, seq int) string {
+	t.Helper()
+
+	repo, err := git.PlainOpen(dir)
+	if err != nil {
+		t.Fatalf("opening repo at %s: %v", dir, err)
+	}
+
+	raw, err := json.Marshal(map[string]any{
+		"object_id":   objectID,
+		"object_type": "schema",
+		"op_type":     opType,
+		"op_version":  1,
+		"body":        body,
+	})
+	if err != nil {
+		t.Fatalf("marshal op payload: %v", err)
+	}
+	canon, err := canonicaljson.Marshal(raw)
+	if err != nil {
+		t.Fatalf("canonicalize op payload: %v", err)
+	}
+
+	when := time.Date(2026, 3, 1, 0, 0, seq, 0, time.UTC)
+	who := codec.Identity{Name: "Foreign Client", Email: "foreign@example.com", When: when}
+	var parents []string
+	if parent != "" {
+		parents = []string{parent}
+	}
+	commit := &codec.Commit{
+		Parents:   parents,
+		Author:    who,
+		Committer: who,
+		Message:   fmt.Sprintf("writ: %s schema/%s\n", opType, objectID),
+		Tree:      []codec.TreeEntry{{Name: "op.json", Mode: "100644", Data: canon}},
+	}
+
+	hash, err := codec.WriteCommit(context.Background(), repo.Storer, commit, nil)
+	if err != nil {
+		t.Fatalf("writing foreign schema commit: %v", err)
+	}
+
+	refName := plumbing.ReferenceName(fmt.Sprintf("refs/writ/%s/schema", writerID))
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(refName, hash)); err != nil {
+		t.Fatalf("setting ref %s: %v", refName, err)
+	}
+	return hash.String()
+}
+
+// TestStoreHostileDeclaredTypeOmittedAndProjectionIntact is WRIT-253's
+// Store-level acceptance test, connecting the two halves round 1 found
+// tested only in isolation:
+// TestRulesFromSchemas_UngrammaticalDeclarationDroppedNotInstalled pins
+// the resolver's grammar gate against resolveSchemaTypes' Go-value inputs
+// directly, and engine/projection's own
+// TestObjectsHostileTypeNameNotDeletedAndLimit pins that the SQL query
+// builder is independently safe when handed a hostile object_type as a
+// bare rules map -- neither test goes through Store.Open, a real DAG walk,
+// and Store.Refresh together, so neither would catch a regression that let
+// the Store's own refresh/rebuild path build its rule map without the
+// resolver's gate in between.
+//
+// Two schema-op chains foreign to this store's own writer (writeForeignSchemaOp,
+// bypassing producer validation the only way a hand-crafted commit could)
+// declare two hostile object types under the log's own "acme" namespace,
+// each with its own tombstone-strategy field, exactly WRIT-253's own repro
+// shapes: "a') OR 1 --" broke objectsNotDeletedClause's SQL string literal
+// (disabling the tombstone filter and, via its trailing "--" SQL comment,
+// LIMIT too), and "acme.x'); DELETE FROM objects; --" is the stacked
+// statement shape a single-quote break-out makes possible in the first
+// place. A real Store.Refresh -- Enumerate, RulesFromSchemas, and the
+// projection rebuild together -- must resolve the log with both declarations
+// present and never let either reach installed rules at all: Store.Types
+// omits them, and a plain acme.widget/acme.note listing still honours the
+// tombstone filter and LIMIT correctly, with every legitimate object still
+// present under IncludeDeleted.
+func TestStoreHostileDeclaredTypeOmittedAndProjectionIntact(t *testing.T) {
+	store, ctx, dir := openStoreWithCoreSchema(t)
+
+	widgetID, err := store.Objects.Create(ctx, "acme.widget", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Legitimate Widget"},
+	})
+	if err != nil {
+		t.Fatalf("Objects.Create(widget) failed: %v", err)
+	}
+	liveNoteID, err := store.Objects.Create(ctx, "acme.note", writ.NewOp{
+		Type: "create",
+		Fields: map[string]any{
+			"text":    "a live note",
+			"subject": map[string]string{"object_type": "acme.widget", "object_id": widgetID},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Objects.Create(live note) failed: %v", err)
+	}
+	deletedNoteID, err := store.Objects.Create(ctx, "acme.note", writ.NewOp{
+		Type: "create",
+		Fields: map[string]any{
+			"text":    "a note about to be soft-deleted",
+			"subject": map[string]string{"object_type": "acme.widget", "object_id": widgetID},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Objects.Create(deleted note) failed: %v", err)
+	}
+	if err := store.Objects.Apply(ctx, deletedNoteID, writ.NewOp{Type: "delete"}); err != nil {
+		t.Fatalf("Objects.Apply(delete) failed: %v", err)
+	}
+
+	const (
+		foreignWriterID = "fedcba9876543210"
+		hostileLimit    = `a') OR 1 --`
+		hostileDelete   = `acme.x'); DELETE FROM objects; --`
+	)
+
+	p := writeForeignSchemaOp(t, dir, foreignWriterID, "", "sch-hostile", "create", map[string]any{"namespace": "acme"}, 0)
+	p = writeForeignSchemaOp(t, dir, foreignWriterID, p, "sch-hostile", "define-type", map[string]any{"type": hostileLimit}, 1)
+	p = writeForeignSchemaOp(t, dir, foreignWriterID, p, "sch-hostile", "define-op", map[string]any{"type": hostileLimit, "op_type": "archive", "op_version": "1"}, 2)
+	p = writeForeignSchemaOp(t, dir, foreignWriterID, p, "sch-hostile", "define-field", map[string]any{
+		"type": hostileLimit, "op_type": "archive", "op_version": "1",
+		"field": "archived", "value_type": "bool", "strategy": "tombstone",
+	}, 3)
+	p = writeForeignSchemaOp(t, dir, foreignWriterID, p, "sch-hostile", "define-type", map[string]any{"type": hostileDelete}, 4)
+	p = writeForeignSchemaOp(t, dir, foreignWriterID, p, "sch-hostile", "define-op", map[string]any{"type": hostileDelete, "op_type": "archive", "op_version": "1"}, 5)
+	_ = writeForeignSchemaOp(t, dir, foreignWriterID, p, "sch-hostile", "define-field", map[string]any{
+		"type": hostileDelete, "op_type": "archive", "op_version": "1",
+		"field": "archived", "value_type": "bool", "strategy": "tombstone",
+	}, 6)
+
+	if _, err := store.Refresh(ctx); err != nil {
+		t.Fatalf("Refresh (with hostile declarations in the log) failed: %v", err)
+	}
+
+	types, err := store.Types(ctx)
+	if err != nil {
+		t.Fatalf("Store.Types failed: %v", err)
+	}
+	for _, typ := range types {
+		if typ.Name == hostileLimit || typ.Name == hostileDelete {
+			t.Errorf("Store.Types installed the hostile declared type %q: %+v", typ.Name, typ)
+		}
+	}
+
+	// Scoped to the two legitimate types throughout: Query.Objects lists
+	// every object cross-type, schema objects (sch-acme, sch-hostile)
+	// included (they are objects like any other), and this test's
+	// assertions are about the tombstone/LIMIT behavior of ordinary data
+	// objects, not a count over the whole store.
+	legitTypes := writ.ObjectFilter{Type: []string{"acme.widget", "acme.note"}}
+
+	live, err := store.Query.Objects(legitTypes)
+	if err != nil {
+		t.Fatalf("Query.Objects (default) failed: %v", err)
+	}
+	if len(live) != 2 {
+		t.Fatalf("Query.Objects (default) = %d results, want 2 (widget + live note): %+v", len(live), live)
+	}
+	for _, o := range live {
+		if o.ObjectID == deletedNoteID {
+			t.Errorf("Query.Objects (default) included the soft-deleted note %s despite the hostile declarations in the log: %+v", deletedNoteID, live)
+		}
+	}
+
+	limitedFilter := legitTypes
+	limitedFilter.Limit = 1
+	limited, err := store.Query.Objects(limitedFilter)
+	if err != nil {
+		t.Fatalf("Query.Objects (Limit: 1) failed: %v", err)
+	}
+	if len(limited) != 1 {
+		t.Fatalf("Query.Objects (Limit: 1) = %d results, want exactly 1", len(limited))
+	}
+
+	deletedFilter := legitTypes
+	deletedFilter.IncludeDeleted = true
+	all, err := store.Query.Objects(deletedFilter)
+	if err != nil {
+		t.Fatalf("Query.Objects (IncludeDeleted: true) failed: %v", err)
+	}
+	wantIDs := map[string]bool{widgetID: true, liveNoteID: true, deletedNoteID: true}
+	if len(all) != len(wantIDs) {
+		t.Fatalf("Query.Objects (IncludeDeleted: true) = %d results, want %d (the objects table must stay intact): %+v", len(all), len(wantIDs), all)
+	}
+	for _, o := range all {
+		if !wantIDs[o.ObjectID] {
+			t.Errorf("Query.Objects (IncludeDeleted: true) returned unexpected object %s: %+v", o.ObjectID, all)
+		}
 	}
 }
 

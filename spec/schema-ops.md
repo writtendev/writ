@@ -118,7 +118,8 @@ requirement (pattern, 129-character bound, `.lock` exclusion), or a
 schema object's `namespace` failing this section's bare-form grammar, is
 dropped and reported the same way an unqualified declaration is, and
 checked first: a name cannot be well-formed enough to ask "is it
-qualified?" if it fails its own grammar. See §6's fifth conflict kind.
+qualified?" if it fails its own grammar. See §6.3, the ungrammatical-
+declaration conflict kind.
 
 On an `object_type` collision, **no winner is picked**: neither schema
 object's rules are installed for the contested type. Its ops fall through
