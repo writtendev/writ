@@ -425,13 +425,16 @@ func writeForeignSchemaOp(t *testing.T, dir, writerID, parent, objectID, opType 
 // field, exactly WRIT-253's own repro shapes: "a') OR 1 --" under the log's
 // own "acme" namespace broke objectsNotDeletedClause's SQL string literal
 // (disabling the tombstone filter and, via its trailing "--" SQL comment,
-// LIMIT too); "acme.x'); DELETE FROM objects; --" (also under "acme") is
-// the stacked statement shape a single-quote break-out makes possible in
-// the first place; and "a') OR 1 --.z" under a hostile namespace of its
-// own ("a') OR 1 --") is qualified under it, so only the namespace-grammar
-// gate WRIT-253 adds -- not the older, unrelated qualification check
-// (WRIT-217) that already catches the first two for a different reason --
-// is what has to stop it. A real Store.Refresh -- Enumerate,
+// LIMIT too), and is refused by the older, unrelated qualification check
+// (WRIT-217, typeIsQualifiedForNamespace) since it is never qualified with
+// "acme."; "acme.x'); DELETE FROM objects; --" (also under "acme") is the
+// stacked statement shape a single-quote break-out makes possible in the
+// first place, and IS qualified under "acme." (its remainder carries no
+// further dot), so that older check lets it through -- only the (new)
+// object_type grammar gate WRIT-253 adds is what stops it; and
+// "a') OR 1 --.z" under a hostile namespace of its own ("a') OR 1 --") is
+// qualified under it too, so only the (new) namespace-grammar gate
+// WRIT-253 adds is what has to stop it. A real Store.Refresh -- Enumerate,
 // RulesFromSchemas, and the projection rebuild together -- must resolve
 // the log with all three declarations present and never let any of them
 // reach installed rules at all: Store.Types omits them, and an
@@ -481,13 +484,14 @@ func TestStoreHostileDeclaredTypeOmittedAndProjectionIntact(t *testing.T) {
 		// namespace level, not just the type level: a schema object
 		// whose namespace itself carries SQL break-out syntax.
 		// typeIsQualifiedForNamespace (WRIT-217, predates this ticket)
-		// already refuses hostileLimit and hostileDelete above for an
-		// unrelated reason -- neither is qualified with "acme." -- so
-		// neither one exercises declarationInstallable's namespace-
-		// grammar half this ticket adds. hostileNSType is deliberately
-		// qualified under hostileNamespace so the (older) qualification
-		// check passes and only the (new) namespace-grammar gate is
-		// what stops it.
+		// already refuses hostileLimit above for an unrelated reason --
+		// it is never qualified with "acme." -- but hostileDelete IS
+		// qualified under "acme." (its remainder carries no further
+		// dot), so that older check lets it through; hostileDelete is
+		// instead stopped by the (new) object_type grammar gate this
+		// ticket adds. hostileNSType is deliberately qualified under
+		// hostileNamespace too, so it is only the (new) namespace-
+		// grammar gate that stops it.
 		hostileNamespace = `a') OR 1 --`
 		hostileNSType    = hostileNamespace + `.z`
 	)
