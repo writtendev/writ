@@ -2,6 +2,8 @@ package resolve
 
 import (
 	"sort"
+
+	"github.com/writtendev/writ/engine/internal/anchorshape"
 )
 
 // Match type constants from spec/resolution.md.
@@ -79,10 +81,23 @@ func resolveSide(version int, s *SideAnchor, t *Tree) *SideResult {
 
 // sideWellFormed implements the structural pre-check's arithmetic step
 // (spec/resolution.md §Structural Pre-Check, mirroring spec/anchors.md
-// §Context capture): range and context must be present together; start >= 1;
-// end >= start; lines non-empty; and the omitted/lines/range arithmetic for
-// elided vs. non-elided ranges. A side failing any of these has no safe way
-// to be indexed by the ladder.
+// §Context capture) for a side already decoded into Go's typed SideAnchor —
+// the shape Go-constructed anchors carry (this covers Resolve's own callers,
+// which bypass JSON decoding entirely; ResolveRaw's raw-bytes path checks
+// the same arithmetic earlier, via anchorshape.SideWellFormed, before a
+// SideAnchor like this one is even built): range and context must be
+// present together; a present pair's numbers reduce to
+// anchorshape.RangeContextWellFormed, the one arithmetic implementation
+// both paths share, so the two cannot drift the way a second hand-written
+// copy here once could. A side failing any of it has no safe way to be
+// indexed by the ladder.
+//
+// Context.Omitted is a plain int with no separate presence flag, so a
+// Go-constructed SideAnchor cannot express "omitted present with value 0"
+// distinctly from "omitted absent" — both collapse to the same zero value.
+// hasOmitted below is therefore Omitted != 0, matching Context's own
+// `json:"omitted,omitempty"` tag (a Context built this way already cannot
+// round-trip that distinction either).
 func sideWellFormed(s *SideAnchor) bool {
 	hasRange := s.Range != nil
 	hasContext := s.Context != nil
@@ -94,25 +109,8 @@ func sideWellFormed(s *SideAnchor) bool {
 	}
 
 	r, ctx := s.Range, s.Context
-	if r.Start < 1 || r.End < r.Start {
-		return false
-	}
-	if len(ctx.Lines) == 0 {
-		return false
-	}
-
-	size := r.End - r.Start + 1
-	if ctx.Omitted == 0 {
-		// Not elided: lines must hold the range verbatim, and a range over
-		// 64 lines must be elided rather than carried in full.
-		return size <= 64 && len(ctx.Lines) == size
-	}
-	// Elided: omitted must be positive, lines must hold exactly the head-32 +
-	// tail-32 collar, and omitted must account for exactly the rest.
-	if ctx.Omitted < 1 {
-		return false
-	}
-	return len(ctx.Lines) == 64 && ctx.Omitted == size-64
+	hasOmitted := ctx.Omitted != 0
+	return anchorshape.RangeContextWellFormed(r.Start, r.End, len(ctx.Lines), ctx.Omitted, hasOmitted)
 }
 
 func resolveWholeFileSide(s *SideAnchor, t *Tree) *SideResult {

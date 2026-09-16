@@ -3,7 +3,8 @@ package resolve
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
+
+	"github.com/writtendev/writ/engine/internal/anchorshape"
 )
 
 // errNullValue signals that a JSON `null` occupied a slot the Structural
@@ -209,158 +210,91 @@ func ResolveRaw(raw []byte, t *Tree) Resolution {
 	return res
 }
 
-// parseSideAnchor decodes one side of an anchor per spec/resolution.md
-// §Structural Pre-Check step 2: commit/path/blob must each be a JSON string
-// (not null), range must be exactly {"start": int, "end": int}, and context
-// must be exactly {"before": [string], "lines": [string], "after": [string],
-// "omitted"?: int} — every key matched case-sensitively and every scalar
-// checked for null explicitly, because Go's struct-based json.Unmarshal does
-// neither (case-insensitive field fallback; a null silently no-ops into a
-// non-pointer's zero value) and round-1 review found both holes. Decoding
-// through map[string]json.RawMessage side-steps struct field matching
-// entirely, so a wrongly-cased key is simply absent, not a synonym.
+// errMalformedSide reports that a side failed anchorshape.SideWellFormed
+// (spec/resolution.md §Structural Pre-Check steps 2-3): it does not decode
+// as a v1 side anchor, or its range/context/omitted arithmetic is
+// inconsistent. parseSideAnchor's caller only needs to know that a side
+// must orphan "malformed", never why, so one sentinel covers every way
+// SideWellFormed can say no.
+var errMalformedSide = errors.New("resolve: side does not decode as a well-formed v1 side anchor")
+
+// parseSideAnchor decodes one side of an anchor. It first decodes raw into
+// Go's generic JSON representation (map[string]any, []any, string, float64,
+// nil) and asks anchorshape.SideWellFormed the exact structural-decode-plus-
+// arithmetic question spec/resolution.md's Structural Pre-Check defines —
+// the one predicate engine/internal/value's producer check also calls, in
+// place of this function's own former hand-written decode. That former
+// decode (case-sensitive but not null-aware in every position) is what let
+// a null side, a null collar array, and an absent commit/path/blob through
+// (round-2 review of this PR). A side that fails is reported as a decode
+// error; a side that passes is then extracted by straightforward type
+// assertion, which SideWellFormed has already made safe.
 func parseSideAnchor(raw json.RawMessage) (*SideAnchor, error) {
-	var sideMap map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &sideMap); err != nil {
+	var generic any
+	if err := json.Unmarshal(raw, &generic); err != nil {
 		return nil, err
 	}
+	if !anchorshape.SideWellFormed(generic) {
+		return nil, errMalformedSide
+	}
+	m := generic.(map[string]any)
 
-	var s SideAnchor
-	if v, ok := sideMap["commit"]; ok {
-		str, err := decodeNonNullString(v)
-		if err != nil {
-			return nil, fmt.Errorf("commit: %w", err)
-		}
-		s.Commit = str
-		delete(sideMap, "commit")
+	s := &SideAnchor{
+		Commit: m["commit"].(string),
+		Path:   m["path"].(string),
+		Blob:   m["blob"].(string),
 	}
-	if v, ok := sideMap["path"]; ok {
-		str, err := decodeNonNullString(v)
-		if err != nil {
-			return nil, fmt.Errorf("path: %w", err)
+
+	if rangeVal, hasRange := m["range"]; hasRange {
+		rangeMap := rangeVal.(map[string]any)
+		contextMap := m["context"].(map[string]any)
+		ctx := &Context{
+			Before: toNonNullStrings(contextMap["before"]),
+			Lines:  toNonNullStrings(contextMap["lines"]),
+			After:  toNonNullStrings(contextMap["after"]),
 		}
-		s.Path = str
-		delete(sideMap, "path")
-	}
-	if v, ok := sideMap["blob"]; ok {
-		str, err := decodeNonNullString(v)
-		if err != nil {
-			return nil, fmt.Errorf("blob: %w", err)
+		if omittedVal, hasOmitted := contextMap["omitted"]; hasOmitted {
+			ctx.Omitted = int(omittedVal.(float64))
 		}
-		s.Blob = str
-		delete(sideMap, "blob")
-	}
-	if v, ok := sideMap["range"]; ok {
-		r, err := decodeRange(v)
-		if err != nil {
-			return nil, fmt.Errorf("range: %w", err)
-		}
-		s.Range = r
-		delete(sideMap, "range")
-	}
-	if v, ok := sideMap["context"]; ok {
-		ctx, err := decodeContext(v)
-		if err != nil {
-			return nil, fmt.Errorf("context: %w", err)
+		s.Range = &Range{
+			Start: int(rangeMap["start"].(float64)),
+			End:   int(rangeMap["end"].(float64)),
 		}
 		s.Context = ctx
-		delete(sideMap, "context")
 	}
 
-	if len(sideMap) > 0 {
-		s.Unknown = sideMap
-	}
-
-	return &s, nil
-}
-
-// decodeRange decodes {"start": int, "end": int}, exact-case, rejecting a
-// missing key or a null/non-integer value rather than defaulting to 0 the
-// way json.Unmarshal into a Range struct would (Go's case-insensitive
-// struct-field fallback also let "START"/"End" through as synonyms — a map
-// lookup by exact key has no such fallback).
-func decodeRange(raw json.RawMessage) (*Range, error) {
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &m); err != nil {
-		return nil, err
-	}
-	startRaw, ok := m["start"]
-	if !ok {
-		return nil, errors.New("start is required")
-	}
-	start, err := decodeNonNullInt(startRaw)
-	if err != nil {
-		return nil, fmt.Errorf("start: %w", err)
-	}
-	endRaw, ok := m["end"]
-	if !ok {
-		return nil, errors.New("end is required")
-	}
-	end, err := decodeNonNullInt(endRaw)
-	if err != nil {
-		return nil, fmt.Errorf("end: %w", err)
-	}
-	return &Range{Start: start, End: end}, nil
-}
-
-// decodeContext decodes {"before": [string], "lines": [string], "after":
-// [string], "omitted"?: int}, exact-case, with the same null- and
-// case-intolerance as decodeRange. "omitted", when present, must decode as
-// a non-null integer >= 1: spec/resolution.md's arithmetic step requires
-// that regardless of what the range/lines arithmetic below it says, so
-// rejecting it here (rather than only in sideWellFormed's numeric check)
-// means an omitted value of 0 or null can never be confused with omitted
-// being absent — the two are indistinguishable once collapsed to the int 0
-// Context.Omitted uses everywhere else.
-func decodeContext(raw json.RawMessage) (*Context, error) {
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &m); err != nil {
-		return nil, err
-	}
-	before, err := decodeNonNullStringSlice(m, "before")
-	if err != nil {
-		return nil, err
-	}
-	lines, err := decodeNonNullStringSlice(m, "lines")
-	if err != nil {
-		return nil, err
-	}
-	after, err := decodeNonNullStringSlice(m, "after")
-	if err != nil {
-		return nil, err
-	}
-	ctx := &Context{Before: before, Lines: lines, After: after}
-	if omittedRaw, ok := m["omitted"]; ok {
-		omitted, err := decodeNonNullInt(omittedRaw)
-		if err != nil {
-			return nil, fmt.Errorf("omitted: %w", err)
+	// Unknown side-level fields, preserved for forward compatibility (never
+	// dropped, per house rules): a second decode into per-key raw bytes,
+	// discarding the five keys already extracted above.
+	var rawFields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &rawFields); err == nil {
+		for _, known := range [...]string{"commit", "path", "blob", "range", "context"} {
+			delete(rawFields, known)
 		}
-		if omitted < 1 {
-			return nil, errors.New("omitted: must be >= 1 when present")
+		if len(rawFields) > 0 {
+			s.Unknown = rawFields
 		}
-		ctx.Omitted = omitted
 	}
-	return ctx, nil
+
+	return s, nil
 }
 
-// decodeNonNullString decodes raw as a JSON string, refusing null. Unmarshal
-// into a plain string silently no-ops on null, leaving the caller unable to
-// tell "absent" from "present and null" — going through *string first makes
-// that distinction visible.
-func decodeNonNullString(raw json.RawMessage) (string, error) {
-	var v *string
-	if err := json.Unmarshal(raw, &v); err != nil {
-		return "", err
+// toNonNullStrings converts a JSON array already confirmed by
+// anchorshape.SideWellFormed to hold only non-null strings into a []string.
+func toNonNullStrings(v any) []string {
+	arr := v.([]any)
+	out := make([]string, len(arr))
+	for i, e := range arr {
+		out[i] = e.(string)
 	}
-	if v == nil {
-		return "", errNullValue
-	}
-	return *v, nil
+	return out
 }
 
 // decodeNonNullInt decodes raw as a JSON integer, refusing null and refusing
 // a non-integer number (json.Unmarshal into *int already errors on "1.5" or
-// `"1"`; only null needed the pointer indirection to catch).
+// `"1"`; only null needed the pointer indirection to catch). Used for the
+// anchor-level "version" field, which parseSideAnchor/anchorshape do not
+// touch — version sits outside any side.
 func decodeNonNullInt(raw json.RawMessage) (int, error) {
 	var v *int
 	if err := json.Unmarshal(raw, &v); err != nil {
@@ -370,28 +304,6 @@ func decodeNonNullInt(raw json.RawMessage) (int, error) {
 		return 0, errNullValue
 	}
 	return *v, nil
-}
-
-// decodeNonNullStringSlice requires key to be present in m as a JSON array
-// of non-null strings. Decoding through []*string catches a null array
-// element the same way decodeNonNullString catches a null scalar.
-func decodeNonNullStringSlice(m map[string]json.RawMessage, key string) ([]string, error) {
-	raw, ok := m[key]
-	if !ok {
-		return nil, fmt.Errorf("%s is required", key)
-	}
-	var ptrs []*string
-	if err := json.Unmarshal(raw, &ptrs); err != nil {
-		return nil, fmt.Errorf("%s: %w", key, err)
-	}
-	out := make([]string, len(ptrs))
-	for i, p := range ptrs {
-		if p == nil {
-			return nil, fmt.Errorf("%s[%d]: %w", key, i, errNullValue)
-		}
-		out[i] = *p
-	}
-	return out, nil
 }
 
 // SideResult represents the resolution outcome for one side of an anchor.

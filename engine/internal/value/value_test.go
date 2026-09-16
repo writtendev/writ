@@ -352,6 +352,45 @@ func TestValidateAnchorArithmeticVectors(t *testing.T) {
 	}
 }
 
+// TestValidateRejectsMalformedResolutionVectors drives every "malformed-*"
+// case under spec/testdata/resolution/cases/ through value.Validate and
+// requires each to be refused. Those vectors are, by construction and by
+// spec/testdata/resolution/index.json's own reason field, shapes
+// engine/resolve's read-side pre-check orphans as "malformed" — so writ's
+// own producer, which shares anchorshape.SideWellFormed with that pre-check
+// (WRIT-252 round 2), must refuse writing every one of them too. This is
+// the producer half of the lockstep round-2 review asked to be tested
+// directly rather than only asserted in a comment: it fails against the
+// round-2 code this round's fixer inherited, where value.Validate accepted
+// (among others) malformed-context-missing-collar's and
+// malformed-lines-null-entry's shapes.
+func TestValidateRejectsMalformedResolutionVectors(t *testing.T) {
+	cases, err := spec.ResolutionVectors()
+	if err != nil {
+		t.Fatalf("loading resolution vectors: %v", err)
+	}
+
+	tested := 0
+	for _, c := range cases {
+		if !strings.HasPrefix(c.Name, "malformed-") {
+			continue
+		}
+		tested++
+		t.Run(c.Name, func(t *testing.T) {
+			var decoded any
+			if err := json.Unmarshal(c.Anchor, &decoded); err != nil {
+				t.Fatalf("decoding %s: %v", c.Name, err)
+			}
+			if err := value.Validate("anchor", value.Params{}, decoded); err == nil {
+				t.Errorf("value.Validate accepted malformed resolution vector %s; want rejected", c.Name)
+			}
+		})
+	}
+	if tested == 0 {
+		t.Fatal("no malformed-* resolution vectors found under spec/testdata/resolution/cases")
+	}
+}
+
 // valueTypesSchemaDefs returns the $defs names declared in
 // schemas/value-types.schema.json.
 func valueTypesSchemaDefs(t *testing.T) map[string]bool {

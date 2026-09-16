@@ -1,8 +1,11 @@
 // Package value implements the closed value-type catalogue (spec/value-types.md):
 // producer-side validation, and the one normalization behaviour the catalogue
 // defines. It is modelled on engine/internal/person and, like it, is a pure
-// leaf package — person and the standard library only, no I/O — so the fold,
-// which must stay free of I/O, can call it without pulling anything else in.
+// leaf package — person, engine/internal/anchorshape, and the standard
+// library only, no I/O — so the fold, which must stay free of I/O, can call
+// it without pulling anything else in. anchorshape is itself stdlib-only
+// (see its own doc comment), so this adds nothing to that closure beyond
+// one more leaf.
 package value
 
 import (
@@ -10,6 +13,7 @@ import (
 	"regexp"
 	"unicode/utf8"
 
+	"github.com/writtendev/writ/engine/internal/anchorshape"
 	"github.com/writtendev/writ/engine/internal/person"
 )
 
@@ -171,8 +175,8 @@ func jsonNumber(v any) (float64, bool) {
 // anchor.schema.json require beyond "is a JSON object": version 1, at least
 // one of old/new, and each present side's required fields and its
 // range/context pairing. It is not a JSON Schema validator — value stays a
-// pure leaf package, person and the standard library only — only the finite,
-// known shape of this one catalogue type.
+// pure leaf package, person, engine/internal/anchorshape, and the standard
+// library only — only the finite, known shape of this one catalogue type.
 func validateAnchor(m map[string]any) error {
 	if v, ok := m["version"]; !ok || v != float64(1) {
 		return fmt.Errorf("version must be 1")
@@ -195,110 +199,30 @@ func validateAnchor(m map[string]any) error {
 	return nil
 }
 
-// validateAnchorSide checks one side's required fields (commit, path, blob —
-// each a non-null, non-empty JSON string), the dependentRequired pairing
-// between range and context that anchor.schema.json declares, and the
-// range/context/omitted arithmetic spec/anchors.md §Context capture requires
-// beyond the schema (pinned by spec/testdata/anchors/invalid's
-// arithmetic-class vectors): this is what keeps writ itself from ever
-// writing the shape that made the resolver ladder panic (WRIT-252) — the
-// read-side pre-check in engine/resolve (parseSideAnchor, decodeRange,
-// decodeContext) rejects the same shapes, so a producer refuses them
-// outright rather than let them through and orphan on read. The two checks
-// are necessarily separate functions (this package is a pure leaf —
-// person and the standard library only — and cannot import engine/resolve
-// without breaking that fence), so they are written to refuse exactly the
-// same predicate by hand rather than sharing code; keep them in lockstep by
-// inspection when either changes.
+// validateAnchorSide checks one side against anchorshape.SideWellFormed —
+// the structural-decode-plus-arithmetic predicate spec/resolution.md's
+// Structural Pre-Check defines, and the same one engine/resolve's read-side
+// pre-check calls. This is what keeps writ itself from ever writing the
+// shape that made the resolver ladder panic (WRIT-252): producer and reader
+// now ask the identical question about a side's shape, rather than each
+// hand-writing its own copy that can drift (round-2 review of this PR found
+// exactly that drift, in both directions).
+//
+// It additionally refuses an empty commit/path/blob. spec/resolution.md's
+// Structural Pre-Check does not — it is decode-and-arithmetic only, per the
+// ruling, and leaves format/emptiness constraints to whatever validates
+// against anchor.schema.json on the read side (nothing does, today) — but
+// writ's own producer always has, and nothing in this round's review asked
+// that to change.
 func validateAnchorSide(v any) error {
-	m, ok := v.(map[string]any)
-	if !ok {
-		return fmt.Errorf("must be a JSON object")
+	if !anchorshape.SideWellFormed(v) {
+		return fmt.Errorf("does not decode as a well-formed v1 side anchor (spec/resolution.md Structural Pre-Check)")
 	}
+	m := v.(map[string]any) // anchorshape.SideWellFormed already confirmed this succeeds.
 	for _, field := range []string{"commit", "path", "blob"} {
-		s, ok := m[field].(string)
-		if !ok || s == "" {
-			return fmt.Errorf("%s is required", field)
+		if m[field].(string) == "" {
+			return fmt.Errorf("%s must not be empty", field)
 		}
-	}
-	rangeVal, hasRange := m["range"]
-	contextVal, hasContext := m["context"]
-	if hasRange != hasContext {
-		return fmt.Errorf("range and context must be present together")
-	}
-	if !hasRange {
-		return nil
-	}
-	// A JSON null on range or context, in any combination, is refused here:
-	// the read-side pre-check (engine/resolve.decodeRange/decodeContext)
-	// requires each to decode as a JSON object with its own required keys,
-	// and null satisfies neither, on either side alone or on both together.
-	// validateAnchorRangeContext's own map type-assertions already refuse a
-	// null rangeVal/contextVal (any(nil) is not a map[string]any) — this
-	// comment exists only because an earlier version of this function
-	// special-cased null-on-both as tolerated, which put the producer and
-	// the reader out of lockstep (round-1 review of this PR); that
-	// special case is deleted, not narrowed, so there is nothing left here
-	// to drift.
-	return validateAnchorRangeContext(rangeVal, contextVal)
-}
-
-// validateAnchorRangeContext enforces spec/anchors.md §Context capture's
-// cross-field arithmetic: start >= 1, end >= start, context.lines non-empty,
-// and the omitted/lines/range relationship for elided vs. non-elided ranges.
-func validateAnchorRangeContext(rangeVal, contextVal any) error {
-	rangeMap, ok := rangeVal.(map[string]any)
-	if !ok {
-		return fmt.Errorf("range must be a JSON object")
-	}
-	start, ok := jsonNumber(rangeMap["start"])
-	if !ok || start != float64(int64(start)) {
-		return fmt.Errorf("range.start must be an integer")
-	}
-	end, ok := jsonNumber(rangeMap["end"])
-	if !ok || end != float64(int64(end)) {
-		return fmt.Errorf("range.end must be an integer")
-	}
-	if start < 1 {
-		return fmt.Errorf("range.start must be >= 1")
-	}
-	if end < start {
-		return fmt.Errorf("range.end must be >= range.start")
-	}
-
-	contextMap, ok := contextVal.(map[string]any)
-	if !ok {
-		return fmt.Errorf("context must be a JSON object")
-	}
-	lines, ok := contextMap["lines"].([]any)
-	if !ok || len(lines) == 0 {
-		return fmt.Errorf("context.lines must be a non-empty array")
-	}
-
-	size := end - start + 1
-	omittedVal, hasOmitted := contextMap["omitted"]
-	if !hasOmitted {
-		if size > 64 {
-			return fmt.Errorf("a range over 64 lines must be elided (omitted present)")
-		}
-		if float64(len(lines)) != size {
-			return fmt.Errorf("context.lines has %d entries for a %v-line range and no omitted count", len(lines), size)
-		}
-		return nil
-	}
-
-	omitted, ok := jsonNumber(omittedVal)
-	if !ok || omitted != float64(int64(omitted)) {
-		return fmt.Errorf("context.omitted must be an integer")
-	}
-	if omitted < 1 {
-		return fmt.Errorf("context.omitted must be >= 1 when present")
-	}
-	if len(lines) != 64 {
-		return fmt.Errorf("omitted present but context.lines has %d entries, want 64 (first 32 + last 32)", len(lines))
-	}
-	if want := size - 64; omitted != want {
-		return fmt.Errorf("context.omitted is %v, want %v for a %v-line range", omitted, want, size)
 	}
 	return nil
 }

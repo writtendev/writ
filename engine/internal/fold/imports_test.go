@@ -17,8 +17,8 @@ import (
 //
 // WRIT-185 moved person behind value: no non-test file here imports person
 // directly any more. What WRIT-117 recorded about person's reach still
-// applies transitively, because value imports nothing but person and the
-// standard library:
+// applies transitively, because value imports nothing but person,
+// engine/internal/anchorshape, and the standard library:
 //
 //   - person imports golang.org/x/text/unicode/norm and
 //     golang.org/x/text/cases, because the normalization rule
@@ -32,13 +32,17 @@ import (
 //     forbidden-code-point table shared with cmd/writ's display-side
 //     escaping. textsafe imports only strings, already on this package's own
 //     allowlist, so this adds nothing fold could not already reach.
+//   - anchorshape (WRIT-252) is the structural well-formedness predicate the
+//     anchor value type's producer check shares with engine/resolve's
+//     read-side pre-check. It is stdlib-only by its own doc comment and adds
+//     nothing to this closure beyond one more leaf.
 //   - The transitive closure through value and person does contain os,
 //     reached through fmt, which x/text and value's own error messages both
 //     use for formatting. That grants fold nothing new in practice: this
 //     test reads fold's own imports, so fold calling os directly would still
 //     mean an import here that this list rejects, and value's own source
-//     imports fmt, regexp, unicode/utf8, person, and nothing else. Keep it
-//     that way.
+//     imports fmt, regexp, unicode/utf8, person, anchorshape, and nothing
+//     else. Keep it that way.
 //   - For scale: fold's own closure already contained os, net *and os/exec*
 //     before any of this, through engine/codec and golang.org/x/crypto/ssh.
 //     value (like person before it) is not what made fold's closure

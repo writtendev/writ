@@ -162,13 +162,18 @@ The check proceeds in fixed order:
      is no per-side information left to distinguish them.
 2. **Side decode.** For `version: 1`, every side present (an `old` or `new`
    key at the top level) that fails to decode as a v1 side anchor — the side
-   is not an object; `commit`, `path`, or `blob` is not a string; `range` is
-   not `{ "start": int, "end": int }`; or `context` is not
+   is not an object; `commit`, `path`, or `blob` is absent or is not a
+   string; `range` is not `{ "start": int, "end": int }`; or `context` is not
    `{ "before": [string], "lines": [string], "after": [string], "omitted"?: int }`
    — orphans that side, and only that side, as `"malformed"`. A well-formed
    side next to a malformed one still runs the ladder normally, so the
    overall anchor can resolve to `partial` (§Overall Anchor Resolution
    Status).
+   - `commit`, `path`, and `blob` are required on a side by
+     `anchor.schema.json`; a side missing any of the three fails to decode
+     as a v1 side anchor exactly as one carrying the wrong type for it does
+     — this step does not distinguish "absent" from "present but wrong
+     type" for these three, or for `before`/`lines`/`after` below.
    - Decoding here is exact, not lenient: an object's members are matched by
      exact case (`"START"` is not `"start"`, `"LINES"` is not `"lines"`), and
      every member above must be the precise JSON type stated. JSON `null`
@@ -177,7 +182,8 @@ The check proceeds in fixed order:
      carrying `null` for any of these decodes exactly as if that member were
      the wrong type, not as if it were absent. `context` requires `before`,
      `lines`, and `after` all to be present as string arrays; none of the
-     three defaults when its key is missing.
+     three defaults when its key is missing, and a `null` value for any of
+     the three is likewise not a string array.
    - `context.omitted`'s presence is judged by whether the key exists in the
      JSON object at all, never by its value: a `context` carrying
      `"omitted": null` fails this step (`null` is not a JSON integer), and
