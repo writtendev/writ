@@ -6,7 +6,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/engine/codec"
@@ -323,5 +325,95 @@ func TestStoreMissingSigningKey(t *testing.T) {
 	}
 	if id == "" {
 		t.Fatal("expected non-empty widget ID")
+	}
+}
+
+// TestRefreshResolutionDoesNotHoldStoreLock pins WRIT-244: Refresh and
+// Rebuild must not hold s.mu across rule resolution (Store.rules ->
+// Store.vocabularies), which costs a full dag.Chains ref walk plus, on a
+// cache miss, a Schema()/Enumerate fold. On main before this fix, both
+// methods take mu for their entire body, so Watch and Close block behind
+// whatever that resolve costs; this test parks the resolve mid-flight with
+// writ.StoreParkNextChainsScan and proves Watch and Close return anyway.
+func TestRefreshResolutionDoesNotHoldStoreLock(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func(s *writ.Store, ctx context.Context) error
+	}{
+		{
+			name: "Refresh",
+			run: func(s *writ.Store, ctx context.Context) error {
+				_, err := s.Refresh(ctx)
+				return err
+			},
+		},
+		{
+			name: "Rebuild",
+			run: func(s *writ.Store, ctx context.Context) error {
+				_, err := s.Rebuild(ctx)
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repoDir, _ := setupConfiguredRepo(t)
+			s, err := writ.Open(repoDir, writ.WithSigner(dummySigner()))
+			if err != nil {
+				t.Fatalf("Open failed: %v", err)
+			}
+
+			parked, release, restore := writ.StoreParkNextChainsScan(s)
+			t.Cleanup(restore)
+
+			ctx := context.Background()
+			runErr := make(chan error, 1)
+			go func() {
+				runErr <- tt.run(s, ctx)
+			}()
+
+			select {
+			case <-parked:
+			case <-time.After(5 * time.Second):
+				t.Fatalf("%s never reached the parked dag.Chains scan", tt.name)
+			}
+
+			// Watch and Close only ever wait behind mu, never behind
+			// vocabMu or the parked scan itself, so the call to Watch
+			// (which takes mu, registers a subscriber, and returns) must
+			// return promptly while the scan is parked -- exactly what
+			// held on main, where the whole resolve ran under mu.
+			watchReturned := make(chan struct{})
+			go func() {
+				s.Watch(ctx)
+				close(watchReturned)
+			}()
+			select {
+			case <-watchReturned:
+			case <-time.After(2 * time.Second):
+				t.Fatalf("Watch blocked behind %s's parked rule resolution", tt.name)
+			}
+
+			closeDone := make(chan error, 1)
+			go func() {
+				closeDone <- s.Close()
+			}()
+			select {
+			case err := <-closeDone:
+				if err != nil {
+					t.Fatalf("Close failed: %v", err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatalf("Close blocked behind %s's parked rule resolution", tt.name)
+			}
+
+			release()
+
+			err = <-runErr
+			if err == nil || !strings.Contains(err.Error(), "store is closed") {
+				t.Fatalf("%s returned %v, want an error containing \"store is closed\"", tt.name, err)
+			}
+		})
 	}
 }

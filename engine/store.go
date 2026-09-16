@@ -184,11 +184,44 @@ func (s *Store) Ref(objectID string) string {
 	return objectID
 }
 
+// resolveRulesForProjection checks s.closed and, if the store is open,
+// resolves the fold-rule index a Refresh/Rebuild pass needs — with s.mu
+// released across the resolve. Store.rules delegates to Store.vocabularies,
+// which costs a full dag.Chains ref walk plus, on a cache miss, a
+// Schema()/Enumerate fold: none of that may run with mu held, or it blocks
+// Close, Watch, and any concurrent Refresh/Rebuild for the duration. verb
+// names the caller ("refresh" or "rebuild") for the resolve-failure error;
+// the closed error is worded the same for both and matches the one the
+// caller's own second closed-check (taken under mu, after this returns)
+// reports if Close races the resolve.
+func (s *Store) resolveRulesForProjection(ctx context.Context, verb string) error {
+	s.mu.Lock()
+	closed := s.closed
+	s.mu.Unlock()
+	if closed {
+		return fmt.Errorf("writ: store is closed")
+	}
+
+	if _, err := s.rules(ctx); err != nil {
+		return fmt.Errorf("writ: %s projection: resolve rules: %w", verb, err)
+	}
+	return nil
+}
+
 // Refresh brings the projection cache up to date with the latest DAG operations and target code tips.
+//
+// Rule resolution runs before s.mu is taken for the projection pass itself:
+// see resolveRulesForProjection. Only the projection pass and the emit that
+// follows it hold mu.
 func (s *Store) Refresh(ctx context.Context) (RefreshStats, error) {
 	if s == nil {
 		return RefreshStats{}, fmt.Errorf("writ: store is nil")
 	}
+
+	if err := s.resolveRulesForProjection(ctx, "refresh"); err != nil {
+		return RefreshStats{}, err
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -196,10 +229,9 @@ func (s *Store) Refresh(ctx context.Context) (RefreshStats, error) {
 		return RefreshStats{}, fmt.Errorf("writ: store is closed")
 	}
 
-	rules, err := s.rules(ctx)
-	if err != nil {
-		return RefreshStats{}, fmt.Errorf("writ: refresh projection: resolve rules: %w", err)
-	}
+	s.vocabMu.Lock()
+	rules := s.ruleCache
+	s.vocabMu.Unlock()
 
 	opts := []projection.Option{projection.WithSchema(rules)}
 	if len(s.targetRefs) > 0 {
@@ -218,10 +250,19 @@ func (s *Store) Refresh(ctx context.Context) (RefreshStats, error) {
 
 // Rebuild completely discards and recreates the folded projection cache from a cold walk of all writ chains.
 // Local-only state (read marks, sync cursors) is preserved. The cache file may also simply be deleted.
+//
+// Rule resolution runs before s.mu is taken for the projection pass itself:
+// see resolveRulesForProjection. Only the projection pass and the emit that
+// follows it hold mu.
 func (s *Store) Rebuild(ctx context.Context) (RefreshStats, error) {
 	if s == nil {
 		return RefreshStats{}, fmt.Errorf("writ: store is nil")
 	}
+
+	if err := s.resolveRulesForProjection(ctx, "rebuild"); err != nil {
+		return RefreshStats{}, err
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -229,10 +270,9 @@ func (s *Store) Rebuild(ctx context.Context) (RefreshStats, error) {
 		return RefreshStats{}, fmt.Errorf("writ: store is closed")
 	}
 
-	rules, err := s.rules(ctx)
-	if err != nil {
-		return RefreshStats{}, fmt.Errorf("writ: rebuild projection: resolve rules: %w", err)
-	}
+	s.vocabMu.Lock()
+	rules := s.ruleCache
+	s.vocabMu.Unlock()
 
 	opts := []projection.Option{projection.WithSchema(rules)}
 	if len(s.targetRefs) > 0 {
