@@ -229,9 +229,10 @@ func TestNormalizeOnlyPersonRef(t *testing.T) {
 // field-rules.schema.json's value_type enum — in the shape of
 // TestFieldRuleVocabulariesIsExhaustive (engine/codec/valuetype_test.go),
 // round 1's fix for the same class of problem. value.Known cannot import
-// spec (engine/internal/value stays person + stdlib only, so fold stays free
-// of I/O: engine/internal/fold/imports_test.go), so the binding has to live
-// here instead, in the external test package, which is free to import both.
+// spec (engine/internal/value stays person, engine/internal/anchorshape, and
+// stdlib only, so fold stays free of I/O: engine/internal/fold/imports_test.go),
+// so the binding has to live here instead, in the external test package,
+// which is free to import both.
 //
 // Without this, a 13th value type added to spec.KnownValueTypes, both
 // schemas, and value-types.md's prose count — but forgotten in value.Known

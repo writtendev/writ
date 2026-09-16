@@ -190,6 +190,10 @@ The check proceeds in fixed order:
      one carrying `"omitted": 0` decodes here but then fails step 3's
      `context.omitted >= 1` below. Neither is reinterpreted as `omitted`
      being absent just because its value is falsy.
+   - An `int` above is required to be within ±2⁵³ — the exact-integer bound
+     `spec/canonicalization.md` already gives a JSON-encoded double — so a
+     `range.start`, `range.end`, or `context.omitted` outside that bound
+     fails this step exactly as a non-integer number would.
 3. **Arithmetic.** A side that decoded successfully is checked against the
    cross-field arithmetic `spec/anchors.md` §Context capture defines, which
    JSON Schema cannot express:

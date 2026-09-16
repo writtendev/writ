@@ -100,6 +100,11 @@
     "outcome": "orphaned",
     "reason": "malformed"
   },
+  "malformed-range-end-int53-overflow.json": {
+    "description": "range.end is 2^63, past the +/-2^53 exact-integer bound a JSON number must decode within; start/omitted are chosen so the arithmetic would self-consistently look valid against an out-of-range float's architecture-dependent int conversion, which is exactly why the bound must be checked before converting at all (WRIT-252 round 3)",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
   "malformed-short-range-elided.json": {
     "description": "Elided context (omitted > 0) on a range shorter than 64 lines; the resolver ladder must not index into it (WRIT-252 repro 1)",
     "outcome": "orphaned",

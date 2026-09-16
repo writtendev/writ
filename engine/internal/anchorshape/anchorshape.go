@@ -123,7 +123,12 @@ func SideWellFormed(side any) bool {
 // This is the one arithmetic implementation both the generic-JSON path
 // above (via SideWellFormed) and engine/resolve/ladder.go's typed,
 // Go-constructed-anchor path reduce to, so the numbers cannot drift between
-// them the way the two hand-written copies this replaces did.
+// them the way the two hand-written copies this replaces did. Both callers
+// reach here only with start/end/omitted already bounded to
+// [-maxSafeJSONInt, maxSafeJSONInt] by jsonInt (ladder.go's r.Start/r.End
+// were themselves decoded through it, via parseSideAnchor), so size :=
+// end - start + 1 below cannot overflow int on any platform this project
+// targets (2*maxSafeJSONInt is well under math.MaxInt64).
 func RangeContextWellFormed(start, end, linesLen, omitted int, hasOmitted bool) bool {
 	if start < 1 || end < start {
 		return false
@@ -142,15 +147,32 @@ func RangeContextWellFormed(start, end, linesLen, omitted int, hasOmitted bool) 
 	return linesLen == 64 && omitted == size-64
 }
 
+// maxSafeJSONInt is the largest integer magnitude a float64 — and thus any
+// JSON number decoded through Go's generic interface{} representation —
+// represents exactly (spec/canonicalization.md's "integers beyond 2^53
+// silently lose precision"). jsonInt refuses anything outside
+// [-maxSafeJSONInt, maxSafeJSONInt] before ever converting it to int:
+// converting an out-of-range float64 to int is implementation-defined by
+// the Go spec, and round 3 of this PR's review found it platform-dependent
+// in practice — a side carrying range.end: 9223372036854776000 with a
+// matching omitted resolved on darwin/arm64 but was refused as malformed
+// on amd64, because the two architectures saturate an out-of-range
+// float-to-int conversion differently.
+const maxSafeJSONInt = 1 << 53
+
 // jsonInt decodes v (a value from Go's generic JSON representation) as an
 // integer, refusing anything that isn't a JSON number with zero fractional
-// part — encoding/json always decodes a JSON number into float64 when the
-// target is interface{}, so an integer-valued float is the only signal that
-// v was a JSON integer rather than "1.5" or a non-numeric type (including
-// null, which fails the initial type assertion outright).
+// part and a magnitude within maxSafeJSONInt — encoding/json always decodes
+// a JSON number into float64 when the target is interface{}, so an
+// integer-valued float within that bound is the only signal that v was a
+// JSON integer rather than "1.5", a too-large number, or a non-numeric type
+// (including null, which fails the initial type assertion outright).
 func jsonInt(v any) (int, bool) {
 	f, ok := v.(float64)
 	if !ok {
+		return 0, false
+	}
+	if f < -maxSafeJSONInt || f > maxSafeJSONInt {
 		return 0, false
 	}
 	i := int(f)
