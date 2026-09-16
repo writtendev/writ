@@ -135,15 +135,18 @@ func TestEnumerate_PackCacheKeepsAllocationBounded(t *testing.T) {
 
 	// Wired correctly (packidx.WithCache, one decode of this pack's .idx
 	// plus numOps commits' worth of ordinary op decoding and producer
-	// validation) this measured about 14 MB when this test was written.
-	// Reverting EnumerateSince to decode the .idx fresh per commit
-	// instead of once per pass — i.e. dropping the packidx.WithCache
-	// wrap this test exists to pin — measured about 90 MB under the
-	// same conditions: roughly numOps extra full .idx decodes stacked
-	// on top. The budget sits between the two, far enough from either
-	// to absorb ordinary variance without going anywhere near the
-	// bugged number.
-	const budget = 30 << 20 // 30 MiB
+	// validation) this measured about 14 MB without -race and about
+	// 30 MB (28.7-30.8 MB across 25 runs) under -race, which instruments
+	// allocations more heavily, when this test was written. Reverting
+	// EnumerateSince to decode the .idx fresh per commit instead of once
+	// per pass — i.e. dropping the packidx.WithCache wrap this test
+	// exists to pin — measured about 90 MB without -race and about
+	// 106 MB under -race under the same conditions: roughly numOps extra
+	// full .idx decodes stacked on top. A 30 MiB budget left only about
+	// 2% headroom over the race-build correct case, which flaked CI's
+	// race job; 60 MiB clears the race-correct high end by roughly 2x
+	// while staying comfortably under the no-cache case in both builds.
+	const budget = 60 << 20 // 60 MiB
 	if delta := after.TotalAlloc - before.TotalAlloc; delta > budget {
 		t.Errorf("Enumerate allocated %d bytes across %d commits against one shared pack, want under %d (one pack-index decode of this size, not %d of them)",
 			delta, numOps, budget, numOps)
