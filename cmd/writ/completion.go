@@ -44,8 +44,21 @@ func emitBashCompletion(w io.Writer) {
 _writ_schema_types() {
     COMPREPLY=()
     local t
+    # object_type grammar (spec/op-envelope.md; engine/dag/refs.go
+    # objectTypeRegexp): a bare segment, or two such segments joined by
+    # one dot. Bash inserts a completed candidate into the command line
+    # unquoted, so a candidate outside this grammar could carry shell
+    # metacharacters that run on Enter; this command must not rely on
+    # WRIT-253's resolver gate to be safe, so hostile lines are dropped
+    # here instead of offered. zsh and fish escape what they insert and
+    # don't need this filter. The pattern lives in a variable rather than
+    # inline: bash 3.2's =~ handles some inline regexes containing
+    # parentheses inconsistently depending on quoting.
+    local type_re='^[a-z][a-z0-9-]{0,63}(\.[a-z][a-z0-9-]{0,63})?$'
     while IFS= read -r t; do
-        [[ -n "$t" && "$t" == "$cur"* ]] && COMPREPLY+=("$t")
+        [[ -n "$t" ]] || continue
+        [[ "$t" =~ $type_re ]] || continue
+        [[ "$t" == "$cur"* ]] && COMPREPLY+=("$t")
     done < <(writ schema show 2>/dev/null)
 }
 

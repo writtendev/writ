@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -186,15 +187,27 @@ func TestCompletion_BashDoesNotExpandTypeNames(t *testing.T) {
 
 	dir := t.TempDir()
 
+	// Names outside the object_type grammar (spec/op-envelope.md,
+	// engine/dag/refs.go objectTypeRegexp) that a hostile schema could
+	// still get into `writ schema show`'s output. Bash inserts a
+	// completed candidate into the command line unquoted, so any of
+	// these landing in COMPREPLY would run on Enter; they must never
+	// reach it.
 	hostile := []string{
 		"acme.$(touch " + dir + "/marker1)",
 		"acme.`touch " + dir + "/marker2`",
 		"acme.${IFS}x;touch " + dir + "/marker3",
 		"acme.*",
-		"acme.issue",
 	}
+	// Grammar-legal names that must still be offered.
+	benign := []string{
+		"acme.issue",
+		"acme-widget",
+		"bigco.gadget",
+	}
+	allNames := append(append([]string{}, hostile...), benign...)
 	fixturePath := filepath.Join(dir, "fixture.txt")
-	if err := os.WriteFile(fixturePath, []byte(strings.Join(hostile, "\n")+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(fixturePath, []byte(strings.Join(allNames, "\n")+"\n"), 0o644); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
 
@@ -210,6 +223,13 @@ func TestCompletion_BashDoesNotExpandTypeNames(t *testing.T) {
 	if err := os.WriteFile(scriptPath, buf.Bytes(), 0o644); err != nil {
 		t.Fatalf("write completion script: %v", err)
 	}
+
+	// grammarRE mirrors engine/dag/refs.go objectTypeRegexp. Every
+	// COMPREPLY entry the helper offers must satisfy it: an independent
+	// check (not the regexp the bash helper itself uses) that a
+	// candidate which could inject never reaches COMPREPLY, standing in
+	// for driving a real TTY to press Enter.
+	grammarRE := regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}(\.[a-z][a-z0-9-]{0,63})?$`)
 
 	driver := `
 set -u
@@ -252,14 +272,34 @@ complete_for writ object list 'acme.i'
 	}
 
 	for _, name := range hostile {
+		if strings.Contains(output, name) {
+			t.Errorf("output contains hostile candidate %q: it must be dropped, not offered\noutput:\n%s", name, output)
+		}
+	}
+
+	for _, name := range benign {
 		if !strings.Contains(output, name) {
-			t.Errorf("output missing hostile candidate %q verbatim\noutput:\n%s", name, output)
+			t.Errorf("output missing benign candidate %q\noutput:\n%s", name, output)
 		}
 	}
 
 	// acme.* must not have glob-expanded against the temp directory's own files.
 	if strings.Contains(output, "completion.bash") || strings.Contains(output, "fixture.txt") {
 		t.Errorf("acme.* appears to have glob-expanded against directory contents\noutput:\n%s", output)
+	}
+
+	// Every offered candidate, in every section, must satisfy the
+	// object_type grammar. This is the cheap Enter-time check: it
+	// would catch a hostile name that slipped past the helper's own
+	// filter without needing to actually drive a bash TTY to press
+	// Enter.
+	for _, line := range strings.Split(output, "\n") {
+		if line == "" || strings.HasPrefix(line, "--") {
+			continue
+		}
+		if !grammarRE.MatchString(line) {
+			t.Errorf("COMPREPLY entry %q does not satisfy the object_type grammar\noutput:\n%s", line, output)
+		}
 	}
 
 	prefixSection := output[strings.Index(output, "--prefix--"):]
