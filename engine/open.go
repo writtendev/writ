@@ -302,32 +302,6 @@ func resolveTrustSignersPath(repoDir string) string {
 	return path
 }
 
-// loadTrustStoreFromPath reads and parses signersPath fresh from disk,
-// returning the trust store to verify against (nil if unconfigured,
-// missing, or unparseable — ruling 2, never a reason to refuse anything)
-// and a digest that changes exactly when the file's meaningful contents
-// do: empty when unconfigured, a distinct "unreadable:<path>" hash when
-// configured but unreadable or unparseable, and sha256(raw bytes)
-// otherwise. Does no subprocess work — signersPath is resolved once, by
-// resolveTrustSignersPath.
-func loadTrustStoreFromPath(signersPath string) (codec.TrustStore, string) {
-	if signersPath == "" {
-		return nil, ""
-	}
-	raw, readErr := os.ReadFile(signersPath)
-	if readErr != nil {
-		return nil, unreadableTrustDigest(signersPath)
-	}
-	ts, parseErr := sshsig.ParseAllowedSigners(bytes.NewReader(raw))
-	if parseErr != nil {
-		return nil, unreadableTrustDigest(signersPath)
-	}
-	// ts is never a nil *sshsig.TrustStore on a successful parse, so
-	// wrapping it in the codec.TrustStore interface here never hits the
-	// typed-nil trap dag.WithLiveTrustStore's doc comment warns about.
-	return ts, trustStoreDigest(raw)
-}
-
 // trustCacheEntry memoizes the trust store parsed from signersPath's last
 // observed content digest, so a pass that finds the file unchanged since
 // the previous one pays only for a read and a hash, never a re-parse
