@@ -63,11 +63,22 @@ _writ_schema_types() {
     # this filter and run on Enter. An explicit list has no
     # locale-dependent collation to exploit.
     local type_re='^[abcdefghijklmnopqrstuvwxyz][abcdefghijklmnopqrstuvwxyz0123456789-]{0,63}(\.[abcdefghijklmnopqrstuvwxyz][abcdefghijklmnopqrstuvwxyz0123456789-]{0,63})?$'
+    # A process-substitution "< <(...)" here is only valid in POSIX mode
+    # (POSIXLY_CORRECT=1, or after set -o posix) from bash 5.1 on; before
+    # that it is a syntax error that aborts sourcing the whole script, so
+    # writ loses bash completion entirely rather than just this filter.
+    # An unquoted here-doc runs the same command substitution and parses
+    # on every bash version and mode: bash still performs command
+    # substitution on an unquoted here-doc body, but (like process
+    # substitution piped through IFS= read -r) never word-splits or
+    # glob-expands the result.
     while IFS= read -r t; do
         [[ -n "$t" ]] || continue
         [[ "$t" =~ $type_re ]] || continue
         [[ "$t" == "$cur"* ]] && COMPREPLY+=("$t")
-    done < <(writ schema show 2>/dev/null)
+    done <<EOF_WRIT_TYPES
+$(writ schema show 2>/dev/null)
+EOF_WRIT_TYPES
 }
 
 _writ() {

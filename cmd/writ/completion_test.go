@@ -311,6 +311,143 @@ complete_for writ object list 'acme.i'
 	}
 }
 
+// TestCompletion_BashLoadsInPosixMode is the Round 3 finding 1 guard:
+// the "< <(...)" process substitution the helper used to read
+// `writ schema show`'s output is only legal in POSIX mode from bash
+// 5.1 on. Before that, POSIXLY_CORRECT=1 or `set -o posix` makes
+// sourcing the generated script a syntax error, so `_writ` is never
+// defined and writ loses bash completion entirely — a different,
+// non-injection failure than the one the other tests in this file
+// guard against, so it needs its own case. It drives the actual
+// helper under both ways bash enters POSIX mode and checks that the
+// script still loads (`_writ` gets registered), a benign candidate is
+// still offered, and a hostile one is still dropped.
+func TestCompletion_BashLoadsInPosixMode(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not found in PATH")
+	}
+
+	dir := t.TempDir()
+
+	names := []string{"acme.issue", "acme.$(touch " + dir + "/marker)"}
+	fixturePath := filepath.Join(dir, "fixture.txt")
+	if err := os.WriteFile(fixturePath, []byte(strings.Join(names, "\n")+"\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	stubPath := filepath.Join(dir, "writ")
+	stub := "#!/bin/sh\ncat '" + fixturePath + "'\n"
+	if err := os.WriteFile(stubPath, []byte(stub), 0o755); err != nil {
+		t.Fatalf("write stub writ: %v", err)
+	}
+
+	var buf bytes.Buffer
+	emitBashCompletion(&buf)
+	scriptPath := filepath.Join(dir, "completion.bash")
+	if err := os.WriteFile(scriptPath, buf.Bytes(), 0o644); err != nil {
+		t.Fatalf("write completion script: %v", err)
+	}
+
+	driver := `
+source "` + scriptPath + `"
+complete -p writ
+COMP_WORDS=(writ object list "acme.")
+COMP_CWORD=3
+COMPREPLY=()
+_writ
+printf '%s\n' "${COMPREPLY[@]}"
+`
+
+	cases := []struct {
+		name string
+		args []string
+		env  []string
+	}{
+		{name: "posix_flag", args: []string{"--posix", "--norc", "--noprofile", "-c", driver}},
+		{name: "posixly_correct_env", args: []string{"--norc", "--noprofile", "-c", driver}, env: []string{"POSIXLY_CORRECT=1"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := exec.Command("bash", tc.args...)
+			cmd.Env = append(append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH")), tc.env...)
+			out, err := cmd.CombinedOutput()
+			output := string(out)
+			if err != nil {
+				t.Fatalf("driver script failed: %v\noutput:\n%s", err, output)
+			}
+
+			if !strings.Contains(output, "complete -F _writ writ") {
+				t.Errorf("_writ was not registered under POSIX mode; sourcing the script failed\noutput:\n%s", output)
+			}
+			if !strings.Contains(output, "acme.issue") {
+				t.Errorf("benign candidate missing under POSIX mode\noutput:\n%s", output)
+			}
+			if strings.Contains(output, "$(touch") || strings.Contains(output, "marker)") {
+				t.Errorf("hostile candidate leaked through under POSIX mode\noutput:\n%s", output)
+			}
+			if _, statErr := os.Stat(filepath.Join(dir, "marker")); statErr == nil {
+				t.Errorf("marker file was created: completion executed an injected command under POSIX mode")
+			}
+		})
+	}
+}
+
+// bashTypeRegexRangePattern matches a hyphen joining two alphanumerics
+// inside what would be a POSIX bracket expression, e.g. "a-z" or
+// "0-9" — the form whose collation regcomp expands according to the
+// active LC_COLLATE/LC_ALL instead of literal ASCII (see
+// TestCompletion_BashDoesNotExpandTypeNamesUnderBrokenLocale). Go's
+// regexp package (RE2) is not subject to that: this check runs
+// locale-independently on every platform, including CI's
+// ubuntu-latest, which doesn't ship the kk_KZ.PT154 locale the
+// behavioural test above needs and skips without.
+var bashTypeRegexRangePattern = regexp.MustCompile(`[0-9A-Za-z]-[0-9A-Za-z]`)
+
+// extractBashTypeRe pulls the `type_re='...'` value out of the
+// generated bash completion script.
+func extractBashTypeRe(script string) (string, bool) {
+	const marker = "local type_re='"
+	i := strings.Index(script, marker)
+	if i < 0 {
+		return "", false
+	}
+	rest := script[i+len(marker):]
+	j := strings.Index(rest, "'")
+	if j < 0 {
+		return "", false
+	}
+	return rest[:j], true
+}
+
+// TestCompletion_BashTypeRegexHasNoLocaleDependentRanges is the Round
+// 3 finding 2 guard: it fails a revert of the round-2 fix back to
+// [a-z]/[a-z0-9-] even on ubuntu-latest, where
+// TestCompletion_BashDoesNotExpandTypeNamesUnderBrokenLocale skips for
+// lack of the kk_KZ.PT154 locale and TestCompletion_BashDoesNotExpandTypeNames
+// passes because it only runs in the C locale.
+func TestCompletion_BashTypeRegexHasNoLocaleDependentRanges(t *testing.T) {
+	var buf bytes.Buffer
+	emitBashCompletion(&buf)
+	script := buf.String()
+
+	typeRe, ok := extractBashTypeRe(script)
+	if !ok {
+		t.Fatal("could not find type_re in generated bash completion script")
+	}
+
+	if bashTypeRegexRangePattern.MatchString(typeRe) {
+		t.Errorf("type_re contains a locale-dependent bracket range: %q", typeRe)
+	}
+
+	// Prove the check has teeth: it must flag the pre-round-2 ranged
+	// form the finding was filed against, or a silent revert would
+	// pass this test the same way it would pass the C-locale test.
+	reverted := `^[a-z][a-z0-9-]{0,63}(\.[a-z][a-z0-9-]{0,63})?$`
+	if !bashTypeRegexRangePattern.MatchString(reverted) {
+		t.Errorf("range-detection pattern did not flag the pre-round-2 ranged form %q", reverted)
+	}
+}
+
 // TestCompletion_BashDoesNotExpandTypeNamesUnderBrokenLocale is the
 // locale-dependent half of the finding above. [a-z] and [a-z0-9-] are
 // POSIX bracket *ranges*, and range matching collates according to
