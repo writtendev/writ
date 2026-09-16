@@ -3,6 +3,7 @@ package projection_test
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -412,5 +413,127 @@ func TestKeyedLWWVersionBumpKeyDisagreementDeclines(t *testing.T) {
 	}
 	if soleKeyTables != 0 {
 		t.Fatalf("o_widget__k_subject_commit table exists, want none — a withheld keyed-lww target must not get a group table under either disagreeing key")
+	}
+}
+
+// TestColumnBudgetRefreshMaterializesWithheldTargetToUnknownFields is
+// WRIT-256's Refresh-level reproduction: a schema declaring one type with
+// 1999 lww string targets used to make buildTypeDescriptor emit a type
+// table with 2001 columns, one past modernc sqlite's compiled
+// SQLITE_MAX_COLUMN. That table's CREATE failed outright ("too many
+// columns"), which meant writ.Open failed on a cold cache and Refresh
+// failed forever after on a warm one — for every type, not just this one,
+// since ApplySchema/Refresh builds every type's DDL in one pass. The fix
+// declines the one target that overflows the budget instead, so Refresh
+// must now succeed, the surviving 1998 targets keep their columns, the
+// declined target's body field lands in unknown_fields rather than being
+// dropped, and — the ddl.go WithheldTargets comment's own bound — an
+// unrelated second type in the same schema is unaffected.
+func TestColumnBudgetRefreshMaterializesWithheldTargetToUnknownFields(t *testing.T) {
+	base := time.Unix(1700000000, 0).UTC()
+
+	const n = 1999
+	widgetRules := make([]state.Rule, n)
+	for i := 0; i < n; i++ {
+		field := fmt.Sprintf("f%04d", i)
+		widgetRules[i] = state.Rule{OpType: "create", OpVersion: 1, Field: field, Strategy: "lww", ValueType: "string", ObjectType: "widget"}
+	}
+	gadgetRule := state.Rule{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string", ObjectType: "gadget"}
+	schemaRules := map[string][]state.Rule{"widget": widgetRules, "gadget": {gadgetRule}}
+
+	// The op writes the first field ("f0000", which survives the budget)
+	// and the last ("f1998", sorted last among 1999 targets and so the one
+	// the first-fit budget declines) in a single op, exercising both
+	// paths from one write.
+	opCreateWidget := makeVersionedOp("w-1", "op-create-widget-1", nil, "create", 1,
+		map[string]any{"f0000": "first", "f1998": "last"}, base)
+
+	// makeVersionedOp hardcodes ObjectType "widget", so the unrelated
+	// second type's op is built by hand here instead.
+	gadgetBody, _ := json.Marshal(map[string]any{"title": "G"})
+	gadgetEnv := codec.Envelope{ObjectID: "g-1", ObjectType: "gadget", OpType: "create", OpVersion: 1, Body: gadgetBody}
+	gadgetRaw, _ := codec.EncodePayload(gadgetEnv)
+	gadgetEnv.Raw = gadgetRaw
+	gadgetAuthor := codec.Identity{Name: "Test Writer", Email: "writer@example.com", When: base}
+	opCreateGadget := codec.Op{
+		Envelope: gadgetEnv, ID: "op-create-gadget-1",
+		Author: gadgetAuthor, Committer: gadgetAuthor,
+		Message: "writ: create gadget/g-1\n",
+	}
+
+	runRefresh := func(t *testing.T) (*projection.DB, string) {
+		t.Helper()
+		_, store := createTestStore(t, "0123456789abcdef")
+		db, err := projection.Open(":memory:")
+		if err != nil {
+			t.Fatalf("Open(:memory:) failed: %v", err)
+		}
+		enumRes := &dag.EnumerateResult{
+			Ops: map[string][]codec.Op{
+				"w-1": {opCreateWidget},
+				"g-1": {opCreateGadget},
+			},
+			Cursors: dag.CursorSet{
+				"refs/writ/0123456789abcdef/widget": "op-create-widget-1",
+				"refs/writ/0123456789abcdef/gadget": "op-create-gadget-1",
+			},
+			DecodedCommits: 2,
+		}
+		if _, err := db.Refresh(store, projection.WithSchema(schemaRules), projection.WithEnumOverrideForTest(enumRes)); err != nil {
+			t.Fatalf("Refresh failed (want it to succeed even though widget declares %d targets on one type): %v", n, err)
+		}
+		var ddl string
+		if err := db.DB().QueryRow("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'o_widget'").Scan(&ddl); err != nil {
+			t.Fatalf("query o_widget DDL: %v", err)
+		}
+		return db, ddl
+	}
+
+	db1, ddl1 := runRefresh(t)
+	defer db1.Close()
+
+	var f0000 sql.NullString
+	if err := db1.DB().QueryRow("SELECT f_f0000 FROM o_widget WHERE object_id = ?", "w-1").Scan(&f0000); err != nil {
+		t.Fatalf("query o_widget.f_f0000: %v", err)
+	}
+	if !f0000.Valid || f0000.String != "first" {
+		t.Fatalf("o_widget.f_f0000 = %v (valid=%v), want \"first\"", f0000.String, f0000.Valid)
+	}
+
+	var unknownFields sql.NullString
+	if err := db1.DB().QueryRow("SELECT unknown_fields FROM o_widget WHERE object_id = ?", "w-1").Scan(&unknownFields); err != nil {
+		t.Fatalf("query o_widget.unknown_fields: %v", err)
+	}
+	if !unknownFields.Valid {
+		t.Fatalf("o_widget.unknown_fields is NULL, want it to carry the withheld \"f1998\" field")
+	}
+	var uf map[string]any
+	if err := json.Unmarshal([]byte(unknownFields.String), &uf); err != nil {
+		t.Fatalf("unmarshal unknown_fields %q: %v", unknownFields.String, err)
+	}
+	if v, ok := uf["f1998"]; !ok || v != "last" {
+		t.Fatalf("unknown_fields[\"f1998\"] = %v (present=%v), want \"last\" — the declined target's field must land here, not be dropped", v, ok)
+	}
+
+	var unknownOpsCount int
+	if err := db1.DB().QueryRow("SELECT COUNT(*) FROM unknown_ops WHERE object_id = ?", "w-1").Scan(&unknownOpsCount); err != nil {
+		t.Fatalf("query unknown_ops: %v", err)
+	}
+	if unknownOpsCount != 0 {
+		t.Fatalf("unknown_ops has %d row(s) for w-1, want 0 — a rule matched the op, so it must not be quarantined", unknownOpsCount)
+	}
+
+	var gadgetTitle sql.NullString
+	if err := db1.DB().QueryRow("SELECT f_title FROM o_gadget WHERE object_id = ?", "g-1").Scan(&gadgetTitle); err != nil {
+		t.Fatalf("query o_gadget.f_title: %v", err)
+	}
+	if !gadgetTitle.Valid || gadgetTitle.String != "G" {
+		t.Fatalf("o_gadget.f_title = %v (valid=%v), want \"G\" — an unrelated type in the same schema must materialize normally", gadgetTitle.String, gadgetTitle.Valid)
+	}
+
+	db2, ddl2 := runRefresh(t)
+	defer db2.Close()
+	if ddl1 != ddl2 {
+		t.Fatalf("o_widget DDL differs between two independent Refreshes on fresh :memory: databases (drop-and-rebuild determinism):\n--- first ---\n%s\n--- second ---\n%s", ddl1, ddl2)
 	}
 }

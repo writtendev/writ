@@ -29,6 +29,19 @@ var identPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
 const identMaxLength = 64
 
+// maxTableColumns bounds every generated table — the type table and each
+// keyed-lww group table — to modernc sqlite's compiled column limit
+// (modernc.org/sqlite/lib/sqlite.go: `const SQLITE_MAX_COLUMN = 2000`).
+// buildTypeDescriptor enforces this itself, first-fit over sorted target
+// keys, rather than letting a schema with too many targets on one type
+// reach CREATE TABLE and fail there: that failure bricks writ.Open and
+// every Refresh for the whole repository (WRIT-256), the same class of
+// harm identCollision already guards against for colliding names. A
+// target that would push its table past the limit is withheld exactly
+// like a name collision (see typeDescriptor.WithheldTargets) — the type,
+// and every target that fits, still materializes normally.
+const maxTableColumns = 2000
+
 func validIdent(s string) bool {
 	return s != "" && len(s) <= identMaxLength && identPattern.MatchString(s)
 }
@@ -170,21 +183,28 @@ type typeDescriptor struct {
 	Children   []ddlTable
 	Targets    map[string]*targetPlan
 	// WithheldTargets are this type's target keys that got no column
-	// because the projection's row shape cannot represent them — today
-	// only a keyed-lww target whose bound rules disagree on Key
-	// (buildTypeDescriptor's keyed-lww case, WRIT-205; unreachable from a
-	// schema resolved out of the log since WRIT-234 closed the carve-out
-	// that let Key disagree, but still reachable from a caller-supplied
-	// rule set — see that case's own comment); an append target was the
-	// other reason before WRIT-212 gave append its own row-per-entry
-	// table, which has nothing left to withhold. The unit is
-	// the single target and nothing wider: the type materializes normally,
-	// so do the targets that merely share a table with a withheld one, and
-	// so do ops that never write it. Every body field bound to one of
-	// these targets lands in unknown_fields instead of being dropped —
-	// the latest write per field, which is what that column's per-key
-	// register can hold (spec/forward-compatibility.md §Targets a
-	// projection declines).
+	// because the projection's row shape cannot represent them. Two
+	// reasons, and only two:
+	//
+	//   - a keyed-lww target whose bound rules disagree on Key
+	//     (buildTypeDescriptor's keyed-lww case, WRIT-205; unreachable
+	//     from a schema resolved out of the log since WRIT-234 closed the
+	//     carve-out that let Key disagree, but still reachable from a
+	//     caller-supplied rule set — see that case's own comment); an
+	//     append target was a third reason before WRIT-212 gave append
+	//     its own row-per-entry table, which has nothing left to
+	//     withhold.
+	//   - a target (scalar or keyed-lww) that would push its table past
+	//     maxTableColumns, declined first-fit in sorted target-key order
+	//     (WRIT-256).
+	//
+	// The unit is the single target and nothing wider: the type
+	// materializes normally, so do the targets that merely share a table
+	// with a withheld one, and so do ops that never write it. Every body
+	// field bound to one of these targets lands in unknown_fields instead
+	// of being dropped — the latest write per field, which is what that
+	// column's per-key register can hold (spec/forward-compatibility.md
+	// §Targets a projection declines).
 	WithheldTargets map[string]bool
 }
 
@@ -457,14 +477,12 @@ func persistedQueryShapes(desc *schemaDescriptor) []persistedQueryShape {
 // through the same absent-typeDescriptor path an invalid target already
 // takes (materializeObject).
 //
-// One shape withholds less than the whole type: a keyed-lww target two
-// rules bind to two different Key tuples (a legal version bump,
-// spec/schema-ops.md §8) — a group table's "k_"-prefixed columns are fixed
-// at generation time from one key tuple, so a second, differently-shaped
-// tuple has nowhere to go (WRIT-205). That target alone is withheld — no
-// column — and recorded in WithheldTargets, its body fields landing in
-// unknown_fields instead (spec/forward-compatibility.md §Targets a
-// projection declines). Its group-mates keep their columns, and the group's
+// Some shapes withhold less than the whole type — see
+// typeDescriptor.WithheldTargets for the two reasons a single target can be
+// declined this way. Either declines the single target alone: no column,
+// recorded in WithheldTargets, its body fields landing in unknown_fields
+// instead (spec/forward-compatibility.md §Targets a projection declines).
+// A keyed-lww target's group-mates keep their columns, and the group's
 // table, built from whichever members survive, still forms as long as one
 // does. The type itself, and every other target on it, materializes
 // normally: declining one target must not cost a consumer every table and
@@ -523,10 +541,11 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 	//     unrepresentable — a fixed set of "k_"-prefixed columns cannot
 	//     hold two different key tuples for one target (spec/fold.md §5
 	//     #8 keys each op on its own rule's key list) — and is declined
-	//     through the WithheldTargets path below, which is the only
-	//     decline this function makes: under the row-per-entry append
-	//     table an append target has nothing left to withhold (WRIT-212).
-	//     WRIT-234 closed the version-bump carve-out for Key and KeyTypes,
+	//     through the WithheldTargets path below (see its doc comment for
+	//     the other decline reason, the column budget). Under the
+	//     row-per-entry append table an append target has nothing left to
+	//     withhold (WRIT-212). WRIT-234 closed the version-bump carve-out
+	//     for Key and KeyTypes,
 	//     so spec.CheckTargetAgreement now withholds a disagreeing target
 	//     before RulesFromSchemas ever emits its rules — rules is this
 	//     function's caller's own resolved shape, so a schema resolved out
@@ -623,13 +642,11 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 	// merge — collided withholds the whole type for it, exactly like the
 	// cross-type collision identCollision already catches.
 	// withheldTargets collects target keys this type declines a column for
-	// entirely — populated in exactly one place, the keyed-lww case below,
-	// for a target whose bound rules disagree on Key (see the
-	// resolved-attribute comment above; WRIT-234 made this reachable only
-	// from a caller-supplied rule set, never from a schema resolved out of
-	// the log). Append has nothing left to withhold under the
-	// row-per-entry table (WRIT-212), so the second populator this comment
-	// used to point at is gone.
+	// entirely — see typeDescriptor.WithheldTargets for the two reasons,
+	// populated at the two sites that decline: the keyed-lww case below
+	// for a Key disagreement, and the scalar case and the group-emission
+	// loop below that for the column budget (WRIT-256). Append has
+	// nothing left to withhold under the row-per-entry table (WRIT-212).
 	withheldTargets := make(map[string]bool)
 
 	collided := false
@@ -651,10 +668,29 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 	}
 	groups := make(map[string]*groupInfo)
 
+	// typeColsRemaining is how many more scalar columns the type table can
+	// still take before hitting maxTableColumns: object_id and
+	// unknown_fields are the two fixed columns every type table carries
+	// (added below, once, after this loop), leaving maxTableColumns-2 for
+	// scalar targets. Walked first-fit in targetKeys' sorted order below,
+	// so a target that doesn't fit is withheld (WithheldTargets) while a
+	// later, cheaper one can still take the remaining budget (WRIT-256).
+	typeColsRemaining := maxTableColumns - 2
+
 	for _, tk := range targetKeys {
 		r := resolved[tk]
 		switch r.Strategy {
 		case "lww", "create-once", "lattice", "tombstone":
+			cost := 1
+			if r.ValueType == "position" {
+				cost = 2 // f_<target> plus f_<target>__op_id
+			}
+			if cost > typeColsRemaining {
+				withheldTargets[tk] = true
+				continue
+			}
+			typeColsRemaining -= cost
+
 			col := "f_" + tk
 			plan := &targetPlan{Strategy: r.Strategy, ValueType: r.ValueType, Column: col}
 			scalarCols = append(scalarCols, ddlColumn{Name: col, SQLType: sqlType(r.ValueType), Indexed: r.ValueType != ""})
@@ -773,9 +809,11 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 				// declined: no column, no group-table participation, its
 				// body fields land in unknown_fields instead
 				// (spec/forward-compatibility.md §"Targets a projection
-				// declines"). It is the only shape this function declines
-				// — the append case above declines nothing (WRIT-212). Its
-				// group-mates and the type itself are unaffected.
+				// declines"). See typeDescriptor.WithheldTargets for the
+				// other decline reason (the column budget, checked in the
+				// group-emission loop below) — the append case above
+				// declines nothing (WRIT-212). Its group-mates and the
+				// type itself are unaffected.
 				//
 				// WRIT-234 closed spec/schema-ops.md §8's version-bump
 				// carve-out for Key and KeyTypes: spec.CheckTargetAgreement
@@ -823,7 +861,30 @@ func buildTypeDescriptor(objectType string, rules []state.Rule, used map[string]
 			keyColNames = append(keyColNames, kc)
 			cols = append(cols, ddlColumn{Name: kc, SQLType: "TEXT"})
 		}
+
+		// groupColsRemaining is this group table's own column budget:
+		// object_id plus one column per key component are fixed
+		// (len(cols) above), leaving the rest for member columns, taken
+		// first-fit in sorted member order — the same rule the type
+		// table's own scalar targets follow, and for the same reason
+		// (WRIT-256). A key tuple with close to maxTableColumns
+		// components can leave no room for any member at all, in which
+		// case the group table is never created (checked below).
+		groupColsRemaining := maxTableColumns - len(cols)
+		var members []string
 		for _, tk := range g.members {
+			if groupColsRemaining <= 0 {
+				withheldTargets[tk] = true
+				continue
+			}
+			groupColsRemaining--
+			members = append(members, tk)
+		}
+		if len(members) == 0 {
+			continue
+		}
+
+		for _, tk := range members {
 			r := resolved[tk]
 			col := "f_" + tk
 			cols = append(cols, ddlColumn{Name: col, SQLType: sqlType(r.ValueType), Indexed: r.ValueType != ""})
