@@ -159,6 +159,9 @@ func (s *Store) Close() error {
 	s.closed = true
 
 	for _, sub := range s.subscribers {
+		if sub.stop != nil {
+			sub.stop()
+		}
 		close(sub.ch)
 	}
 	s.subscribers = nil

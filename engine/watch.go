@@ -46,6 +46,7 @@ const watchBufferSize = 128
 type subscriber struct {
 	ch       chan Event
 	overflow bool
+	stop     func() bool
 }
 
 func (sub *subscriber) emit(ev Event) {
@@ -110,11 +111,10 @@ func (s *Store) Watch(ctx context.Context) <-chan Event {
 	}
 	s.subscribers = append(s.subscribers, sub)
 
-	if ctx != nil && ctx.Done() != nil {
-		go func() {
-			<-ctx.Done()
+	if ctx != nil {
+		sub.stop = context.AfterFunc(ctx, func() {
 			s.removeSubscriber(sub)
-		}()
+		})
 	}
 
 	return ch
