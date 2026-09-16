@@ -53,8 +53,16 @@ _writ_schema_types() {
     # here instead of offered. zsh and fish escape what they insert and
     # don't need this filter. The pattern lives in a variable rather than
     # inline: bash 3.2's =~ handles some inline regexes containing
-    # parentheses inconsistently depending on quoting.
-    local type_re='^[a-z][a-z0-9-]{0,63}(\.[a-z][a-z0-9-]{0,63})?$'
+    # parentheses inconsistently depending on quoting. The bracket
+    # classes below are spelled out one character at a time instead of
+    # as [a-z]/[a-z0-9-] ranges: POSIX bracket-range matching depends on
+    # the active locale's collation, and in many single-byte locales
+    # (e.g. LC_ALL=kk_KZ.PT154) "[a-z]" collates across nearly all
+    # printable ASCII — including command substitution and pipe/list
+    # metacharacters, space, and TAB — so a hostile candidate would pass
+    # this filter and run on Enter. An explicit list has no
+    # locale-dependent collation to exploit.
+    local type_re='^[abcdefghijklmnopqrstuvwxyz][abcdefghijklmnopqrstuvwxyz0123456789-]{0,63}(\.[abcdefghijklmnopqrstuvwxyz][abcdefghijklmnopqrstuvwxyz0123456789-]{0,63})?$'
     while IFS= read -r t; do
         [[ -n "$t" ]] || continue
         [[ "$t" =~ $type_re ]] || continue

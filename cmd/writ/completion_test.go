@@ -310,3 +310,105 @@ complete_for writ object list 'acme.i'
 		t.Errorf("prefix match on %q returned unexpected candidates\noutput:\n%s", "acme.i", output)
 	}
 }
+
+// TestCompletion_BashDoesNotExpandTypeNamesUnderBrokenLocale is the
+// locale-dependent half of the finding above. [a-z] and [a-z0-9-] are
+// POSIX bracket *ranges*, and range matching collates according to
+// LC_COLLATE/LC_ALL. Under many single-byte locales — kk_KZ.PT154 is
+// one — "[a-z]" collates across nearly all printable ASCII, including
+// shell metacharacters ($ ( ) ; ` | & * ~), space, and TAB, so a
+// candidate that the C-locale-tested grammar regexp would reject
+// instead passes the bash helper's filter, gets offered, and runs on
+// Enter. This drives the actual completion helper (not a copy of its
+// regexp) under such a locale and checks the same two things the
+// locale-independent test above checks: no injected command ran, and
+// no hostile candidate was offered.
+func TestCompletion_BashDoesNotExpandTypeNamesUnderBrokenLocale(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not found in PATH")
+	}
+
+	const brokenLocale = "kk_KZ.PT154"
+	if out, err := exec.Command("locale", "-a").CombinedOutput(); err != nil || !strings.Contains(string(out), brokenLocale) {
+		t.Skipf("locale %s not installed (locale -a doesn't list it); skipping the broken-range subcase", brokenLocale)
+	}
+
+	dir := t.TempDir()
+
+	// Each of these is outside the object_type grammar but, per the
+	// probe above, is accepted by [a-z]/[a-z0-9-] under LC_ALL=kk_KZ.PT154
+	// specifically because that locale's collation folds the ranges
+	// open: two command-substitution forms and a space (word-splits into
+	// a second, executable word). Touch targets are short relative
+	// names, not t.TempDir()'s (often 60+ char) absolute path: the
+	// grammar's own {0,63} segment-length cap would otherwise reject a
+	// long candidate anyway, masking the character-class bug this test
+	// exists to catch. cmd.Dir below puts bash's cwd at dir so a
+	// hypothetical execution still lands the marker there.
+	hostile := []string{
+		"acme.zz$(touch m1)",
+		"acme.zz`touch m2`",
+		"acme.zz touchm3",
+	}
+	benign := []string{"acme.issue"}
+	allNames := append(append([]string{}, hostile...), benign...)
+	fixturePath := filepath.Join(dir, "fixture.txt")
+	if err := os.WriteFile(fixturePath, []byte(strings.Join(allNames, "\n")+"\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	stubPath := filepath.Join(dir, "writ")
+	stub := "#!/bin/sh\ncat '" + fixturePath + "'\n"
+	if err := os.WriteFile(stubPath, []byte(stub), 0o755); err != nil {
+		t.Fatalf("write stub writ: %v", err)
+	}
+
+	var buf bytes.Buffer
+	emitBashCompletion(&buf)
+	scriptPath := filepath.Join(dir, "completion.bash")
+	if err := os.WriteFile(scriptPath, buf.Bytes(), 0o644); err != nil {
+		t.Fatalf("write completion script: %v", err)
+	}
+
+	driver := `
+set -u
+source "` + scriptPath + `"
+
+complete_for() {
+    local words=("$@")
+    local n=${#words[@]}
+    COMP_WORDS=("${words[@]}")
+    COMP_CWORD=$((n - 1))
+    COMPREPLY=()
+    _writ
+    printf '%s\n' "${COMPREPLY[@]}"
+}
+
+complete_for writ object list 'acme.'
+`
+
+	cmd := exec.Command("bash", "--norc", "--noprofile", "-c", driver)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"), "LC_ALL="+brokenLocale)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("driver script failed under LC_ALL=%s: %v\noutput:\n%s", brokenLocale, err, out)
+	}
+	output := string(out)
+
+	for _, marker := range []string{"m1", "m2", "m3"} {
+		if _, statErr := os.Stat(filepath.Join(dir, marker)); statErr == nil {
+			t.Errorf("marker file %q was created under LC_ALL=%s: completion executed an injected command\noutput:\n%s", marker, brokenLocale, output)
+		}
+	}
+
+	for _, name := range hostile {
+		if strings.Contains(output, name) {
+			t.Errorf("output contains hostile candidate %q under LC_ALL=%s: it must be dropped, not offered\noutput:\n%s", name, brokenLocale, output)
+		}
+	}
+
+	if !strings.Contains(output, "acme.issue") {
+		t.Errorf("output missing benign candidate %q under LC_ALL=%s\noutput:\n%s", "acme.issue", brokenLocale, output)
+	}
+}
