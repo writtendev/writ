@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sync"
 
 	billy "github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -14,68 +13,9 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/format/packfile"
 	"github.com/go-git/go-git/v5/storage"
 	"github.com/go-git/go-git/v5/storage/filesystem/dotgit"
+
+	"github.com/writtendev/writ/engine/internal/packidx"
 )
-
-// PackIndexCache caches a repository's decoded pack indexes across
-// repeated packfileObjectSize lookups, so a caller that looks up many
-// blobs against the same on-disk packs pays the cost of decoding a
-// pack's whole .idx once, not on every lookup. WRIT-255 round 2 found
-// that cost unbounded per call: a pack of 1,000,000 objects (a 28 MB
-// .idx) cost about 40 ms and 28 MB allocated on every op.json size
-// check, including repeat checks against the very same pack — meaning
-// dag.Store.EnumerateSince's per-commit loop paid for the whole
-// repository's pack set once per commit it walked, not once per pass.
-// A decoded *idxfile.MemoryIndex answers FindOffset from the structure
-// it built the first time, so keeping it around costs nothing further
-// to reuse.
-//
-// A nil *PackIndexCache is valid everywhere one is accepted: it simply
-// disables caching, decoding fresh on every call, the way
-// packfileObjectSize always did before this type existed.
-//
-// A cache is scoped to whatever built it and must not outlive that: a
-// fetch or a repack can add, remove, or replace the packs it holds
-// indexes for, and a stale hit for a pack that's gone — or a miss for
-// one that just arrived — would reintroduce the same kind of bug this
-// type exists to fix. Construct a fresh one for each pass over
-// history; dag.Store.EnumerateSince does exactly that, once per call,
-// never storing it on the Store itself, so it never survives past the
-// pass that built it. It holds no reference to anything outside the
-// process (a decoded index is a plain in-memory structure, not an open
-// file descriptor), so dropping it is just letting the garbage
-// collector reclaim the map.
-type PackIndexCache struct {
-	mu      sync.Mutex
-	indexes map[plumbing.Hash]*idxfile.MemoryIndex
-}
-
-// NewPackIndexCache returns an empty PackIndexCache, ready to pass to
-// FromGitCommitCached.
-func NewPackIndexCache() *PackIndexCache {
-	return &PackIndexCache{indexes: make(map[plumbing.Hash]*idxfile.MemoryIndex)}
-}
-
-// get and put are safe to call on a nil *PackIndexCache — every caller
-// in this file goes through them rather than touching the map
-// directly, so "no cache" (nil) and "cache" share one code path.
-func (c *PackIndexCache) get(pack plumbing.Hash) (*idxfile.MemoryIndex, bool) {
-	if c == nil {
-		return nil, false
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	idx, ok := c.indexes[pack]
-	return idx, ok
-}
-
-func (c *PackIndexCache) put(pack plumbing.Hash, idx *idxfile.MemoryIndex) {
-	if c == nil {
-		return
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.indexes[pack] = idx
-}
 
 // filesystemStorer is implemented by *filesystem.Storage — the on-disk
 // storer writ opens repositories with (internal/gitdir.OpenStorage).
@@ -120,17 +60,32 @@ const deltaHeaderPrefix = 32
 // while searching); the caller must fail closed rather than fetch the
 // object in full to find out.
 //
-// s must expose its backing billy.Filesystem (as *filesystem.Storage,
-// writ's real on-disk storer, does) for this to apply at all; for any
-// other storage.Storer, found is always false and err is always nil, and
-// the caller falls back to its own, already-cheap sizing.
+// s (or, if s is a *packidx.Wrapper, the storage.Storer it wraps) must
+// expose its backing billy.Filesystem (as *filesystem.Storage, writ's
+// real on-disk storer, does) for this to apply at all; for any other
+// storage.Storer, found is always false and err is always nil, and the
+// caller falls back to its own, already-cheap sizing.
 //
-// cache, if non-nil, is consulted and filled for every pack index this
-// call would otherwise decode from scratch — see PackIndexCache's doc
-// comment for its scope. A nil cache costs nothing extra: it decodes
-// exactly as it always did.
-func packfileObjectSize(s storage.Storer, hash plumbing.Hash, cache *PackIndexCache) (size int64, found bool, err error) {
-	fss, ok := s.(filesystemStorer)
+// When s is a *packidx.Wrapper (constructed by packidx.WithCache), its
+// attached Cache is consulted and filled for every pack index this call
+// would otherwise decode from scratch — see Cache's doc comment for its
+// scope. Any other storage.Storer, including a plain one that was never
+// wrapped, costs nothing extra: it decodes fresh on every call, exactly
+// as it always did before packidx existed.
+func packfileObjectSize(s storage.Storer, hash plumbing.Hash) (size int64, found bool, err error) {
+	// Unwrap before checking filesystemStorer, rather than checking s
+	// itself: a *packidx.Wrapper always embeds a storage.Storer, but
+	// that embedded value does not always implement Filesystem, and
+	// asking the wrapper directly can't tell the difference (see
+	// Wrapper's doc comment).
+	underlying := s
+	var cache *packidx.Cache
+	if w, ok := s.(*packidx.Wrapper); ok {
+		cache = w.Cache
+		underlying = w.Storer
+	}
+
+	fss, ok := underlying.(filesystemStorer)
 	if !ok {
 		return 0, false, nil
 	}
@@ -140,7 +95,7 @@ func packfileObjectSize(s storage.Storer, hash plumbing.Hash, cache *PackIndexCa
 // sizeFromDotGit searches dg's loose objects, then its packs, then —
 // while altDepth allows — its alternates, in that order, stopping at the
 // first place the hash is found.
-func sizeFromDotGit(dg *dotgit.DotGit, hash plumbing.Hash, altDepth int, cache *PackIndexCache) (int64, bool, error) {
+func sizeFromDotGit(dg *dotgit.DotGit, hash plumbing.Hash, altDepth int, cache *packidx.Cache) (int64, bool, error) {
 	if size, found, err := looseObjectSize(dg, hash); found || err != nil {
 		return size, found, err
 	}
@@ -198,7 +153,7 @@ func looseObjectSize(dg *dotgit.DotGit, hash plumbing.Hash) (int64, bool, error)
 
 // packedObjectSize searches every packfile dg holds for hash, via each
 // pack's own index, and sizes it in place once found.
-func packedObjectSize(dg *dotgit.DotGit, hash plumbing.Hash, cache *PackIndexCache) (int64, bool, error) {
+func packedObjectSize(dg *dotgit.DotGit, hash plumbing.Hash, cache *packidx.Cache) (int64, bool, error) {
 	packs, err := dg.ObjectPacks()
 	if err != nil {
 		return 0, true, fmt.Errorf("codec: list packfiles: %w", err)
@@ -241,8 +196,8 @@ func packedObjectSize(dg *dotgit.DotGit, hash plumbing.Hash, cache *PackIndexCac
 	return 0, false, nil
 }
 
-func loadPackIndex(dg *dotgit.DotGit, pack plumbing.Hash, cache *PackIndexCache) (*idxfile.MemoryIndex, error) {
-	if idx, ok := cache.get(pack); ok {
+func loadPackIndex(dg *dotgit.DotGit, pack plumbing.Hash, cache *packidx.Cache) (*idxfile.MemoryIndex, error) {
+	if idx, ok := cache.Get(pack); ok {
 		return idx, nil
 	}
 
@@ -257,7 +212,7 @@ func loadPackIndex(dg *dotgit.DotGit, pack plumbing.Hash, cache *PackIndexCache)
 		return nil, fmt.Errorf("codec: decode pack %s index: %w", pack, err)
 	}
 
-	cache.put(pack, idx)
+	cache.Put(pack, idx)
 	return idx, nil
 }
 

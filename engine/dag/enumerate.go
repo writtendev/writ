@@ -9,6 +9,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/storage"
 	"github.com/writtendev/writ/engine/codec"
+	"github.com/writtendev/writ/engine/internal/packidx"
 )
 
 // Rejection records an op commit that failed reader validation.
@@ -161,19 +162,19 @@ func (s *Store) EnumerateSince(cursors CursorSet) (*EnumerateResult, error) {
 
 	// Step 4: Decode commits and handle rejections
 	//
-	// One PackIndexCache for this whole pass: every commitsToDecode
-	// entry below can hit the same on-disk packs' op.json blobs, and
-	// without this, each one re-lists the pack directory and re-decodes
-	// every searched pack's whole .idx from scratch (WRIT-255 round 2 —
-	// about 40 ms and 28 MB per call on a single 1,000,000-object pack,
-	// paid again on every commit). The cache is local to this call and
+	// One packidx cache for this whole pass: every commitsToDecode entry
+	// below can hit the same on-disk packs' op.json blobs, and without
+	// this, each one re-lists the pack directory and re-decodes every
+	// searched pack's whole .idx from scratch (WRIT-255 round 2 — about
+	// 40 ms and 28 MB per call on a single 1,000,000-object pack, paid
+	// again on every commit). The wrapper is local to this call and
 	// discarded when it returns, never stored on Store: a fetch or
 	// repack between calls can change the pack set, and a fresh
 	// EnumerateSince call must see that fresh, not through a cache built
 	// before it happened.
-	packCache := codec.NewPackIndexCache()
+	cachedStorer := packidx.WithCache(s.storer)
 	for _, commitObj := range commitsToDecode {
-		pureCommit, err := codec.FromGitCommitCached(packCache, s.storer, commitObj)
+		pureCommit, err := codec.FromGitCommit(cachedStorer, commitObj)
 		if err != nil {
 			result.Rejections = append(result.Rejections, Rejection{
 				CommitID: commitObj.Hash.String(),

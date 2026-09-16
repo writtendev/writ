@@ -22,9 +22,11 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/format/idxfile"
 	"github.com/go-git/go-git/v5/plumbing/format/packfile"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/storage"
 	"github.com/go-git/go-git/v5/storage/filesystem"
 
 	"github.com/writtendev/writ/engine/codec"
+	"github.com/writtendev/writ/engine/internal/packidx"
 )
 
 // oversizedPackedOpJSONBytes is well over codec.MaxPayloadBytes, matching
@@ -434,12 +436,13 @@ func buildLargePackedRepo(t *testing.T, dir string, repo *git.Repository, n int)
 // pack's whole .idx on every single call, with nothing cached across
 // calls — turning dag.Store.EnumerateSince's per-commit loop into a cost
 // proportional to the whole repository's packs, once per commit,
-// instead of once per pass. A codec.PackIndexCache shared across calls
-// against the same packs must make every call after the first cheap; a
-// call with no cache at all must still pay the decode in full, both to
-// prove the shared cache — not something else about a later lookup — is
-// what makes the difference, and because a nil cache remains a valid,
-// supported way to opt out of caching.
+// instead of once per pass. A storer wrapped once with
+// packidx.WithCache and reused across calls must make every call after
+// the first cheap; a plain, never-wrapped storer must still pay the
+// decode in full on every call, both to prove the shared cache — not
+// something else about a later lookup — is what makes the difference,
+// and because a plain storage.Storer remains a valid, supported way to
+// opt out of caching.
 func TestPackfileObjectSize_CachedIndexAvoidsPerCallRedecode(t *testing.T) {
 	dir := t.TempDir()
 	repo, err := git.PlainInit(dir, false)
@@ -451,12 +454,12 @@ func TestPackfileObjectSize_CachedIndexAvoidsPerCallRedecode(t *testing.T) {
 	hashes := buildLargePackedRepo(t, dir, repo, n)
 	target := hashes[n-1]
 
-	alloc := func(cache *codec.PackIndexCache) uint64 {
+	alloc := func(s storage.Storer) uint64 {
 		runtime.GC()
 		runtime.GC()
 		var before, after runtime.MemStats
 		runtime.ReadMemStats(&before)
-		size, found, err := codec.PackfileObjectSize(repo.Storer, target, cache)
+		size, found, err := codec.PackfileObjectSize(s, target)
 		runtime.ReadMemStats(&after)
 		if err != nil || !found || size <= 0 {
 			t.Fatalf("PackfileObjectSize: size=%d found=%v err=%v", size, found, err)
@@ -464,15 +467,16 @@ func TestPackfileObjectSize_CachedIndexAvoidsPerCallRedecode(t *testing.T) {
 		return after.TotalAlloc - before.TotalAlloc
 	}
 
-	// No cache at all, twice: both calls decode the pack's .idx from
-	// scratch, so both cost about the same — round 1's behavior, which a
-	// nil cache must still provide.
-	uncached1 := alloc(nil)
-	uncached2 := alloc(nil)
+	// A plain, never-wrapped storer, twice: both calls decode the pack's
+	// .idx from scratch, so both cost about the same — round 1's
+	// behavior, which a plain storage.Storer must still provide.
+	uncached1 := alloc(repo.Storer)
+	uncached2 := alloc(repo.Storer)
 
-	// One shared cache across three calls: only the first should pay to
-	// decode; the rest reuse what it already built.
-	shared := codec.NewPackIndexCache()
+	// One storer wrapped with packidx.WithCache, reused across three
+	// calls: only the first should pay to decode; the rest reuse what
+	// it already built.
+	shared := packidx.WithCache(repo.Storer)
 	firstWithCache := alloc(shared)
 	secondWithCache := alloc(shared)
 	thirdWithCache := alloc(shared)
@@ -529,9 +533,15 @@ func TestPackedObjectSize_SkipsPackWithoutIdx(t *testing.T) {
 	// be searched first, deterministically. Without that, this test
 	// would pass or fail depending on where the two pack hashes
 	// happened to sort relative to each other — sometimes never
-	// exercising the fix at all.
+	// exercising the fix at all. strayName must not be the all-zero
+	// hash: go-git's own dg.ObjectPacks() (objectPacks in
+	// storage/filesystem/dotgit) silently skips any pack-<hash>.pack
+	// whose hash is all zero as a "badly-formatted name" before this
+	// package ever sees it, so a zero-hash stray pack never reaches
+	// packedObjectSize's own idx-less-pack skip at all and this test
+	// would still pass with that skip logic deleted.
 	const realName = "pack-ffffffffffffffffffffffffffffffffffffffff"
-	const strayName = "pack-0000000000000000000000000000000000000000"
+	const strayName = "pack-0000000000000000000000000000000000000001"
 	if err := os.Rename(realBase+".pack", filepath.Join(packDir, realName+".pack")); err != nil {
 		t.Fatalf("rename pack: %v", err)
 	}
@@ -551,7 +561,7 @@ func TestPackedObjectSize_SkipsPackWithoutIdx(t *testing.T) {
 	}
 	// Deliberately no strayName+".idx".
 
-	size, found, err := codec.PackfileObjectSize(repo.Storer, target, nil)
+	size, found, err := codec.PackfileObjectSize(repo.Storer, target)
 	if err != nil {
 		t.Fatalf("PackfileObjectSize returned an error instead of skipping the idx-less pack: %v", err)
 	}
