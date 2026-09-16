@@ -3,6 +3,7 @@ package fixtures
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/writtendev/writ/engine/codec/canonicaljson"
 )
@@ -61,4 +62,48 @@ func DeriveMessage(op *OpDesc) string {
 		return ""
 	}
 	return fmt.Sprintf("writ: %s %s/%s\n", op.OpType, op.ObjectType, op.ObjectID)
+}
+
+// PadOpJSON canonicalizes op with an added body field, "pad", sized so the
+// resulting op.json is exactly size bytes — a fixture that pins an exact
+// op.json byte length (e.g. the reader-validation rule 1 size bound) this
+// way needs no literal megabytes of padding checked in: the tree-entry
+// blob SHA already pins the exact bytes, so goldens can carry the byte
+// count instead of the content. The pad character is "x", which canonical
+// JSON encodes unescaped and without surrounding whitespace, so each
+// character added to "pad" costs exactly one output byte, and the needed
+// length is computed rather than searched for.
+func PadOpJSON(op *OpDesc, size int) ([]byte, error) {
+	if op == nil {
+		return nil, fmt.Errorf("fixtures: op is nil")
+	}
+
+	body, ok := op.Body.(map[string]any)
+	if !ok {
+		if op.Body != nil {
+			return nil, fmt.Errorf("fixtures: op_json_size requires an object body, got %T", op.Body)
+		}
+		body = map[string]any{}
+	}
+	if _, exists := body["pad"]; exists {
+		return nil, fmt.Errorf("fixtures: op_json_size conflicts with an explicit body.pad field")
+	}
+	padded := make(map[string]any, len(body)+1)
+	for k, v := range body {
+		padded[k] = v
+	}
+	padded["pad"] = ""
+
+	baseOp := *op
+	baseOp.Body = padded
+	base, err := BuildOpPayload(&baseOp)
+	if err != nil {
+		return nil, err
+	}
+	if len(base) > size {
+		return nil, fmt.Errorf("fixtures: op_json_size %d is smaller than the unpadded payload (%d bytes)", size, len(base))
+	}
+
+	padded["pad"] = strings.Repeat("x", size-len(base))
+	return BuildOpPayload(&baseOp)
 }

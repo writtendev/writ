@@ -26,6 +26,13 @@ var VocabularySchemaFiles = vocabularySchemaFiles
 // TestFieldRuleVocabulariesIsExhaustive.
 var FieldRuleVocabularies = fieldRuleVocabularies
 
+// PackfileObjectSize is packfileObjectSize, exported so
+// TestPackfileObjectSize_CachedIndexAvoidsPerCallRedecode (WRIT-255 round
+// 2) can drive the pack-index cache directly, across repeated lookups
+// against the same on-disk packs, without going through a whole
+// FromGitCommit call each time.
+var PackfileObjectSize = packfileObjectSize
+
 // ValidateAgainstVocabularySchema validates payload bytes against the
 // vocabulary schema registered for objectType and nothing else — no producer
 // rule is applied. It is what a third-party reader validating an op against a

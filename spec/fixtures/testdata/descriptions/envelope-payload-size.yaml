@@ -1,0 +1,47 @@
+name: envelope-payload-size
+description: >
+  Reader-validation rule 1's size bound on op.json: exactly 1,048,576
+  bytes (1 MiB) is accepted, 1,048,577 bytes is rejected as
+  payload-too-large, and a normal op chained after the oversized one
+  is still accepted — an oversized op does not poison the chain.
+
+refs:
+  - name: refs/writ/alice/widget
+    history:
+      - commits:
+          - id: payload-at-max
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: widget-01
+              object_type: acme.widget
+              op_type: create
+              op_version: 1
+              body: {}
+            op_json_size: 1048576
+            expect: accept
+          - id: payload-over-max
+            parents: [payload-at-max]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: widget-01
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body: {}
+            op_json_size: 1048577
+            expect:
+              reject: payload-too-large
+          - id: payload-after-oversized
+            parents: [payload-over-max]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: widget-01
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "still fine"
+            expect: accept

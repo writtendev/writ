@@ -93,7 +93,8 @@ func hasOpJSONInEntries(entries []TreeEntry) bool {
 }
 
 // DecodeCommit decodes a Commit into an Op, applying reader-validation rules 1–4
-// in the spec's defined order: tree shape, byte-equality, schema, committer/author identity.
+// in the spec's defined order: tree shape (including the rule 1 size bound,
+// MaxPayloadBytes), byte-equality, schema, committer/author identity.
 func DecodeCommit(commit Commit) (Op, error) {
 	// Rule 1: Tree validation
 	var opJsonFound bool
@@ -125,6 +126,9 @@ func DecodeCommit(commit Commit) (Op, error) {
 	}
 	if invalidMode {
 		return Op{}, &RejectError{Reason: RejectInvalidOpJSONMode, Err: errors.New("invalid op.json file mode, must be 100644")}
+	}
+	if len(opBlob) > MaxPayloadBytes {
+		return Op{}, &RejectError{Reason: RejectPayloadTooLarge, Err: errors.New("op.json exceeds maximum payload size")}
 	}
 
 	// Rules 2 & 3: Payload byte-equality and schema validation

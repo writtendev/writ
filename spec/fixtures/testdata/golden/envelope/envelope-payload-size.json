@@ -1,0 +1,86 @@
+{
+  "ops": [
+    {
+      "ref": "refs/writ/alice/widget",
+      "commit": "eb4300be45543f8f157ade7207fe41a5d70423cc",
+      "parents": [],
+      "author": "Alice Example \u003calice@example.test\u003e",
+      "committer": "Alice Example \u003calice@example.test\u003e",
+      "timestamp": "2026-01-01T00:00:00Z",
+      "tree_entries": [
+        {
+          "name": "op.json",
+          "mode": "0100644",
+          "sha": "439803b8e6b0c1d35d853335e61c075b799f62e0"
+        }
+      ],
+      "payload_size": 1048576,
+      "signed": true,
+      "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
+      "verification_outcome": "valid",
+      "expected": {
+        "disposition": "accept"
+      },
+      "observed": {
+        "disposition": "accept"
+      }
+    },
+    {
+      "ref": "refs/writ/alice/widget",
+      "commit": "62e29c960eacf68190d8f5c92a25cd3a0331a20f",
+      "parents": [
+        "eb4300be45543f8f157ade7207fe41a5d70423cc"
+      ],
+      "author": "Alice Example \u003calice@example.test\u003e",
+      "committer": "Alice Example \u003calice@example.test\u003e",
+      "timestamp": "2026-01-01T00:01:00Z",
+      "tree_entries": [
+        {
+          "name": "op.json",
+          "mode": "0100644",
+          "sha": "3521e56f784b7c5261950550b107d9e3b4366940"
+        }
+      ],
+      "payload_size": 1048577,
+      "signed": true,
+      "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
+      "verification_outcome": "valid",
+      "expected": {
+        "disposition": "reject",
+        "reason": "payload-too-large"
+      },
+      "observed": {
+        "disposition": "reject",
+        "reason": "payload-too-large"
+      }
+    },
+    {
+      "ref": "refs/writ/alice/widget",
+      "commit": "30ec824aeb610b0cec118b03f9230886d779f124",
+      "parents": [
+        "62e29c960eacf68190d8f5c92a25cd3a0331a20f"
+      ],
+      "author": "Alice Example \u003calice@example.test\u003e",
+      "committer": "Alice Example \u003calice@example.test\u003e",
+      "timestamp": "2026-01-01T00:02:00Z",
+      "tree_entries": [
+        {
+          "name": "op.json",
+          "mode": "0100644",
+          "sha": "2f2a6649addf9e11262ee006a856061ffce2edbe"
+        }
+      ],
+      "payload": "{\"body\":{\"title\":\"still fine\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"title\":\"still fine\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "signed": true,
+      "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
+      "verification_outcome": "valid",
+      "expected": {
+        "disposition": "accept"
+      },
+      "observed": {
+        "disposition": "accept"
+      }
+    }
+  ]
+}

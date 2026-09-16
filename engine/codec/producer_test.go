@@ -159,6 +159,63 @@ func TestBuildCommitRejectsInvalidBody(t *testing.T) {
 	}
 }
 
+// buildTitleEnvelopeOfSize returns an envelope for widgetVocabulary's
+// (widget, create, v1), whose canonical payload is exactly size bytes, by
+// sizing the "title" field's value: canonicaljson emits an ASCII "x"
+// unescaped and with no surrounding whitespace, so each character added
+// to title costs exactly one output byte, and the needed length is
+// computed rather than searched for.
+func buildTitleEnvelopeOfSize(t *testing.T, size int) codec.Envelope {
+	t.Helper()
+	env := codec.Envelope{
+		ObjectID:   "w-1",
+		ObjectType: "widget",
+		OpType:     "create",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"title":""}`),
+	}
+	raw, err := codec.EncodePayload(env)
+	if err != nil {
+		t.Fatalf("encode base payload: %v", err)
+	}
+	if len(raw) > size {
+		t.Fatalf("base payload (%d bytes) already exceeds target size %d", len(raw), size)
+	}
+	env.Body = json.RawMessage(fmt.Sprintf(`{"title":"%s"}`, strings.Repeat("x", size-len(raw))))
+	return env
+}
+
+// TestBuildCommitAcceptsPayloadAtMaxSize and
+// TestBuildCommitRefusesPayloadOverMaxSize pin the producer side of
+// spec/op-envelope.md §Producer validation's size clause: the identical
+// 1 MiB bound reader validation rule 1 enforces, checked here on
+// BuildCommit's canonical bytes rather than a decoded commit.
+func TestBuildCommitAcceptsPayloadAtMaxSize(t *testing.T) {
+	env := buildTitleEnvelopeOfSize(t, codec.MaxPayloadBytes)
+	c, err := codec.BuildCommit(env, testAuthor(), nil, widgetVocabulary())
+	if err != nil {
+		t.Fatalf("BuildCommit rejected a payload at the max size: %v", err)
+	}
+	if len(c.Tree) != 1 || len(c.Tree[0].Data) != codec.MaxPayloadBytes {
+		t.Fatalf("built op.json is not exactly MaxPayloadBytes (%d): %+v", codec.MaxPayloadBytes, c.Tree)
+	}
+}
+
+func TestBuildCommitRefusesPayloadOverMaxSize(t *testing.T) {
+	env := buildTitleEnvelopeOfSize(t, codec.MaxPayloadBytes+1)
+	_, err := codec.BuildCommit(env, testAuthor(), nil, widgetVocabulary())
+	if err == nil {
+		t.Fatal("BuildCommit accepted a payload one byte over the max size")
+	}
+	var rej *codec.RejectError
+	if !errors.As(err, &rej) {
+		t.Fatalf("error is not a *codec.RejectError: %v", err)
+	}
+	if rej.Reason != codec.RejectPayloadTooLarge {
+		t.Errorf("reason = %q, want %q", rej.Reason, codec.RejectPayloadTooLarge)
+	}
+}
+
 // keyedWidgetVocabulary declares one keyed-lww field, "verdict", keyed on a
 // "subject" column typed person-ref -- the shape WRIT-214 fixes tier 2 to
 // accept: "subject" is a member of "verdict"'s key, never itself a

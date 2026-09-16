@@ -42,6 +42,7 @@ type OpGoldenState struct {
 	TreeEntries             []TreeEntryState `json:"tree_entries"`
 	Payload                 string           `json:"payload,omitempty"`
 	CanonicalPayload        string           `json:"canonical_payload,omitempty"`
+	PayloadSize             int              `json:"payload_size,omitempty"`
 	Signed                  bool             `json:"signed"`
 	SignatureKeyFingerprint string           `json:"signature_key_fingerprint,omitempty"`
 	VerificationOutcome     string           `json:"verification_outcome"`
@@ -136,6 +137,17 @@ func evaluateOpCommit(t *testing.T, fix *fixtures.Fixture, refName string, commi
 		}
 	}
 
+	// A commit whose description pins op.json's byte length (the
+	// envelope-payload-size family) records that length instead of the
+	// payload text: the tree-entry blob SHA above already pins the exact
+	// bytes, so the golden need not carry a megabyte of literal padding.
+	payloadSize := 0
+	if cd.OpJSONSize != 0 {
+		payloadSize = len(opBlobContent)
+		opBlobContent = ""
+		canonicalPayload = ""
+	}
+
 	// 1. Expected disposition
 	expected := DispositionState{
 		Disposition: "accept",
@@ -193,6 +205,7 @@ func evaluateOpCommit(t *testing.T, fix *fixtures.Fixture, refName string, commi
 		TreeEntries:             treeEntries,
 		Payload:                 opBlobContent,
 		CanonicalPayload:        canonicalPayload,
+		PayloadSize:             payloadSize,
 		Signed:                  commit.PGPSignature != "",
 		SignatureKeyFingerprint: verResult.KeyFingerprint,
 		VerificationOutcome:     string(verResult.Outcome),

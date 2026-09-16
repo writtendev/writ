@@ -107,7 +107,13 @@ func setRef(repo *git.Repository, name string, hash plumbing.Hash) error {
 // given parents, signs it, applies any requested post-signing tamper, and stores it.
 func buildCommit(repo *git.Repository, sgnr *signer, cd CommitDesc, parents []plumbing.Hash) (*object.Commit, plumbing.Hash, error) {
 	if cd.Op != nil {
-		payloadBytes, err := BuildOpPayload(cd.Op)
+		var payloadBytes []byte
+		var err error
+		if cd.OpJSONSize != 0 {
+			payloadBytes, err = PadOpJSON(cd.Op, cd.OpJSONSize)
+		} else {
+			payloadBytes, err = BuildOpPayload(cd.Op)
+		}
 		if err != nil {
 			return nil, plumbing.ZeroHash, err
 		}

@@ -14,7 +14,18 @@ import (
 
 // FromGitCommit converts a go-git object.Commit into a pure, repository-independent Commit
 // value by reading its tree entries and op.json blob data.
+//
+// When s is wrapped with engine/internal/packidx.WithCache, pack indexes
+// FromGitCommit needs along the way are decoded through the attached
+// cache instead of fresh on every call — dag.Store.EnumerateSince does
+// this, wrapping its storer once per pass over history and letting the
+// wrapper go when the pass ends. A plain storage.Storer, never wrapped,
+// decodes fresh on every call, exactly as it always did.
 func FromGitCommit(s storage.Storer, commit *object.Commit) (Commit, error) {
+	return fromGitCommit(s, commit)
+}
+
+func fromGitCommit(s storage.Storer, commit *object.Commit) (Commit, error) {
 	if commit == nil {
 		return Commit{}, errors.New("codec: nil git commit")
 	}
@@ -32,17 +43,13 @@ func FromGitCommit(s storage.Storer, commit *object.Commit) (Commit, error) {
 			Hash: entry.Hash.String(),
 		}
 		if entry.Name == "op.json" {
-			blob, err := tree.TreeEntryFile(&entry)
-			if err == nil {
-				r, err := blob.Reader()
-				if err == nil {
-					data, err := io.ReadAll(r)
-					_ = r.Close()
-					if err == nil {
-						te.Data = data
-					}
-				}
+			data, err := readOpJSONBlob(s, entry.Hash, func() (*object.File, error) {
+				return tree.TreeEntryFile(&entry)
+			})
+			if err != nil {
+				return Commit{}, fmt.Errorf("codec: read op.json blob: %w", err)
 			}
+			te.Data = data
 		}
 		if entry.Mode == filemode.Dir && s != nil {
 			subTree, err := object.GetTree(s, entry.Hash)
@@ -54,17 +61,13 @@ func FromGitCommit(s storage.Storer, commit *object.Commit) (Commit, error) {
 						Hash: subEntry.Hash.String(),
 					}
 					if subEntry.Name == "op.json" {
-						subBlob, err := subTree.TreeEntryFile(&subEntry)
-						if err == nil {
-							r, err := subBlob.Reader()
-							if err == nil {
-								data, err := io.ReadAll(r)
-								_ = r.Close()
-								if err == nil {
-									subTe.Data = data
-								}
-							}
+						data, err := readOpJSONBlob(s, subEntry.Hash, func() (*object.File, error) {
+							return subTree.TreeEntryFile(&subEntry)
+						})
+						if err != nil {
+							return Commit{}, fmt.Errorf("codec: read op.json blob: %w", err)
 						}
+						subTe.Data = data
 					}
 					te.Entries = append(te.Entries, subTe)
 				}
@@ -105,6 +108,64 @@ func FromGitCommit(s storage.Storer, commit *object.Commit) (Commit, error) {
 		Payload:   payload,
 		Tree:      treeEntries,
 	}, nil
+}
+
+// readOpJSONBlob reads an op.json blob's content, capped at
+// MaxPayloadBytes+1 bytes (spec/op-envelope.md §Reader validation rule 1).
+// s is passed straight through to packfileObjectSize, which consults
+// its attached packidx.Cache when s is wrapped with packidx.WithCache —
+// see FromGitCommit's doc comment.
+// go-git's filesystem storer fully decodes a loose object's content into
+// memory the moment it is fetched — before a caller ever gets a Reader to
+// limit — so capping io.ReadAll alone does not bound the cost of an
+// oversized blob; open still has to be called to get anything at all.
+// packfileObjectSize determines the size first, from no more than a
+// small, size-independent amount of memory for every on-disk shape a
+// blob can take: loose, packed as a plain object, or packed as a delta
+// (OFS or REF, any chain depth, in this pack or an alternate). That is
+// not true of go-git's own EncodedObjectSize for a packed delta object —
+// it fully decompresses the delta's representation into a buffer sized
+// to that representation before reading the object's declared size back
+// out of it, which costs memory proportional to the object, the same
+// bug this function used to have. Skipping the fetch entirely once the
+// blob is already known to be oversized is what actually keeps memory
+// bounded. When the size can't be determined this way at all — the
+// object was found but something about its pack entry was unreadable —
+// readOpJSONBlob fails closed with an error rather than falling back to
+// a full, unbounded fetch. The returned placeholder is never read as
+// content — DecodeCommit rejects on its length alone — so its bytes
+// don't matter, only that there are exactly MaxPayloadBytes+1 of them,
+// the same length a real oversized blob would be capped to below.
+func readOpJSONBlob(s storage.Storer, hash plumbing.Hash, open func() (*object.File, error)) ([]byte, error) {
+	if s != nil {
+		size, found, err := packfileObjectSize(s, hash)
+		if err != nil {
+			return nil, fmt.Errorf("codec: determine op.json blob size: %w", err)
+		}
+		if found {
+			if size > MaxPayloadBytes {
+				return make([]byte, MaxPayloadBytes+1), nil
+			}
+		} else if size, err := s.EncodedObjectSize(hash); err == nil && size > MaxPayloadBytes {
+			return make([]byte, MaxPayloadBytes+1), nil
+		}
+	}
+
+	file, err := open()
+	if err != nil {
+		return nil, nil
+	}
+	r, err := file.Reader()
+	if err != nil {
+		return nil, nil
+	}
+	defer r.Close()
+
+	data, err := io.ReadAll(io.LimitReader(r, MaxPayloadBytes+1))
+	if err != nil {
+		return nil, nil
+	}
+	return data, nil
 }
 
 // ToGitCommit converts a pure, repository-independent Commit into a go-git object.Commit,

@@ -1,0 +1,47 @@
+{
+  "refs": [
+    {
+      "name": "refs/writ/alice/widget",
+      "commit": "30ec824aeb610b0cec118b03f9230886d779f124"
+    }
+  ],
+  "generations": [
+    {
+      "ref": "refs/writ/alice/widget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "eb4300be45543f8f157ade7207fe41a5d70423cc",
+          "tree": "12445b3f6e748aa7b4b9db22b14b2a25430cb919",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "message": "writ: create acme.widget/widget-01\n",
+          "signed": true
+        },
+        {
+          "sha": "62e29c960eacf68190d8f5c92a25cd3a0331a20f",
+          "tree": "29ff1d39120bca6904582b6303b24a2fe63c5832",
+          "parents": [
+            "eb4300be45543f8f157ade7207fe41a5d70423cc"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:01:00Z",
+          "message": "writ: update acme.widget/widget-01\n",
+          "signed": true
+        },
+        {
+          "sha": "30ec824aeb610b0cec118b03f9230886d779f124",
+          "tree": "cc19a64d41c7c035e5789d265b95c23fa74f446f",
+          "parents": [
+            "62e29c960eacf68190d8f5c92a25cd3a0331a20f"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:02:00Z",
+          "message": "writ: update acme.widget/widget-01\n",
+          "signed": true
+        }
+      ]
+    }
+  ]
+}

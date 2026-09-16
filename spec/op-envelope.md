@@ -183,7 +183,15 @@ envelope-level constraint.
 ## Producer validation
 
 A conforming producer MUST NOT sign an op it could have known was
-invalid. Before the op commit is built, the producer MUST verify that:
+invalid. It also MUST NOT write an `op.json` longer than 1,048,576 bytes
+(1 MiB), checked on the canonical bytes (rejection reason
+`payload-too-large`) — the identical bound
+[Reader validation](#reader-validation) rule 1 enforces on the read side.
+Because readers refuse the same bytes a producer would refuse, this is
+not a producer-only tightening, and the `spec/testdata/producer/` corpus
+below, whose whole point is that every producer-rejected case is
+reader-accepted, MUST NOT gain a case for it. Before the op commit is
+built, the producer MUST also verify that:
 
 1. The payload satisfies this document's envelope schema
    (`spec/schemas/op-envelope.schema.json`).
@@ -569,7 +577,15 @@ the op (not repair, not skip silently — the reader's error surface says
 why) if any of the following fail:
 
 1. The commit tree does not contain exactly one entry, `op.json`, mode
-   `100644`.
+   `100644`, whose blob is at most 1,048,576 bytes (1 MiB), inclusive.
+   (Rejection reason: `payload-too-large`.) A shared bound is part of
+   the contract: without one, an `op.json` a producer signs compresses
+   to a negligible push while every reader that decodes it must hold
+   the full payload in memory, and downstream in a projection store
+   with its own blob limit — an unbounded blob exhausts both on every
+   reader, not just the one that wrote it. A conforming reader MUST
+   check tree shape, then this size bound, then the byte-equality rule
+   below, in that order, so it never canonicalizes an oversized blob.
 2. The payload fails the byte-equality rule above.
 3. The payload fails schema validation: a required field is missing or
    a defined field violates its type or form. Unknown *additional*
@@ -606,6 +622,10 @@ cannot live in fold, and this document does not define when it runs.
   (`spec/fixtures/testdata/descriptions/envelope-*.yaml` and
   `spec/fixtures/testdata/golden/envelope/`), covering valid envelopes, bad
   signatures, malformed payloads, and malformed trees.
+  `envelope-payload-size.yaml` is the boundary fixture for reader
+  validation rule 1's size bound: one commit at exactly 1,048,576 bytes
+  (`expect: accept`) and one at 1,048,577 bytes
+  (`expect: {reject: payload-too-large}`).
 - `spec/testdata/producer/` (WRIT-188) — tiers 2, 3, and 4 of the four-tier
   producer precedence above, exercised as paired verdicts: `index.json`
   names, per case under `cases/`, the producer's verdict (with a reason

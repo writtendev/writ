@@ -15,7 +15,13 @@ const (
 	RejectDuplicateKey        RejectReason = "duplicate-key"
 	RejectLoneSurrogate       RejectReason = "lone-surrogate"
 	RejectSchemaViolation     RejectReason = "schema-violation"
+	RejectPayloadTooLarge     RejectReason = "payload-too-large"
 )
+
+// MaxPayloadBytes is the maximum length, in bytes, of an op.json blob a
+// conforming reader accepts and a conforming producer writes
+// (spec/op-envelope.md §Reader validation rule 1, §Producer validation).
+const MaxPayloadBytes = 1 << 20
 
 // RejectError is returned when an op commit or payload fails validation —
 // reader validation of an op that arrived, or producer validation of one about
