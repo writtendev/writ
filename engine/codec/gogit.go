@@ -32,9 +32,13 @@ func FromGitCommit(s storage.Storer, commit *object.Commit) (Commit, error) {
 			Hash: entry.Hash.String(),
 		}
 		if entry.Name == "op.json" {
-			te.Data = readOpJSONBlob(s, entry.Hash, func() (*object.File, error) {
+			data, err := readOpJSONBlob(s, entry.Hash, func() (*object.File, error) {
 				return tree.TreeEntryFile(&entry)
 			})
+			if err != nil {
+				return Commit{}, fmt.Errorf("codec: read op.json blob: %w", err)
+			}
+			te.Data = data
 		}
 		if entry.Mode == filemode.Dir && s != nil {
 			subTree, err := object.GetTree(s, entry.Hash)
@@ -46,9 +50,13 @@ func FromGitCommit(s storage.Storer, commit *object.Commit) (Commit, error) {
 						Hash: subEntry.Hash.String(),
 					}
 					if subEntry.Name == "op.json" {
-						subTe.Data = readOpJSONBlob(s, subEntry.Hash, func() (*object.File, error) {
+						data, err := readOpJSONBlob(s, subEntry.Hash, func() (*object.File, error) {
 							return subTree.TreeEntryFile(&subEntry)
 						})
+						if err != nil {
+							return Commit{}, fmt.Errorf("codec: read op.json blob: %w", err)
+						}
+						subTe.Data = data
 					}
 					te.Entries = append(te.Entries, subTe)
 				}
@@ -97,36 +105,53 @@ func FromGitCommit(s storage.Storer, commit *object.Commit) (Commit, error) {
 // memory the moment it is fetched — before a caller ever gets a Reader to
 // limit — so capping io.ReadAll alone does not bound the cost of an
 // oversized blob; open still has to be called to get anything at all.
-// EncodedObjectSize is cheap regardless of the object's size (it reads
-// only the "<type> <size>\0" header off the still-compressed stream, per
-// go-git's own objfile.Reader.Header), so checking it first and skipping
-// the fetch entirely when the blob is already known to be oversized is
-// what actually keeps memory bounded. The returned placeholder is never
-// read as content — DecodeCommit rejects on its length alone — so its
-// bytes don't matter, only that there are exactly MaxPayloadBytes+1 of
-// them, the same length a real oversized blob would be capped to below.
-func readOpJSONBlob(s storage.Storer, hash plumbing.Hash, open func() (*object.File, error)) []byte {
+// packfileObjectSize determines the size first, from no more than a
+// small, size-independent amount of memory for every on-disk shape a
+// blob can take: loose, packed as a plain object, or packed as a delta
+// (OFS or REF, any chain depth, in this pack or an alternate). That is
+// not true of go-git's own EncodedObjectSize for a packed delta object —
+// it fully decompresses the delta's representation into a buffer sized
+// to that representation before reading the object's declared size back
+// out of it, which costs memory proportional to the object, the same
+// bug this function used to have. Skipping the fetch entirely once the
+// blob is already known to be oversized is what actually keeps memory
+// bounded. When the size can't be determined this way at all — the
+// object was found but something about its pack entry was unreadable —
+// readOpJSONBlob fails closed with an error rather than falling back to
+// a full, unbounded fetch. The returned placeholder is never read as
+// content — DecodeCommit rejects on its length alone — so its bytes
+// don't matter, only that there are exactly MaxPayloadBytes+1 of them,
+// the same length a real oversized blob would be capped to below.
+func readOpJSONBlob(s storage.Storer, hash plumbing.Hash, open func() (*object.File, error)) ([]byte, error) {
 	if s != nil {
-		if size, err := s.EncodedObjectSize(hash); err == nil && size > MaxPayloadBytes {
-			return make([]byte, MaxPayloadBytes+1)
+		size, found, err := packfileObjectSize(s, hash)
+		if err != nil {
+			return nil, fmt.Errorf("codec: determine op.json blob size: %w", err)
+		}
+		if found {
+			if size > MaxPayloadBytes {
+				return make([]byte, MaxPayloadBytes+1), nil
+			}
+		} else if size, err := s.EncodedObjectSize(hash); err == nil && size > MaxPayloadBytes {
+			return make([]byte, MaxPayloadBytes+1), nil
 		}
 	}
 
 	file, err := open()
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	r, err := file.Reader()
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	defer r.Close()
 
 	data, err := io.ReadAll(io.LimitReader(r, MaxPayloadBytes+1))
 	if err != nil {
-		return nil
+		return nil, nil
 	}
-	return data
+	return data, nil
 }
 
 // ToGitCommit converts a pure, repository-independent Commit into a go-git object.Commit,
