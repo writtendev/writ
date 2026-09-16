@@ -421,18 +421,24 @@ func writeForeignSchemaOp(t *testing.T, dir, writerID, parent, objectID, opType 
 //
 // Two schema-op chains foreign to this store's own writer (writeForeignSchemaOp,
 // bypassing producer validation the only way a hand-crafted commit could)
-// declare two hostile object types under the log's own "acme" namespace,
-// each with its own tombstone-strategy field, exactly WRIT-253's own repro
-// shapes: "a') OR 1 --" broke objectsNotDeletedClause's SQL string literal
+// declare three hostile object types, each with its own tombstone-strategy
+// field, exactly WRIT-253's own repro shapes: "a') OR 1 --" under the log's
+// own "acme" namespace broke objectsNotDeletedClause's SQL string literal
 // (disabling the tombstone filter and, via its trailing "--" SQL comment,
-// LIMIT too), and "acme.x'); DELETE FROM objects; --" is the stacked
-// statement shape a single-quote break-out makes possible in the first
-// place. A real Store.Refresh -- Enumerate, RulesFromSchemas, and the
-// projection rebuild together -- must resolve the log with both declarations
-// present and never let either reach installed rules at all: Store.Types
-// omits them, and a plain acme.widget/acme.note listing still honours the
-// tombstone filter and LIMIT correctly, with every legitimate object still
-// present under IncludeDeleted.
+// LIMIT too); "acme.x'); DELETE FROM objects; --" (also under "acme") is
+// the stacked statement shape a single-quote break-out makes possible in
+// the first place; and "a') OR 1 --.z" under a hostile namespace of its
+// own ("a') OR 1 --") is qualified under it, so only the namespace-grammar
+// gate WRIT-253 adds -- not the older, unrelated qualification check
+// (WRIT-217) that already catches the first two for a different reason --
+// is what has to stop it. A real Store.Refresh -- Enumerate,
+// RulesFromSchemas, and the projection rebuild together -- must resolve
+// the log with all three declarations present and never let any of them
+// reach installed rules at all: Store.Types omits them, and an
+// unrestricted cross-type listing (no Type filter, so it walks every
+// installed type's clause -- including the schema objects themselves)
+// still honours the tombstone filter and LIMIT correctly, with every
+// legitimate object still present under IncludeDeleted.
 func TestStoreHostileDeclaredTypeOmittedAndProjectionIntact(t *testing.T) {
 	store, ctx, dir := openStoreWithCoreSchema(t)
 
@@ -471,6 +477,19 @@ func TestStoreHostileDeclaredTypeOmittedAndProjectionIntact(t *testing.T) {
 		foreignWriterID = "fedcba9876543210"
 		hostileLimit    = `a') OR 1 --`
 		hostileDelete   = `acme.x'); DELETE FROM objects; --`
+		// hostileNamespace is WRIT-253's own repro shape at the
+		// namespace level, not just the type level: a schema object
+		// whose namespace itself carries SQL break-out syntax.
+		// typeIsQualifiedForNamespace (WRIT-217, predates this ticket)
+		// already refuses hostileLimit and hostileDelete above for an
+		// unrelated reason -- neither is qualified with "acme." -- so
+		// neither one exercises declarationInstallable's namespace-
+		// grammar half this ticket adds. hostileNSType is deliberately
+		// qualified under hostileNamespace so the (older) qualification
+		// check passes and only the (new) namespace-grammar gate is
+		// what stops it.
+		hostileNamespace = `a') OR 1 --`
+		hostileNSType    = hostileNamespace + `.z`
 	)
 
 	p := writeForeignSchemaOp(t, dir, foreignWriterID, "", "sch-hostile", "create", map[string]any{"namespace": "acme"}, 0)
@@ -482,10 +501,18 @@ func TestStoreHostileDeclaredTypeOmittedAndProjectionIntact(t *testing.T) {
 	}, 3)
 	p = writeForeignSchemaOp(t, dir, foreignWriterID, p, "sch-hostile", "define-type", map[string]any{"type": hostileDelete}, 4)
 	p = writeForeignSchemaOp(t, dir, foreignWriterID, p, "sch-hostile", "define-op", map[string]any{"type": hostileDelete, "op_type": "archive", "op_version": "1"}, 5)
-	_ = writeForeignSchemaOp(t, dir, foreignWriterID, p, "sch-hostile", "define-field", map[string]any{
+	p = writeForeignSchemaOp(t, dir, foreignWriterID, p, "sch-hostile", "define-field", map[string]any{
 		"type": hostileDelete, "op_type": "archive", "op_version": "1",
 		"field": "archived", "value_type": "bool", "strategy": "tombstone",
 	}, 6)
+
+	p = writeForeignSchemaOp(t, dir, foreignWriterID, p, "sch-hostile-ns", "create", map[string]any{"namespace": hostileNamespace}, 7)
+	p = writeForeignSchemaOp(t, dir, foreignWriterID, p, "sch-hostile-ns", "define-type", map[string]any{"type": hostileNSType}, 8)
+	p = writeForeignSchemaOp(t, dir, foreignWriterID, p, "sch-hostile-ns", "define-op", map[string]any{"type": hostileNSType, "op_type": "archive", "op_version": "1"}, 9)
+	_ = writeForeignSchemaOp(t, dir, foreignWriterID, p, "sch-hostile-ns", "define-field", map[string]any{
+		"type": hostileNSType, "op_type": "archive", "op_version": "1",
+		"field": "archived", "value_type": "bool", "strategy": "tombstone",
+	}, 10)
 
 	if _, err := store.Refresh(ctx); err != nil {
 		t.Fatalf("Refresh (with hostile declarations in the log) failed: %v", err)
@@ -496,34 +523,46 @@ func TestStoreHostileDeclaredTypeOmittedAndProjectionIntact(t *testing.T) {
 		t.Fatalf("Store.Types failed: %v", err)
 	}
 	for _, typ := range types {
-		if typ.Name == hostileLimit || typ.Name == hostileDelete {
+		if typ.Name == hostileLimit || typ.Name == hostileDelete || typ.Name == hostileNSType {
 			t.Errorf("Store.Types installed the hostile declared type %q: %+v", typ.Name, typ)
 		}
 	}
 
-	// Scoped to the two legitimate types throughout: Query.Objects lists
-	// every object cross-type, schema objects (sch-acme, sch-hostile)
-	// included (they are objects like any other), and this test's
-	// assertions are about the tombstone/LIMIT behavior of ordinary data
-	// objects, not a count over the whole store.
-	legitTypes := writ.ObjectFilter{Type: []string{"acme.widget", "acme.note"}}
+	// No Type filter on any of the three listings below: filtering to
+	// only the legitimate types (as an earlier revision of this test
+	// did) makes objectsNotDeletedClause's restrictTypes argument
+	// exclude every hostile type's clause before the query is even
+	// built (engine/projection/query.go) -- these assertions could then
+	// never catch a regression that let a hostile declared type reach
+	// installed rules, because the clause responsible for the
+	// tombstone/LIMIT behavior under test would simply never be
+	// emitted. The default, unrestricted listing walks every installed
+	// type's clause instead, schema objects included -- sch-acme (aka
+	// coreSchemaObjectID), sch-hostile, and sch-hostile-ns are objects
+	// like any other (store_test.go's coreSchemaObjectID doc comment) --
+	// which is what actually exercises the fix.
+	wantLiveIDs := map[string]bool{
+		widgetID: true, liveNoteID: true,
+		coreSchemaObjectID: true, "sch-hostile": true, "sch-hostile-ns": true,
+	}
 
-	live, err := store.Query.Objects(legitTypes)
+	live, err := store.Query.Objects(writ.ObjectFilter{})
 	if err != nil {
 		t.Fatalf("Query.Objects (default) failed: %v", err)
 	}
-	if len(live) != 2 {
-		t.Fatalf("Query.Objects (default) = %d results, want 2 (widget + live note): %+v", len(live), live)
+	if len(live) != len(wantLiveIDs) {
+		t.Fatalf("Query.Objects (default) = %d results, want %d (widget + live note + the three schema objects): %+v", len(live), len(wantLiveIDs), live)
 	}
 	for _, o := range live {
 		if o.ObjectID == deletedNoteID {
 			t.Errorf("Query.Objects (default) included the soft-deleted note %s despite the hostile declarations in the log: %+v", deletedNoteID, live)
 		}
+		if !wantLiveIDs[o.ObjectID] {
+			t.Errorf("Query.Objects (default) returned unexpected object %s: %+v", o.ObjectID, live)
+		}
 	}
 
-	limitedFilter := legitTypes
-	limitedFilter.Limit = 1
-	limited, err := store.Query.Objects(limitedFilter)
+	limited, err := store.Query.Objects(writ.ObjectFilter{Limit: 1})
 	if err != nil {
 		t.Fatalf("Query.Objects (Limit: 1) failed: %v", err)
 	}
@@ -531,18 +570,19 @@ func TestStoreHostileDeclaredTypeOmittedAndProjectionIntact(t *testing.T) {
 		t.Fatalf("Query.Objects (Limit: 1) = %d results, want exactly 1", len(limited))
 	}
 
-	deletedFilter := legitTypes
-	deletedFilter.IncludeDeleted = true
-	all, err := store.Query.Objects(deletedFilter)
+	all, err := store.Query.Objects(writ.ObjectFilter{IncludeDeleted: true})
 	if err != nil {
 		t.Fatalf("Query.Objects (IncludeDeleted: true) failed: %v", err)
 	}
-	wantIDs := map[string]bool{widgetID: true, liveNoteID: true, deletedNoteID: true}
-	if len(all) != len(wantIDs) {
-		t.Fatalf("Query.Objects (IncludeDeleted: true) = %d results, want %d (the objects table must stay intact): %+v", len(all), len(wantIDs), all)
+	wantAllIDs := map[string]bool{
+		widgetID: true, liveNoteID: true, deletedNoteID: true,
+		coreSchemaObjectID: true, "sch-hostile": true, "sch-hostile-ns": true,
+	}
+	if len(all) != len(wantAllIDs) {
+		t.Fatalf("Query.Objects (IncludeDeleted: true) = %d results, want %d (the objects table must stay intact): %+v", len(all), len(wantAllIDs), all)
 	}
 	for _, o := range all {
-		if !wantIDs[o.ObjectID] {
+		if !wantAllIDs[o.ObjectID] {
 			t.Errorf("Query.Objects (IncludeDeleted: true) returned unexpected object %s: %+v", o.ObjectID, all)
 		}
 	}
