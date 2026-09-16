@@ -2,6 +2,7 @@ package projection_test
 
 import (
 	"database/sql"
+	"strings"
 	"testing"
 
 	"github.com/writtendev/writ/engine/projection"
@@ -337,5 +338,82 @@ func TestObjectsWithheldTypeCoexistsWithDeclaredTypes(t *testing.T) {
 	}
 	if len(textResults) != 1 || textResults[0].ObjectID != "gadget-1" {
 		t.Fatalf("expected only gadget-1 to match a text search, got %+v", textResults)
+	}
+}
+
+// TestObjectsHostileTypeNameNotDeletedAndLimit is WRIT-253's end-to-end pin
+// for the query.go fix, at the layer the resolver gate in engine/schema.go
+// never reaches on its own: ApplySchema takes a caller-supplied rules map
+// directly, with no grammar check on its keys, so this package's own
+// query-building has to be safe regardless of what a declared object type
+// looks like. Before the fix, objectsNotDeletedClause spliced the type
+// into the SQL text as "o.object_type != '<t>'"; a type carrying its own
+// quote and comment syntax, "a') OR 1 --", broke out of that literal,
+// disabling the default !IncludeDeleted filter and turning "--" into a SQL
+// line comment that silently dropped everything after it, including
+// LIMIT — exactly WRIT-253's reproduction.
+func TestObjectsHostileTypeNameNotDeletedAndLimit(t *testing.T) {
+	db, err := projection.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:): %v", err)
+	}
+	defer db.Close()
+
+	const hostile = `a') OR 1 --`
+	rules := map[string][]state.Rule{
+		hostile: {
+			{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string", ObjectType: hostile},
+			{OpType: "archive", OpVersion: 1, Field: "archived", Strategy: "tombstone", ValueType: "bool", ObjectType: hostile},
+		},
+	}
+	if err := db.ApplySchema(rules); err != nil {
+		t.Fatalf("ApplySchema: %v", err)
+	}
+
+	// The generated table name follows buildTypeDescriptor's documented
+	// "o_" + strings.ReplaceAll(objectType, "-", "_") scheme (ddl.go's
+	// quoteIdent doc comment); quoted here in the test exactly as
+	// quoteIdent quotes it in production, since a hostile type name is not
+	// a valid unquoted SQL identifier.
+	rawDB := db.DB()
+	tableName := "o_" + strings.ReplaceAll(hostile, "-", "_")
+	quotedTable := `"` + strings.ReplaceAll(tableName, `"`, `""`) + `"`
+
+	seed := []struct {
+		id       string
+		archived int
+	}{
+		{"obj-live-1", 0},
+		{"obj-live-2", 0},
+		{"obj-deleted", 1},
+	}
+	for i, s := range seed {
+		insertObject(t, rawDB, s.id, hostile, 1, "op-"+s.id, "Alice Smith", "alice@example.com", int64(1000+i), int64(1000+i))
+		execSQL(t, rawDB, "INSERT INTO "+quotedTable+" (object_id, f_title, f_archived) VALUES (?, ?, ?)",
+			s.id, "title for "+s.id, s.archived)
+	}
+
+	live, err := db.Objects(projection.ObjectFilter{Type: []string{hostile}})
+	if err != nil {
+		t.Fatalf("Objects(hostile type, IncludeDeleted=false): %v", err)
+	}
+	if len(live) != 2 {
+		t.Fatalf("expected 2 live objects surviving the default !IncludeDeleted filter, got %d (%+v)", len(live), live)
+	}
+
+	limited, err := db.Objects(projection.ObjectFilter{Type: []string{hostile}, Limit: 1})
+	if err != nil {
+		t.Fatalf("Objects(hostile type, Limit=1): %v", err)
+	}
+	if len(limited) != 1 {
+		t.Fatalf("expected LIMIT 1 to be honoured, got %d rows (%+v) — WRIT-253's injected object type used to comment out LIMIT entirely", len(limited), limited)
+	}
+
+	all, err := db.Objects(projection.ObjectFilter{Type: []string{hostile}, IncludeDeleted: true})
+	if err != nil {
+		t.Fatalf("Objects(hostile type, IncludeDeleted=true): %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("expected all 3 objects with IncludeDeleted=true, got %d (%+v)", len(all), all)
 	}
 }

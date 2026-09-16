@@ -3,7 +3,7 @@ description: >
   One schema object, namespace "acme", declares four types: one correctly
   qualified ("acme.gadget", a control) and three that are not — bare
   ("standup"), qualified under a different namespace ("bigco.retro"), and
-  carrying more than one dot ("acme.foo.bar"). spec/schema-ops.md §6.3 is
+  carrying more than one dot ("acme.foo.bar"). spec/schema-ops.md §6.4 is
   the fourth conflict kind (WRIT-217): a declared type whose name does not
   carry its own schema object's namespace as its prefix is dropped and
   reported, never installed, exactly like an invalid field rule (§9) --
@@ -30,7 +30,13 @@ description: >
   wire object_type in its own right (spec/op-envelope.md), so no
   conforming op could ever carry it as an outer object_type at all --
   its only reachable form is the declaration this fixture pins, which
-  RulesFromSchemas drops and reports the same as the other two.
+  RulesFromSchemas drops either way -- though as of WRIT-253's
+  object_type grammar gate (checked before the qualification check this
+  fixture otherwise pins), "acme.foo.bar" is now reported for that reason
+  first ("not a valid object type"), since two dots fails the grammar on
+  its own regardless of qualification; "standup" and "bigco.retro" remain
+  grammar-legal shapes caught only by the qualification check. See
+  schema-driven-ungrammatical-declaration for the grammar gate itself.
   acme.gadget's own ops fold normally throughout, unaffected by any of
   the three. (pins: reader)
 

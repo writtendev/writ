@@ -557,15 +557,27 @@ func TestSchemaPlanPorcelain_DiffIsInjectiveAcrossLiteralEscapeText(t *testing.T
 	}
 }
 
-// TestSchemaShow_HostileTypeNameRendersEscaped is WRIT-226's reachability
-// spike and acceptance test: a define-type op's body `type` is the one
-// foreign-sourced string that survives every existing gate --
+// TestSchemaShow_HostileTypeNameRendersEscaped was WRIT-226's reachability
+// spike and acceptance test: a define-type op's body `type` used to be
+// the one foreign-sourced string that survived every existing gate --
 // codec.ValidateEnvelope's decode-path schema leaves `body` unconstrained,
 // FoldSchema only checks `type != ""`, and typeIsQualifiedForNamespace
-// checks only the namespace prefix and single-segment shape, never
-// character grammar -- so a hostile type name installs into Schema.Types
-// and, before this ticket's fix, printed raw through both of `schema
-// show`'s porcelain arms (the bare list and the single-type view).
+// checked only the namespace prefix and single-segment shape, never
+// character grammar -- so a hostile type name installed into Schema.Types
+// and printed raw through both of `schema show`'s porcelain arms (the
+// bare list and the single-type view).
+//
+// WRIT-253 closed that gap in the resolver instead of at each render
+// site: writ.RulesFromSchemas now drops any declared type failing the
+// object_type grammar before it can ever reach Store.Types, so the
+// hostile name below no longer installs at all -- it is simply absent
+// from `schema show`, not present-and-escaped. What still needs a render
+// test is the *conflict* RulesFromSchemas reports for it: Reason is built
+// with a bare %q around the hostile string (engine/schema.go), which
+// reaches a human exactly like any other SchemaConflict.Reason
+// (TestSchemaPlanPorcelain_HostileConflictReasonRendersEscaped's already-
+// covered shape) -- this test ties that render path to WRIT-253's own
+// repro rather than a synthetic one.
 //
 // The hostile op is planted with writeForeignOp, not by constructing a
 // state.Schema directly: that is what makes it fetched-equivalent (as if
@@ -598,46 +610,68 @@ func TestSchemaShow_HostileTypeNameRendersEscaped(t *testing.T) {
 		if bytes.ContainsRune(out, 0x202E) {
 			t.Errorf("%s contains a raw U+202E byte sequence: %s", label, out)
 		}
-		if !bytes.Contains(out, escapeSeq) {
-			t.Errorf("%s = %s, want it to contain the %s escape", label, out, escapeSeq)
-		}
 	}
 
 	// `writ schema show` with no argument: the bare porcelain type-name
-	// listing (object.go's ":984" site) -- the most exposed of the three,
-	// since it needs no prior knowledge of the hostile name to reach.
+	// listing. The hostile type is gated by RulesFromSchemas before it
+	// ever reaches Store.Types, so it must be entirely absent here -- no
+	// raw form, and (unlike before WRIT-253) no escaped form either,
+	// since there is nothing to escape.
 	stdout.Reset()
 	stderr.Reset()
 	if code := run(context.Background(), []string{"schema", "show", "-C", env.repoDir}, &stdout, &stderr); code != 0 {
 		t.Fatalf("schema show (list) failed with %d; stderr: %s", code, stderr.String())
 	}
 	assertNoRawOverride("schema show (list)", stdout.Bytes())
+	if bytes.Contains(stdout.Bytes(), escapeSeq) {
+		t.Errorf("schema show (list) = %s, want no trace of the gated hostile type at all, escaped or not", stdout.Bytes())
+	}
+	if bytes.Contains(stdout.Bytes(), []byte("acme.a")) {
+		t.Errorf("schema show (list) = %s, want the gated hostile type absent from the listing", stdout.Bytes())
+	}
 
-	// `writ schema show <hostile-name>`: the single-type porcelain view
-	// (":1025" and the ":1030" namespace row).
+	// `writ schema show <hostile-name>`: since the type never installed,
+	// this must now fail as "not declared" -- there is no single-type
+	// view left to render for it, hostile or otherwise.
 	stdout.Reset()
 	stderr.Reset()
-	if code := run(context.Background(), []string{"schema", "show", "-C", env.repoDir, hostile}, &stdout, &stderr); code != 0 {
-		t.Fatalf("schema show <name> failed with %d; stderr: %s", code, stderr.String())
-	}
-	assertNoRawOverride("schema show <name>", stdout.Bytes())
-
-	// --json must still round-trip the exact hostile string losslessly
-	// (already covered by emitJSON's WRIT-137 pass; pinned here too so a
-	// regression in that pass would still be caught alongside this one).
-	stdout.Reset()
-	stderr.Reset()
-	if code := run(context.Background(), []string{"schema", "show", "-C", env.repoDir, hostile, "--json"}, &stdout, &stderr); code != 0 {
-		t.Fatalf("schema show <name> --json failed with %d; stderr: %s", code, stderr.String())
-	}
-	if bytes.ContainsRune(stdout.Bytes(), 0x202E) {
-		t.Errorf("schema show <name> --json contains a raw U+202E byte sequence: %s", stdout.Bytes())
+	if code := run(context.Background(), []string{"schema", "show", "-C", env.repoDir, hostile}, &stdout, &stderr); code == 0 {
+		t.Fatalf("schema show <name> for a gated hostile type unexpectedly succeeded; stdout: %s", stdout.String())
 	}
 
-	var typeInfo wire.SchemaTypeInfo
-	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindSchemaShow, &typeInfo)
-	if typeInfo.Name != hostile {
-		t.Errorf("decoded type name = %q, want the original hostile value %q (lossless round trip)", typeInfo.Name, hostile)
+	// The conflict RulesFromSchemas reports for the drop is the render
+	// path that still matters here: Reason carries the hostile string
+	// verbatim (engine/schema.go's %q), and renderSchemaPlanPorcelain's
+	// "conflict: " line is one of the two sites that render it
+	// (TestSchemaPlanPorcelain_HostileConflictReasonRendersEscaped covers
+	// the other, describeSchemaConflict). Driven from the real resolver
+	// output over the actual foreign op above, not a synthetic Reason.
+	store, err := openStore(env.repoDir)
+	if err != nil {
+		t.Fatalf("openStore: %v", err)
+	}
+	defer store.Close()
+	schemas, err := store.Schema(context.Background())
+	if err != nil {
+		t.Fatalf("store.Schema: %v", err)
+	}
+	_, conflicts := writ.RulesFromSchemas(schemas)
+
+	var foundConflict bool
+	for _, c := range conflicts {
+		if strings.Contains(c.Reason, "acme.a") {
+			foundConflict = true
+		}
+	}
+	if !foundConflict {
+		t.Fatalf("expected a SchemaConflict naming the gated hostile type, got %+v", conflicts)
+	}
+
+	var buf bytes.Buffer
+	renderSchemaPlanPorcelain(&buf, &schemaPlanResult{upToDate: true, conflicts: conflicts})
+	assertNoRawOverride("schema plan conflicts", buf.Bytes())
+	if !bytes.Contains(buf.Bytes(), escapeSeq) {
+		t.Errorf("schema plan conflicts = %s, want the conflict line to contain the %s escape", buf.Bytes(), escapeSeq)
 	}
 }
 
@@ -851,10 +885,19 @@ func TestSchemaPlan_HostileFetchedOpTypeRendersEscaped(t *testing.T) {
 // (object.go), whose sorted list is joined into the "not declared by the
 // installed vocabulary (declares: ...)" message emitted by both
 // `writ object list <type>` and `writ object create`/`apply` (through
-// resolveOpVersion). It is the same value TestSchemaShow_HostileTypeNameRendersEscaped
-// plants, reached by a lower-friction route: a plain typo in the type
-// argument prints the attacker-chosen string beside a %q-quoted (and so
-// already escaped) copy of the user's own input.
+// resolveOpVersion). It used to be the same value
+// TestSchemaShow_HostileTypeNameRendersEscaped plants, reached by a
+// lower-friction route -- a plain typo in the type argument prints the
+// attacker-chosen string beside a %q-quoted (and so already escaped)
+// copy of the user's own input.
+//
+// WRIT-253's resolver gate means declaredTypeNames can no longer be
+// handed the hostile type at all: RulesFromSchemas drops it before
+// Store.Types ever returns it, so this list has nothing of the hostile
+// name left to escape. What this test now pins is that absence -- the
+// declares: list carries no trace of it, raw or escaped -- while the
+// legitimate declared types (fullTestSchema's own) still populate it
+// normally, so the list itself is not simply empty by accident.
 func TestObjectUnknownType_HostileDeclaredTypeListRendersEscaped(t *testing.T) {
 	env := initTestRepo(t)
 	writeSchemaFile(t, env.repoDir, fullTestSchema)
@@ -871,13 +914,16 @@ func TestObjectUnknownType_HostileDeclaredTypeListRendersEscaped(t *testing.T) {
 	})
 
 	escapeSeq := []byte(fmt.Sprintf("\\u%04x", 0x202E))
-	assertNoRawOverride := func(label string, out []byte) {
+	assertNoTraceOfHostileType := func(label string, out []byte) {
 		t.Helper()
 		if bytes.ContainsRune(out, 0x202E) {
 			t.Errorf("%s contains a raw U+202E byte sequence: %s", label, out)
 		}
-		if !bytes.Contains(out, escapeSeq) {
-			t.Errorf("%s = %s, want it to contain the %s escape", label, out, escapeSeq)
+		if bytes.Contains(out, escapeSeq) {
+			t.Errorf("%s = %s, want no trace of the gated hostile type at all, escaped or not", label, out)
+		}
+		if !bytes.Contains(out, []byte("declares:")) {
+			t.Errorf("%s = %s, want a non-empty declares: list of the legitimately declared types", label, out)
 		}
 	}
 
@@ -888,7 +934,7 @@ func TestObjectUnknownType_HostileDeclaredTypeListRendersEscaped(t *testing.T) {
 	if code := run(context.Background(), []string{"object", "list", "-C", env.repoDir, "acme.nosuch"}, &stdout, &stderr); code == 0 {
 		t.Fatalf("object list with an undeclared type unexpectedly succeeded; stdout: %s", stdout.String())
 	}
-	assertNoRawOverride("object list (undeclared type)", stderr.Bytes())
+	assertNoTraceOfHostileType("object list (undeclared type)", stderr.Bytes())
 
 	// `writ object create <undeclared> <op>`: the same list, from
 	// resolveOpVersion's error, printed straight to stderr as well.
@@ -897,7 +943,7 @@ func TestObjectUnknownType_HostileDeclaredTypeListRendersEscaped(t *testing.T) {
 	if code := run(context.Background(), []string{"object", "create", "-C", env.repoDir, "acme.nosuch", "create"}, &stdout, &stderr); code == 0 {
 		t.Fatalf("object create with an undeclared type unexpectedly succeeded; stdout: %s", stdout.String())
 	}
-	assertNoRawOverride("object create (undeclared type)", stderr.Bytes())
+	assertNoTraceOfHostileType("object create (undeclared type)", stderr.Bytes())
 }
 
 // TestObjectCreate_HostileFetchedEnumRendersEscaped covers the one

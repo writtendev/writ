@@ -123,9 +123,16 @@ func objectsTextClause(desc *schemaDescriptor, restrictTypes []string) (clause s
 //
 // Reads desc.queryShapes/queryOrder for the same reason objectsTextClause
 // does — see its doc comment (WRIT-192 round 2 MAJOR-1).
-func objectsNotDeletedClause(desc *schemaDescriptor, restrictTypes []string) string {
+//
+// objectType is a schema-declared name, not a literal writ controls, so it
+// is bound as a parameter (o.object_type != ?) rather than spliced into the
+// clause text — the one schema-derived value that used to reach SQL as a
+// literal (WRIT-253). params holds one entry per part, in the same order
+// the clauses appear in the returned string, for the caller to append to
+// its query args.
+func objectsNotDeletedClause(desc *schemaDescriptor, restrictTypes []string) (clause string, params []any) {
 	if desc == nil {
-		return ""
+		return "", nil
 	}
 
 	var allow map[string]bool
@@ -157,12 +164,13 @@ func objectsNotDeletedClause(desc *schemaDescriptor, restrictTypes []string) str
 		for _, col := range cols {
 			notDeleted = append(notDeleted, "(x."+col+" = 0 OR x."+col+" IS NULL)")
 		}
-		parts = append(parts, "(o.object_type != '"+objectType+"' OR EXISTS (SELECT 1 FROM "+quoteIdent(shape.Table)+" x WHERE x.object_id = o.object_id AND "+strings.Join(notDeleted, " AND ")+"))")
+		parts = append(parts, "(o.object_type != ? OR EXISTS (SELECT 1 FROM "+quoteIdent(shape.Table)+" x WHERE x.object_id = o.object_id AND "+strings.Join(notDeleted, " AND ")+"))")
+		params = append(params, objectType)
 	}
 	if len(parts) == 0 {
-		return ""
+		return "", nil
 	}
-	return strings.Join(parts, " AND ")
+	return strings.Join(parts, " AND "), params
 }
 
 // Objects executes a cross-type summary query over collaborative objects.
@@ -213,8 +221,9 @@ func (d *DB) Objects(f ObjectFilter) ([]ObjectResult, error) {
 	}
 
 	if !f.IncludeDeleted {
-		if clause := objectsNotDeletedClause(desc, f.Type); clause != "" {
+		if clause, params := objectsNotDeletedClause(desc, f.Type); clause != "" {
 			sb.WriteString(" AND " + clause)
+			args = append(args, params...)
 		}
 	}
 

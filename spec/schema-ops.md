@@ -107,6 +107,19 @@ the global namespace the qualification exists to open up: a hand-crafted
 `object_type` collision is reachable only between two schema objects that
 already share one.
 
+Nothing on the read path checks a `define-type`'s declared `type`, or a
+schema object's own folded `namespace`, against the grammar this section
+requires of them, either: `codec.DecodeCommit` validates only the
+envelope carrying the op (`object_type: "schema"`, a known `op_type`), not
+the strings inside its `body`, and `state.FoldSchema` copies `namespace`
+and `type` into folded state raw, unvalidated. This is likewise caught by
+the resolver, not the wire format — a declared `type` failing §4.2's own
+requirement (pattern, 129-character bound, `.lock` exclusion), or a
+schema object's `namespace` failing this section's bare-form grammar, is
+dropped and reported the same way an unqualified declaration is, and
+checked first: a name cannot be well-formed enough to ask "is it
+qualified?" if it fails its own grammar. See §6's fifth conflict kind.
+
 On an `object_type` collision, **no winner is picked**: neither schema
 object's rules are installed for the contested type. Its ops fall through
 the absent-schema path to `UnknownOp`, reusing the existing forward-
@@ -464,7 +477,7 @@ the others.
 ## 6. Conflicts
 
 Reading any object requires first folding the `schema` objects present in
-a repository and resolving them into per-`object_type` rule sets. Four
+a repository and resolving them into per-`object_type` rule sets. Five
 kinds of conflict can arise, and none is picked a winner:
 
 1. **`object_type` collision** (§2): two schema objects both bind the
@@ -485,7 +498,24 @@ kinds of conflict can arise, and none is picked a winner:
    collision when both occur (as it now always is, whenever two schema
    objects collide on a qualified type), but on its own it withholds
    nothing.
-3. **Unqualified (or foreign-namespace) declaration** (§2): a declared
+3. **Ungrammatical declaration** (§2): a `define-type` `type` failing
+   §4.2's own requirement of it — the `object_type` pattern, the
+   129-character bound, or the `.lock` exclusion — or a schema object
+   whose folded `namespace` fails §4.1's bare-form grammar. Dropped and
+   reported, never installed, and checked *before* the qualification
+   check below: a name that is not itself grammar-valid cannot be asked
+   whether it is qualified. An ungrammatical namespace withholds every
+   type the schema object declares, not one conflict per type — every
+   one of them is necessarily unqualifiable under a namespace that is
+   not itself a valid namespace, so a single conflict against the
+   namespace already names the one root cause. Nothing upstream of the
+   resolver enforces this for a schema op's folded body (§2): a
+   non-conforming producer, or a hand-crafted commit reaching the log
+   directly, can declare a `type` or `namespace` containing bytes that
+   break out of a generated SQL string literal or a shell word once
+   installed — the resolver's grammar gate is what a reader relies on
+   instead.
+4. **Unqualified (or foreign-namespace) declaration** (§2): a declared
    type whose name does not carry its own schema object's namespace as
    its prefix — bare, qualified under a different namespace, or carrying
    more than one dot. Dropped and reported, never installed, exactly like
@@ -494,8 +524,12 @@ kinds of conflict can arise, and none is picked a winner:
    lives (this is a property of the declaration checked once, not
    per-field). This is the check that closes the namespace §2 describes:
    without it, a hand-crafted `define-type` could squat any name it
-   likes regardless of which namespace declared it.
-4. **Target-agreement failure** (§8): two or more field rules bound to one
+   likes regardless of which namespace declared it. A type name carrying
+   more than one dot fails the ungrammatical-declaration check above
+   first, since the `object_type` grammar admits at most one; this check
+   is what remains for a bare or foreign-namespace name, both
+   grammar-legal shapes on their own.
+5. **Target-agreement failure** (§8): two or more field rules bound to one
    `target` within one `object_type` fail the shared-target agreement
    relation. The remedy is the same shape as an `object_type` collision,
    scoped to the target rather than the whole type: every rule bound to

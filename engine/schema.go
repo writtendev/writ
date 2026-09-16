@@ -893,6 +893,68 @@ func validOpTypeGrammar(opType string) bool {
 	return opType != "" && len(opType) <= opTypeMaxLength && opTypeGrammar.MatchString(opType)
 }
 
+// objectTypeGrammar mirrors engine/dag/refs.go's objectTypeRegexp
+// (spec/op-envelope.md's object_type field): a bare segment, or two such
+// segments joined by exactly one dot, each capped at 64 characters.
+// Nothing upstream of resolveSchemaTypes enforces this for a schema
+// op's declared type name — codec.DecodeCommit's ValidateEnvelope bounds
+// only the *op's own* object_type ("schema"), never the "type" string
+// carried inside a define-type op's body (WRIT-253) — so a hand-crafted
+// define-type is otherwise free to declare any bytes at all. Duplicated
+// locally rather than exported from engine/dag, the same local-duplicate
+// style opTypeGrammar above already uses and for the same reason: a
+// schema-op grammar that happens to resemble a lower-layer one is not a
+// caller of it.
+var objectTypeGrammar = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}(\.[a-z][a-z0-9-]{0,63})?$`)
+
+// objectTypeGrammarMaxLength mirrors engine/dag/refs.go's
+// objectTypeMaxLength: two 64-character segments plus the separating dot.
+const objectTypeGrammarMaxLength = 129
+
+// validObjectTypeGrammar reports whether typeName satisfies every
+// requirement spec/schema-ops.md §4.2 places on a define-type op's `type`:
+// the object_type grammar and length bound (spec/op-envelope.md), and the
+// ".lock" exclusion — git rejects a ref path component ending in ".lock",
+// so a type name ending that way is grammar-legal but ref-unwritable
+// (engine/dag/refs.go's objectTypeEndsInDotLock).
+func validObjectTypeGrammar(typeName string) bool {
+	return typeName != "" &&
+		len(typeName) <= objectTypeGrammarMaxLength &&
+		objectTypeGrammar.MatchString(typeName) &&
+		!strings.HasSuffix(typeName, ".lock")
+}
+
+// namespaceGrammar is spec/schema-ops.md §2's "bare form" grammar a
+// schema's namespace must itself satisfy: the same per-segment shape
+// object_type's own grammar is built from, capped at 64 characters. It
+// coincides with opTypeGrammar's pattern today, but the two check
+// different wire fields for different reasons (an op_type vs. a schema
+// object's namespace), so this stays its own named copy rather than a
+// second caller of opTypeGrammar — one changing out from under the other
+// silently would be the wrong kind of coupling.
+var namespaceGrammar = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+
+const namespaceGrammarMaxLength = 64
+
+func validNamespaceGrammar(namespace string) bool {
+	return namespace != "" && len(namespace) <= namespaceGrammarMaxLength && namespaceGrammar.MatchString(namespace)
+}
+
+// declarationInstallable reports whether a declared type name could ever
+// be installed for a schema object carrying the given namespace: the
+// namespace itself must be grammar-valid, the type name must satisfy the
+// object_type grammar, and the type name must be qualified with that
+// namespace (WRIT-217). resolveSchemaTypes' two passes share this exact
+// predicate — the first to decide what may be declared, bound, or
+// contested at all (with its own per-reason SchemaConflict), the second to
+// decide what may contribute fields/ops/descriptions — so a type gated out
+// by either grammar check can never reach buildTypeDescriptor by either
+// path, the same way an unqualified declaration already could not
+// (WRIT-253).
+func declarationInstallable(typeName, namespace string) bool {
+	return validNamespaceGrammar(namespace) && validObjectTypeGrammar(typeName) && typeIsQualifiedForNamespace(typeName, namespace)
+}
+
 // typeIsQualifiedForNamespace reports whether a declared type name is
 // exactly "<namespace>.<segment>" for a non-empty, single-segment
 // remainder (WRIT-217): the resolver-level gate that closes the global
@@ -904,9 +966,17 @@ func validOpTypeGrammar(opType string) bool {
 // require agreement with, so every type name it declares is refused here,
 // not silently admitted as bare. A remainder carrying its own dot (a
 // multi-dot type name, e.g. "acme.foo.bar" under namespace "acme") is
-// refused too: it is not the single segment §6.3 requires, and admitting
+// refused too: it is not the single segment §6.4 requires, and admitting
 // it would install a type whose ops engine/dag's objectTypeRegexp can
 // never write and that schemasrc.Render cannot round-trip.
+//
+// This function only ever answers the qualification question: it does not
+// itself check that typeName or namespace are grammar-valid strings at
+// all (a caller can, and validObjectTypeGrammar/validNamespaceGrammar do,
+// find "a') OR 1 --" every bit as prefix-matchable as "gadget"). Grammar
+// is validObjectTypeGrammar's and validNamespaceGrammar's job (WRIT-253);
+// declarationInstallable is what combines all three, and is what every
+// caller inside resolveSchemaTypes actually gates on.
 //
 // Unexported: nothing outside this package needs to ask the question.
 // Callers see the answer in the shapes the resolver already returns — an
@@ -1029,6 +1099,24 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 	var conflicts []SchemaConflict
 
 	for _, sch := range sorted {
+		// Namespace grammar gate (WRIT-253), checked before the namespace
+		// collision check below and before any of this object's types are
+		// looked at: nothing upstream validates a schema op's folded
+		// namespace, so an ungrammatical one — e.g. carrying its own quote
+		// or SQL comment syntax — must never register in namespaceOwner or
+		// reach declarationInstallable, and every type this object
+		// declares is necessarily unqualifiable under it, so one conflict
+		// naming the namespace covers all of them rather than repeating
+		// the same root cause once per type.
+		if sch.Namespace != "" && !validNamespaceGrammar(sch.Namespace) {
+			conflicts = append(conflicts, SchemaConflict{
+				Namespace: sch.Namespace,
+				ObjectIDs: []string{sch.ObjectID},
+				Reason:    fmt.Sprintf("namespace %q is not a valid namespace (must match ^[a-z][a-z0-9-]*$, max %d chars) and none of its types were installed", sch.Namespace, namespaceGrammarMaxLength),
+			})
+			continue
+		}
+
 		if sch.Namespace != "" {
 			if owner, ok := namespaceOwner[sch.Namespace]; ok {
 				if owner != sch.ObjectID {
@@ -1052,6 +1140,27 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 					Namespace:  sch.Namespace,
 					ObjectIDs:  []string{sch.ObjectID},
 					Reason:     "schema is the engine's built-in bootstrap type and cannot be redefined from the log",
+				})
+				continue
+			}
+
+			// object_type grammar gate (WRIT-253), checked before
+			// qualification below: the envelope grammar
+			// (spec/op-envelope.md) is never run against a schema op's
+			// declared type name on the read path, so a define-type is
+			// otherwise free to declare any bytes at all — including ones
+			// that break out of a SQL string literal or a shell word.
+			// Dropped and reported here, never touching boundBy/declared/
+			// contested for t.Name, the same reasoning the qualification
+			// check below already uses: a malformed declaration must not
+			// contest a legitimate binding of some other, well-formed
+			// type.
+			if !validObjectTypeGrammar(t.Name) {
+				conflicts = append(conflicts, SchemaConflict{
+					ObjectType: t.Name,
+					Namespace:  sch.Namespace,
+					ObjectIDs:  []string{sch.ObjectID},
+					Reason:     fmt.Sprintf("define-type %q is not a valid object type (must match ^[a-z][a-z0-9-]{0,63}(\\.[a-z][a-z0-9-]{0,63})?$, max %d chars, and not end in \".lock\") and was not installed", t.Name, objectTypeGrammarMaxLength),
 				})
 				continue
 			}
@@ -1100,14 +1209,16 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 	deprecatedTypes := make(map[string]bool)
 	for _, sch := range sorted {
 		for _, t := range sch.Types {
-			// Mirrors the first pass's namespace-qualification gate
-			// (WRIT-217): a type that failed it above never touched
-			// boundBy/declared and was never a candidate for contested
-			// either, so it must be excluded here by the same test, not
-			// inferred from contested[t.Name] alone — otherwise an
-			// unqualified declaration's own fields would still populate
-			// fields[t.Name] and end up installed regardless.
-			if t.Name == "schema" || contested[t.Name] || !typeIsQualifiedForNamespace(t.Name, sch.Namespace) {
+			// Mirrors the first pass's namespace-grammar, object_type-
+			// grammar, and namespace-qualification gates (WRIT-217,
+			// WRIT-253) via the same declarationInstallable predicate that
+			// pass uses: a type that failed any of them above never
+			// touched boundBy/declared and was never a candidate for
+			// contested either, so it must be excluded here by the exact
+			// same test, not inferred from contested[t.Name] alone —
+			// otherwise a gated declaration's own fields would still
+			// populate fields[t.Name] and end up installed regardless.
+			if t.Name == "schema" || contested[t.Name] || !declarationInstallable(t.Name, sch.Namespace) {
 				continue
 			}
 
@@ -1337,7 +1448,7 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 //     but on its own it withholds nothing. A declared type whose name does
 //     not carry its own schema object's namespace as its prefix — bare,
 //     qualified under a different namespace, or carrying more than one dot
-//     — is a distinct conflict (§6.3, typeIsQualifiedForNamespace): dropped
+//     — is a distinct conflict (§6.4, typeIsQualifiedForNamespace): dropped
 //     and reported, never installed, so a hand-crafted define-type cannot
 //     squat a name outside its own namespace. Rules that share a target but disagree
 //     (spec/fold.md §5, spec/schema-ops.md §8) — including a version bump
