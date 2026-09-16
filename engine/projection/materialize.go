@@ -635,14 +635,13 @@ func positionOpID(orderedOps []codec.Op, objectType, targetKey string, rules []s
 // case is gone, so this is now simply the one implementation.
 //
 // withheldTargets are target keys the descriptor declined to give a column
-// — today only a keyed-lww target whose bound rules disagree on Key
-// (ddl.go's keyed-lww case, WRIT-205; an append target was the other
-// reason before WRIT-212 gave every append target its own row-per-entry
-// table, which has nothing left to withhold): a rule bound to one of them
-// still matched, so the op is not quarantined, but its field has nowhere to
-// land in SQL. It counts as unknown here rather than being dropped, which is
-// what spec/forward-compatibility.md §Targets a projection declines
-// requires.
+// — see typeDescriptor.WithheldTargets (ddl.go) for the two reasons: a
+// keyed-lww target whose bound rules disagree on Key, or a target (scalar
+// or keyed-lww) that would push its table past maxTableColumns (WRIT-256).
+// A rule bound to one of them still matched, so the op is not quarantined,
+// but its field has nowhere to land in SQL. It counts as unknown here
+// rather than being dropped, which is what
+// spec/forward-compatibility.md §Targets a projection declines requires.
 //
 // That routing stops where this map does, and deliberately: a withheld
 // keyed-lww target is an accumulator (one register per key), but result is

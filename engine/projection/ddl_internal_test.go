@@ -2,6 +2,7 @@ package projection
 
 import (
 	"encoding/json"
+	"fmt"
 	"math/rand"
 	"reflect"
 	"sort"
@@ -475,5 +476,243 @@ func TestIdentPatternMatchesWireGrammar(t *testing.T) {
 	}
 	if keyColumnName.MaxLength != identMaxLength {
 		t.Errorf("identMaxLength %d no longer matches schema-ops.schema.json's key_column_name maxLength %d", identMaxLength, keyColumnName.MaxLength)
+	}
+}
+
+// makeLWWFieldRules builds n distinct lww string-valued targets on
+// objectType, zero-padded ("f0000", "f0001", ...) so their sorted order —
+// the order buildTypeDescriptor's column budget walks them in — is obvious
+// from the name alone. Shared by the maxTableColumns tests below (WRIT-256).
+func makeLWWFieldRules(objectType string, n int) []state.Rule {
+	rules := make([]state.Rule, n)
+	for i := range rules {
+		field := fmt.Sprintf("f%04d", i)
+		rules[i] = state.Rule{OpType: "create", Field: field, Strategy: "lww", ValueType: "string", ObjectType: objectType}
+	}
+	return rules
+}
+
+// TestColumnBudgetFitsUnderLimit is the boundary just below maxTableColumns:
+// 1998 scalar targets, plus the type table's two fixed columns (object_id,
+// unknown_fields), land exactly on 2000 — the limit itself, not one under
+// it — so every target must still get its column and none may be withheld.
+func TestColumnBudgetFitsUnderLimit(t *testing.T) {
+	rules := map[string][]state.Rule{"widget": makeLWWFieldRules("widget", 1998)}
+	desc, err := buildDescriptor(rules)
+	if err != nil {
+		t.Fatalf("buildDescriptor: %v", err)
+	}
+	td, ok := desc.types["widget"]
+	if !ok {
+		t.Fatalf("expected widget to have tables")
+	}
+	if got := len(td.Table.Columns); got != maxTableColumns {
+		t.Fatalf("o_widget has %d columns, want exactly %d", got, maxTableColumns)
+	}
+	if len(td.WithheldTargets) != 0 {
+		t.Fatalf("WithheldTargets = %v, want none — 1998 targets plus object_id and unknown_fields is exactly %d", td.WithheldTargets, maxTableColumns)
+	}
+}
+
+// TestColumnBudgetWithholdsOverflowTarget is the ticket's own reproduction:
+// one target more (1999) pushes the type table to 2001 columns, which
+// SQLite's compiled limit refuses outright ("too many columns"), bricking
+// writ.Open and every Refresh for the whole repository before this fix
+// (WRIT-256). The generator must instead decline the one target that
+// doesn't fit — sorted last, "f1998" — and keep the other 1998.
+func TestColumnBudgetWithholdsOverflowTarget(t *testing.T) {
+	rules := map[string][]state.Rule{"widget": makeLWWFieldRules("widget", 1999)}
+	desc, err := buildDescriptor(rules)
+	if err != nil {
+		t.Fatalf("buildDescriptor: %v", err)
+	}
+	td, ok := desc.types["widget"]
+	if !ok {
+		t.Fatalf("expected widget to have tables — the type itself must materialize even though one target doesn't")
+	}
+	if got := len(td.Table.Columns); got != maxTableColumns {
+		t.Fatalf("o_widget has %d columns, want exactly %d", got, maxTableColumns)
+	}
+	want := map[string]bool{"f1998": true}
+	if !reflect.DeepEqual(td.WithheldTargets, want) {
+		t.Fatalf("WithheldTargets = %v, want %v", td.WithheldTargets, want)
+	}
+	if _, ok := td.Targets["f1998"]; ok {
+		t.Fatalf("targets[\"f1998\"] present, want none — a withheld target must get no targetPlan")
+	}
+	for i := 0; i < 1998; i++ {
+		field := fmt.Sprintf("f%04d", i)
+		if _, ok := td.Targets[field]; !ok {
+			t.Fatalf("targets[%q] missing, want it to still materialize", field)
+		}
+	}
+}
+
+// TestColumnBudgetPositionBoundaryFirstFit pins first-fit, not
+// stop-at-first-overflow: a position-valued target costs two columns
+// (f_<target> and f_<target>__op_id), so it can be the one thing that
+// doesn't fit even when a later, cheaper target would. 1997 filler targets
+// leave exactly one column of budget; "g_pos" (position, costs 2) doesn't
+// fit and is withheld, but "h_last" (costs 1), sorted after it, still takes
+// the remaining slot.
+func TestColumnBudgetPositionBoundaryFirstFit(t *testing.T) {
+	rules := makeLWWFieldRules("widget", 1997) // f0000..f1996, one column each
+	rules = append(rules,
+		state.Rule{OpType: "move", Field: "g_pos", Strategy: "lww", ValueType: "position", ObjectType: "widget"},
+		state.Rule{OpType: "create", Field: "h_last", Strategy: "lww", ValueType: "string", ObjectType: "widget"},
+	)
+
+	desc, err := buildDescriptor(map[string][]state.Rule{"widget": rules})
+	if err != nil {
+		t.Fatalf("buildDescriptor: %v", err)
+	}
+	td, ok := desc.types["widget"]
+	if !ok {
+		t.Fatalf("expected widget to have tables")
+	}
+	if got := len(td.Table.Columns); got != maxTableColumns {
+		t.Fatalf("o_widget has %d columns, want exactly %d", got, maxTableColumns)
+	}
+	want := map[string]bool{"g_pos": true}
+	if !reflect.DeepEqual(td.WithheldTargets, want) {
+		t.Fatalf("WithheldTargets = %v, want %v — g_pos costs 2 columns and only 1 remained, h_last costs 1 and still fits after it", td.WithheldTargets, want)
+	}
+	if _, ok := td.Targets["h_last"]; !ok {
+		t.Fatalf("targets[\"h_last\"] missing, want first-fit to still take the slot g_pos couldn't")
+	}
+	if plan, ok := td.Targets["g_pos"]; ok {
+		t.Fatalf("targets[\"g_pos\"] = %+v, want none — a withheld target must get no targetPlan", plan)
+	}
+}
+
+// TestColumnBudgetDeclinedUntypedTargetGetsNoMembersTable covers the plan's
+// ordering requirement directly: the budget decision must happen before any
+// column, targetPlan, members child table, or anchor ref is created for the
+// declined target. An untyped (ValueType "") lww target normally gets a
+// generic "__members" child table (buildTypeDescriptor's lww/create-once
+// case) — if withholding happened after that table was inserted, the type
+// would end up with an orphaned child table pointing at a target with no
+// column and no plan.
+func TestColumnBudgetDeclinedUntypedTargetGetsNoMembersTable(t *testing.T) {
+	rules := makeLWWFieldRules("widget", 1998) // fills the budget exactly
+	rules = append(rules, state.Rule{OpType: "create", Field: "z_extra", Strategy: "lww", ValueType: "", ObjectType: "widget"})
+
+	desc, err := buildDescriptor(map[string][]state.Rule{"widget": rules})
+	if err != nil {
+		t.Fatalf("buildDescriptor: %v", err)
+	}
+	td, ok := desc.types["widget"]
+	if !ok {
+		t.Fatalf("expected widget to have tables")
+	}
+	if !td.WithheldTargets["z_extra"] {
+		t.Fatalf("WithheldTargets = %v, want it to contain \"z_extra\"", td.WithheldTargets)
+	}
+	if _, ok := td.Targets["z_extra"]; ok {
+		t.Fatalf("targets[\"z_extra\"] present, want none")
+	}
+	wantMembers := "o_widget__z_extra__members"
+	for _, c := range td.Children {
+		if c.Name == wantMembers {
+			t.Fatalf("children contains %q, want no members table for a withheld target", wantMembers)
+		}
+	}
+}
+
+// TestColumnBudgetWithholdsOverflowGroupMembers covers the keyed-lww group
+// table's own, separate column budget: object_id plus one column per key
+// component are fixed, leaving the rest for member columns. 1999 members
+// sharing one single-component key overflow a group table by exactly one —
+// the first 1998 (sorted) keep their columns, the last is withheld, and the
+// group table itself still forms with ≤2000 columns for the members that
+// survive.
+func TestColumnBudgetWithholdsOverflowGroupMembers(t *testing.T) {
+	n := 1999
+	rules := make([]state.Rule, n)
+	for i := range rules {
+		field := fmt.Sprintf("m%04d", i)
+		rules[i] = state.Rule{
+			OpType: "check", Field: field, Strategy: "keyed-lww",
+			Key: []string{"k"}, KeyTypes: map[string]string{"k": "string"},
+			ValueType: "string", ObjectType: "widget",
+		}
+	}
+
+	desc, err := buildDescriptor(map[string][]state.Rule{"widget": rules})
+	if err != nil {
+		t.Fatalf("buildDescriptor: %v", err)
+	}
+	td, ok := desc.types["widget"]
+	if !ok {
+		t.Fatalf("expected widget to have tables")
+	}
+
+	var group *ddlTable
+	for i := range td.Children {
+		if td.Children[i].Name == "o_widget__k_k" {
+			group = &td.Children[i]
+		}
+	}
+	if group == nil {
+		t.Fatalf("expected o_widget__k_k (the key group table) among widget's children: %+v", td.Children)
+	}
+	if got := len(group.Columns); got != maxTableColumns {
+		t.Fatalf("o_widget__k_k has %d columns, want exactly %d (object_id + k_k + 1998 surviving members)", got, maxTableColumns)
+	}
+
+	want := map[string]bool{"m1998": true}
+	if !reflect.DeepEqual(td.WithheldTargets, want) {
+		t.Fatalf("WithheldTargets = %v, want %v", td.WithheldTargets, want)
+	}
+	if _, ok := td.Targets["m1998"]; ok {
+		t.Fatalf("targets[\"m1998\"] present, want none — the overflow member must get no targetPlan")
+	}
+	for i := 0; i < 1998; i++ {
+		field := fmt.Sprintf("m%04d", i)
+		plan, ok := td.Targets[field]
+		if !ok || plan.GroupTable != "o_widget__k_k" {
+			t.Fatalf("targets[%q] = %+v, want a surviving member of o_widget__k_k", field, plan)
+		}
+	}
+}
+
+// TestColumnBudgetIsDeterministic mirrors TestGeneratedDDLIsDeterministic
+// for the overflow case specifically: the same 1999-target rule set,
+// shuffled, must decline the same target ("f1998", sorted last, not
+// whichever one happened to be presented last) and produce byte-identical
+// DDL and digest either way.
+func TestColumnBudgetIsDeterministic(t *testing.T) {
+	rules := map[string][]state.Rule{"widget": makeLWWFieldRules("widget", 1999)}
+
+	d1, err := buildDescriptor(rules)
+	if err != nil {
+		t.Fatalf("buildDescriptor: %v", err)
+	}
+
+	shuffled := make(map[string][]state.Rule, len(rules))
+	for objectType, rs := range rules {
+		cp := append([]state.Rule(nil), rs...)
+		rand.Shuffle(len(cp), func(i, j int) { cp[i], cp[j] = cp[j], cp[i] })
+		shuffled[objectType] = cp
+	}
+
+	d2, err := buildDescriptor(shuffled)
+	if err != nil {
+		t.Fatalf("buildDescriptor (shuffled): %v", err)
+	}
+
+	if d1.createSQL() != d2.createSQL() {
+		t.Fatalf("DDL differs between declaration order and shuffled order")
+	}
+	if d1.digest != d2.digest {
+		t.Fatalf("digest differs between declaration order (%s) and shuffled order (%s)", d1.digest, d2.digest)
+	}
+	td1, td2 := d1.types["widget"], d2.types["widget"]
+	if !reflect.DeepEqual(td1.WithheldTargets, td2.WithheldTargets) {
+		t.Fatalf("WithheldTargets differs between declaration order (%v) and shuffled order (%v)", td1.WithheldTargets, td2.WithheldTargets)
+	}
+	want := map[string]bool{"f1998": true}
+	if !reflect.DeepEqual(td1.WithheldTargets, want) {
+		t.Fatalf("WithheldTargets = %v, want %v regardless of input order", td1.WithheldTargets, want)
 	}
 }
