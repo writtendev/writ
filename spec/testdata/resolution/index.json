@@ -34,6 +34,11 @@
     "match": "context-exact",
     "outcome": "resolved"
   },
+  "elided-range-end-int53-max.json": {
+    "description": "range.end at exactly 2^53-1, the positive edge of the exact-integer bound; arithmetic is self-consistent so the side is well-formed, degrading only because the one-line target file is far shorter than the anchored range",
+    "outcome": "orphaned",
+    "reason": "no-candidate"
+  },
   "exact-blob-moved.json": {
     "description": "File moved to new path with identical content",
     "match": "exact-blob-moved",
@@ -100,6 +105,11 @@
     "outcome": "orphaned",
     "reason": "malformed"
   },
+  "malformed-range-end-int53-exact-boundary.json": {
+    "description": "range.end is exactly 2^53, one past the +/-(2^53-1) exact-integer bound; unlike malformed-range-end-int53-overflow.json's 2^63, this pins the exact edge of the bound rather than a value any bound from 2^53 up would also reject (WRIT-252 round 5 review)",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
   "malformed-range-end-int53-overflow.json": {
     "description": "range.end is 2^63, past the +/-(2^53-1) exact-integer bound a JSON number must decode within; start/omitted are chosen so the arithmetic would self-consistently look valid against an out-of-range float's architecture-dependent int conversion, which is exactly why the bound must be checked before converting at all (WRIT-252 round 3)",
     "outcome": "orphaned",
@@ -117,6 +127,16 @@
   },
   "malformed-single-line-elided.json": {
     "description": "Elided context on a single-line range against a one-line file; the resolver ladder must not index into it (WRIT-252 repro, index out of range [1])",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
+  "malformed-version-int53-overflow.json": {
+    "description": "Anchor version is the JSON number 2^53, past the +/-(2^53-1) exact-integer bound every catalogue int field must decode within; malformed, not compared to 1 as unsupported-version (WRIT-252 round 5 review)",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
+  "malformed-version-missing.json": {
+    "description": "Anchor object has no version key at all; a missing version is malformed, not version 1 or unsupported-version (WRIT-252 round 5 review)",
     "outcome": "orphaned",
     "reason": "malformed"
   },
