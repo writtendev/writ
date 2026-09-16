@@ -71,7 +71,7 @@ func WithTargetRefs(refs ...string) Option {
 func Open(path string, opts ...Option) (*Store, error) {
 	gitInfo, err := ResolveGitDir(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrStoreOpen, err)
 	}
 
 	cfg := &openConfig{
@@ -93,7 +93,7 @@ func Open(path string, opts ...Option) (*Store, error) {
 		CommonDir: gitInfo.CommonDir,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("writ: open git repo %s: %w", repoDir, err)
+		return nil, fmt.Errorf("writ: open git repo %s: %w: %w", repoDir, ErrStoreOpen, err)
 	}
 
 	// Read writer identity (non-fatal if unconfigured)
@@ -174,7 +174,7 @@ func Open(path string, opts ...Option) (*Store, error) {
 	}
 	dagStore, err := dag.OpenStorage(storer, ident, dagOpts...)
 	if err != nil {
-		return nil, fmt.Errorf("writ: open dag store: %w", err)
+		return nil, fmt.Errorf("writ: open dag store: %w: %w", ErrStoreOpen, err)
 	}
 
 	// Open projection SQLite cache
@@ -183,21 +183,21 @@ func Open(path string, opts ...Option) (*Store, error) {
 		cacheDir = filepath.Join(gitInfo.CommonDir, "writ")
 	}
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
-		return nil, fmt.Errorf("writ: create projection cache dir %s: %w", cacheDir, err)
+		return nil, fmt.Errorf("writ: create projection cache dir %s: %w: %w", cacheDir, ErrStoreOpen, err)
 	}
 
 	dbPath := filepath.Join(cacheDir, "projection.db")
 	localPath := filepath.Join(cacheDir, "local.db")
 	projDB, err := projection.Open(dbPath, projection.WithLocalPath(localPath))
 	if err != nil {
-		return nil, fmt.Errorf("writ: open projection db %s: %w", dbPath, err)
+		return nil, fmt.Errorf("writ: open projection db %s: %w: %w", dbPath, ErrStoreOpen, err)
 	}
 
 	// Open sync client
 	syncClient, err := writsync.OpenStorage(storer, repoDir, ident, writsync.WithGitBinary(cfg.gitBin))
 	if err != nil {
 		_ = projDB.Close()
-		return nil, fmt.Errorf("writ: open sync client: %w", err)
+		return nil, fmt.Errorf("writ: open sync client: %w: %w", ErrStoreOpen, err)
 	}
 
 	// Load repo ID

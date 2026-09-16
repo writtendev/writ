@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/go-git/go-git/v5"
 	"github.com/writtendev/writ/cmd/writ/internal/wire"
 	"github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/engine/sync"
@@ -225,15 +224,7 @@ func exitCodeFor(err error) int {
 		}
 	}
 
-	if strings.Contains(err.Error(), "not a git repository") ||
-		strings.Contains(err.Error(), "stat path") ||
-		strings.Contains(err.Error(), "resolve absolute path") ||
-		strings.Contains(err.Error(), "open git repo") ||
-		strings.Contains(err.Error(), "open dag store") ||
-		strings.Contains(err.Error(), "open projection db") ||
-		strings.Contains(err.Error(), "open sync client") ||
-		strings.Contains(err.Error(), "create projection cache dir") ||
-		errors.Is(err, git.ErrRepositoryNotExists) {
+	if errors.Is(err, writ.ErrStoreOpen) || errors.Is(err, writ.ErrNotRepository) {
 		return 5
 	}
 	return 1
