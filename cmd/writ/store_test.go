@@ -7,25 +7,15 @@ import (
 	"github.com/writtendev/writ/engine"
 )
 
-// TestParseOrderBy_Valid pins the accepted --sort keys, canonical and alias
-// forms alike, against the writ.OrderBy constants they resolve to.
+// TestParseOrderBy_Valid pins the four canonical --sort keys against the
+// writ.OrderBy constants they resolve to.
 func TestParseOrderBy_Valid(t *testing.T) {
 	cases := map[string]writ.OrderBy{
 		"":                "",
 		"created_at_asc":  writ.OrderByCreatedAtAsc,
-		"created-asc":     writ.OrderByCreatedAtAsc,
-		"created_asc":     writ.OrderByCreatedAtAsc,
-		"created":         writ.OrderByCreatedAtAsc,
 		"created_at_desc": writ.OrderByCreatedAtDesc,
-		"created-desc":    writ.OrderByCreatedAtDesc,
-		"created_desc":    writ.OrderByCreatedAtDesc,
 		"updated_at_asc":  writ.OrderByUpdatedAtAsc,
-		"updated-asc":     writ.OrderByUpdatedAtAsc,
-		"updated_asc":     writ.OrderByUpdatedAtAsc,
 		"updated_at_desc": writ.OrderByUpdatedAtDesc,
-		"updated-desc":    writ.OrderByUpdatedAtDesc,
-		"updated_desc":    writ.OrderByUpdatedAtDesc,
-		"updated":         writ.OrderByUpdatedAtDesc,
 	}
 	for in, want := range cases {
 		got, err := parseOrderBy(in)
@@ -43,9 +33,17 @@ func TestParseOrderBy_Valid(t *testing.T) {
 // key must still be refused (the silent-acceptance bug WRIT-195 fixed by
 // deleting the title/priority/position/estimate keys), and the refusal must
 // name the keys parseOrderBy does accept rather than a bare "invalid sort
-// order" that names nothing.
+// order" that names nothing. It also pins WRIT-246: the shorthand aliases
+// parseOrderBy used to accept alongside the four canonical keys are gone,
+// with no shim reviving them.
 func TestParseOrderBy_Invalid(t *testing.T) {
-	for _, in := range []string{"title", "priority", "bogus"} {
+	for _, in := range []string{
+		"title", "priority", "bogus",
+		"created-asc", "created_asc", "created",
+		"created-desc", "created_desc",
+		"updated-asc", "updated_asc",
+		"updated-desc", "updated_desc", "updated",
+	} {
 		_, err := parseOrderBy(in)
 		if err == nil {
 			t.Fatalf("parseOrderBy(%q): expected an error, got nil", in)

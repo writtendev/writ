@@ -195,9 +195,7 @@ func errLine(err error) string {
 }
 
 // validSortOrders lists parseOrderBy's canonical --sort keys, for use in its
-// error message when the caller passes something else. Each also accepts a
-// handful of shorthand aliases (e.g. "created-asc", "created"); the message
-// names only the canonical form so it stays readable.
+// error message when the caller passes something else.
 var validSortOrders = []string{
 	"created_at_asc",
 	"created_at_desc",
@@ -210,13 +208,13 @@ func parseOrderBy(sortOrder string) (writ.OrderBy, error) {
 		return "", nil
 	}
 	switch sortOrder {
-	case "created_at_asc", "created-asc", "created_asc", "created":
+	case "created_at_asc":
 		return writ.OrderByCreatedAtAsc, nil
-	case "created_at_desc", "created-desc", "created_desc":
+	case "created_at_desc":
 		return writ.OrderByCreatedAtDesc, nil
-	case "updated_at_asc", "updated-asc", "updated_asc":
+	case "updated_at_asc":
 		return writ.OrderByUpdatedAtAsc, nil
-	case "updated_at_desc", "updated-desc", "updated_desc", "updated":
+	case "updated_at_desc":
 		return writ.OrderByUpdatedAtDesc, nil
 	default:
 		return "", fmt.Errorf("invalid sort order %q (accepted: %s)", sortOrder, strings.Join(validSortOrders, ", "))
