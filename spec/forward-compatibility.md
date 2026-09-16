@@ -25,7 +25,8 @@ the op into one of three mutually exclusive categories:
 
 1. **Malformed (Rejected):** The op fails reader validation as defined in
    `spec/op-envelope.md` §Reader validation:
-   - The commit tree does not contain exactly one entry (`op.json`, mode `100644`).
+   - The commit tree does not contain exactly one entry (`op.json`, mode
+     `100644`), or that entry's blob exceeds 1,048,576 bytes (1 MiB).
    - The payload bytes fail the byte-equality rule (invalid canonical JSON,
      duplicate keys, unescaped control characters, lone surrogates, or non-canonical form).
    - The payload fails schema validation against `spec/schemas/op-envelope.schema.json`

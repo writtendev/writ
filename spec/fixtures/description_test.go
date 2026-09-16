@@ -250,6 +250,40 @@ refs:
             disposition: interpretable
 `,
 		},
+		{
+			name: "op_json_size without op",
+			yaml: `
+name: op-json-size-without-op
+refs:
+  - name: refs/heads/main
+    history:
+      - commits:
+          - author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            message: m
+            files: {f: "1"}
+            op_json_size: 1048576
+`,
+		},
+		{
+			name: "op_json_size smaller than unpadded payload",
+			yaml: `
+name: op-json-size-too-small
+refs:
+  - name: refs/heads/main
+    history:
+      - commits:
+          - author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: r1
+              object_type: widget
+              op_type: create
+              op_version: 1
+              body: {}
+            op_json_size: 1
+`,
+		},
 	}
 
 	for _, tc := range cases {

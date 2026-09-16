@@ -100,6 +100,7 @@ type CommitDesc struct {
 	Message     string            `yaml:"message,omitempty"`
 	Files       map[string]string `yaml:"files,omitempty"`
 	Op          *OpDesc           `yaml:"op,omitempty"`
+	OpJSONSize  int               `yaml:"op_json_size,omitempty"`
 	SignAs      string            `yaml:"sign_as,omitempty"`
 	Tamper      string            `yaml:"tamper,omitempty"`
 	Unsigned    bool              `yaml:"unsigned,omitempty"`
@@ -184,6 +185,7 @@ var validRejectReasons = map[string]bool{
 	"missing-op-json":       true,
 	"invalid-op-json-mode":  true,
 	"committer-mismatch":    true,
+	"payload-too-large":     true,
 }
 
 // Load parses a single fixture description from YAML and validates its integrity.
@@ -258,6 +260,14 @@ func Load(data []byte) (*Description, error) {
 					}
 					if c.Op.OpType == "" {
 						return nil, fmt.Errorf("fixtures: description %q ref %q generation %d commit %d op missing op_type", d.Name, r.Name, gi, ci)
+					}
+				}
+				if c.OpJSONSize != 0 {
+					if c.Op == nil {
+						return nil, fmt.Errorf("fixtures: description %q ref %q generation %d commit %d specifies 'op_json_size' without 'op'", d.Name, r.Name, gi, ci)
+					}
+					if _, err := PadOpJSON(c.Op, c.OpJSONSize); err != nil {
+						return nil, fmt.Errorf("fixtures: description %q ref %q generation %d commit %d invalid op_json_size: %w", d.Name, r.Name, gi, ci, err)
 					}
 				}
 				if c.SignAs != "" {

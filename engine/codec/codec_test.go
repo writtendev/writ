@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -192,6 +193,89 @@ func TestDecodeCommitRejections(t *testing.T) {
 			t.Fatalf("got %v, want RejectCommitterMismatch", err)
 		}
 	})
+
+	t.Run("payload at max size is accepted", func(t *testing.T) {
+		c := codec.Commit{
+			Author:    alice,
+			Committer: alice,
+			Tree: []codec.TreeEntry{
+				{Name: "op.json", Mode: "100644", Data: canonicalPayloadOfSize(t, codec.MaxPayloadBytes)},
+			},
+		}
+		if _, err := codec.DecodeCommit(c); err != nil {
+			t.Fatalf("DecodeCommit rejected a payload at the max size: %v", err)
+		}
+	})
+
+	t.Run("payload one byte over max size is rejected", func(t *testing.T) {
+		c := codec.Commit{
+			Author:    alice,
+			Committer: alice,
+			Tree: []codec.TreeEntry{
+				{Name: "op.json", Mode: "100644", Data: canonicalPayloadOfSize(t, codec.MaxPayloadBytes+1)},
+			},
+		}
+		_, err := codec.DecodeCommit(c)
+		var rej *codec.RejectError
+		if !errors.As(err, &rej) || rej.Reason != codec.RejectPayloadTooLarge {
+			t.Fatalf("got %v, want RejectPayloadTooLarge", err)
+		}
+	})
+
+	t.Run("oversized and non-canonical payload still reports payload-too-large", func(t *testing.T) {
+		// Pins the check order spec/op-envelope.md §Reader validation rule 1
+		// requires: size is checked before the byte-equality rule, so a
+		// reader never canonicalizes an oversized blob and a blob that is
+		// both oversized and non-canonical is rejected for its size, not
+		// for failing canonicalization.
+		oversized := canonicalPayloadOfSize(t, codec.MaxPayloadBytes+1)
+		nonCanonical := append(append([]byte{}, oversized...), byte('\n'))
+		c := codec.Commit{
+			Author:    alice,
+			Committer: alice,
+			Tree: []codec.TreeEntry{
+				{Name: "op.json", Mode: "100644", Data: nonCanonical},
+			},
+		}
+		_, err := codec.DecodeCommit(c)
+		var rej *codec.RejectError
+		if !errors.As(err, &rej) || rej.Reason != codec.RejectPayloadTooLarge {
+			t.Fatalf("got %v, want RejectPayloadTooLarge", err)
+		}
+	})
+}
+
+// canonicalPayloadOfSize returns a canonical op.json payload for
+// (widget, create, v1) whose byte length is exactly size, by sizing a
+// "pad" body field: canonicaljson emits an ASCII "x" unescaped and with
+// no surrounding whitespace, so each character added to "pad" costs
+// exactly one output byte, and the needed length is computed rather
+// than searched for.
+func canonicalPayloadOfSize(t *testing.T, size int) []byte {
+	t.Helper()
+	base := codec.Envelope{
+		ObjectID:   "w1",
+		ObjectType: "widget",
+		OpType:     "create",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"pad":""}`),
+	}
+	raw, err := codec.EncodePayload(base)
+	if err != nil {
+		t.Fatalf("encode base payload: %v", err)
+	}
+	if len(raw) > size {
+		t.Fatalf("base payload (%d bytes) already exceeds target size %d", len(raw), size)
+	}
+	base.Body = json.RawMessage(fmt.Sprintf(`{"pad":"%s"}`, strings.Repeat("x", size-len(raw))))
+	raw, err = codec.EncodePayload(base)
+	if err != nil {
+		t.Fatalf("encode padded payload: %v", err)
+	}
+	if len(raw) != size {
+		t.Fatalf("padded payload is %d bytes, want %d", len(raw), size)
+	}
+	return raw
 }
 
 // TestValidateBody walks the tiers of spec/op-envelope.md §Producer

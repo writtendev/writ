@@ -203,6 +203,7 @@ package codec // github.com/writtendev/writ/engine/codec
 
 const DispositionInterpretable Disposition = "interpretable"
 const DispositionOpaque Disposition = "opaque"
+const MaxPayloadBytes = 1 << 20
 const OutcomeCorruptedSignature VerificationOutcome = "corrupted-signature"
 const OutcomePayloadMutated VerificationOutcome = "payload-mutated"
 const OutcomeUnsigned VerificationOutcome = "unsigned"
@@ -216,6 +217,7 @@ const RejectLoneSurrogate RejectReason = "lone-surrogate"
 const RejectMissingOpJSON RejectReason = "missing-op-json"
 const RejectNonCanonicalPayload RejectReason = "non-canonical-payload"
 const RejectOpJSONSubdirectory RejectReason = "op-json-subdirectory"
+const RejectPayloadTooLarge RejectReason = "payload-too-large"
 const RejectSchemaViolation RejectReason = "schema-violation"
 
 func BuildCommit(env Envelope, author Identity, parents []string, vocabularies Vocabularies) (*Commit, error)

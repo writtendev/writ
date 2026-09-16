@@ -92,6 +92,10 @@ func BuildCommit(env Envelope, author Identity, parents []string, vocabularies V
 		return nil, fmt.Errorf("codec: build commit payload: %w", err)
 	}
 
+	if len(raw) > MaxPayloadBytes {
+		return nil, fmt.Errorf("codec: build commit payload: %w", &RejectError{Reason: RejectPayloadTooLarge, Err: errors.New("op.json exceeds maximum payload size")})
+	}
+
 	if err := validateProducerOp(env, raw, vocabularies); err != nil {
 		return nil, fmt.Errorf("codec: build commit body: %w", err)
 	}
