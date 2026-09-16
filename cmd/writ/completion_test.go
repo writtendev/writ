@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -174,5 +176,97 @@ func TestCompletion_CLI(t *testing.T) {
 				t.Errorf("completion %s stdout is empty", shell)
 			}
 		})
+	}
+}
+
+func TestCompletion_BashDoesNotExpandTypeNames(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not found in PATH")
+	}
+
+	dir := t.TempDir()
+
+	hostile := []string{
+		"acme.$(touch " + dir + "/marker1)",
+		"acme.`touch " + dir + "/marker2`",
+		"acme.${IFS}x;touch " + dir + "/marker3",
+		"acme.*",
+		"acme.issue",
+	}
+	fixturePath := filepath.Join(dir, "fixture.txt")
+	if err := os.WriteFile(fixturePath, []byte(strings.Join(hostile, "\n")+"\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	stubPath := filepath.Join(dir, "writ")
+	stub := "#!/bin/sh\ncat '" + fixturePath + "'\n"
+	if err := os.WriteFile(stubPath, []byte(stub), 0o755); err != nil {
+		t.Fatalf("write stub writ: %v", err)
+	}
+
+	var buf bytes.Buffer
+	emitBashCompletion(&buf)
+	scriptPath := filepath.Join(dir, "completion.bash")
+	if err := os.WriteFile(scriptPath, buf.Bytes(), 0o644); err != nil {
+		t.Fatalf("write completion script: %v", err)
+	}
+
+	driver := `
+set -u
+source "` + scriptPath + `"
+
+complete_for() {
+    local words=("$@")
+    local n=${#words[@]}
+    COMP_WORDS=("${words[@]}")
+    COMP_CWORD=$((n - 1))
+    COMPREPLY=()
+    _writ
+    printf '%s\n' "${COMPREPLY[@]}"
+}
+
+echo '--list--'
+complete_for writ object list 'acme.'
+echo '--create--'
+complete_for writ object create 'acme.'
+echo '--show--'
+complete_for writ schema show 'acme.'
+echo '--empty--'
+complete_for writ object list ''
+echo '--prefix--'
+complete_for writ object list 'acme.i'
+`
+
+	cmd := exec.Command("bash", "--norc", "--noprofile", "-c", driver)
+	cmd.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("driver script failed: %v\noutput:\n%s", err, out)
+	}
+	output := string(out)
+
+	for _, marker := range []string{"marker1", "marker2", "marker3"} {
+		if _, statErr := os.Stat(filepath.Join(dir, marker)); statErr == nil {
+			t.Errorf("marker file %q was created: completion executed an injected command\noutput:\n%s", marker, output)
+		}
+	}
+
+	for _, name := range hostile {
+		if !strings.Contains(output, name) {
+			t.Errorf("output missing hostile candidate %q verbatim\noutput:\n%s", name, output)
+		}
+	}
+
+	// acme.* must not have glob-expanded against the temp directory's own files.
+	if strings.Contains(output, "completion.bash") || strings.Contains(output, "fixture.txt") {
+		t.Errorf("acme.* appears to have glob-expanded against directory contents\noutput:\n%s", output)
+	}
+
+	prefixSection := output[strings.Index(output, "--prefix--"):]
+	if !strings.Contains(prefixSection, "acme.issue") {
+		t.Errorf("prefix match on %q did not return acme.issue\noutput:\n%s", "acme.i", output)
+	}
+	if strings.Contains(prefixSection, "acme.*") || strings.Contains(prefixSection, "marker") {
+		t.Errorf("prefix match on %q returned unexpected candidates\noutput:\n%s", "acme.i", output)
 	}
 }

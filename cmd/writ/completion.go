@@ -41,6 +41,14 @@ func escapeFishDesc(s string) string {
 func emitBashCompletion(w io.Writer) {
 	fmt.Fprintln(w, `# bash completion for writ                          -*- shell-script -*-
 
+_writ_schema_types() {
+    COMPREPLY=()
+    local t
+    while IFS= read -r t; do
+        [[ -n "$t" && "$t" == "$cur"* ]] && COMPREPLY+=("$t")
+    done < <(writ schema show 2>/dev/null)
+}
+
 _writ() {
     local cur prev words cword
     _init_completion -n : 2>/dev/null || {
@@ -160,7 +168,7 @@ _writ() {
             case "$subcmd" in
                 create)
                     if [ $obj_pos -eq 0 ] && [[ "$cur" != -* ]]; then
-                        COMPREPLY=($(compgen -W "$(writ schema show 2>/dev/null)" -- "$cur"))
+                        _writ_schema_types
                         return 0
                     fi
                     if [[ "$cur" == -* ]]; then
@@ -188,7 +196,7 @@ _writ() {
                             ;;
                     esac
                     if [ $obj_pos -eq 0 ] && [[ "$cur" != -* ]]; then
-                        COMPREPLY=($(compgen -W "$(writ schema show 2>/dev/null)" -- "$cur"))
+                        _writ_schema_types
                         return 0
                     fi
                     if [[ "$cur" == -* ]]; then
@@ -216,7 +224,7 @@ _writ() {
                     ;;
                 show)
                     if [[ "$cur" != -* ]]; then
-                        COMPREPLY=($(compgen -W "$(writ schema show 2>/dev/null)" -- "$cur"))
+                        _writ_schema_types
                         return 0
                     fi
                     COMPREPLY=($(compgen -W "-C -json --json -h -help --help" -- "$cur"))

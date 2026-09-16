@@ -1004,8 +1004,8 @@ func runSchemaShow(ctx context.Context, defaultDir string, args []string, stdout
 			return 0
 		}
 		// Deliberately the porcelain form: one bare type name per line,
-		// nothing else -- so shell completion can be a plain
-		// $(writ schema show) call with nothing to parse.
+		// nothing else -- one candidate per line, for completion scripts
+		// to read line by line.
 		//
 		// t.Name is a folded define-type body `type` value (state.Schema,
 		// engine/state/schema.go's FoldSchema): unlike object_type/op_type
