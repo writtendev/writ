@@ -407,17 +407,7 @@ func writeForeignSchemaOp(t *testing.T, dir, writerID, parent, objectID, opType 
 }
 
 // TestStoreHostileDeclaredTypeOmittedAndProjectionIntact is WRIT-253's
-// Store-level acceptance test, connecting the two halves round 1 found
-// tested only in isolation:
-// TestRulesFromSchemas_UngrammaticalDeclarationDroppedNotInstalled pins
-// the resolver's grammar gate against resolveSchemaTypes' Go-value inputs
-// directly, and engine/projection's own
-// TestObjectsHostileTypeNameNotDeletedAndLimit pins that the SQL query
-// builder is independently safe when handed a hostile object_type as a
-// bare rules map -- neither test goes through Store.Open, a real DAG walk,
-// and Store.Refresh together, so neither would catch a regression that let
-// the Store's own refresh/rebuild path build its rule map without the
-// resolver's gate in between.
+// Store-level acceptance test.
 //
 // Two schema-op chains foreign to this store's own writer (writeForeignSchemaOp,
 // bypassing producer validation the only way a hand-crafted commit could)
@@ -428,12 +418,9 @@ func writeForeignSchemaOp(t *testing.T, dir, writerID, parent, objectID, opType 
 // LIMIT too); "acme.x'); DELETE FROM objects; --" (also under "acme") is the
 // stacked statement shape a single-quote break-out makes possible in the
 // first place; and "a') OR 1 --.z" is declared under a hostile namespace of
-// its own ("a') OR 1 --"). That WRIT-253's resolver grammar gate refuses
-// declarations shaped like these, on both the object_type and the
-// namespace, is pinned in isolation by
-// TestRulesFromSchemas_UngrammaticalDeclarationDroppedNotInstalled; what
-// this test asserts is the Store-level consequence: a real Store.Refresh --
-// Enumerate, RulesFromSchemas, and the projection rebuild together -- must
+// its own ("a') OR 1 --"). This test asserts the Store-level consequence:
+// a real Store.Refresh -- Enumerate, RulesFromSchemas, and the projection
+// rebuild together -- must
 // resolve the log with all three declarations present and never let any of
 // them reach installed rules at all. Store.Types omits every one of them,
 // and an unrestricted cross-type listing (no Type filter, so it walks every
@@ -482,10 +469,7 @@ func TestStoreHostileDeclaredTypeOmittedAndProjectionIntact(t *testing.T) {
 		// hostileNamespace is WRIT-253's own repro shape at the
 		// namespace level, not just the type level: a schema object
 		// whose namespace itself carries SQL break-out syntax, and
-		// hostileNSType is a type declared under it. That WRIT-253's
-		// resolver grammar gate refuses hostileLimit, hostileDelete,
-		// and hostileNSType is pinned in isolation by
-		// TestRulesFromSchemas_UngrammaticalDeclarationDroppedNotInstalled.
+		// hostileNSType is a type declared under it.
 		hostileNamespace = `a') OR 1 --`
 		hostileNSType    = hostileNamespace + `.z`
 	)
