@@ -41,48 +41,68 @@ type EnumerateResult struct {
 }
 
 // enumerateConfig collects per-call knobs for Enumerate/EnumerateSince
-// beyond the Store's own persistent configuration (signer, trustStore,
-// etc., set once at Open). Unexported: this is not a general extension
-// point, and neither knob below is meant for an arbitrary caller.
+// beyond the Store's own persistent configuration (signer, etc., set once
+// at Open). Unexported: this is not a general extension point, and
+// neither knob below is meant for an arbitrary caller.
 type enumerateConfig struct {
-	skipVerify    bool
-	trustStore    codec.TrustStore
-	trustStoreSet bool
+	// verifyMatch, when non-nil, scopes signature verification to the
+	// decoded ops it reports true for; nil means every decoded op is
+	// verified (the default). See VerifyOnly.
+	verifyMatch func(codec.Op) bool
+	// trustStore is the trust store to verify against. There is no
+	// Store-level fallback (WRIT-251 round 2 finding: a trust store frozen
+	// at dag.Open let two long-lived handles disagree about
+	// allowed_signers's contents forever); a caller that needs
+	// verification supplies one per call via WithLiveTrustStore, read
+	// fresh immediately before the call. Zero value (nil) means "no trust
+	// store", exactly like an unconfigured one.
+	trustStore codec.TrustStore
 }
 
 // EnumerateOption configures a single Enumerate or EnumerateSince call,
 // without touching the Store's own persistent configuration.
 type EnumerateOption func(*enumerateConfig)
 
-// SkipVerification skips per-commit signature verification for this call:
-// every decoded Op's Verification stays the zero value until a caller
-// verifies it itself via codec.Op.Verify. Used only by writ.Objects.Get,
-// which needs the outcome for just the few ops belonging to one object
-// and would otherwise pay full-repo verification cost — real ed25519
-// verification runs tens of microseconds per op, independent of the
-// object it belongs to — on every live read (WRIT-251 round 2 perf
-// finding). Every other caller of Enumerate/EnumerateSince — projection
-// Refresh/Rebuild, Store.Schema — needs every op's outcome upfront and
-// must not pass this.
-func SkipVerification() EnumerateOption {
-	return func(c *enumerateConfig) { c.skipVerify = true }
+// VerifyOnly scopes signature verification, for this call only, to the
+// decoded ops for which match returns true; every other decoded op keeps
+// the zero Verification. EnumerateSince calls match immediately after
+// decoding each op and before grouping, so match can key off any field
+// the decode just produced — including ObjectID and ObjectType — without
+// the caller having to know the answer beforehand.
+//
+// This takes a predicate rather than a plain list of object IDs (as first
+// proposed in review) because one of its two callers can't supply IDs in
+// advance: writ.Store.Schema doesn't know which objects are schema-typed
+// until it has decoded them, and decoding the whole repo a second time
+// just to find out first would cost as much as the every-op verification
+// this option exists to avoid (WRIT-251 round 2 finding). A predicate
+// covers both shapes with one option:
+//   - writ.Objects.Get and writ.Store.SchemaAfterApply already know the
+//     one object ID they want: match is "op.ObjectID == id".
+//   - writ.Store.Schema/ApplySchema don't know IDs in advance, but do
+//     know the type immediately at decode time: match is
+//     "op.ObjectType == \"schema\"", or "false" for ApplySchema, whose
+//     result feeds only schemaFrontier and never reads Verification.
+//
+// Every other caller of Enumerate/EnumerateSince — projection
+// Refresh/Rebuild — needs every op's outcome upfront and must not pass
+// this.
+func VerifyOnly(match func(codec.Op) bool) EnumerateOption {
+	return func(c *enumerateConfig) { c.verifyMatch = match }
 }
 
-// WithLiveTrustStore overrides, for this call only, the trust store
-// EnumerateSince verifies decoded commits against, leaving the Store's
-// own configured trust store untouched for every other call. A nil ts
-// here still means "no trust store" (Verify then reports wrong-key),
-// exactly like an unconfigured Store — this is how a caller that reloads
-// allowed_signers fresh before every pass (Store.Refresh, Store.Rebuild)
-// supplies a store parsed from the file's current contents instead of
-// the one dag.Open froze for the Store's whole lifetime (WRIT-251 round 2
-// finding: two long-lived handles disagreeing about the file's contents
-// fought over one shared projection cache forever, and a long-lived
-// handle never picked up an edit).
+// WithLiveTrustStore supplies the trust store this call verifies decoded
+// commits against, read fresh by the caller immediately before the call —
+// never one frozen at dag.Open (WRIT-251 round 2 finding: freezing it let
+// two long-lived handles disagree about allowed_signers's contents
+// forever, fighting over one shared projection cache, and let a
+// long-lived handle never pick up an edit). A nil ts, or omitting this
+// option entirely, both mean "no trust store": Verify then reports
+// wrong-key for an otherwise-valid signature, never a reason to refuse
+// anything.
 func WithLiveTrustStore(ts codec.TrustStore) EnumerateOption {
 	return func(c *enumerateConfig) {
 		c.trustStore = ts
-		c.trustStoreSet = true
 	}
 }
 
@@ -105,10 +125,6 @@ func (s *Store) EnumerateSince(cursors CursorSet, opts ...EnumerateOption) (*Enu
 	cfg := enumerateConfig{}
 	for _, opt := range opts {
 		opt(&cfg)
-	}
-	trustStore := s.trustStore
-	if cfg.trustStoreSet {
-		trustStore = cfg.trustStore
 	}
 	// Step 1: Single IterReferences pass
 	chains, err := Chains(s.storer)
@@ -264,12 +280,11 @@ func (s *Store) EnumerateSince(cursors CursorSet, opts ...EnumerateOption) (*Enu
 		// Ingest-time verification (spec/signing.md): the outcome travels
 		// with the op as data and never gates whether it folds (ruling 1,
 		// WRIT-251). Not a Rejection — WRIT-271 owns surfacing those.
-		// Skipped when cfg.skipVerify is set (SkipVerification): op still
-		// retains the pure commit it decoded from (codec.Op.sourceCommit),
-		// so a caller that skipped this can verify just the ops it needs
-		// afterward via codec.Op.Verify.
-		if !cfg.skipVerify {
-			op.Verification = codec.Verify(pureCommit, trustStore)
+		// Scoped to match's ops when cfg.verifyMatch is set (VerifyOnly);
+		// nil means every decoded op is verified, still using this pass's
+		// own pureCommit and never a value retained across calls.
+		if cfg.verifyMatch == nil || cfg.verifyMatch(op) {
+			op.Verification = codec.Verify(pureCommit, cfg.trustStore)
 		}
 
 		result.Ops[op.ObjectID] = append(result.Ops[op.ObjectID], op)

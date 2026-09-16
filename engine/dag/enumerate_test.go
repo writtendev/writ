@@ -355,13 +355,16 @@ func TestEnumerateSince_Verification(t *testing.T) {
 		t.Errorf("Verification.Outcome (unconfigured trust store) = %q, want %q", ops[0].Verification.Outcome, codec.OutcomeWrongKey)
 	}
 
-	// A second Store, same repo, opened with the matching trust store:
-	// the same commit now verifies as valid, and Rejections is still empty.
-	configured, err := dag.Open(dir, ident, withVocabularies(), dag.WithSigner(signer), dag.WithTrustStore(ts))
+	// A second Store, same repo, opened with no trust store of its own:
+	// this call supplies one per call via WithLiveTrustStore instead (the
+	// only way a trust store reaches EnumerateSince — WRIT-251 round 2
+	// deleted the Open-time WithTrustStore option), and the same commit
+	// now verifies as valid, with Rejections still empty.
+	configured, err := dag.Open(dir, ident, withVocabularies(), dag.WithSigner(signer))
 	if err != nil {
 		t.Fatalf("Open (configured) failed: %v", err)
 	}
-	resConfigured, err := configured.Enumerate()
+	resConfigured, err := configured.Enumerate(dag.WithLiveTrustStore(ts))
 	if err != nil {
 		t.Fatalf("Enumerate (configured) failed: %v", err)
 	}

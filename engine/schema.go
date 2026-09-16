@@ -60,7 +60,20 @@ func (s *Store) Schema(ctx context.Context) ([]state.Schema, error) {
 		return nil, fmt.Errorf("writ: store is nil")
 	}
 
-	enumRes, err := s.dagStore.Enumerate()
+	// Verification is scoped to ops on "schema" objects — the only ops
+	// whose outcome ever surfaces here, via UnknownOp.Verification inside
+	// state.FoldSchema — and read against a trust store loaded fresh from
+	// disk, never the one Open froze (WRIT-251 round 2 findings: this call
+	// used to verify every op of every object type, real ed25519 cost,
+	// then discard everything but the schema ones' results; and it used to
+	// fall back to dagStore's Open-time trust store, so a long-lived
+	// handle could report "valid" from Query.Object but a stale outcome
+	// here for the same op).
+	ts, _ := s.currentTrustStore()
+	enumRes, err := s.dagStore.Enumerate(
+		dag.VerifyOnly(func(op codec.Op) bool { return op.ObjectType == "schema" }),
+		dag.WithLiveTrustStore(ts),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("writ: enumerate schema objects: %w", err)
 	}
@@ -637,7 +650,11 @@ func (s *Store) ApplySchema(ctx context.Context, envs []codec.Envelope) error {
 		return fmt.Errorf("writ: apply schema: %w", err)
 	}
 
-	enumRes, err := s.dagStore.Enumerate()
+	// schemaFrontier only reads ID and Parents, never Verification, so
+	// this enumeration verifies nothing at all (WRIT-251 round 2 finding:
+	// this call used to run a real ed25519 verify on every op in the
+	// repo, then discard every one of those results unread).
+	enumRes, err := s.dagStore.Enumerate(dag.VerifyOnly(func(codec.Op) bool { return false }))
 	if err != nil {
 		return fmt.Errorf("writ: apply schema: enumerate: %w", err)
 	}
@@ -763,7 +780,15 @@ func (s *Store) SchemaAfterApply(ctx context.Context, objectID string, delta []c
 		return Schema{}, fmt.Errorf("writ: store is nil")
 	}
 
-	enumRes, err := s.dagStore.Enumerate()
+	// objectID is known upfront, so verification is scoped to just its
+	// ops, against a trust store loaded fresh from disk (WRIT-251 round 2
+	// findings: this call used to verify every op in the repo and fall
+	// back to dagStore's Open-time trust store for the ops it kept).
+	ts, _ := s.currentTrustStore()
+	enumRes, err := s.dagStore.Enumerate(
+		dag.VerifyOnly(func(op codec.Op) bool { return op.ObjectID == objectID }),
+		dag.WithLiveTrustStore(ts),
+	)
 	if err != nil {
 		return Schema{}, fmt.Errorf("writ: schema after apply: enumerate: %w", err)
 	}

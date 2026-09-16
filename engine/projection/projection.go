@@ -22,8 +22,7 @@ import (
 type OpenOption func(*openConfig)
 
 type openConfig struct {
-	localPath        string
-	trustStoreDigest string
+	localPath string
 }
 
 // WithLocalPath configures an explicit custom filesystem path for the local SQLite database.
@@ -33,29 +32,24 @@ func WithLocalPath(path string) OpenOption {
 	}
 }
 
-// WithTrustStoreDigest folds a fingerprint of the reader's allowed_signers
-// file into ApplySchema's schema_digest comparison (WRIT-251 ruling 4), so
-// editing the trust store trips needs_rebuild on the next Refresh exactly
-// as a real schema change does — cached Verification outcomes are stale
-// otherwise, since they were computed against the old file's rules. An
-// empty digest (no trust store configured, or Open could not read/parse
-// one) leaves ApplySchema's digest exactly newDesc.digest, so a repository
-// with no trust store at all sees no digest change from this option ever
-// existing.
-func WithTrustStoreDigest(digest string) OpenOption {
-	return func(c *openConfig) {
-		c.trustStoreDigest = digest
-	}
-}
-
 // DB represents a handle to the projection SQLite cache and accompanying local-only database.
 type DB struct {
 	db        *sql.DB
 	path      string
 	localDB   *sql.DB
 	localPath string
-	// trustStoreDigest is WithTrustStoreDigest's value, folded into
-	// ApplySchema's schema_digest comparison. See that option's doc comment.
+	// trustStoreDigest folds a fingerprint of the reader's allowed_signers
+	// file into ApplySchema's schema_digest comparison (WRIT-251 ruling 4),
+	// so editing the trust store trips needs_rebuild on the next Refresh
+	// exactly as a real schema change does — cached Verification outcomes
+	// are stale otherwise, since they were computed against the old file's
+	// rules. Set only by WithLiveTrustStore, immediately before the
+	// Refresh/Rebuild pass that reads it: there is no construction-time
+	// value (WRIT-251 round 2 finding deleted WithTrustStoreDigest, the
+	// last caller of a value frozen at Open) — a DB with no Refresh/Rebuild
+	// pass yet, or one Open never learned a trust store for, holds the
+	// zero value, which leaves ApplySchema's digest exactly newDesc.digest,
+	// the same as a repository with no trust store at all.
 	trustStoreDigest string
 
 	// descMu guards desc: ApplySchema (called from Refresh/Rebuild, and
@@ -124,11 +118,10 @@ func Open(path string, opts ...OpenOption) (*DB, error) {
 	}
 
 	proj := &DB{
-		db:               db,
-		path:             path,
-		localDB:          localDB,
-		localPath:        localPath,
-		trustStoreDigest: cfg.trustStoreDigest,
+		db:        db,
+		path:      path,
+		localDB:   localDB,
+		localPath: localPath,
 	}
 
 	if err := proj.ensureSchema(); err != nil {

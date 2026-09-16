@@ -31,23 +31,6 @@ func WithSigner(signer Signer) Option {
 	}
 }
 
-// WithTrustStore sets the trust store EnumerateSince verifies every
-// decoded commit's signature against (WRIT-251 ruling 4). A nil ts is the
-// default and means "no trust store configured": Verify then reports
-// wrong-key for an otherwise-valid signature (spec/signing.md
-// "Unconfigured Trust Store"), never a reason to refuse anything.
-//
-// Callers building ts from a parsed allowed_signers file must not pass a
-// typed-nil interface here: a nil *sshsig.TrustStore wrapped in the
-// codec.TrustStore interface is itself non-nil, and Verify's ts == nil
-// check would then call IsAuthorized on a nil receiver. Only call
-// WithTrustStore when the concrete store is non-nil.
-func WithTrustStore(ts codec.TrustStore) Option {
-	return func(s *Store) {
-		s.trustStore = ts
-	}
-}
-
 // WithNow sets the time function used for commit timestamps (used in tests).
 func WithNow(now func() time.Time) Option {
 	return func(s *Store) {
@@ -101,7 +84,6 @@ type Store struct {
 	storer              storage.Storer
 	identity            identity.Identity
 	signer              Signer
-	trustStore          codec.TrustStore
 	now                 func() time.Time
 	resolveVocabularies func() (codec.Vocabularies, error)
 	chainObserver       func(objectType string, newTip plumbing.Hash)

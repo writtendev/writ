@@ -145,13 +145,12 @@ func DecodeCommit(commit Commit) (Op, error) {
 	}
 
 	return Op{
-		Envelope:     env,
-		ID:           commit.ID,
-		Parents:      commit.Parents,
-		Author:       commit.Author,
-		Committer:    commit.Committer,
-		Message:      commit.Message,
-		Signature:    commit.Signature,
-		sourceCommit: commit,
+		Envelope:  env,
+		ID:        commit.ID,
+		Parents:   commit.Parents,
+		Author:    commit.Author,
+		Committer: commit.Committer,
+		Message:   commit.Message,
+		Signature: commit.Signature,
 	}, nil
 }

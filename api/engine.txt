@@ -281,9 +281,7 @@ type Op struct {
 	Message string `json:"message"`
 	Signature string `json:"signature,omitempty"`
 	Verification Verification `json:"verification"`
-	// unexported fields
 }
-func (Op) Verify(ts TrustStore) Verification
 
 type OpVersionKey struct {
 	OpType string
@@ -338,7 +336,6 @@ type Verification struct {
 }
 
 type VerificationOutcome string
-func (VerificationOutcome) Rank() int
 
 type Vocabularies map[string]Vocabulary
 
@@ -415,13 +412,12 @@ func OpenStorage(s storage.Storer, ident identity.Identity, opts ...Option) (*St
 func Order(ops []codec.Op) ([]codec.Op, error)
 func ParseChainRef(ref string) (ChainRef, error)
 func RemoteRefName(remote string, writerID identity.WriterID, objectType string) plumbing.ReferenceName
-func SkipVerification() EnumerateOption
+func VerifyOnly(match func(codec.Op) bool) EnumerateOption
 func WithChainObserver(observe func(objectType string, newTip plumbing.Hash)) Option
 func WithLiveTrustStore(ts codec.TrustStore) EnumerateOption
 func WithNow(now func() time.Time) Option
 func WithProducerVocabularies(resolve func() (codec.Vocabularies, error)) Option
 func WithSigner(signer Signer) Option
-func WithTrustStore(ts codec.TrustStore) Option
 
 type ChainRef struct {
 	Name plumbing.ReferenceName `json:"name"`
@@ -559,7 +555,6 @@ func WithLiveTrustStore(ts codec.TrustStore, digest string) Option
 func WithLocalPath(path string) OpenOption
 func WithSchema(rules map[string][]state.Rule) Option
 func WithTargetRefs(refs ...string) Option
-func WithTrustStoreDigest(digest string) OpenOption
 
 type Author struct {
 	Name string `json:"name"`

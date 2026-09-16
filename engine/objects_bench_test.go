@@ -19,9 +19,9 @@ import (
 // a repo of numObjects*opsPerObject signed ops costs roughly
 // numObjects*opsPerObject * (one ed25519 verify), regardless of which
 // object is asked for. After the fix, Get verifies only the requested
-// object's own ops (dag.SkipVerification during the walk, then
-// codec.Op.Verify on just the filtered ops), so the cost is flat in
-// numObjects and scales only with opsPerObject.
+// object's own ops (dag.VerifyOnly, matching only that object's ops,
+// during the same walk), so the cost is flat in numObjects and scales
+// only with opsPerObject.
 //
 // Uses real signatures, not projection/query_bench_test.go's
 // dummySigner() fixtures (dummy-signature fails sshsig.ParseSignature

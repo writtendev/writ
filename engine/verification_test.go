@@ -3,6 +3,7 @@ package writ_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -107,6 +108,71 @@ func forgeOp(t *testing.T, repo *git.Repository, forgerID identity.WriterID, obj
 		t.Fatalf("set forged ref: %v", err)
 	}
 	return hash
+}
+
+// forgeSignedSchemaOp writes a real, correctly-signed op commit of an
+// op_type this build does not define for "schema" against objectID,
+// under forgerID's own writer chain -- the forward-compatibility case
+// (spec/schema-ops.md) of a client that knows a schema op type this one
+// doesn't, written directly to bypass ApplySchema's own producer
+// validation (WRIT-251 round 2 finding: Store.Schema must scope
+// verification to ops like this one -- ObjectType "schema" -- without
+// knowing objectID in advance, and must verify against a live trust
+// store, not the one dagStore.Open froze).
+func forgeSignedSchemaOp(t *testing.T, ctx context.Context, repo *git.Repository, signer writ.Signer, forgerID identity.WriterID, objectID string, causalParents ...string) plumbing.Hash {
+	t.Helper()
+	env := codec.Envelope{ObjectID: objectID, ObjectType: "schema", OpType: "future-op", OpVersion: 1, Body: json.RawMessage(`{"whatever":true}`)}
+	raw, err := codec.EncodePayload(env)
+	if err != nil {
+		t.Fatalf("encode forged schema op payload: %v", err)
+	}
+	when := time.Now().UTC().Add(2 * time.Second)
+	commit := &codec.Commit{
+		Parents:   causalParents,
+		Author:    codec.Identity{Name: "Alice", Email: "alice@example.com", When: when},
+		Committer: codec.Identity{Name: "Alice", Email: "alice@example.com", When: when},
+		Message:   codec.Message(env),
+		Tree:      []codec.TreeEntry{{Name: "op.json", Mode: "100644", Data: raw}},
+	}
+	if err := codec.SignCommit(ctx, signer, commit); err != nil {
+		t.Fatalf("sign forged schema op: %v", err)
+	}
+	hash, err := codec.WriteCommit(ctx, repo.Storer, commit, nil)
+	if err != nil {
+		t.Fatalf("write forged schema op commit: %v", err)
+	}
+	ref := plumbing.NewHashReference(dag.LocalRefName(forgerID, "schema"), hash)
+	if err := repo.Storer.SetReference(ref); err != nil {
+		t.Fatalf("set forged schema op ref: %v", err)
+	}
+	return hash
+}
+
+// schemaFrontierForTest returns the op commits within store's log for
+// coreSchemaObjectID that no other op in that same set names as a
+// parent -- the same "no child dependencies within this object"
+// definition writ's own unexported schemaFrontier uses, recomputed here
+// because this external test package cannot call it directly.
+func schemaFrontierForTest(t *testing.T, store *writ.Store) []string {
+	t.Helper()
+	enumRes, err := writ.StoreDAGStore(store).Enumerate()
+	if err != nil {
+		t.Fatalf("Enumerate: %v", err)
+	}
+	ops := enumRes.Ops[coreSchemaObjectID]
+	hasChild := make(map[string]bool, len(ops))
+	for _, op := range ops {
+		for _, p := range op.Parents {
+			hasChild[p] = true
+		}
+	}
+	var frontier []string
+	for _, op := range ops {
+		if !hasChild[op.ID] {
+			frontier = append(frontier, op.ID)
+		}
+	}
+	return frontier
 }
 
 // setupSignedRepo configures a fresh repo for writer "Alice" with a real
@@ -401,6 +467,24 @@ func TestVerification_TwoHandlesAgreeAfterTrustStoreEdit(t *testing.T) {
 	defer storeA.Close()
 	applyCoreSchema(t, ctx, storeA)
 
+	// An extra, real, correctly-signed op of an op type nothing this build
+	// defines for "schema" (spec/schema-ops.md's forward-compatibility
+	// case -- a newer client that knows a schema op type this one
+	// doesn't; ApplySchema itself refuses to produce this, per
+	// checkBeforeAppend's producer validation, so it is forged the same
+	// way forgeOp forges an unrecognized-writer commit, just signed for
+	// real). FoldSchema quarantines it as an UnknownOp rather than
+	// folding it, but its Verification still depends on the trust store
+	// exactly like any other op's -- this is what Store.Schema's round 2
+	// finding (using dagStore's Open-time trust store instead of a live
+	// one) got wrong.
+	repoForForge, err := git.PlainOpen(dir)
+	if err != nil {
+		t.Fatalf("git.PlainOpen: %v", err)
+	}
+	aliceWriterID := identity.WriterID("0123456789abcdef")
+	forgeSignedSchemaOp(t, ctx, repoForForge, signer, aliceWriterID, coreSchemaObjectID, schemaFrontierForTest(t, storeA)...)
+
 	id, err := storeA.Objects.Create(ctx, "acme.widget", writ.NewOp{
 		Type:   "create",
 		Fields: map[string]any{"title": "Basecamp"},
@@ -415,6 +499,11 @@ func TestVerification_TwoHandlesAgreeAfterTrustStoreEdit(t *testing.T) {
 		t.Fatalf("Query.Object (A, initial): %v", err)
 	} else if res.Verification != "wrong-key" {
 		t.Fatalf("initial ObjectResult.Verification = %q, want %q", res.Verification, "wrong-key")
+	}
+	if v, err := futureOpVerification(storeA, ctx); err != nil {
+		t.Fatalf("Schema (A, initial): %v", err)
+	} else if v != "wrong-key" {
+		t.Fatalf("initial Schema().UnknownOps future-op verification = %q, want %q", v, "wrong-key")
 	}
 
 	// Fix the file, then open B fresh: B's own Open-time read already
@@ -442,6 +531,11 @@ func TestVerification_TwoHandlesAgreeAfterTrustStoreEdit(t *testing.T) {
 		if resB.Verification != "valid" {
 			t.Errorf("iter %d: B's ObjectResult.Verification = %q, want %q (stats=%+v)", i, resB.Verification, "valid", statsB)
 		}
+		if v, err := futureOpVerification(storeB, ctx); err != nil {
+			t.Fatalf("Schema (B, iter %d): %v", i, err)
+		} else if v != "valid" {
+			t.Errorf("iter %d: B's Schema().UnknownOps future-op verification = %q, want %q", i, v, "valid")
+		}
 
 		statsA, err := storeA.Refresh(ctx)
 		if err != nil {
@@ -457,9 +551,41 @@ func TestVerification_TwoHandlesAgreeAfterTrustStoreEdit(t *testing.T) {
 		if resA.Verification != "valid" {
 			t.Errorf("iter %d: A's ObjectResult.Verification = %q, want %q (stats=%+v) -- the old handle must pick up the trust-store edit", i, resA.Verification, "valid", statsA)
 		}
+		// Store.Schema reads the DAG directly, not the projection cache
+		// Refresh maintains -- but before the round 2 fix it still fell
+		// back to dagStore's Open-time trust store, so A (opened while the
+		// file authorized nobody) would report "valid" from Query.Object
+		// here yet keep reporting "wrong-key" from Schema for the very
+		// same underlying trust-store state, forever.
+		if v, err := futureOpVerification(storeA, ctx); err != nil {
+			t.Fatalf("Schema (A, iter %d): %v", i, err)
+		} else if v != "valid" {
+			t.Errorf("iter %d: A's Schema().UnknownOps future-op verification = %q, want %q -- Schema must agree with Query.Object", i, v, "valid")
+		}
 
 		if i >= 1 && (statsA.Rebuilt || statsB.Rebuilt) {
 			t.Errorf("iter %d: unexpected rebuild after reconciliation should have settled (statsA.Rebuilt=%v statsB.Rebuilt=%v)", i, statsA.Rebuilt, statsB.Rebuilt)
 		}
 	}
+}
+
+// futureOpVerification returns the Verification outcome Store.Schema
+// reports for TestVerification_TwoHandlesAgreeAfterTrustStoreEdit's
+// forged "future-op" UnknownOp on coreSchemaObjectID.
+func futureOpVerification(store *writ.Store, ctx context.Context) (string, error) {
+	schemas, err := store.Schema(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, sch := range schemas {
+		if sch.ObjectID != coreSchemaObjectID {
+			continue
+		}
+		for _, uo := range sch.UnknownOps {
+			if uo.OpType == "future-op" {
+				return uo.Verification, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("future-op UnknownOp not found in Schema() for %s", coreSchemaObjectID)
 }

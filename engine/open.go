@@ -177,32 +177,26 @@ func Open(path string, opts ...Option) (*Store, error) {
 		dagOpts = append(dagOpts, dag.WithSigner(signer))
 	}
 
-	// Trust store (WRIT-251 rulings 2 and 4): resolved through
-	// loadTrustStore, independently of ident/identErr above — that
-	// function's own doc comment explains why Load's early returns make
-	// Identity.AllowedSigners unreliable for a read-only repository. Open
-	// never refuses to open on account of any of this: an unset, missing,
-	// or unparseable file is treated as no trust store configured, and
-	// trustDigest still changes when the file does, so fixing it later
-	// trips a projection rebuild (ApplySchema) instead of leaving stale
-	// wrong-key rows behind.
-	//
-	// This is only the INITIAL value: it seeds dagStore's default trust
-	// store (used by callers that never override it — Store.Schema,
-	// engine/scenario) and this Open call's own bootstrap ApplySchema
-	// below. It is not frozen for the Store's whole lifetime — Store's
-	// currentTrustStore method (round 2 finding) re-reads the file fresh
-	// on every call, which is what Store.Refresh/Rebuild and Objects.Get
-	// actually use.
-	trustStore, trustDigest := loadTrustStore(repoDir)
-	if trustStore != nil {
-		dagOpts = append(dagOpts, dag.WithTrustStore(trustStore))
-	}
-
 	dagStore, err := dag.OpenStorage(storer, ident, dagOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("writ: open dag store: %w: %w", ErrStoreOpen, err)
 	}
+
+	// Trust store (WRIT-251 rulings 2 and 4): the allowed_signers *path*
+	// is resolved out of git config exactly once, here, via
+	// resolveTrustSignersPath — independently of ident/identErr above,
+	// for the reason identity.AllowedSignersFile's own doc comment gives
+	// (Load's early returns make Identity.AllowedSigners unreliable for a
+	// read-only repository). Every later read of the trust store
+	// (Store.currentTrustStore, used by Refresh/Rebuild/Get/Schema) reuses
+	// this same path and only re-reads and re-hashes the file's content —
+	// never git config again: re-resolving the path on every call spawned
+	// a git config --list subprocess on every one of those, about 13x
+	// main's whole no-op Query.Object cost on a 3,000-op repo (WRIT-251
+	// round 2 perf finding). Open never refuses to open on account of any
+	// of this: an unset, missing, or unparseable file is treated as no
+	// trust store configured (ruling 2).
+	trustSignersPath := resolveTrustSignersPath(repoDir)
 
 	// Open projection SQLite cache
 	cacheDir := cfg.cacheDir
@@ -215,7 +209,7 @@ func Open(path string, opts ...Option) (*Store, error) {
 
 	dbPath := filepath.Join(cacheDir, "projection.db")
 	localPath := filepath.Join(cacheDir, "local.db")
-	projDB, err := projection.Open(dbPath, projection.WithLocalPath(localPath), projection.WithTrustStoreDigest(trustDigest))
+	projDB, err := projection.Open(dbPath, projection.WithLocalPath(localPath))
 	if err != nil {
 		return nil, fmt.Errorf("writ: open projection db %s: %w: %w", dbPath, ErrStoreOpen, err)
 	}
@@ -231,20 +225,21 @@ func Open(path string, opts ...Option) (*Store, error) {
 	localRepoID, _ := identity.LoadRepoID(context.Background(), repoDir)
 
 	s = &Store{
-		gitInfo:     gitInfo,
-		storer:      storer,
-		dagStore:    dagStore,
-		projection:  projDB,
-		syncClient:  syncClient,
-		identity:    ident,
-		hasIdentity: hasIdentity,
-		identErr:    identErr,
-		signer:      signer,
-		hasSigner:   hasSigner,
-		signerErr:   signerErr,
-		autoRefresh: cfg.autoRefresh,
-		targetRefs:  cfg.targetRefs,
-		localRepoID: string(localRepoID),
+		gitInfo:          gitInfo,
+		storer:           storer,
+		dagStore:         dagStore,
+		projection:       projDB,
+		syncClient:       syncClient,
+		identity:         ident,
+		hasIdentity:      hasIdentity,
+		identErr:         identErr,
+		signer:           signer,
+		hasSigner:        hasSigner,
+		signerErr:        signerErr,
+		autoRefresh:      cfg.autoRefresh,
+		targetRefs:       cfg.targetRefs,
+		localRepoID:      string(localRepoID),
+		trustSignersPath: trustSignersPath,
 	}
 
 	// Ensure the projection's generated tables exist before any caller can
@@ -286,24 +281,37 @@ func Open(path string, opts ...Option) (*Store, error) {
 	return s, nil
 }
 
-// loadTrustStore reads and parses repoDir's configured
-// gpg.ssh.allowedSignersFile fresh from disk, returning the trust store to
-// verify against (nil if unconfigured, missing, or unparseable — ruling
-// 2, never a reason to refuse anything) and a digest that changes exactly
-// when the file's meaningful contents do: empty when unconfigured, a
-// distinct "unreadable:<path>" hash when configured but unreadable or
-// unparseable, and sha256(raw bytes) otherwise.
-//
-// Open calls this once, to seed dagStore's default trust store and this
-// process's very first ApplySchema call. Store.currentTrustStore calls it
-// again on every Refresh, Rebuild, and Objects.Get: the trust store must
-// never be frozen at Open time for the Store's whole lifetime, or two
-// long-lived handles that disagree about the file's contents fight over
-// one shared projection cache forever, and a long-lived handle never
-// picks up an edit at all (WRIT-251 round 2 finding).
-func loadTrustStore(repoDir string) (codec.TrustStore, string) {
-	signersPath, pathErr := identity.AllowedSignersFile(context.Background(), repoDir)
-	if pathErr != nil || signersPath == "" {
+// resolveTrustSignersPath resolves gpg.ssh.allowedSignersFile out of git
+// config, via identity.AllowedSignersFile — the one point in a Store's
+// whole lifetime that this ever spawns a git subprocess for the trust
+// store. Open calls this exactly once, at construction, and caches the
+// result on the Store as trustSignersPath; every later read
+// (Store.currentTrustStore, called on every Refresh, Rebuild, Get, and
+// Schema) reuses that path and only re-reads and re-hashes the file's
+// content. Before this, currentTrustStore re-resolved the path on every
+// call, which meant a git config --list subprocess on every one of them —
+// about 13x main's whole no-op Query.Object cost on a 3,000-op repo
+// (WRIT-251 round 2 perf finding). An empty result means unconfigured, or
+// the resolve itself failed — never a reason to refuse opening (ruling 2);
+// the caller treats both the same as "no trust store".
+func resolveTrustSignersPath(repoDir string) string {
+	path, err := identity.AllowedSignersFile(context.Background(), repoDir)
+	if err != nil {
+		return ""
+	}
+	return path
+}
+
+// loadTrustStoreFromPath reads and parses signersPath fresh from disk,
+// returning the trust store to verify against (nil if unconfigured,
+// missing, or unparseable — ruling 2, never a reason to refuse anything)
+// and a digest that changes exactly when the file's meaningful contents
+// do: empty when unconfigured, a distinct "unreadable:<path>" hash when
+// configured but unreadable or unparseable, and sha256(raw bytes)
+// otherwise. Does no subprocess work — signersPath is resolved once, by
+// resolveTrustSignersPath.
+func loadTrustStoreFromPath(signersPath string) (codec.TrustStore, string) {
+	if signersPath == "" {
 		return nil, ""
 	}
 	raw, readErr := os.ReadFile(signersPath)
@@ -316,24 +324,57 @@ func loadTrustStore(repoDir string) (codec.TrustStore, string) {
 	}
 	// ts is never a nil *sshsig.TrustStore on a successful parse, so
 	// wrapping it in the codec.TrustStore interface here never hits the
-	// typed-nil trap dag.WithTrustStore's doc comment warns about.
+	// typed-nil trap dag.WithLiveTrustStore's doc comment warns about.
 	return ts, trustStoreDigest(raw)
 }
 
-// currentTrustStore re-reads and re-parses s's configured
-// allowed_signers file fresh from disk — see loadTrustStore — for a
-// caller that needs today's trust store and digest, not the one Open
-// froze when this Store was constructed.
+// trustCacheEntry memoizes the trust store parsed from signersPath's last
+// observed content digest, so a pass that finds the file unchanged since
+// the previous one pays only for a read and a hash, never a re-parse
+// (WRIT-251 round 2 perf finding).
+type trustCacheEntry struct {
+	digest string
+	ts     codec.TrustStore
+}
+
+// currentTrustStore re-reads s's configured allowed_signers file fresh
+// from disk on every call, for a caller that needs today's trust store
+// and digest, not one frozen when this Store was constructed (WRIT-251
+// round 2 finding: two long-lived handles disagreeing about the file's
+// contents fought over one shared projection cache forever, and a
+// long-lived handle never picked up an edit). The path itself
+// (s.trustSignersPath) is resolved once, at Open — see
+// resolveTrustSignersPath for why re-resolving it here on every call was
+// the expensive mistake this fixes. Only the file's content is re-read
+// and re-hashed every pass; re-parsing it is skipped whenever the hash
+// matches the previous pass's, via s.trustCache.
 func (s *Store) currentTrustStore() (codec.TrustStore, string) {
-	repoDir := s.gitInfo.WorkTree
-	if repoDir == "" {
-		repoDir = s.gitInfo.GitDir
+	if s.trustSignersPath == "" {
+		return nil, ""
 	}
-	return loadTrustStore(repoDir)
+	raw, readErr := os.ReadFile(s.trustSignersPath)
+	if readErr != nil {
+		return nil, unreadableTrustDigest(s.trustSignersPath)
+	}
+	digest := trustStoreDigest(raw)
+
+	s.trustMu.Lock()
+	defer s.trustMu.Unlock()
+	if s.trustCache.digest == digest {
+		return s.trustCache.ts, digest
+	}
+	ts, parseErr := sshsig.ParseAllowedSigners(bytes.NewReader(raw))
+	if parseErr != nil {
+		digest = unreadableTrustDigest(s.trustSignersPath)
+		s.trustCache = trustCacheEntry{digest: digest}
+		return nil, digest
+	}
+	s.trustCache = trustCacheEntry{digest: digest, ts: ts}
+	return ts, digest
 }
 
 // trustStoreDigest fingerprints an allowed_signers file's raw bytes, so
-// projection.WithTrustStoreDigest can fold a change to the file into
+// projection.WithLiveTrustStore can fold a change to the file into
 // ApplySchema's schema_digest comparison (WRIT-251 ruling 4): editing the
 // trust store then trips needs_rebuild on the next Refresh, the same way a
 // real schema change does.

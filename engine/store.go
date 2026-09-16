@@ -66,6 +66,24 @@ type Store struct {
 	subscribers []*subscriber
 	mu          sync.Mutex
 
+	// trustSignersPath is gpg.ssh.allowedSignersFile resolved out of git
+	// config exactly once, at Open (resolveTrustSignersPath): the one
+	// point in a Store's lifetime that resolving it spawns a git
+	// subprocess. Empty means unconfigured, or the resolve itself failed
+	// (ruling 2 — never a reason to refuse opening). currentTrustStore
+	// reads this path's file fresh on every call, but never re-resolves
+	// the path itself (WRIT-251 round 2 perf finding: re-resolving it on
+	// every Refresh/Rebuild/Get/Schema cost a git config --list
+	// subprocess each time, about 13x main's whole no-op Query.Object
+	// cost on a 3,000-op repo).
+	trustSignersPath string
+	// trustMu guards trustCache.
+	trustMu sync.Mutex
+	// trustCache memoizes the trust store parsed from trustSignersPath's
+	// last observed content digest, so currentTrustStore only re-parses
+	// when the file's content actually changed.
+	trustCache trustCacheEntry
+
 	// vocabMu guards vocabCache/vocabChains/vocabFingerprint/vocabObservedAt,
 	// the memoised resolution of VocabulariesFromSchemas behind a dag.Chains
 	// fingerprint (see Store.vocabularies and Store.noteAppend). Separate
