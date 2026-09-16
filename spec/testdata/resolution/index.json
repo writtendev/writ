@@ -44,10 +44,50 @@
     "match": "exact-path-blob",
     "outcome": "resolved"
   },
+  "malformed-commit-null.json": {
+    "description": "Side's commit is JSON null rather than a string; a null must not decode as the empty string",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
+  "malformed-context-case-variant.json": {
+    "description": "context's lines key is wrongly cased (\"LINES\"); exact-case object keys are required, not case-insensitive struct field matching",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
+  "malformed-context-missing-collar.json": {
+    "description": "context carries only \"lines\", with no \"before\" or \"after\" keys at all; none of the three defaults when absent",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
   "malformed-cross-side.json": {
     "description": "Old side fails the structural pre-check (elided context shorter than 64 lines) while new side resolves exactly; scope is per-side, so the anchor resolves partial",
     "match": "exact-path-blob",
     "outcome": "partial",
+    "reason": "malformed"
+  },
+  "malformed-lines-null-entry.json": {
+    "description": "context.lines holds a JSON null entry instead of a string; a null array element must not decode as the empty string",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
+  "malformed-matching-blob.json": {
+    "description": "Malformed side (short-range elided context) whose recorded path and blob exactly match the target tree, pinning that the Structural Pre-Check runs before Rung 1 (exact-path-blob) rather than after",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
+  "malformed-omitted-null.json": {
+    "description": "context.omitted key is present but JSON null; presence is judged by key existence, not by a truthy value",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
+  "malformed-omitted-zero.json": {
+    "description": "context.omitted key is present with value 0; omitted present requires omitted >= 1 and is never reinterpreted as absent",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
+  "malformed-range-case-variant.json": {
+    "description": "range's keys are wrongly cased (\"START\", \"End\"); exact-case object keys are required, not case-insensitive struct field matching",
+    "outcome": "orphaned",
     "reason": "malformed"
   },
   "malformed-short-range-elided.json": {
@@ -82,6 +122,11 @@
   },
   "unsupported-version.json": {
     "description": "Anchor has unsupported version number (\u003e 1)",
+    "outcome": "orphaned",
+    "reason": "unsupported-version"
+  },
+  "version-not-1-undecodable-side.json": {
+    "description": "Integer version != 1 alongside a side that would itself fail the v1 side decode; the Version Pre-Check wins over side decode failure",
     "outcome": "orphaned",
     "reason": "unsupported-version"
   },

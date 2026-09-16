@@ -1,0 +1,53 @@
+{
+  "name": "malformed-commit-null",
+  "description": "Side's commit is JSON null rather than a string; a null must not decode as the empty string (round-1 review of WRIT-252's PR)",
+  "anchor": {
+    "version": 1,
+    "new": {
+      "commit": null,
+      "path": "main.go",
+      "blob": "2222222222222222222222222222222222222222",
+      "range": {
+        "start": 1,
+        "end": 1
+      },
+      "context": {
+        "before": [],
+        "lines": [
+          "package main"
+        ],
+        "after": []
+      }
+    }
+  },
+  "target": {
+    "files": {
+      "main.go": "package main\n"
+    }
+  },
+  "expect": {
+    "anchor": {
+      "version": 1,
+      "new": {
+        "commit": null,
+        "path": "main.go",
+        "blob": "2222222222222222222222222222222222222222",
+        "range": {
+          "start": 1,
+          "end": 1
+        },
+        "context": {
+          "before": [],
+          "lines": [
+            "package main"
+          ],
+          "after": []
+        }
+      }
+    },
+    "new": {
+      "outcome": "orphaned",
+      "reason": "malformed"
+    }
+  }
+}

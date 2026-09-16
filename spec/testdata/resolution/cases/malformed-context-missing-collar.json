@@ -1,0 +1,49 @@
+{
+  "name": "malformed-context-missing-collar",
+  "description": "context carries only \"lines\", with no \"before\" or \"after\" keys at all; the Structural Pre-Check's side shape requires all three, none defaulted when absent (round-1 review of WRIT-252's PR)",
+  "anchor": {
+    "version": 1,
+    "new": {
+      "commit": "1111111111111111111111111111111111111111",
+      "path": "main.go",
+      "blob": "2222222222222222222222222222222222222222",
+      "range": {
+        "start": 1,
+        "end": 1
+      },
+      "context": {
+        "lines": [
+          "package main"
+        ]
+      }
+    }
+  },
+  "target": {
+    "files": {
+      "main.go": "package main\n"
+    }
+  },
+  "expect": {
+    "anchor": {
+      "version": 1,
+      "new": {
+        "commit": "1111111111111111111111111111111111111111",
+        "path": "main.go",
+        "blob": "2222222222222222222222222222222222222222",
+        "range": {
+          "start": 1,
+          "end": 1
+        },
+        "context": {
+          "lines": [
+            "package main"
+          ]
+        }
+      }
+    },
+    "new": {
+      "outcome": "orphaned",
+      "reason": "malformed"
+    }
+  }
+}

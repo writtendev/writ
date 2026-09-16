@@ -169,6 +169,21 @@ The check proceeds in fixed order:
    side next to a malformed one still runs the ladder normally, so the
    overall anchor can resolve to `partial` (§Overall Anchor Resolution
    Status).
+   - Decoding here is exact, not lenient: an object's members are matched by
+     exact case (`"START"` is not `"start"`, `"LINES"` is not `"lines"`), and
+     every member above must be the precise JSON type stated. JSON `null`
+     satisfies none of them — a `null` `commit`/`path`/`blob` is not a
+     string, and a `null` `range` or `context` is not an object — so a side
+     carrying `null` for any of these decodes exactly as if that member were
+     the wrong type, not as if it were absent. `context` requires `before`,
+     `lines`, and `after` all to be present as string arrays; none of the
+     three defaults when its key is missing.
+   - `context.omitted`'s presence is judged by whether the key exists in the
+     JSON object at all, never by its value: a `context` carrying
+     `"omitted": null` fails this step (`null` is not a JSON integer), and
+     one carrying `"omitted": 0` decodes here but then fails step 3's
+     `context.omitted >= 1` below. Neither is reinterpreted as `omitted`
+     being absent just because its value is falsy.
 3. **Arithmetic.** A side that decoded successfully is checked against the
    cross-field arithmetic `spec/anchors.md` §Context capture defines, which
    JSON Schema cannot express:

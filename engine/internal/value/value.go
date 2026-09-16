@@ -195,15 +195,21 @@ func validateAnchor(m map[string]any) error {
 	return nil
 }
 
-// validateAnchorSide checks one side's required fields (commit, path, blob),
-// the dependentRequired pairing between range and context that
-// anchor.schema.json declares, and the range/context/omitted arithmetic
-// spec/anchors.md §Context capture requires beyond the schema (pinned by
-// spec/testdata/anchors/invalid's arithmetic-class vectors): this is what
-// keeps writ itself from ever writing the shape that made the resolver
-// ladder panic (WRIT-252) — the read-side pre-check in engine/resolve
-// rejects it too, but a producer should refuse it outright rather than let
-// it through.
+// validateAnchorSide checks one side's required fields (commit, path, blob —
+// each a non-null, non-empty JSON string), the dependentRequired pairing
+// between range and context that anchor.schema.json declares, and the
+// range/context/omitted arithmetic spec/anchors.md §Context capture requires
+// beyond the schema (pinned by spec/testdata/anchors/invalid's
+// arithmetic-class vectors): this is what keeps writ itself from ever
+// writing the shape that made the resolver ladder panic (WRIT-252) — the
+// read-side pre-check in engine/resolve (parseSideAnchor, decodeRange,
+// decodeContext) rejects the same shapes, so a producer refuses them
+// outright rather than let them through and orphan on read. The two checks
+// are necessarily separate functions (this package is a pure leaf —
+// person and the standard library only — and cannot import engine/resolve
+// without breaking that fence), so they are written to refuse exactly the
+// same predicate by hand rather than sharing code; keep them in lockstep by
+// inspection when either changes.
 func validateAnchorSide(v any) error {
 	m, ok := v.(map[string]any)
 	if !ok {
@@ -223,14 +229,17 @@ func validateAnchorSide(v any) error {
 	if !hasRange {
 		return nil
 	}
-	// range/context pair on presence only: a JSON null on both is a
-	// well-formed anchor (WRIT-222's scope boundary — a null nested inside a
-	// structured value the field's own value_type permits is not the same
-	// as the field's own value being null). Only run the arithmetic check
-	// once both sides are actually present as non-null values.
-	if rangeVal == nil || contextVal == nil {
-		return nil
-	}
+	// A JSON null on range or context, in any combination, is refused here:
+	// the read-side pre-check (engine/resolve.decodeRange/decodeContext)
+	// requires each to decode as a JSON object with its own required keys,
+	// and null satisfies neither, on either side alone or on both together.
+	// validateAnchorRangeContext's own map type-assertions already refuse a
+	// null rangeVal/contextVal (any(nil) is not a map[string]any) — this
+	// comment exists only because an earlier version of this function
+	// special-cased null-on-both as tolerated, which put the producer and
+	// the reader out of lockstep (round-1 review of this PR); that
+	// special case is deleted, not narrowed, so there is nothing left here
+	// to drift.
 	return validateAnchorRangeContext(rangeVal, contextVal)
 }
 

@@ -8,7 +8,7 @@
         { "op_type": "define-op", "body": { "type": "acme.widget", "op_type": "create", "op_version": "1" } },
         {
           "op_type": "define-field",
-          "body": { "type": "acme.widget", "op_type": "create", "op_version": "1", "field": "anchor_field", "value_type": "anchor", "strategy": "lww" }
+          "body": { "type": "acme.widget", "op_type": "create", "op_version": "1", "field": "note", "strategy": "lww" }
         }
       ]
     }
@@ -19,15 +19,9 @@
     "op_type": "create",
     "op_version": 1,
     "body": {
-      "anchor_field": {
-        "version": 1,
-        "new": {
-          "commit": "1111111111111111111111111111111111111111",
-          "path": "main.go",
-          "blob": "2222222222222222222222222222222222222222",
-          "range": null,
-          "context": null
-        }
+      "note": {
+        "a": 1,
+        "nested": null
       }
     }
   }
