@@ -3,7 +3,7 @@
   "description": "Scalar OR-set shape where the declared field holds the item and op_type determines add vs remove",
   "object_id": "obj-1",
   "fields": {
-    "issue": { "strategy": "set-observed-remove" }
+    "item": { "strategy": "set-observed-remove" }
   },
   "ops": [
     {
@@ -11,9 +11,9 @@
       "parents": [],
       "time": 100,
       "object_id": "obj-1",
-      "op_type": "add-issue",
+      "op_type": "add-item",
       "body": {
-        "issue": "ISSUE-1"
+        "item": "ITEM-1"
       }
     },
     {
@@ -21,9 +21,9 @@
       "parents": ["op-01-add-1"],
       "time": 200,
       "object_id": "obj-1",
-      "op_type": "add-issue",
+      "op_type": "add-item",
       "body": {
-        "issue": "ISSUE-2"
+        "item": "ITEM-2"
       }
     },
     {
@@ -31,9 +31,9 @@
       "parents": ["op-02-add-2"],
       "time": 300,
       "object_id": "obj-1",
-      "op_type": "remove-issue",
+      "op_type": "remove-item",
       "body": {
-        "issue": "ISSUE-1"
+        "item": "ITEM-1"
       }
     },
     {
@@ -41,9 +41,9 @@
       "parents": ["op-02-add-2"],
       "time": 300,
       "object_id": "obj-1",
-      "op_type": "add-issue",
+      "op_type": "add-item",
       "body": {
-        "issue": "ISSUE-1"
+        "item": "ITEM-1"
       }
     },
     {
@@ -51,13 +51,13 @@
       "parents": ["op-03-remove-1", "op-04-concurrent-add-1"],
       "time": 400,
       "object_id": "obj-1",
-      "op_type": "remove-issue",
+      "op_type": "remove-item",
       "body": {
-        "issue": "ISSUE-2"
+        "item": "ITEM-2"
       }
     }
   ],
   "expected_state": {
-    "issue": ["ISSUE-1"]
+    "item": ["ITEM-1"]
   }
 }

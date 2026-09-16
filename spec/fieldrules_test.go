@@ -344,8 +344,8 @@ func TestCheckTargetAgreement(t *testing.T) {
 		{
 			name: "same strategy, different value_type, cross op_type: rejected",
 			rules: []spec.FieldRule{
-				{OpType: "assign", Field: "add", Strategy: "set-observed-remove", ValueType: "person-ref"},
-				{OpType: "label", Field: "add", Strategy: "set-observed-remove", ValueType: "object-ref"},
+				{OpType: "link-person", Field: "add", Strategy: "set-observed-remove", ValueType: "person-ref"},
+				{OpType: "link-object", Field: "add", Strategy: "set-observed-remove", ValueType: "object-ref"},
 			},
 			wantErr: true,
 		},

@@ -1,28 +1,28 @@
 {
   "objects": [
     {
-      "object_id": "ticket-canonical-01",
-      "object_type": "acme.ticket",
+      "object_id": "widget-canonical-01",
+      "object_type": "acme.widget",
       "total_order": [
         {
-          "commit": "78e9f1db9e979ad14464588b390b31ea9bdfc516",
+          "commit": "24e283b423d94abc405a4211020b6ad9ff19a176",
           "label": "alice-open",
           "t_star": 1767225600
         },
         {
-          "commit": "a5e0e053e835075faea36b2ecaf9aacb8ae026d6",
+          "commit": "a865e153f3d1245c508da609b4ddc95136f74543",
           "label": "bob-create",
           "t_star": 1767225660
         },
         {
-          "commit": "85ea7235f5297029e29de231360614c4a4d61ba3",
+          "commit": "67271afb7f23db579a620ad15909a4e669ff5187",
           "label": "alice-update",
           "t_star": 1767225720
         }
       ],
       "state": {
         "body": "mismatched type create op",
-        "title": "Updated Ticket"
+        "title": "Updated Widget"
       }
     }
   ]
