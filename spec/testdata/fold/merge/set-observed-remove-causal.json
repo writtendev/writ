@@ -3,7 +3,7 @@
   "description": "Add in ancestor is causally removed by child op",
   "object_id": "obj-1",
   "fields": {
-    "labels": { "strategy": "set-observed-remove" }
+    "tags": { "strategy": "set-observed-remove" }
   },
   "ops": [
     {
@@ -12,7 +12,7 @@
       "time": 100,
       "object_id": "obj-1",
       "body": {
-        "labels": { "add": ["bug", "urgent"] }
+        "tags": { "add": ["red", "green"] }
       }
     },
     {
@@ -21,11 +21,11 @@
       "time": 200,
       "object_id": "obj-1",
       "body": {
-        "labels": { "remove": ["bug"], "add": ["triage"] }
+        "tags": { "remove": ["red"], "add": ["blue"] }
       }
     }
   ],
   "expected_state": {
-    "labels": ["triage", "urgent"]
+    "tags": ["blue", "green"]
   }
 }

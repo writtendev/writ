@@ -3,7 +3,7 @@
   "description": "Threaded messages or log entries appended strictly in total order",
   "object_id": "obj-1",
   "fields": {
-    "comments": { "strategy": "append" }
+    "entries": { "strategy": "append" }
   },
   "ops": [
     {
@@ -12,7 +12,7 @@
       "time": 100,
       "object_id": "obj-1",
       "body": {
-        "comments": ["First comment"]
+        "entries": ["First entry"]
       }
     },
     {
@@ -21,7 +21,7 @@
       "time": 300,
       "object_id": "obj-1",
       "body": {
-        "comments": ["Third comment"]
+        "entries": ["Third entry"]
       }
     },
     {
@@ -30,15 +30,15 @@
       "time": 200,
       "object_id": "obj-1",
       "body": {
-        "comments": ["Second comment"]
+        "entries": ["Second entry"]
       }
     }
   ],
   "expected_state": {
-    "comments": [
-      "First comment",
-      "Second comment",
-      "Third comment"
+    "entries": [
+      "First entry",
+      "Second entry",
+      "Third entry"
     ]
   }
 }

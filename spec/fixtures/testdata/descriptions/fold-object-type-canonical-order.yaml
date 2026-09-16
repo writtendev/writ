@@ -22,7 +22,7 @@ refs:
                 namespace: "acme"
             expect: accept
 
-          - id: schema-define-ticket
+          - id: schema-define-widget
             parents: [schema-create]
             author: alice
             timestamp: 2025-12-01T00:01:00Z
@@ -32,11 +32,11 @@ refs:
               op_type: define-type
               op_version: 1
               body:
-                type: "acme.ticket"
+                type: "acme.widget"
             expect: accept
 
-          - id: schema-define-comment
-            parents: [schema-define-ticket]
+          - id: schema-define-gadget
+            parents: [schema-define-widget]
             author: alice
             timestamp: 2025-12-01T00:02:00Z
             op:
@@ -45,11 +45,11 @@ refs:
               op_type: define-type
               op_version: 1
               body:
-                type: "acme.comment"
+                type: "acme.gadget"
             expect: accept
 
-          - id: schema-define-ticket-open
-            parents: [schema-define-comment]
+          - id: schema-define-widget-open
+            parents: [schema-define-gadget]
             author: alice
             timestamp: 2025-12-01T00:03:00Z
             op:
@@ -58,7 +58,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "acme.ticket"
+                type: "acme.widget"
                 op_type: "open"
                 op_version: "1"
                 field: "title"
@@ -66,8 +66,8 @@ refs:
                 strategy: "lww"
             expect: accept
 
-          - id: schema-define-ticket-update
-            parents: [schema-define-ticket-open]
+          - id: schema-define-widget-update
+            parents: [schema-define-widget-open]
             author: alice
             timestamp: 2025-12-01T00:04:00Z
             op:
@@ -76,7 +76,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "acme.ticket"
+                type: "acme.widget"
                 op_type: "update"
                 op_version: "1"
                 field: "title"
@@ -84,8 +84,8 @@ refs:
                 strategy: "lww"
             expect: accept
 
-          - id: schema-define-comment-create
-            parents: [schema-define-ticket-update]
+          - id: schema-define-gadget-create
+            parents: [schema-define-widget-update]
             author: alice
             timestamp: 2025-12-01T00:05:00Z
             op:
@@ -94,7 +94,7 @@ refs:
               op_type: define-field
               op_version: 1
               body:
-                type: "acme.comment"
+                type: "acme.gadget"
                 op_type: "create"
                 op_version: "1"
                 field: "body"
@@ -102,19 +102,19 @@ refs:
                 strategy: "lww"
             expect: accept
 
-  - name: refs/writ/0123456789abcdef/ticket
+  - name: refs/writ/0123456789abcdef/widget
     history:
       - commits:
           - id: alice-open
             author: alice
             timestamp: 2026-01-01T00:00:00Z
             op:
-              object_id: ticket-canonical-01
-              object_type: acme.ticket
+              object_id: widget-canonical-01
+              object_type: acme.widget
               op_type: open
               op_version: 1
               body:
-                title: "Initial Ticket"
+                title: "Initial Widget"
             expect: accept
 
           - id: alice-update
@@ -122,15 +122,15 @@ refs:
             author: alice
             timestamp: 2026-01-01T00:02:00Z
             op:
-              object_id: ticket-canonical-01
-              object_type: acme.ticket
+              object_id: widget-canonical-01
+              object_type: acme.widget
               op_type: update
               op_version: 1
               body:
-                title: "Updated Ticket"
+                title: "Updated Widget"
             expect: accept
 
-  - name: refs/writ/fedcba9876543210/ticket
+  - name: refs/writ/fedcba9876543210/widget
     history:
       - commits:
           - id: bob-create
@@ -138,8 +138,8 @@ refs:
             author: bob
             timestamp: 2026-01-01T00:01:00Z
             op:
-              object_id: ticket-canonical-01
-              object_type: acme.comment
+              object_id: widget-canonical-01
+              object_type: acme.gadget
               op_type: create
               op_version: 1
               body:

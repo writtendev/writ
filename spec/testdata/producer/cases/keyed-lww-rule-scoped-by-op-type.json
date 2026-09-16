@@ -5,16 +5,16 @@
       "ops": [
         { "op_type": "create", "body": { "namespace": "acme" } },
         { "op_type": "define-type", "body": { "type": "acme.widget" } },
-        { "op_type": "define-op", "body": { "type": "acme.widget", "op_type": "review", "op_version": "1" } },
-        { "op_type": "define-op", "body": { "type": "acme.widget", "op_type": "approve", "op_version": "1" } },
+        { "op_type": "define-op", "body": { "type": "acme.widget", "op_type": "measure", "op_version": "1" } },
+        { "op_type": "define-op", "body": { "type": "acme.widget", "op_type": "stamp", "op_version": "1" } },
         {
           "op_type": "define-field",
           "body": {
             "type": "acme.widget",
-            "op_type": "review",
+            "op_type": "measure",
             "op_version": "1",
-            "field": "verdict",
-            "target": "review_verdict",
+            "field": "grade",
+            "target": "measure_grade",
             "value_type": "string",
             "strategy": "keyed-lww",
             "key": ["subject"],
@@ -25,10 +25,10 @@
           "op_type": "define-field",
           "body": {
             "type": "acme.widget",
-            "op_type": "approve",
+            "op_type": "stamp",
             "op_version": "1",
-            "field": "verdict",
-            "target": "approve_verdict",
+            "field": "grade",
+            "target": "stamp_grade",
             "value_type": "string",
             "strategy": "lww"
           }
@@ -39,8 +39,8 @@
   "envelope": {
     "object_id": "widget-1",
     "object_type": "acme.widget",
-    "op_type": "approve",
+    "op_type": "stamp",
     "op_version": 1,
-    "body": { "verdict": "approve" }
+    "body": { "grade": "pass" }
   }
 }

@@ -702,7 +702,7 @@ func validateFieldsAgainstRules(rules []spec.FieldRule, body map[string]any, str
 		}
 		params := value.Params{Enum: r.Enum, MaxLength: r.MaxLength}
 		// set-union/set-observed-remove type the elements, not the array; a
-		// bare scalar (e.g. the scalar-shaped add-issue/remove-issue vector,
+		// bare scalar (e.g. the scalar-shaped add-item/remove-item vector,
 		// spec/testdata/fold/merge/set-observed-remove-scalar.json) is
 		// validated as a single element, matching the accumulators' own
 		// flexibility (engine/internal/fold/strategy.go).
