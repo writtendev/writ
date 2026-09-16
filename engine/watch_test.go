@@ -639,18 +639,38 @@ func (c *nonStdlibContext) Done() <-chan struct{} { return c.done }
 // nothing to reclaim; this test fails on that code by observing the
 // goroutine count fail to return to baseline after Close.
 func TestWatchCloseReleasesContextWatcher(t *testing.T) {
-	repoDir, _ := setupConfiguredRepo(t)
 	ctx := context.Background()
 
+	// Warm up in a throwaway store before measuring the baseline. Open
+	// starts goroutines that have nothing to do with Watch, and Close
+	// shuts them down along with everything Watch registered; taking the
+	// baseline while a store is open (as an earlier version of this test
+	// did) counts those unrelated goroutines too, so a partial Watch leak
+	// smaller than their number would still read as "returned to
+	// baseline" and pass. Cycling a store through Open/ApplySchema/Close
+	// once first, then measuring, puts the baseline in the same
+	// "no store open" state the real store's Close is expected to reach,
+	// so the two counts compare like with like.
+	warmupDir, _ := setupConfiguredRepo(t)
+	warmup, err := writ.Open(warmupDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Open (warmup) failed: %v", err)
+	}
+	applyCoreSchema(t, ctx, warmup)
+	if err := warmup.Close(); err != nil {
+		t.Fatalf("warmup store.Close failed: %v", err)
+	}
+
+	runtime.GC()
+	baseline := runtime.NumGoroutine()
+
+	repoDir, _ := setupConfiguredRepo(t)
 	store, err := writ.Open(repoDir, writ.WithSigner(dummySigner()))
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
 
 	applyCoreSchema(t, ctx, store)
-
-	runtime.GC()
-	baseline := runtime.NumGoroutine()
 
 	const n = 10
 	channels := make([]<-chan writ.Event, 0, n)
