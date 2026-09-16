@@ -425,23 +425,22 @@ func writeForeignSchemaOp(t *testing.T, dir, writerID, parent, objectID, opType 
 // field, exactly WRIT-253's own repro shapes: "a') OR 1 --" under the log's
 // own "acme" namespace broke objectsNotDeletedClause's SQL string literal
 // (disabling the tombstone filter and, via its trailing "--" SQL comment,
-// LIMIT too), and is refused by the older, unrelated qualification check
-// (WRIT-217, typeIsQualifiedForNamespace) since it is never qualified with
-// "acme."; "acme.x'); DELETE FROM objects; --" (also under "acme") is the
+// LIMIT too); "acme.x'); DELETE FROM objects; --" (also under "acme") is the
 // stacked statement shape a single-quote break-out makes possible in the
-// first place, and IS qualified under "acme." (its remainder carries no
-// further dot), so that older check lets it through -- only the (new)
-// object_type grammar gate WRIT-253 adds is what stops it; and
-// "a') OR 1 --.z" under a hostile namespace of its own ("a') OR 1 --") is
-// qualified under it too, so only the (new) namespace-grammar gate
-// WRIT-253 adds is what has to stop it. A real Store.Refresh -- Enumerate,
-// RulesFromSchemas, and the projection rebuild together -- must resolve
-// the log with all three declarations present and never let any of them
-// reach installed rules at all: Store.Types omits them, and an
-// unrestricted cross-type listing (no Type filter, so it walks every
+// first place; and "a') OR 1 --.z" is declared under a hostile namespace of
+// its own ("a') OR 1 --"). That WRIT-253's resolver grammar gate refuses
+// declarations shaped like these, on both the object_type and the
+// namespace, is pinned in isolation by
+// TestRulesFromSchemas_UngrammaticalDeclarationDroppedNotInstalled; what
+// this test asserts is the Store-level consequence: a real Store.Refresh --
+// Enumerate, RulesFromSchemas, and the projection rebuild together -- must
+// resolve the log with all three declarations present and never let any of
+// them reach installed rules at all. Store.Types omits every one of them,
+// and an unrestricted cross-type listing (no Type filter, so it walks every
 // installed type's clause -- including the schema objects themselves)
-// still honours the tombstone filter and LIMIT correctly, with every
-// legitimate object still present under IncludeDeleted.
+// still honours the tombstone filter and LIMIT correctly, with query
+// parameterization as the second layer, and every legitimate object still
+// present under IncludeDeleted.
 func TestStoreHostileDeclaredTypeOmittedAndProjectionIntact(t *testing.T) {
 	store, ctx, dir := openStoreWithCoreSchema(t)
 
@@ -482,16 +481,11 @@ func TestStoreHostileDeclaredTypeOmittedAndProjectionIntact(t *testing.T) {
 		hostileDelete   = `acme.x'); DELETE FROM objects; --`
 		// hostileNamespace is WRIT-253's own repro shape at the
 		// namespace level, not just the type level: a schema object
-		// whose namespace itself carries SQL break-out syntax.
-		// typeIsQualifiedForNamespace (WRIT-217, predates this ticket)
-		// already refuses hostileLimit above for an unrelated reason --
-		// it is never qualified with "acme." -- but hostileDelete IS
-		// qualified under "acme." (its remainder carries no further
-		// dot), so that older check lets it through; hostileDelete is
-		// instead stopped by the (new) object_type grammar gate this
-		// ticket adds. hostileNSType is deliberately qualified under
-		// hostileNamespace too, so it is only the (new) namespace-
-		// grammar gate that stops it.
+		// whose namespace itself carries SQL break-out syntax, and
+		// hostileNSType is a type declared under it. That WRIT-253's
+		// resolver grammar gate refuses hostileLimit, hostileDelete,
+		// and hostileNSType is pinned in isolation by
+		// TestRulesFromSchemas_UngrammaticalDeclarationDroppedNotInstalled.
 		hostileNamespace = `a') OR 1 --`
 		hostileNSType    = hostileNamespace + `.z`
 	)
