@@ -5,6 +5,7 @@ import (
 
 	"github.com/writtendev/writ/engine/projection"
 	writsync "github.com/writtendev/writ/engine/sync"
+	"github.com/writtendev/writ/internal/gitdir"
 )
 
 var (
@@ -35,4 +36,15 @@ var (
 
 	// ErrRefRejected indicates that the remote rejected one or more ref updates.
 	ErrRefRejected = writsync.ErrRefRejected
+
+	// ErrNotRepository is returned (wrapped) by ResolveGitDir and Open when
+	// the given path is not inside a git repository.
+	ErrNotRepository = gitdir.ErrNotRepository
+
+	// ErrStoreOpen is returned (wrapped) by Open for every error caused by
+	// the repository or its local state failing to open: path resolution,
+	// git storage, DAG store, projection cache directory or database, and
+	// sync client. It does not cover schema resolution/apply failures —
+	// those are log-content errors, not open failures.
+	ErrStoreOpen = errors.New("writ: cannot open store")
 )

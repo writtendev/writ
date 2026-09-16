@@ -29,7 +29,9 @@ var ErrNoIdentity = errors.New("identity: no writer identity configured (run 'wr
 var ErrNoSigningKey = errors.New("identity: no signing key configured (run 'writ init' to configure)")
 var ErrNonFastForward = writsync.ErrNonFastForward
 var ErrNotFound = projection.ErrNotFound
+var ErrNotRepository = gitdir.ErrNotRepository
 var ErrRefRejected = writsync.ErrRefRejected
+var ErrStoreOpen = errors.New("writ: cannot open store")
 var ErrUnknownRemote = writsync.ErrUnknownRemote
 
 func Fold(ops []codec.Op, rules []Rule) (ObjectState, error)

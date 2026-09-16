@@ -2,6 +2,8 @@ package writ_test
 
 import (
 	"context"
+	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -251,5 +253,65 @@ func TestOpenLinkedWorktreeWithExtensions(t *testing.T) {
 	}
 	if len(gadgets) != 1 || gadgets[0].ObjectID != gadgetID {
 		t.Fatalf("unexpected gadgets query result: %+v", gadgets)
+	}
+}
+
+func TestOpen_NotRepository(t *testing.T) {
+	nonRepoDir := t.TempDir()
+	_, err := writ.Open(nonRepoDir)
+	if err == nil {
+		t.Fatalf("writ.Open(%s) succeeded unexpectedly", nonRepoDir)
+	}
+	if !errors.Is(err, writ.ErrStoreOpen) {
+		t.Errorf("errors.Is(err, writ.ErrStoreOpen) = false, want true; err: %v", err)
+	}
+	if !errors.Is(err, writ.ErrNotRepository) {
+		t.Errorf("errors.Is(err, writ.ErrNotRepository) = false, want true; err: %v", err)
+	}
+}
+
+func TestOpen_NonexistentPath(t *testing.T) {
+	nonexistent := filepath.Join(t.TempDir(), "does-not-exist", "nested")
+	_, err := writ.Open(nonexistent)
+	if err == nil {
+		t.Fatalf("writ.Open(%s) succeeded unexpectedly", nonexistent)
+	}
+	if !errors.Is(err, writ.ErrStoreOpen) {
+		t.Errorf("errors.Is(err, writ.ErrStoreOpen) = false, want true; err: %v", err)
+	}
+	if errors.Is(err, writ.ErrNotRepository) {
+		t.Errorf("errors.Is(err, writ.ErrNotRepository) = true, want false; err: %v", err)
+	}
+}
+
+func TestOpen_CacheDirFailure(t *testing.T) {
+	repoDir, _ := setupConfiguredRepo(t)
+
+	// A regular file where the cache dir should be makes os.MkdirAll fail.
+	badCacheDir := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(badCacheDir, []byte("x"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	_, err := writ.Open(repoDir, writ.WithSigner(dummySigner()), writ.WithCacheDir(badCacheDir))
+	if err == nil {
+		t.Fatal("writ.Open with a file blocking the cache dir succeeded unexpectedly")
+	}
+	if !errors.Is(err, writ.ErrStoreOpen) {
+		t.Errorf("errors.Is(err, writ.ErrStoreOpen) = false, want true; err: %v", err)
+	}
+}
+
+func TestResolveGitDir_NotRepository(t *testing.T) {
+	nonRepoDir := t.TempDir()
+	_, err := writ.ResolveGitDir(nonRepoDir)
+	if err == nil {
+		t.Fatalf("ResolveGitDir(%s) succeeded unexpectedly", nonRepoDir)
+	}
+	if !errors.Is(err, writ.ErrNotRepository) {
+		t.Errorf("errors.Is(err, writ.ErrNotRepository) = false, want true; err: %v", err)
+	}
+	if errors.Is(err, writ.ErrStoreOpen) {
+		t.Errorf("errors.Is(err, writ.ErrStoreOpen) = true, want false; err: %v", err)
 	}
 }

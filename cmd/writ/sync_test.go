@@ -12,7 +12,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-git/go-git/v5"
 	"github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/engine/codec"
 	"github.com/writtendev/writ/engine/sync"
@@ -357,9 +356,10 @@ func TestSync_ExitCodeClassification(t *testing.T) {
 			{name: "git error NonFastForward", err: &sync.GitError{Err: sync.ErrNonFastForward, Kind: sync.FailureKindRejected}, wantCode: 4},
 			{name: "git error generic", err: &sync.GitError{Err: errors.New("exec error"), Kind: sync.FailureKindUnknown}, wantCode: 1},
 			{name: "generic transport error", err: errors.New("something went wrong"), wantCode: 1},
-			{name: "not a git repo", err: errors.New("writ: not a git repository (or any parent up to mount point): /tmp/dir"), wantCode: 5},
-			{name: "stat path error", err: errors.New("writ: stat path \"/nonexistent/path\": no such file or directory"), wantCode: 5},
-			{name: "git.ErrRepositoryNotExists", err: git.ErrRepositoryNotExists, wantCode: 5},
+			{name: "writ.ErrStoreOpen", err: writ.ErrStoreOpen, wantCode: 5},
+			{name: "writ.ErrNotRepository", err: writ.ErrNotRepository, wantCode: 5},
+			{name: "wrapped ErrStoreOpen", err: fmt.Errorf("writ: open dag store: %w: %w", writ.ErrStoreOpen, errors.New("x")), wantCode: 5},
+			{name: "wording only, no sentinel", err: errors.New("writ: open git repo /x: boom"), wantCode: 1},
 		}
 
 		for _, tc := range tests {
@@ -369,6 +369,17 @@ func TestSync_ExitCodeClassification(t *testing.T) {
 					t.Errorf("exitCodeFor(%v) = %d, want %d", tc.err, got, tc.wantCode)
 				}
 			})
+		}
+	})
+
+	t.Run("unit_exitCodeFor_real_open_error", func(t *testing.T) {
+		nonRepoDir := t.TempDir()
+		_, err := writ.Open(nonRepoDir)
+		if err == nil {
+			t.Fatalf("writ.Open(%s) succeeded unexpectedly", nonRepoDir)
+		}
+		if got := exitCodeFor(err); got != 5 {
+			t.Errorf("exitCodeFor(writ.Open error) = %d, want 5; err: %v", got, err)
 		}
 	})
 

@@ -22,6 +22,11 @@ import (
 // cannot read or write correctly.
 var ErrUnsupportedRepository = errors.New("gitdir: unsupported repository format")
 
+// ErrNotRepository reports that a path is not inside a git repository
+// (walking up to the mount point turned up neither a .git entry nor a bare
+// repository layout).
+var ErrNotRepository = errors.New("gitdir: not a git repository")
+
 // Info contains resolved git repository directory paths.
 type Info struct {
 	// WorkTree is the root of the working directory, or empty for bare repositories.
@@ -121,7 +126,7 @@ func Resolve(path string) (Info, error) {
 		curr = parent
 	}
 
-	return Info{}, fmt.Errorf("gitdir: not a git repository (or any parent up to mount point): %s", path)
+	return Info{}, fmt.Errorf("%w (or any parent up to mount point): %s", ErrNotRepository, path)
 }
 
 func readCommonDir(gitDir string) string {
