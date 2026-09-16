@@ -19,6 +19,7 @@ const (
 	ReasonBelowThreshold     = "below-threshold"
 	ReasonAmbiguous          = "ambiguous"
 	ReasonUnsupportedVersion = "unsupported-version"
+	ReasonMalformed          = "malformed"
 )
 
 // Outcome constants.
@@ -53,6 +54,20 @@ func resolveSide(version int, s *SideAnchor, t *Tree) *SideResult {
 		return nil
 	}
 
+	// Structural pre-check (spec/resolution.md §Structural Pre-Check): a side
+	// that decoded successfully but whose range/context arithmetic is
+	// inconsistent orphans as malformed before the ladder runs. This is the
+	// single owner of that guarantee — Rungs 3 and 4 below trust it and no
+	// longer defensively re-check bounds against it. It also covers
+	// Go-constructed anchors bypassing ParseAnchor, which is how the original
+	// panic reproduced (WRIT-252).
+	if !sideWellFormed(s) {
+		return &SideResult{
+			Outcome: OutcomeOrphaned,
+			Reason:  ReasonMalformed,
+		}
+	}
+
 	// Whole-file anchor (no range specified)
 	if s.Range == nil {
 		return resolveWholeFileSide(s, t)
@@ -60,6 +75,44 @@ func resolveSide(version int, s *SideAnchor, t *Tree) *SideResult {
 
 	// Ranged anchor
 	return resolveRangedSide(s, t)
+}
+
+// sideWellFormed implements the structural pre-check's arithmetic step
+// (spec/resolution.md §Structural Pre-Check, mirroring spec/anchors.md
+// §Context capture): range and context must be present together; start >= 1;
+// end >= start; lines non-empty; and the omitted/lines/range arithmetic for
+// elided vs. non-elided ranges. A side failing any of these has no safe way
+// to be indexed by the ladder.
+func sideWellFormed(s *SideAnchor) bool {
+	hasRange := s.Range != nil
+	hasContext := s.Context != nil
+	if hasRange != hasContext {
+		return false
+	}
+	if !hasRange {
+		return true
+	}
+
+	r, ctx := s.Range, s.Context
+	if r.Start < 1 || r.End < r.Start {
+		return false
+	}
+	if len(ctx.Lines) == 0 {
+		return false
+	}
+
+	size := r.End - r.Start + 1
+	if ctx.Omitted == 0 {
+		// Not elided: lines must hold the range verbatim, and a range over
+		// 64 lines must be elided rather than carried in full.
+		return size <= 64 && len(ctx.Lines) == size
+	}
+	// Elided: omitted must be positive, lines must hold exactly the head-32 +
+	// tail-32 collar, and omitted must account for exactly the rest.
+	if ctx.Omitted < 1 {
+		return false
+	}
+	return len(ctx.Lines) == 64 && ctx.Omitted == size-64
 }
 
 func resolveWholeFileSide(s *SideAnchor, t *Tree) *SideResult {
@@ -119,13 +172,9 @@ func resolveRangedSide(s *SideAnchor, t *Tree) *SideResult {
 		}
 	}
 
+	// rangeLen is always >= 1 here: sideWellFormed (resolveSide's pre-check)
+	// requires range.end >= range.start before the ladder ever runs.
 	rangeLen := s.Range.End - s.Range.Start + 1
-	if rangeLen <= 0 {
-		if _, ok := t.files[s.Path]; ok {
-			return &SideResult{Outcome: OutcomeOrphaned, Reason: ReasonNoCandidate}
-		}
-		return &SideResult{Outcome: OutcomeOrphaned, Reason: ReasonPathAbsent}
-	}
 
 	// Candidate paths scope for Rungs 3 and 4
 	var candidatePaths []string
@@ -161,34 +210,29 @@ func resolveRangedSide(s *SideAnchor, t *Tree) *SideResult {
 			continue
 		}
 		for start := 1; start <= len(lines)-rangeLen+1; start++ {
+			// sideWellFormed guarantees len(ctxLines) == rangeLen when not
+			// elided, and == 64 (with rangeLen >= 65) when elided, so no
+			// length guard is needed before indexing ctxLines here.
 			matched := true
 			if !isElided {
-				if len(ctxLines) < rangeLen {
-					matched = false
-				} else {
-					for i := 0; i < rangeLen; i++ {
-						if lines[start+i-1] != ctxLines[i] {
-							matched = false
-							break
-						}
+				for i := 0; i < rangeLen; i++ {
+					if lines[start+i-1] != ctxLines[i] {
+						matched = false
+						break
 					}
 				}
 			} else {
-				if len(ctxLines) < 64 {
-					matched = false
-				} else {
-					for i := 0; i < 32; i++ {
-						if lines[start+i-1] != ctxLines[i] {
+				for i := 0; i < 32; i++ {
+					if lines[start+i-1] != ctxLines[i] {
+						matched = false
+						break
+					}
+				}
+				if matched {
+					for j := 0; j < 32; j++ {
+						if lines[start+rangeLen-32+j-1] != ctxLines[32+j] {
 							matched = false
 							break
-						}
-					}
-					if matched {
-						for j := 0; j < 32; j++ {
-							if lines[start+rangeLen-32+j-1] != ctxLines[32+j] {
-								matched = false
-								break
-							}
 						}
 					}
 				}
@@ -265,22 +309,20 @@ func resolveRangedSide(s *SideAnchor, t *Tree) *SideResult {
 			totalWindowsChecked++
 			anchoredMatches := 0
 			if !isElided {
-				for i := 0; i < rangeLen && i < len(ctxLines); i++ {
+				for i := 0; i < rangeLen; i++ {
 					if lines[start+i-1] == ctxLines[i] {
 						anchoredMatches++
 					}
 				}
 			} else {
-				if len(ctxLines) >= 64 {
-					for i := 0; i < 32; i++ {
-						if lines[start+i-1] == ctxLines[i] {
-							anchoredMatches++
-						}
+				for i := 0; i < 32; i++ {
+					if lines[start+i-1] == ctxLines[i] {
+						anchoredMatches++
 					}
-					for j := 0; j < 32; j++ {
-						if lines[start+rangeLen-32+j-1] == ctxLines[32+j] {
-							anchoredMatches++
-						}
+				}
+				for j := 0; j < 32; j++ {
+					if lines[start+rangeLen-32+j-1] == ctxLines[32+j] {
+						anchoredMatches++
 					}
 				}
 			}

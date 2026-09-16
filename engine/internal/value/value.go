@@ -195,9 +195,15 @@ func validateAnchor(m map[string]any) error {
 	return nil
 }
 
-// validateAnchorSide checks one side's required fields (commit, path, blob)
-// and the dependentRequired pairing between range and context that
-// anchor.schema.json declares.
+// validateAnchorSide checks one side's required fields (commit, path, blob),
+// the dependentRequired pairing between range and context that
+// anchor.schema.json declares, and the range/context/omitted arithmetic
+// spec/anchors.md §Context capture requires beyond the schema (pinned by
+// spec/testdata/anchors/invalid's arithmetic-class vectors): this is what
+// keeps writ itself from ever writing the shape that made the resolver
+// ladder panic (WRIT-252) — the read-side pre-check in engine/resolve
+// rejects it too, but a producer should refuse it outright rather than let
+// it through.
 func validateAnchorSide(v any) error {
 	m, ok := v.(map[string]any)
 	if !ok {
@@ -209,10 +215,81 @@ func validateAnchorSide(v any) error {
 			return fmt.Errorf("%s is required", field)
 		}
 	}
-	_, hasRange := m["range"]
-	_, hasContext := m["context"]
+	rangeVal, hasRange := m["range"]
+	contextVal, hasContext := m["context"]
 	if hasRange != hasContext {
 		return fmt.Errorf("range and context must be present together")
+	}
+	if !hasRange {
+		return nil
+	}
+	// range/context pair on presence only: a JSON null on both is a
+	// well-formed anchor (WRIT-222's scope boundary — a null nested inside a
+	// structured value the field's own value_type permits is not the same
+	// as the field's own value being null). Only run the arithmetic check
+	// once both sides are actually present as non-null values.
+	if rangeVal == nil || contextVal == nil {
+		return nil
+	}
+	return validateAnchorRangeContext(rangeVal, contextVal)
+}
+
+// validateAnchorRangeContext enforces spec/anchors.md §Context capture's
+// cross-field arithmetic: start >= 1, end >= start, context.lines non-empty,
+// and the omitted/lines/range relationship for elided vs. non-elided ranges.
+func validateAnchorRangeContext(rangeVal, contextVal any) error {
+	rangeMap, ok := rangeVal.(map[string]any)
+	if !ok {
+		return fmt.Errorf("range must be a JSON object")
+	}
+	start, ok := jsonNumber(rangeMap["start"])
+	if !ok || start != float64(int64(start)) {
+		return fmt.Errorf("range.start must be an integer")
+	}
+	end, ok := jsonNumber(rangeMap["end"])
+	if !ok || end != float64(int64(end)) {
+		return fmt.Errorf("range.end must be an integer")
+	}
+	if start < 1 {
+		return fmt.Errorf("range.start must be >= 1")
+	}
+	if end < start {
+		return fmt.Errorf("range.end must be >= range.start")
+	}
+
+	contextMap, ok := contextVal.(map[string]any)
+	if !ok {
+		return fmt.Errorf("context must be a JSON object")
+	}
+	lines, ok := contextMap["lines"].([]any)
+	if !ok || len(lines) == 0 {
+		return fmt.Errorf("context.lines must be a non-empty array")
+	}
+
+	size := end - start + 1
+	omittedVal, hasOmitted := contextMap["omitted"]
+	if !hasOmitted {
+		if size > 64 {
+			return fmt.Errorf("a range over 64 lines must be elided (omitted present)")
+		}
+		if float64(len(lines)) != size {
+			return fmt.Errorf("context.lines has %d entries for a %v-line range and no omitted count", len(lines), size)
+		}
+		return nil
+	}
+
+	omitted, ok := jsonNumber(omittedVal)
+	if !ok || omitted != float64(int64(omitted)) {
+		return fmt.Errorf("context.omitted must be an integer")
+	}
+	if omitted < 1 {
+		return fmt.Errorf("context.omitted must be >= 1 when present")
+	}
+	if len(lines) != 64 {
+		return fmt.Errorf("omitted present but context.lines has %d entries, want 64 (first 32 + last 32)", len(lines))
+	}
+	if want := size - 64; omitted != want {
+		return fmt.Errorf("context.omitted is %v, want %v for a %v-line range", omitted, want, size)
 	}
 	return nil
 }

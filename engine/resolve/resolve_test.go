@@ -44,11 +44,6 @@ func TestConformanceVectors(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.Name, func(t *testing.T) {
-			anchor, err := resolve.ParseAnchor(c.Anchor)
-			if err != nil {
-				t.Fatalf("ParseAnchor: %v", err)
-			}
-
 			files := make(map[string][]byte, len(c.Target.Files))
 			for p, content := range c.Target.Files {
 				files[p] = []byte(content)
@@ -57,7 +52,11 @@ func TestConformanceVectors(t *testing.T) {
 			algo := detectHashAlgo(c.Anchor)
 			tree := resolve.NewTree(files, algo)
 
-			outcome := resolve.Resolve(anchor, tree)
+			// ResolveRaw, not ParseAnchor+Resolve: the conformance vectors
+			// are exactly the raw bytes materializeAnchors hands the
+			// resolver, and a malformed-* vector's anchor.version is not
+			// always something ParseAnchor can even decode (WRIT-252).
+			outcome := resolve.ResolveRaw(c.Anchor, tree)
 
 			outcomeJSON, err := json.Marshal(outcome)
 			if err != nil {

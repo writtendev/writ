@@ -114,6 +114,88 @@ func ParseAnchor(raw []byte) (Anchor, error) {
 	return a, nil
 }
 
+// ResolveRaw is the total read-side entry point (spec/resolution.md
+// §Structural Pre-Check): given raw anchor bytes and a target tree, it never
+// returns an error and never panics, unlike ParseAnchor followed by Resolve.
+//
+// Order of checks, matching the spec's structural pre-check before the
+// version pre-check before the ladder:
+//   - If the bytes don't decode as a JSON object, or neither "old" nor "new"
+//     is present, there is no side to orphan: the result carries no Old or
+//     New (spec is deliberately silent on this shape; see the ticket's open
+//     question).
+//   - A missing or non-integer "version" orphans every present side
+//     "malformed".
+//   - An integer "version" != 1 orphans every present side
+//     "unsupported-version", even if a side itself fails to decode: the
+//     version pre-check wins.
+//   - For version 1, each present side that fails to decode as a SideAnchor
+//     orphans "malformed" individually; a side that decodes runs the normal
+//     ladder via resolveSide, which applies its own arithmetic pre-check.
+//
+// The returned Resolution's Anchor always carries Raw, so the orphan is
+// byte-preserved (Anchor.MarshalJSON returns Raw directly).
+func ResolveRaw(raw []byte, t *Tree) Resolution {
+	res := Resolution{Anchor: Anchor{Raw: raw}}
+
+	var topLevel map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &topLevel); err != nil {
+		return res
+	}
+
+	oldRaw, hasOld := topLevel["old"]
+	newRaw, hasNew := topLevel["new"]
+	if !hasOld && !hasNew {
+		return res
+	}
+
+	vRaw, hasVersion := topLevel["version"]
+	var version int
+	versionIsInt := hasVersion
+	if hasVersion {
+		if err := json.Unmarshal(vRaw, &version); err != nil {
+			versionIsInt = false
+		}
+	}
+
+	if !versionIsInt {
+		if hasOld {
+			res.Old = &SideResult{Outcome: OutcomeOrphaned, Reason: ReasonMalformed}
+		}
+		if hasNew {
+			res.New = &SideResult{Outcome: OutcomeOrphaned, Reason: ReasonMalformed}
+		}
+		return res
+	}
+
+	if version != 1 {
+		if hasOld {
+			res.Old = &SideResult{Outcome: OutcomeOrphaned, Reason: ReasonUnsupportedVersion}
+		}
+		if hasNew {
+			res.New = &SideResult{Outcome: OutcomeOrphaned, Reason: ReasonUnsupportedVersion}
+		}
+		return res
+	}
+
+	if hasOld {
+		if side, err := parseSideAnchor(oldRaw); err != nil {
+			res.Old = &SideResult{Outcome: OutcomeOrphaned, Reason: ReasonMalformed}
+		} else {
+			res.Old = resolveSide(version, side, t)
+		}
+	}
+	if hasNew {
+		if side, err := parseSideAnchor(newRaw); err != nil {
+			res.New = &SideResult{Outcome: OutcomeOrphaned, Reason: ReasonMalformed}
+		} else {
+			res.New = resolveSide(version, side, t)
+		}
+	}
+
+	return res
+}
+
 func parseSideAnchor(raw json.RawMessage) (*SideAnchor, error) {
 	var sideMap map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &sideMap); err != nil {

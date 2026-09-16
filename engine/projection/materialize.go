@@ -853,12 +853,12 @@ func materializeAnchors(tx *sql.Tx, desc *schemaDescriptor, s storage.Storer) (i
 				treeCache[targetCommit] = targetTree
 			}
 
-			anchor, err := resolve.ParseAnchor([]byte(a.anchorJSON))
-			if err != nil {
-				return resolvedCount, fmt.Errorf("projection: parse anchor for %s %s: %w", a.objectType, a.objectID, err)
-			}
-
-			res := resolve.Resolve(anchor, targetTree)
+			// ResolveRaw never returns an error and never panics on hostile
+			// anchor content (WRIT-252): a peer-pushed anchor that fails to
+			// decode, or whose range/context arithmetic is inconsistent,
+			// resolves to a "malformed" orphan per side rather than
+			// aborting this refresh transaction.
+			res := resolve.ResolveRaw([]byte(a.anchorJSON), targetTree)
 
 			if res.Old != nil {
 				startLine, endLine := 0, 0

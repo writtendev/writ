@@ -72,8 +72,13 @@ func TestResolutionVectorsValidate(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.Name, func(t *testing.T) {
+			// Version is decoded as json.RawMessage, not int: a malformed
+			// vector may carry a non-integer version (e.g. "1" as a JSON
+			// string), and that must not fail this test outright — it is
+			// exactly the shape the malformed structural pre-check exists
+			// to handle downstream, not a test-harness bug.
 			var anchorObj struct {
-				Version int `json:"version"`
+				Version json.RawMessage `json:"version"`
 				Old     *struct {
 					Blob string `json:"blob"`
 				} `json:"old,omitempty"`
@@ -85,8 +90,32 @@ func TestResolutionVectorsValidate(t *testing.T) {
 				t.Fatalf("unmarshaling anchor: %v", err)
 			}
 
-			// Validate anchor against anchor.schema.json if version == 1
-			if anchorObj.Version == 1 {
+			// A "malformed" case is by construction either schema-invalid
+			// (e.g. version encoded as a string) or invariant-invalid (e.g.
+			// a short elided range) — validateVector's job here is to prove
+			// non-malformed vectors are clean, not to re-litigate the very
+			// shape a malformed case exists to be rejected for.
+			var expectSides struct {
+				Old *struct {
+					Reason string `json:"reason,omitempty"`
+				} `json:"old,omitempty"`
+				New *struct {
+					Reason string `json:"reason,omitempty"`
+				} `json:"new,omitempty"`
+			}
+			_ = json.Unmarshal(c.Expect, &expectSides)
+			isMalformedCase := (expectSides.Old != nil && expectSides.Old.Reason == "malformed") ||
+				(expectSides.New != nil && expectSides.New.Reason == "malformed")
+
+			// Validate anchor against anchor.schema.json only when version
+			// decodes as the JSON integer 1 and the case isn't malformed. A
+			// malformed-version vector's version does not decode as an
+			// integer at all, and validating either kind would just
+			// restate that it is schema- or invariant-invalid by
+			// construction.
+			var version int
+			isVersion1 := len(anchorObj.Version) > 0 && json.Unmarshal(anchorObj.Version, &version) == nil && version == 1
+			if isVersion1 && !isMalformedCase {
 				if err := validateVector(t, anchorSch, c.Anchor); err != nil {
 					t.Errorf("anchor schema validation failed for %s: %v", c.Name, err)
 				}
@@ -209,7 +238,7 @@ func TestResolutionIndexCoverage(t *testing.T) {
 		}
 	}
 
-	allReasons := []string{"path-absent", "no-candidate", "below-threshold", "ambiguous", "unsupported-version"}
+	allReasons := []string{"path-absent", "no-candidate", "below-threshold", "ambiguous", "unsupported-version", "malformed"}
 	for _, r := range allReasons {
 		if !reasonsCovered[r] {
 			t.Errorf("orphan reason %q has no coverage in index.json", r)

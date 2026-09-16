@@ -173,6 +173,7 @@ var validOrphanReasons = map[string]bool{
 	"below-threshold":     true,
 	"ambiguous":           true,
 	"unsupported-version": true,
+	"malformed":           true,
 }
 
 var validOutcomes = map[string]bool{

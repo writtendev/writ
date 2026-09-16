@@ -44,6 +44,27 @@
     "match": "exact-path-blob",
     "outcome": "resolved"
   },
+  "malformed-cross-side.json": {
+    "description": "Old side fails the structural pre-check (elided context shorter than 64 lines) while new side resolves exactly; scope is per-side, so the anchor resolves partial",
+    "match": "exact-path-blob",
+    "outcome": "partial",
+    "reason": "malformed"
+  },
+  "malformed-short-range-elided.json": {
+    "description": "Elided context (omitted > 0) on a range shorter than 64 lines; the resolver ladder must not index into it (WRIT-252 repro 1)",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
+  "malformed-single-line-elided.json": {
+    "description": "Elided context on a single-line range against a one-line file; the resolver ladder must not index into it (WRIT-252 repro, index out of range [1])",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
+  "malformed-version-string.json": {
+    "description": "Anchor version encoded as a JSON string (\"1\") rather than an integer; the whole anchor decode fails, orphaning every present side malformed (WRIT-252 repro 2)",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
   "rename-and-edit.json": {
     "description": "File renamed and edited: lines found verbatim in new file",
     "match": "context-exact",

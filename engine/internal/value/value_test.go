@@ -275,6 +275,83 @@ func TestKnownValueTypesDriftGuard(t *testing.T) {
 	}
 }
 
+// TestValidateAnchorArithmeticVectors drives value.Validate's anchor
+// range/context/omitted arithmetic check (added for WRIT-252, alongside the
+// read-side structural pre-check in engine/resolve) against the anchor
+// conformance vectors under spec/testdata/anchors/: every valid vector must
+// be accepted, and every invalid vector whose reason is the cross-field
+// arithmetic spec/anchors.md §Context capture defines (as opposed to a
+// schema-only shape problem) must be rejected. spec/anchors_test.go's
+// TestInvalidAnchorVectors already covers the full invalid set against the
+// schema and spec's own anchorInvariants; this pins that the producer-side
+// check in this package independently rejects the same arithmetic-class
+// vectors, which is what stops writ itself from ever writing the shape that
+// made the resolver ladder panic.
+func TestValidateAnchorArithmeticVectors(t *testing.T) {
+	for _, name := range readDirNames(t, "testdata/anchors/valid") {
+		t.Run("valid/"+name, func(t *testing.T) {
+			raw, err := spec.FS.ReadFile("testdata/anchors/valid/" + name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var decoded map[string]any
+			if err := json.Unmarshal(raw, &decoded); err != nil {
+				t.Fatalf("decoding %s: %v", name, err)
+			}
+			if err := value.Validate("anchor", value.Params{}, decoded); err != nil {
+				t.Errorf("value.Validate rejected valid vector %s: %v", name, err)
+			}
+		})
+	}
+
+	rawIndex, err := spec.FS.ReadFile("testdata/anchors/invalid/index.json")
+	if err != nil {
+		t.Fatalf("reading anchors/invalid/index.json: %v", err)
+	}
+	var index map[string]struct {
+		Kind   string `json:"kind"`
+		Reason string `json:"reason"`
+	}
+	if err := json.Unmarshal(rawIndex, &index); err != nil {
+		t.Fatalf("decoding anchors/invalid/index.json: %v", err)
+	}
+
+	// The arithmetic class: cross-field rules JSON Schema cannot express, the
+	// same ones spec/anchors_test.go's anchorInvariants enforces. The other
+	// invalid vectors are schema-only shape problems (wrong types, missing
+	// fields, path syntax) this package's Validate deliberately leaves to the
+	// codec's schema validation, not to value.Validate.
+	arithmeticVectors := []string{
+		"omitted-arithmetic-wrong.json",
+		"omitted-with-short-lines.json",
+		"long-range-missing-omitted.json",
+		"long-range-not-elided.json",
+		"context-length-mismatch.json",
+		"end-before-start.json",
+		"line-zero.json",
+	}
+
+	for _, name := range arithmeticVectors {
+		entry, ok := index[name]
+		if !ok {
+			t.Fatalf("testdata/anchors/invalid/index.json has no entry for %s", name)
+		}
+		t.Run("invalid/"+name, func(t *testing.T) {
+			raw, err := spec.FS.ReadFile("testdata/anchors/invalid/" + name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var decoded map[string]any
+			if err := json.Unmarshal(raw, &decoded); err != nil {
+				t.Fatalf("decoding %s: %v", name, err)
+			}
+			if err := value.Validate("anchor", value.Params{}, decoded); err == nil {
+				t.Errorf("value.Validate accepted invalid vector %s; want rejected: %s", name, entry.Reason)
+			}
+		})
+	}
+}
+
 // valueTypesSchemaDefs returns the $defs names declared in
 // schemas/value-types.schema.json.
 func valueTypesSchemaDefs(t *testing.T) map[string]bool {

@@ -22,10 +22,11 @@ func TestDeterminismShuffledMap(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.Name, func(t *testing.T) {
-			anchor, err := resolve.ParseAnchor(c.Anchor)
-			if err != nil {
-				t.Fatalf("ParseAnchor: %v", err)
-			}
+			// ResolveRaw, not ParseAnchor+Resolve: a malformed-* vector's
+			// anchor.version is not always something ParseAnchor can even
+			// decode (WRIT-252), and ResolveRaw is the actual total
+			// read-side entry point this determinism property must hold
+			// for.
 			algo := detectHashAlgo(c.Anchor)
 
 			fileKeys := make([]string, 0, len(c.Target.Files))
@@ -46,7 +47,7 @@ func TestDeterminismShuffledMap(t *testing.T) {
 				}
 
 				tree := resolve.NewTree(shuffledFiles, algo)
-				res := resolve.Resolve(anchor, tree)
+				res := resolve.ResolveRaw(c.Anchor, tree)
 
 				resJSON, err := json.Marshal(res)
 				if err != nil {
@@ -78,11 +79,6 @@ func TestPurityNoInputMutation(t *testing.T) {
 			rawAnchorCopy := make([]byte, len(c.Anchor))
 			copy(rawAnchorCopy, c.Anchor)
 
-			anchor, err := resolve.ParseAnchor(rawAnchorCopy)
-			if err != nil {
-				t.Fatalf("ParseAnchor: %v", err)
-			}
-
 			files := make(map[string][]byte, len(c.Target.Files))
 			fileSnapshots := make(map[string][]byte, len(c.Target.Files))
 			for k, v := range c.Target.Files {
@@ -96,11 +92,12 @@ func TestPurityNoInputMutation(t *testing.T) {
 			algo := detectHashAlgo(c.Anchor)
 			tree := resolve.NewTree(files, algo)
 
-			_ = resolve.Resolve(anchor, tree)
+			// ResolveRaw, not ParseAnchor+Resolve — see TestDeterminismShuffledMap.
+			_ = resolve.ResolveRaw(rawAnchorCopy, tree)
 
 			// Check anchor raw bytes unchanged
-			if !bytes.Equal(anchor.Raw, c.Anchor) {
-				t.Errorf("anchor.Raw mutated after Resolve")
+			if !bytes.Equal(rawAnchorCopy, c.Anchor) {
+				t.Errorf("anchor bytes mutated after ResolveRaw")
 			}
 
 			// Check all input file bytes unchanged

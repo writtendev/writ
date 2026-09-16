@@ -648,6 +648,7 @@ const OutcomeOrphaned = "orphaned"
 const OutcomeResolved = "resolved"
 const ReasonAmbiguous = "ambiguous"
 const ReasonBelowThreshold = "below-threshold"
+const ReasonMalformed = "malformed"
 const ReasonNoCandidate = "no-candidate"
 const ReasonPathAbsent = "path-absent"
 const ReasonUnsupportedVersion = "unsupported-version"
@@ -657,6 +658,7 @@ const SHA256 HashAlgo
 func NewTree(files map[string][]byte, algo HashAlgo) *Tree
 func ParseAnchor(raw []byte) (Anchor, error)
 func Resolve(a Anchor, t *Tree) Resolution
+func ResolveRaw(raw []byte, t *Tree) Resolution
 func SplitLines(content []byte) []string
 
 type Anchor struct {

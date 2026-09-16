@@ -78,6 +78,52 @@ func FuzzResolve(f *testing.F) {
 	anchorSch, resSch := getCompiledSchemas()
 
 	f.Fuzz(func(t *testing.T, anchorData []byte, targetData []byte) {
+		var filesMap map[string]string
+		if err := json.Unmarshal(targetData, &filesMap); err != nil {
+			return
+		}
+		files := make(map[string][]byte, len(filesMap))
+		for k, v := range filesMap {
+			if len(k) == 0 || k[0] == '/' {
+				continue
+			}
+			files[k] = []byte(v)
+		}
+		tree := resolve.NewTree(files, resolve.SHA1)
+
+		// ResolveRaw is the total read-side entry point (WRIT-252): it must
+		// never panic on any byte input, schema-valid anchor or not, since
+		// this is what materializeAnchors calls against whatever a peer
+		// pushed. Run it before the schema-validity early return below,
+		// which would otherwise skip every hostile shape this exists to
+		// catch.
+		var rawOutcome resolve.Resolution
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("ResolveRaw panicked on %q: %v", anchorData, r)
+				}
+			}()
+			rawOutcome = resolve.ResolveRaw(anchorData, tree)
+		}()
+		// resolution.schema.json requires at least one of old/new; ResolveRaw
+		// deliberately produces neither for a non-object anchor or one with
+		// no old/new key (the ticket's open question), so only validate when
+		// there is a side to validate.
+		if rawOutcome.Old != nil || rawOutcome.New != nil {
+			rawJSON, err := json.Marshal(rawOutcome)
+			if err != nil {
+				t.Fatalf("marshaling ResolveRaw outcome: %v", err)
+			}
+			rawInst, err := jsonschema.UnmarshalJSON(bytes.NewReader(rawJSON))
+			if err != nil {
+				t.Fatalf("decoding ResolveRaw outcome for schema validation: %v", err)
+			}
+			if err := resSch.Validate(rawInst); err != nil {
+				t.Fatalf("ResolveRaw outcome failed schema validation: %v\noutcome: %s", err, string(rawJSON))
+			}
+		}
+
 		anchorInst, err := jsonschema.UnmarshalJSON(bytes.NewReader(anchorData))
 		if err != nil {
 			return
@@ -91,19 +137,6 @@ func FuzzResolve(f *testing.F) {
 			return
 		}
 
-		var filesMap map[string]string
-		if err := json.Unmarshal(targetData, &filesMap); err != nil {
-			return
-		}
-		files := make(map[string][]byte, len(filesMap))
-		for k, v := range filesMap {
-			if len(k) == 0 || k[0] == '/' {
-				continue
-			}
-			files[k] = []byte(v)
-		}
-
-		tree := resolve.NewTree(files, resolve.SHA1)
 		outcome := resolve.Resolve(anchor, tree)
 
 		// Assert outcome validates against resolution.schema.json
