@@ -15,6 +15,21 @@ import (
 // FromGitCommit converts a go-git object.Commit into a pure, repository-independent Commit
 // value by reading its tree entries and op.json blob data.
 func FromGitCommit(s storage.Storer, commit *object.Commit) (Commit, error) {
+	return fromGitCommit(s, commit, nil)
+}
+
+// FromGitCommitCached is FromGitCommit, but pack indexes it needs along
+// the way are decoded through cache instead of fresh on every call. Use
+// it the way dag.Store.EnumerateSince does: build one PackIndexCache per
+// pass over history, pass it to every FromGitCommitCached call in that
+// pass, and let it go when the pass ends. A nil cache behaves exactly
+// like FromGitCommit. See PackIndexCache's doc comment for why a cache
+// must never outlive the pass that built it.
+func FromGitCommitCached(cache *PackIndexCache, s storage.Storer, commit *object.Commit) (Commit, error) {
+	return fromGitCommit(s, commit, cache)
+}
+
+func fromGitCommit(s storage.Storer, commit *object.Commit, cache *PackIndexCache) (Commit, error) {
 	if commit == nil {
 		return Commit{}, errors.New("codec: nil git commit")
 	}
@@ -32,7 +47,7 @@ func FromGitCommit(s storage.Storer, commit *object.Commit) (Commit, error) {
 			Hash: entry.Hash.String(),
 		}
 		if entry.Name == "op.json" {
-			data, err := readOpJSONBlob(s, entry.Hash, func() (*object.File, error) {
+			data, err := readOpJSONBlob(s, entry.Hash, cache, func() (*object.File, error) {
 				return tree.TreeEntryFile(&entry)
 			})
 			if err != nil {
@@ -50,7 +65,7 @@ func FromGitCommit(s storage.Storer, commit *object.Commit) (Commit, error) {
 						Hash: subEntry.Hash.String(),
 					}
 					if subEntry.Name == "op.json" {
-						data, err := readOpJSONBlob(s, subEntry.Hash, func() (*object.File, error) {
+						data, err := readOpJSONBlob(s, subEntry.Hash, cache, func() (*object.File, error) {
 							return subTree.TreeEntryFile(&subEntry)
 						})
 						if err != nil {
@@ -101,6 +116,8 @@ func FromGitCommit(s storage.Storer, commit *object.Commit) (Commit, error) {
 
 // readOpJSONBlob reads an op.json blob's content, capped at
 // MaxPayloadBytes+1 bytes (spec/op-envelope.md §Reader validation rule 1).
+// cache, if non-nil, is passed straight through to packfileObjectSize —
+// see PackIndexCache's doc comment.
 // go-git's filesystem storer fully decodes a loose object's content into
 // memory the moment it is fetched — before a caller ever gets a Reader to
 // limit — so capping io.ReadAll alone does not bound the cost of an
@@ -122,9 +139,9 @@ func FromGitCommit(s storage.Storer, commit *object.Commit) (Commit, error) {
 // content — DecodeCommit rejects on its length alone — so its bytes
 // don't matter, only that there are exactly MaxPayloadBytes+1 of them,
 // the same length a real oversized blob would be capped to below.
-func readOpJSONBlob(s storage.Storer, hash plumbing.Hash, open func() (*object.File, error)) ([]byte, error) {
+func readOpJSONBlob(s storage.Storer, hash plumbing.Hash, cache *PackIndexCache, open func() (*object.File, error)) ([]byte, error) {
 	if s != nil {
-		size, found, err := packfileObjectSize(s, hash)
+		size, found, err := packfileObjectSize(s, hash, cache)
 		if err != nil {
 			return nil, fmt.Errorf("codec: determine op.json blob size: %w", err)
 		}

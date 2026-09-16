@@ -5,9 +5,12 @@ import (
 	"compress/zlib"
 	"crypto/sha1"
 	"encoding/binary"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -366,5 +369,196 @@ func TestFromGitCommit_AlternatesOversizedPayloadBoundedAllocation(t *testing.T)
 	if delta := after.TotalAlloc - before.TotalAlloc; delta > 4*codec.MaxPayloadBytes {
 		t.Errorf("FromGitCommit allocated %d bytes, want well under the %d-byte alternate blob's size (budget 4x MaxPayloadBytes = %d)",
 			delta, oversizedPackedOpJSONBytes, 4*codec.MaxPayloadBytes)
+	}
+}
+
+// buildLargePackedRepo populates repo with n small, distinct blobs, packs
+// all of them into a single pack via `git pack-objects` — the same tool
+// a real push leaves behind, producing a real .idx rather than a
+// handwritten one — and removes their loose copies, leaving every one of
+// them reachable only through that pack's index. It returns their
+// hashes in creation order.
+func buildLargePackedRepo(t *testing.T, dir string, repo *git.Repository, n int) []plumbing.Hash {
+	t.Helper()
+
+	hashes := make([]plumbing.Hash, n)
+	var stdin bytes.Buffer
+	for i := 0; i < n; i++ {
+		obj := repo.Storer.NewEncodedObject()
+		obj.SetType(plumbing.BlobObject)
+		w, err := obj.Writer()
+		if err != nil {
+			t.Fatalf("blob writer: %v", err)
+		}
+		if _, err := fmt.Fprintf(w, "writ-bench-blob-%d", i); err != nil {
+			t.Fatalf("write blob: %v", err)
+		}
+		if err := w.Close(); err != nil {
+			t.Fatalf("close blob: %v", err)
+		}
+		h, err := repo.Storer.SetEncodedObject(obj)
+		if err != nil {
+			t.Fatalf("store blob: %v", err)
+		}
+		hashes[i] = h
+		fmt.Fprintln(&stdin, h.String())
+	}
+
+	packDir := filepath.Join(dir, ".git", "objects", "pack")
+	if err := os.MkdirAll(packDir, 0o755); err != nil {
+		t.Fatalf("mkdir pack dir: %v", err)
+	}
+	cmd := exec.Command("git", "pack-objects", "--quiet", filepath.Join(packDir, "pack"))
+	cmd.Dir = dir
+	cmd.Stdin = &stdin
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git pack-objects: %v\n%s", err, out)
+	}
+
+	loose, err := filepath.Glob(filepath.Join(dir, ".git", "objects", "[0-9a-f][0-9a-f]"))
+	if err != nil {
+		t.Fatalf("glob loose objects: %v", err)
+	}
+	for _, l := range loose {
+		if err := os.RemoveAll(l); err != nil {
+			t.Fatalf("remove loose objects: %v", err)
+		}
+	}
+
+	return hashes
+}
+
+// TestPackfileObjectSize_CachedIndexAvoidsPerCallRedecode pins the fix
+// for WRIT-255 round 2's major finding: packfileObjectSize used to list
+// the pack directory and decode a fresh idxfile.MemoryIndex from a
+// pack's whole .idx on every single call, with nothing cached across
+// calls — turning dag.Store.EnumerateSince's per-commit loop into a cost
+// proportional to the whole repository's packs, once per commit,
+// instead of once per pass. A codec.PackIndexCache shared across calls
+// against the same packs must make every call after the first cheap; a
+// call with no cache at all must still pay the decode in full, both to
+// prove the shared cache — not something else about a later lookup — is
+// what makes the difference, and because a nil cache remains a valid,
+// supported way to opt out of caching.
+func TestPackfileObjectSize_CachedIndexAvoidsPerCallRedecode(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := git.PlainInit(dir, false)
+	if err != nil {
+		t.Fatalf("PlainInit: %v", err)
+	}
+
+	const n = 10000
+	hashes := buildLargePackedRepo(t, dir, repo, n)
+	target := hashes[n-1]
+
+	alloc := func(cache *codec.PackIndexCache) uint64 {
+		runtime.GC()
+		runtime.GC()
+		var before, after runtime.MemStats
+		runtime.ReadMemStats(&before)
+		size, found, err := codec.PackfileObjectSize(repo.Storer, target, cache)
+		runtime.ReadMemStats(&after)
+		if err != nil || !found || size <= 0 {
+			t.Fatalf("PackfileObjectSize: size=%d found=%v err=%v", size, found, err)
+		}
+		return after.TotalAlloc - before.TotalAlloc
+	}
+
+	// No cache at all, twice: both calls decode the pack's .idx from
+	// scratch, so both cost about the same — round 1's behavior, which a
+	// nil cache must still provide.
+	uncached1 := alloc(nil)
+	uncached2 := alloc(nil)
+
+	// One shared cache across three calls: only the first should pay to
+	// decode; the rest reuse what it already built.
+	shared := codec.NewPackIndexCache()
+	firstWithCache := alloc(shared)
+	secondWithCache := alloc(shared)
+	thirdWithCache := alloc(shared)
+
+	t.Logf("uncached: %d, %d bytes; shared cache: %d, %d, %d bytes",
+		uncached1, uncached2, firstWithCache, secondWithCache, thirdWithCache)
+
+	// A 10,000-entry .idx decodes to well over this; a cache hit
+	// allocates nothing close to it. If the uncached calls don't clear
+	// this bar, the benchmark's pack isn't exercising a real decode and
+	// the rest of this test can't be trusted.
+	const minDecodeCost = 200 << 10 // 200 KiB
+	if uncached1 < minDecodeCost || uncached2 < minDecodeCost {
+		t.Fatalf("uncached calls allocated %d and %d bytes, want at least %d", uncached1, uncached2, minDecodeCost)
+	}
+
+	const budget = minDecodeCost / 4
+	if secondWithCache > budget {
+		t.Errorf("second call against a warm cache allocated %d bytes, want under %d (an uncached decode allocated %d)", secondWithCache, budget, uncached1)
+	}
+	if thirdWithCache > budget {
+		t.Errorf("third call against a warm cache allocated %d bytes, want under %d (an uncached decode allocated %d)", thirdWithCache, budget, uncached1)
+	}
+}
+
+// TestPackedObjectSize_SkipsPackWithoutIdx pins WRIT-255 round 2's minor
+// finding: git renames a pack's .pack file into place before its .idx
+// during a fetch or a repack, so a pack-<hash>.pack with no matching
+// .idx is common, transient state on a live repository, not corruption.
+// dg.ObjectPacks() lists that file like any other, so packedObjectSize
+// must skip it and keep searching the rest, the way git itself
+// tolerates this — not fail the whole lookup closed the moment it hits
+// the one pack that isn't fully written yet.
+func TestPackedObjectSize_SkipsPackWithoutIdx(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := git.PlainInit(dir, false)
+	if err != nil {
+		t.Fatalf("PlainInit: %v", err)
+	}
+
+	hashes := buildLargePackedRepo(t, dir, repo, 10)
+	target := hashes[len(hashes)-1]
+
+	packDir := filepath.Join(dir, ".git", "objects", "pack")
+	realPacks, err := filepath.Glob(filepath.Join(packDir, "pack-*.pack"))
+	if err != nil || len(realPacks) != 1 {
+		t.Fatalf("glob real pack: %v (matches: %v)", err, realPacks)
+	}
+	realBase := strings.TrimSuffix(realPacks[0], ".pack")
+
+	// dg.ObjectPacks() walks packs in the pack directory's sorted
+	// listing order, so renaming the real pack+idx and the stray pack
+	// below to fixed, maximally-far-apart names forces the stray one to
+	// be searched first, deterministically. Without that, this test
+	// would pass or fail depending on where the two pack hashes
+	// happened to sort relative to each other — sometimes never
+	// exercising the fix at all.
+	const realName = "pack-ffffffffffffffffffffffffffffffffffffffff"
+	const strayName = "pack-0000000000000000000000000000000000000000"
+	if err := os.Rename(realBase+".pack", filepath.Join(packDir, realName+".pack")); err != nil {
+		t.Fatalf("rename pack: %v", err)
+	}
+	if err := os.Rename(realBase+".idx", filepath.Join(packDir, realName+".idx")); err != nil {
+		t.Fatalf("rename idx: %v", err)
+	}
+
+	// Drop in a stray pack-<hash>.pack with no matching .idx at all —
+	// exactly the mid-fetch/mid-repack state git leaves (it renames a
+	// pack's .pack into place before its .idx). packedObjectSize must
+	// never get far enough to read this file's content — it fails on
+	// the missing .idx first — so the content itself doesn't need to be
+	// a valid pack.
+	strayContent := []byte("not a real pack, and that must not matter")
+	if err := os.WriteFile(filepath.Join(packDir, strayName+".pack"), strayContent, 0o644); err != nil {
+		t.Fatalf("write stray pack: %v", err)
+	}
+	// Deliberately no strayName+".idx".
+
+	size, found, err := codec.PackfileObjectSize(repo.Storer, target, nil)
+	if err != nil {
+		t.Fatalf("PackfileObjectSize returned an error instead of skipping the idx-less pack: %v", err)
+	}
+	if !found {
+		t.Fatalf("PackfileObjectSize did not find %s past the idx-less pack", target)
+	}
+	if size <= 0 {
+		t.Errorf("size = %d, want > 0", size)
 	}
 }

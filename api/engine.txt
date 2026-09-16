@@ -225,8 +225,10 @@ func DecodeCommit(commit Commit) (Op, error)
 func DecodePayload(raw []byte) (Envelope, error)
 func EncodePayload(env Envelope) ([]byte, error)
 func FromGitCommit(s storage.Storer, commit *object.Commit) (Commit, error)
+func FromGitCommitCached(cache *PackIndexCache, s storage.Storer, commit *object.Commit) (Commit, error)
 func LoadTrustStore(filePath string) (*sshsig.TrustStore, error)
 func Message(env Envelope) string
+func NewPackIndexCache() *PackIndexCache
 func NewSigner(key identity.SigningKey) (Signer, error)
 func SignCommit(ctx context.Context, s Signer, c *Commit) error
 func ToGitCommit(c Commit) (*object.Commit, error)
@@ -283,6 +285,10 @@ type Op struct {
 type OpVersionKey struct {
 	OpType string
 	OpVersion int64
+}
+
+type PackIndexCache struct {
+	// unexported fields
 }
 
 type Profile struct {
