@@ -41,6 +41,46 @@ func escapeFishDesc(s string) string {
 func emitBashCompletion(w io.Writer) {
 	fmt.Fprintln(w, `# bash completion for writ                          -*- shell-script -*-
 
+_writ_schema_types() {
+    COMPREPLY=()
+    local t
+    # object_type grammar (spec/op-envelope.md; engine/dag/refs.go
+    # objectTypeRegexp): a bare segment, or two such segments joined by
+    # one dot. Bash inserts a completed candidate into the command line
+    # unquoted, so a candidate outside this grammar could carry shell
+    # metacharacters that run on Enter; this command must not rely on
+    # WRIT-253's resolver gate to be safe, so hostile lines are dropped
+    # here instead of offered. zsh and fish escape what they insert and
+    # don't need this filter. The pattern lives in a variable rather than
+    # inline: bash 3.2's =~ handles some inline regexes containing
+    # parentheses inconsistently depending on quoting. The bracket
+    # classes below are spelled out one character at a time instead of
+    # as [a-z]/[a-z0-9-] ranges: POSIX bracket-range matching depends on
+    # the active locale's collation, and in many single-byte locales
+    # (e.g. LC_ALL=kk_KZ.PT154) "[a-z]" collates across nearly all
+    # printable ASCII — including command substitution and pipe/list
+    # metacharacters, space, and TAB — so a hostile candidate would pass
+    # this filter and run on Enter. An explicit list has no
+    # locale-dependent collation to exploit.
+    local type_re='^[abcdefghijklmnopqrstuvwxyz][abcdefghijklmnopqrstuvwxyz0123456789-]{0,63}(\.[abcdefghijklmnopqrstuvwxyz][abcdefghijklmnopqrstuvwxyz0123456789-]{0,63})?$'
+    # A process-substitution "< <(...)" here is only valid in POSIX mode
+    # (POSIXLY_CORRECT=1, or after set -o posix) from bash 5.1 on; before
+    # that it is a syntax error that aborts sourcing the whole script, so
+    # writ loses bash completion entirely rather than just this filter.
+    # An unquoted here-doc runs the same command substitution and parses
+    # on every bash version and mode: bash still performs command
+    # substitution on an unquoted here-doc body, but (like process
+    # substitution piped through IFS= read -r) never word-splits or
+    # glob-expands the result.
+    while IFS= read -r t; do
+        [[ -n "$t" ]] || continue
+        [[ "$t" =~ $type_re ]] || continue
+        [[ "$t" == "$cur"* ]] && COMPREPLY+=("$t")
+    done <<EOF_WRIT_TYPES
+$(writ schema show 2>/dev/null)
+EOF_WRIT_TYPES
+}
+
 _writ() {
     local cur prev words cword
     _init_completion -n : 2>/dev/null || {
@@ -160,7 +200,7 @@ _writ() {
             case "$subcmd" in
                 create)
                     if [ $obj_pos -eq 0 ] && [[ "$cur" != -* ]]; then
-                        COMPREPLY=($(compgen -W "$(writ schema show 2>/dev/null)" -- "$cur"))
+                        _writ_schema_types
                         return 0
                     fi
                     if [[ "$cur" == -* ]]; then
@@ -188,7 +228,7 @@ _writ() {
                             ;;
                     esac
                     if [ $obj_pos -eq 0 ] && [[ "$cur" != -* ]]; then
-                        COMPREPLY=($(compgen -W "$(writ schema show 2>/dev/null)" -- "$cur"))
+                        _writ_schema_types
                         return 0
                     fi
                     if [[ "$cur" == -* ]]; then
@@ -216,7 +256,7 @@ _writ() {
                     ;;
                 show)
                     if [[ "$cur" != -* ]]; then
-                        COMPREPLY=($(compgen -W "$(writ schema show 2>/dev/null)" -- "$cur"))
+                        _writ_schema_types
                         return 0
                     fi
                     COMPREPLY=($(compgen -W "-C -json --json -h -help --help" -- "$cur"))
