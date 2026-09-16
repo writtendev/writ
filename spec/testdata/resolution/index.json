@@ -117,6 +117,11 @@
     "outcome": "orphaned",
     "reason": "malformed"
   },
+  "malformed-missing-blob.json": {
+    "description": "Side omits the required blob key entirely; mirrors malformed-missing-commit for the blob field (WRIT-252 round 6 review)",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
   "malformed-missing-commit.json": {
     "description": "Side omits the required commit key entirely; anchor.schema.json requires commit, path, and blob on a side, so an absent key fails to decode as a v1 side anchor exactly as a wrongly-typed one does",
     "outcome": "orphaned",
@@ -149,6 +154,11 @@
   },
   "malformed-omitted-zero.json": {
     "description": "context.omitted key is present with value 0; omitted present requires omitted >= 1 and is never reinterpreted as absent",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
+  "malformed-path-null.json": {
+    "description": "Side's path is JSON null rather than a string; mirrors malformed-commit-null for the path field (WRIT-252 round 6 review)",
     "outcome": "orphaned",
     "reason": "malformed"
   },
