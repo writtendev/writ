@@ -252,11 +252,13 @@ magnitude outside that range, or a non-number value — is uninterpretable,
 and a conforming fold MUST report it through `UnknownOps` rather than
 decode it through a lossy or platform-dependent path.** A `max_length` of
 zero or a negative number is representable in a 64-bit signed integer and
-is unaffected by this rule: it folds exactly as it always has. Nothing
-here changes what a conforming producer may emit — `max_length`'s payload
-schema already states `"minimum": 1`, unchanged by this document; whether
-a reader should also quarantine an in-range-but-non-conforming value like
-zero is a separate, open question this document does not settle.
+is unaffected by this rule: it folds exactly as it always has.
+`max_length`'s payload schema states the identical bound producer-side —
+`"minimum": 1, "maximum": 9223372036854775807`, the latter added by this
+document — so a conforming producer cannot canonically emit a value every
+reader would be required to quarantine; whether a reader should also
+quarantine an in-range-but-non-conforming value like zero is a separate,
+open question this document does not settle.
 
 `schema-numeric-bounds.yaml` (`spec/fixtures/testdata/descriptions/`, the
 `schema` family, §3.1) golden-pins this alongside the oversized-`op_version`
@@ -1029,9 +1031,10 @@ than restating the precedence itself (WRIT-188).
   family (`spec/fixtures/schema_test.go`, `TestSchemaFamily`) driving
   `writ.FoldSchema` directly: a bootstrap of a whole schema object, the
   §3.1 non-canonical `op_version` quarantine across all three affected op
-  types, a concurrent multi-writer `define-field` race, a
-  `deprecate-field`/redeclare interleaving, and unknown `op_type` /
-  future `op_version` on the `schema` object type itself (§10).
+  types, the §3.3 unrepresentable-`max_length` quarantine
+  (`schema-numeric-bounds`), a concurrent multi-writer `define-field`
+  race, a `deprecate-field`/redeclare interleaving, and unknown `op_type`
+  / future `op_version` on the `schema` object type itself (§10).
 - `spec/testdata/producer/` (WRIT-188) — §11's producer/reader paired
   verdicts over ops governed by a schema resolved from the log: see
   `spec/op-envelope.md` §Conformance data for the full description.

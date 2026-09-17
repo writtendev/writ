@@ -286,8 +286,11 @@ apart (see the **Pins** column in the file table above):
   (§9) pin the reader half of both. §3.1's 16-digit `op_version` bound and
   §3.3's `max_length` bound are the same split again:
   `testdata/schema-ops/invalid/define-field-op-version-too-long.json` pins
-  the producer half (`define-field-max-length-zero.json` already pinned
-  `max_length`'s producer-side `minimum: 1`), and
+  the producer half of §3.1, and
+  `testdata/schema-ops/invalid/define-field-max-length-too-large.json` pins
+  the producer half of §3.3 (a distinct fixture from
+  `define-field-max-length-zero.json`, which pins `max_length`'s unrelated
+  producer-side `minimum: 1`), and
   `fixtures/testdata/golden/schema/schema-numeric-bounds.json` pins the
   reader half of both.
 

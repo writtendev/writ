@@ -60,6 +60,11 @@
     "reason": "max_length is 0, below the minimum of 1 (field-rules.schema.json's max_length shares this bound, and ValidateFieldRule's != 0 gate would otherwise read a 0 as 'no limit declared' rather than reject it)"
   },
   {
+    "file": "define-field-max-length-too-large.json",
+    "rejects": "schema",
+    "reason": "max_length is 1e19, over the new maximum: 9223372036854775807 bound (WRIT-269: a magnitude outside int64's range is not representable, and FoldSchema quarantines the whole define-field for it, so a conforming producer must not be able to emit it either)"
+  },
+  {
     "file": "define-op-missing-op-version.json",
     "rejects": "schema",
     "reason": "define-op op body is missing required op_version"
