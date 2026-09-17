@@ -316,9 +316,10 @@ func tableHasRows(tx *sql.Tx, table string) (bool, error) {
 // tables exist on disk.
 //
 // The digest (buildSnapshot) covers column name, SQL type, indexed, and
-// primary key, plus every installed type's full rule table — Strategy, Key,
-// Lattice, ValueType, Enum, MaxLength, KeyTypes, Target, OpType, OpVersion,
-// and ObjectType, canonicalized order-independently (Deprecated is excluded:
+// primary key, plus every installed type's full rule table — Field,
+// Strategy, Key, Lattice, ValueType, Enum, MaxLength, KeyTypes, Target,
+// OpType, OpVersion, and ObjectType, canonicalized order-independently
+// (Deprecated is excluded:
 // it never affects folding, so a deprecate-field op must not force a
 // rebuild on its own). A schema change that alters any of those — including
 // a strategy, value_type, key, lattice, or enum change under an unchanged

@@ -360,6 +360,68 @@ func TestStrategyOnlySchemaChangeTripsRebuild(t *testing.T) {
 	}
 }
 
+// TestDeprecatedOnlySchemaChangeDoesNotTripRebuild pins snapshotRules'
+// Deprecated exclusion (engine/projection/ddl.go): flipping Deprecated on a
+// field, with every other rule unchanged, must not change schema_digest or
+// force a drop-and-rebuild. Deprecated is carried-through metadata nothing
+// on the fold or materialization path reads, so a deprecate-field op must
+// stay as cheap as any other no-op schema reapply. Without the exclusion,
+// this test fails at the Rebuilt assertion the same way
+// TestStrategyOnlySchemaChangeTripsRebuild fails without its fix.
+func TestDeprecatedOnlySchemaChangeDoesNotTripRebuild(t *testing.T) {
+	ctx := context.Background()
+	_, store := createTestStore(t, "0123456789abcdef")
+
+	db, err := projection.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open projection failed: %v", err)
+	}
+	defer db.Close()
+
+	v1 := testRules()
+
+	if _, err := store.Append(ctx, makeWidgetEnv("w-1", "create", map[string]any{
+		"title":       "A",
+		"description": "d",
+	}), nil); err != nil {
+		t.Fatalf("append create w-1: %v", err)
+	}
+
+	if _, err := db.Refresh(store, projection.WithSchema(v1)); err != nil {
+		t.Fatalf("Refresh v1: %v", err)
+	}
+
+	var digestBefore string
+	if err := db.DB().QueryRow("SELECT value FROM meta WHERE key = 'schema_digest'").Scan(&digestBefore); err != nil {
+		t.Fatalf("query schema_digest before deprecation: %v", err)
+	}
+
+	// v2: title's Deprecated flag alone changes. Every other field of the
+	// rule, including Strategy and ValueType, is identical to v1.
+	v2 := testRules()
+	for i := range v2["widget"] {
+		if v2["widget"][i].Field == "title" && v2["widget"][i].OpType == "create" {
+			v2["widget"][i].Deprecated = true
+		}
+	}
+
+	stats, err := db.Refresh(store, projection.WithSchema(v2))
+	if err != nil {
+		t.Fatalf("Refresh v2: %v", err)
+	}
+	if stats.Rebuilt {
+		t.Fatalf("expected Rebuilt = false on a Deprecated-only schema change, got %+v", stats)
+	}
+
+	var digestAfter string
+	if err := db.DB().QueryRow("SELECT value FROM meta WHERE key = 'schema_digest'").Scan(&digestAfter); err != nil {
+		t.Fatalf("query schema_digest after deprecation: %v", err)
+	}
+	if digestBefore != digestAfter {
+		t.Fatalf("schema_digest changed on a Deprecated-only change (before %q, after %q): snapshotRules no longer excludes Deprecated", digestBefore, digestAfter)
+	}
+}
+
 func TestNewWriterNamespaceDetected(t *testing.T) {
 	ctx := context.Background()
 	repo, storeA := createTestStore(t, "0123456789abcdef")
