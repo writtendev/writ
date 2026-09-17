@@ -372,7 +372,10 @@ func buildDescriptor(rules map[string][]state.Rule) (*schemaDescriptor, error) {
 	desc.tables = tables
 	desc.queryOrder = desc.order
 
-	snapshot := buildSnapshot(desc)
+	snapshot, err := buildSnapshot(desc)
+	if err != nil {
+		return nil, err
+	}
 	js, err := json.Marshal(snapshot)
 	if err != nil {
 		return nil, fmt.Errorf("projection: marshal schema descriptor: %w", err)
@@ -1028,6 +1031,7 @@ type tableSnapshot struct {
 type typeSnapshot struct {
 	Table    tableSnapshot            `json:"table"`
 	Children map[string]tableSnapshot `json:"children,omitempty"`
+	Rules    []string                 `json:"rules,omitempty"`
 }
 
 func snapshotTable(t ddlTable) tableSnapshot {
@@ -1043,23 +1047,57 @@ func snapshotTable(t ddlTable) tableSnapshot {
 	return tableSnapshot{Columns: cols, Indexed: indexed, PrimaryKey: t.PrimaryKey}
 }
 
-func buildSnapshot(desc *schemaDescriptor) map[string]typeSnapshot {
+func buildSnapshot(desc *schemaDescriptor) (map[string]typeSnapshot, error) {
 	out := make(map[string]typeSnapshot, len(desc.types))
 	for objectType, td := range desc.types {
-		out[objectType] = snapshotType(td)
+		ts, err := snapshotType(td, desc.rulesByType[objectType])
+		if err != nil {
+			return nil, fmt.Errorf("projection: snapshot type %q: %w", objectType, err)
+		}
+		out[objectType] = ts
 	}
-	return out
+	return out, nil
 }
 
 // snapshotType is buildSnapshot's per-type unit: td's table and every child
 // table, map-valued so two typeDescriptors built from equivalent but
-// differently-ordered rule slices compare equal.
-func snapshotType(td *typeDescriptor) typeSnapshot {
+// differently-ordered rule slices compare equal, plus the type's full rule
+// table so a strategy/value_type/key/lattice/enum change under an unchanged
+// column shape still changes the digest (the droppable-cache invariant:
+// ApplySchema must not answer differently before and after a rebuild).
+func snapshotType(td *typeDescriptor, rules []state.Rule) (typeSnapshot, error) {
 	children := make(map[string]tableSnapshot, len(td.Children))
 	for _, c := range td.Children {
 		children[c.Name] = snapshotTable(c)
 	}
-	return typeSnapshot{Table: snapshotTable(td.Table), Children: children}
+	rs, err := snapshotRules(rules)
+	if err != nil {
+		return typeSnapshot{}, err
+	}
+	return typeSnapshot{Table: snapshotTable(td.Table), Children: children, Rules: rs}, nil
+}
+
+// snapshotRules canonicalizes typeRules for the digest: each rule marshalled
+// to JSON individually, then the resulting strings sorted — order-independent
+// by construction (TestScalarLWWVersionBumpIsDeterministic), with no bespoke
+// sort-key design to get wrong, and encoding/json already sorts KeyTypes' map
+// keys while preserving the semantically-ordered Key, Lattice and Enum
+// slices. Deprecated is cleared on the copy marshalled: it is carried-through
+// metadata that never affects folding (engine/state/fold.go's Deprecated
+// doc, spec/schema-ops.md §5), so a deprecate-field op must not force a full
+// rebuild on its own.
+func snapshotRules(rules []state.Rule) ([]string, error) {
+	out := make([]string, len(rules))
+	for i, r := range rules {
+		r.Deprecated = false
+		js, err := json.Marshal(r)
+		if err != nil {
+			return nil, fmt.Errorf("marshal rule for digest: %w", err)
+		}
+		out[i] = string(js)
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 // persistedTable is the minimal, rule-independent shape Open persists (as
