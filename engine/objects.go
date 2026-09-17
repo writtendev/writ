@@ -216,24 +216,43 @@ func (o *Objects) Apply(ctx context.Context, objectID string, op NewOp) error {
 //
 // The cost is one full dagStore.Enumerate() per call — every op for every
 // object in the repository, decoded — which is genuinely more expensive
-// than a SQLite point lookup. That cost is accepted deliberately: serving
-// Get from the generated projection tables instead would mean inverting
-// writeTypeRow (engine/projection/materialize.go) back into state.Fold's
-// exact output shape across scalar columns, child tables, keyed-lww groups,
-// per-target append tables, __members and unknown_fields, and a subtly
-// wrong inversion is a silent correctness bug, not a visible failure. That
-// optimisation belongs in its own ticket, with evidence behind it — not
-// this one.
+// than a SQLite point lookup. Signature verification is already scoped to
+// this object, not the whole enumeration (dag.VerifyOnly, WRIT-251): real
+// ed25519 verification runs only for objectID's own ops. What is not
+// scoped is decoding: every other object's ops still go through
+// codec.FromGitCommit + codec.DecodeCommit in full — the op.json size
+// cap, canonical-payload byte-equality check and envelope JSON-Schema
+// validation — on every single Get.
 //
-// Signature verification is scoped to this object, not the whole
-// enumeration: Enumerate runs with dag.VerifyOnly, matching only ops whose
-// ObjectID is objectID, so real ed25519 verification runs only for the
-// ops this call actually returns — with a trust store read fresh from
-// disk (see currentTrustStore), never the one Open froze. Verifying every
-// op in the repo on every Get, against a real trust store, cost roughly
-// (op count) x (one ed25519 verify) regardless of which object was asked
-// for — tens of milliseconds on a repo of a few thousand ops (WRIT-251
-// round 2 perf finding; see BenchmarkObjectGetLiveVerification).
+// WRIT-249 measured whether that remaining decode cost is worth a second,
+// cheaper pre-decode filter — peeking each commit's op.json for object_id
+// before running it through the real decoder, and skipping the ones that
+// don't match. BenchmarkObjectsGet's before/after numbers
+// (this ticket's PR body has the full data) showed roughly a 20-30%
+// reduction at 100-1,000 objects, shrinking to something in the
+// 10-20% range — inconsistent between runs, sometimes lower — at 5,000,
+// the largest, most realistic scale tested: a paired, back-to-back
+// comparison at 5,000 objects (same benchmark, same process, immediately
+// sequential to cancel out this environment's own noise) measured 2.35s
+// before and 2.05s after, ~13%. The win shrinks rather than compounds as
+// the repository grows because the ancestry walk itself — one
+// object.GetCommit per commit just to read parent hashes, unavoidable
+// without an index (ARCHITECTURE.md's chain layout: chains are per
+// writer×type, object_id rides the payload, and one object's ops can sit
+// in several types' chains) — and the underlying git object-store I/O
+// dominate at that scale, not the JSON validation a pre-decode filter
+// would skip. That is below the plan's ~30%-at-1,000+-objects bar for
+// adding a second enumeration path, so this ticket stops here: the
+// benchmark lands, permanently, as the regression net for whoever revisits
+// this with a real index instead of a peek.
+//
+// Serving Get from the generated projection tables instead would mean
+// inverting writeTypeRow (engine/projection/materialize.go) back into
+// state.Fold's exact output shape across scalar columns, child tables,
+// keyed-lww groups, per-target append tables, __members and
+// unknown_fields, and a subtly wrong inversion is a silent correctness
+// bug, not a visible failure. That optimisation belongs in its own
+// ticket, with evidence behind it — not this one.
 //
 // Get never mutates the DAG and never modifies state.Fold's own behavior:
 // it does I/O to fetch ops and then calls the pure fold, exactly as the
