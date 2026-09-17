@@ -406,28 +406,7 @@ func writeForeignSchemaOp(t *testing.T, dir, writerID, parent, objectID, opType 
 	return hash.String()
 }
 
-// TestStoreHostileDeclaredTypeOmittedAndProjectionIntact is WRIT-253's
-// Store-level acceptance test.
-//
-// Two schema-op chains foreign to this store's own writer (writeForeignSchemaOp,
-// bypassing producer validation the only way a hand-crafted commit could)
-// declare three hostile object types, each with its own tombstone-strategy
-// field, exactly WRIT-253's own repro shapes: "a') OR 1 --" under the log's
-// own "acme" namespace broke objectsNotDeletedClause's SQL string literal
-// (disabling the tombstone filter and, via its trailing "--" SQL comment,
-// LIMIT too); "acme.x'); DELETE FROM objects; --" (also under "acme") is the
-// stacked statement shape a single-quote break-out makes possible in the
-// first place; and "a') OR 1 --.z" is declared under a hostile namespace of
-// its own ("a') OR 1 --"). This test asserts the Store-level consequence:
-// a real Store.Refresh -- Enumerate, RulesFromSchemas, and the projection
-// rebuild together -- must
-// resolve the log with all three declarations present and never let any of
-// them reach installed rules at all. Store.Types omits every one of them,
-// and an unrestricted cross-type listing (no Type filter, so it walks every
-// installed type's clause -- including the schema objects themselves)
-// still honours the tombstone filter and LIMIT correctly, with query
-// parameterization as the second layer, and every legitimate object still
-// present under IncludeDeleted.
+// TestStoreHostileDeclaredTypeOmittedAndProjectionIntact checks that hostile declared types never reach Types() or break object listings.
 func TestStoreHostileDeclaredTypeOmittedAndProjectionIntact(t *testing.T) {
 	store, ctx, dir := openStoreWithCoreSchema(t)
 
