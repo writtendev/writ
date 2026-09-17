@@ -9,6 +9,7 @@
 package state
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -136,7 +137,14 @@ func FoldSchema(ops []codec.Op) (Schema, error) {
 
 		var body map[string]any
 		if len(op.Body) > 0 {
-			if err := json.Unmarshal(op.Body, &body); err != nil {
+			// UseNumber preserves max_length (and every other numeric body
+			// field) as json.Number instead of decoding through float64: a
+			// number's implementation-defined float64->int64 conversion is
+			// exactly the platform-dependent defect max_length's own
+			// quarantine below exists to close (WRIT-269).
+			dec := json.NewDecoder(bytes.NewReader(op.Body))
+			dec.UseNumber()
+			if err := dec.Decode(&body); err != nil {
 				return Schema{}, fmt.Errorf("fold schema: unmarshaling op %s body: %w", op.ID, err)
 			}
 		}
@@ -180,6 +188,35 @@ func FoldSchema(ops []codec.Op) (Schema, error) {
 					Verification: string(op.Verification.Outcome),
 				})
 				continue
+			}
+		}
+
+		// define-field's max_length is a JSON number
+		// (spec/schemas/schema-ops.schema.json: {"type": "integer"}). A
+		// float64 decode converts it with int64(v), which is
+		// implementation-defined above 2^63 — max_length: 1e300 folds to a
+		// different int64 on amd64 than on arm64, so the folded Schema is
+		// not deterministic across GOARCH (WRIT-269). Quarantine the whole
+		// op, on the same terms as a non-canonical op_version above, when a
+		// present max_length is not a JSON integer representable in int64:
+		// fractional, non-numeric, or out of range. Zero and negative
+		// values are representable and fold exactly as they always have —
+		// narrowing the quarantine to that is a deliberate scope decision
+		// (WRIT-269 orchestrator ruling), not an oversight; widening it to
+		// also reject zero and negative values is a normative change left
+		// for its own ticket.
+		if op.OpType == "define-field" {
+			if raw, present := body["max_length"]; present {
+				if _, ok := decodeMaxLength(raw); !ok {
+					unknownOps = append(unknownOps, UnknownOp{
+						Commit:       op.ID,
+						ObjectType:   op.ObjectType,
+						OpType:       op.OpType,
+						OpVersion:    op.OpVersion,
+						Verification: string(op.Verification.Outcome),
+					})
+					continue
+				}
 			}
 		}
 
@@ -240,7 +277,12 @@ func FoldSchema(ops []codec.Op) (Schema, error) {
 				fieldEnum[key] = v
 			}
 			if v, ok := body["max_length"]; ok {
-				fieldMaxLength[key] = toInt64(v)
+				// Already validated by the quarantine gate above: a
+				// present max_length that reaches here is a JSON integer
+				// representable in int64.
+				if n, ok := decodeMaxLength(v); ok {
+					fieldMaxLength[key] = n
+				}
 			}
 			if v, ok := body["strategy"].(string); ok {
 				fieldStrategy[key] = v
@@ -461,24 +503,46 @@ func stringStringMap(raw any) (map[string]string, bool) {
 	return out, true
 }
 
-// toInt64 converts a decoded JSON number (float64) or a decimal string
-// (the op_version body encoding, spec/schema-ops.md §Envelope binding) to
-// an int64. Anything else, including a string that does not parse, yields
-// zero: the generic fold map keeps the original value regardless.
+// toInt64 converts op_version's decimal string body encoding
+// (spec/schema-ops.md §Envelope binding) to an int64. canonicalOpVersion
+// has already bounded every surviving key to at most maxOpVersionDigits
+// digits by the time this runs, so the conversion cannot overflow. Anything
+// that does not parse, including a non-string, yields zero: the generic
+// fold map keeps the original value regardless.
 func toInt64(raw any) int64 {
-	switch v := raw.(type) {
-	case float64:
-		return int64(v)
-	case int64:
-		return v
-	case string:
-		var n int64
-		var ok bool
-		if n, ok = parseDecimal(v); ok {
-			return n
-		}
+	s, ok := raw.(string)
+	if !ok {
+		return 0
 	}
-	return 0
+	n, ok := parseDecimal(s)
+	if !ok {
+		return 0
+	}
+	return n
+}
+
+// decodeMaxLength reports max_length's value as an int64, and whether raw
+// is a JSON integer representable in int64. raw is a json.Number (the op
+// body is decoded with json.Decoder.UseNumber, WRIT-269) whenever it is a
+// JSON number at all; Int64 rejects a fractional literal ("1.5"), an
+// exponent literal ("1e300" — the reproduced platform-dependent-decode
+// defect: int64(1e300) is implementation-defined and differs by GOARCH),
+// and a magnitude outside int64's range, the same way it rejects any
+// non-number JSON value reaching here as something other than json.Number.
+// Zero and negative values parse cleanly and are representable, so they are
+// accepted here exactly as they fold today — narrowing the quarantine to
+// only the overflow/platform-dependent case, not also to reject zero and
+// negative values, is this ticket's orchestrator ruling, not an oversight.
+func decodeMaxLength(raw any) (int64, bool) {
+	n, ok := raw.(json.Number)
+	if !ok {
+		return 0, false
+	}
+	i, err := n.Int64()
+	if err != nil {
+		return 0, false
+	}
+	return i, true
 }
 
 // parseDecimal parses a non-negative decimal integer string without
@@ -498,30 +562,41 @@ func parseDecimal(s string) (int64, bool) {
 	return n, true
 }
 
+// maxOpVersionDigits bounds op_version's canonical decimal encoding to the
+// digit count spec/schemas/schema-ops.schema.json's op_version_string
+// states (maxLength: 16, i.e. up to 9999999999999999) and spec/schema-ops.md
+// §3.1 states in prose. One named constant so the spec text, the JSON
+// schema, and this code all point at the same bound. Sixteen digits maxes
+// out well inside int64's range, so once canonicalOpVersion has cleared a
+// key, toInt64 converting it can never overflow (WRIT-269).
+const maxOpVersionDigits = 16
+
 // canonicalOpVersion reports whether s is op_version's canonical decimal
 // encoding (spec/schemas/schema-ops.schema.json's op_version_string
-// pattern ^[1-9][0-9]*$): digits only, no leading zero, non-empty. A
-// conforming producer never writes anything else, but the fold path does
-// not consult the JSON schema — that validation is producer-side — so a
-// non-conforming peer's ref can still carry "01", "" or "1a"; FoldSchema
-// quarantines any define-op/define-field/deprecate-field op whose
-// op_version fails this check rather than folding it in under a key that
-// collides with a canonically-encoded one.
+// pattern ^[1-9][0-9]*$, maxLength: 16): digits only, no leading zero,
+// non-empty, at most maxOpVersionDigits digits. A conforming producer
+// never writes anything else, but the fold path does not consult the JSON
+// schema — that validation is producer-side — so a non-conforming peer's
+// ref can still carry "01", "", "1a", or an oversized digit string that
+// would wrap int64 and collide with a genuine declaration's key
+// (WRIT-269); FoldSchema quarantines any define-op/define-field/
+// deprecate-field op whose op_version fails this check rather than
+// folding it in under a key that collides with a canonically-encoded one.
 func canonicalOpVersion(s string) bool {
+	if len(s) > maxOpVersionDigits {
+		return false
+	}
 	if _, ok := parseDecimal(s); !ok {
 		return false
 	}
 	return s[0] != '0'
 }
 
-// compareOpVersion orders two canonical op_version decimal strings (no
-// leading zero, no bound on digit count beyond the schema's maxLength: 16)
-// by numeric value without converting either to int64 first: a shorter
+// compareOpVersion orders two canonical op_version decimal strings by
+// numeric value without converting either to int64 first: a shorter
 // canonical decimal string is always numerically smaller regardless of
 // digit content, and two same-length canonical strings compare correctly
-// byte-for-byte. This is total for any two distinct canonical strings and
-// never overflows, unlike comparing toInt64 conversions of arbitrarily
-// long digit strings.
+// byte-for-byte. This is total for any two distinct canonical strings.
 func compareOpVersion(a, b string) int {
 	if len(a) != len(b) {
 		if len(a) < len(b) {
@@ -539,15 +614,12 @@ func compareOpVersion(a, b string) int {
 	}
 }
 
-// fieldKeyLess orders schemaFieldKeys within one type. Unlike ordering the
-// already-built SchemaField values (whose OpVersion is an int64 conversion
-// that two distinct canonical op_version strings could in principle both
-// produce for an oversized digit string), this compares the key's raw
-// components directly, so two distinct keys — guaranteed to differ in at
-// least field, opType, or opVersion, since fieldNames is keyed by exactly
-// this struct — always compare unequal. That totality is what makes
-// sort.Slice deterministic here regardless of the map-iteration order the
-// keys arrive in (WRIT-186 round-1 finding 1).
+// fieldKeyLess orders schemaFieldKeys within one type by comparing the
+// key's raw components directly, so two distinct keys — guaranteed to
+// differ in at least field, opType, or opVersion, since fieldNames is
+// keyed by exactly this struct — always compare unequal. That totality is
+// what makes sort.Slice deterministic here regardless of the map-iteration
+// order the keys arrive in (WRIT-186 round-1 finding 1).
 func fieldKeyLess(a, b schemaFieldKey) bool {
 	if a.opType != b.opType {
 		return a.opType < b.opType

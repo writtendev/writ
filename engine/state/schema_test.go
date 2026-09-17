@@ -265,6 +265,113 @@ func TestFoldSchemaNonCanonicalOpVersionQuarantined(t *testing.T) {
 	}
 }
 
+// TestFoldSchemaOpVersionOverflowQuarantined reproduces WRIT-269 defect 1:
+// an op_version digit string longer than op_version_string's maxLength: 16
+// (spec/schemas/schema-ops.schema.json) overflows toInt64's int64
+// conversion. "18446744073709551617" is 2^64+1, which wraps to the int64
+// value 1 — exactly the key a genuine op_version "1" declaration uses.
+// Before the maxOpVersionDigits bound, this collided the two declarations
+// into one keyed-lww register and CheckTargetAgreement reported a strategy
+// disagreement, withholding the real rule entirely. FoldSchema must
+// quarantine the oversized op instead.
+func TestFoldSchemaOpVersionOverflowQuarantined(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	op := codec.Op{
+		Envelope: codec.Envelope{
+			ObjectID: "sch-1", ObjectType: "schema", OpType: "define-field", OpVersion: 1,
+			Body: mustSchemaBody(t, map[string]any{
+				"type": "widget", "op_type": "wop", "op_version": "18446744073709551617",
+				"field": "value", "strategy": "lww",
+			}),
+		},
+		ID:     "op-overflow",
+		Author: codec.Identity{When: now},
+	}
+
+	sch, err := state.FoldSchema([]codec.Op{op})
+	if err != nil {
+		t.Fatalf("FoldSchema failed: %v", err)
+	}
+	if len(sch.Types) != 0 {
+		t.Fatalf("expected no type installed from an oversized op_version, got %+v", sch.Types)
+	}
+	if len(sch.UnknownOps) != 1 || sch.UnknownOps[0].Commit != "op-overflow" {
+		t.Fatalf("expected op-overflow quarantined as unknown, got %+v", sch.UnknownOps)
+	}
+}
+
+// TestFoldSchemaMaxLengthQuarantine covers WRIT-269 defect 2: max_length
+// decoded via float64 converts implementation-definedly above 2^63
+// (max_length: 1e300 folds to a different int64 on amd64 than on arm64).
+// Per the ticket's orchestrator ruling, the quarantine is narrow: only a
+// max_length that is not a JSON integer representable in int64 —
+// out-of-range, fractional, or non-numeric — is rejected. Zero and
+// negative values are representable and fold exactly as they do today;
+// widening the quarantine to also reject those is a normative question
+// left for its own ticket, not this one.
+func TestFoldSchemaMaxLengthQuarantine(t *testing.T) {
+	tests := []struct {
+		name string
+		// rawMaxLength is the literal JSON token spliced in for
+		// max_length's value: a bare number or a quoted string. Some of
+		// these (1e300, "50") are not values json.Marshal(map[string]any)
+		// could ever be made to emit for this field, since a Go float64
+		// round-trips through Go's own float formatting rather than
+		// surviving as an out-of-int64-range or exponent literal verbatim.
+		rawMaxLength string
+		quarantined  bool
+		want         int64
+	}{
+		{name: "out of int64 range", rawMaxLength: `1e300`, quarantined: true},
+		{name: "fractional", rawMaxLength: `1.5`, quarantined: true},
+		{name: "string", rawMaxLength: `"50"`, quarantined: true},
+		{name: "valid positive integer", rawMaxLength: `50`, want: 50},
+		{name: "zero left as-is", rawMaxLength: `0`, want: 0},
+		{name: "negative left as-is", rawMaxLength: `-5`, want: -5},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			now := time.Unix(100, 0).UTC()
+			body := json.RawMessage(`{"type":"widget","op_type":"wop","op_version":"1",` +
+				`"field":"value","strategy":"lww","value_type":"string",` +
+				`"max_length":` + tt.rawMaxLength + `}`)
+
+			op := codec.Op{
+				Envelope: codec.Envelope{
+					ObjectID: "sch-1", ObjectType: "schema", OpType: "define-field", OpVersion: 1,
+					Body: body,
+				},
+				ID:     "op-max-length",
+				Author: codec.Identity{When: now},
+			}
+
+			sch, err := state.FoldSchema([]codec.Op{op})
+			if err != nil {
+				t.Fatalf("FoldSchema failed: %v", err)
+			}
+			if tt.quarantined {
+				if len(sch.Types) != 0 {
+					t.Fatalf("expected no type installed, got %+v", sch.Types)
+				}
+				if len(sch.UnknownOps) != 1 || sch.UnknownOps[0].Commit != "op-max-length" {
+					t.Fatalf("expected op-max-length quarantined as unknown, got %+v", sch.UnknownOps)
+				}
+				return
+			}
+			if len(sch.UnknownOps) != 0 {
+				t.Fatalf("expected no unknown ops, got %+v", sch.UnknownOps)
+			}
+			if len(sch.Types) != 1 || len(sch.Types[0].Fields) != 1 {
+				t.Fatalf("unexpected shape: %+v", sch.Types)
+			}
+			if got := sch.Types[0].Fields[0].MaxLength; got != tt.want {
+				t.Errorf("expected MaxLength %d, got %d", tt.want, got)
+			}
+		})
+	}
+}
+
 // TestFoldSchemaDeterministicAcrossManyRuns reproduces the round-1 review's
 // own check: two define-field declarations for one (type, op_type) that
 // differ only in op_version ("1" vs "01") must never both survive into

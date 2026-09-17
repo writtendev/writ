@@ -1,0 +1,121 @@
+{
+  "refs": [
+    {
+      "name": "refs/writ/1234567890abcdef/schema",
+      "commit": "f26e092b9743442d6882f9078d9283ec74a2684d"
+    },
+    {
+      "name": "refs/writ/abcdef1234567890/schema",
+      "commit": "97f04c837671dbeb8dbabe686f800d490af6cbcc"
+    }
+  ],
+  "generations": [
+    {
+      "ref": "refs/writ/1234567890abcdef/schema",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "a5d9b44532a36476cbc5bf9fd70842f8eff5c594",
+          "tree": "2601775727c841f53a2960e4169e9a4a216f66d2",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "message": "writ: create schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "0102bb90aa6cb1371906b5ca3c5064a3b3302799",
+          "tree": "b6d20f688aaf52d315903b112271f253ed2f8793",
+          "parents": [
+            "a5d9b44532a36476cbc5bf9fd70842f8eff5c594"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:01:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "7b292de7137c142e6d462ef3b1bf6c43ca2c64aa",
+          "tree": "2bd613c0da1fc6d5421baeeed0b2c60973745192",
+          "parents": [
+            "0102bb90aa6cb1371906b5ca3c5064a3b3302799"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:02:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "c741a85b163f5293eef899ff10b9c173345eac48",
+          "tree": "17d6231c6a24a4ec2c9f22a6b99284eefc99fd4e",
+          "parents": [
+            "7b292de7137c142e6d462ef3b1bf6c43ca2c64aa"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:03:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "f26e092b9743442d6882f9078d9283ec74a2684d",
+          "tree": "8c7677398368d440af12e5f28033e5b5e82135a8",
+          "parents": [
+            "c741a85b163f5293eef899ff10b9c173345eac48"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:04:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/abcdef1234567890/schema",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "9b12df08267b09d176f24c23dd96908f4e47eff9",
+          "tree": "7fb8b68ab50fd78aa98857f56abb567c4a1b7a7b",
+          "parents": [],
+          "author": "Bob Example \u003cbob@example.test\u003e",
+          "timestamp": "2026-01-01T01:00:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "b27a56c03802b3f66711c59e6e09eef27fdbcf48",
+          "tree": "2f0330fb92bb7a0eeef92fece5ff6d4922d9def7",
+          "parents": [
+            "9b12df08267b09d176f24c23dd96908f4e47eff9"
+          ],
+          "author": "Bob Example \u003cbob@example.test\u003e",
+          "timestamp": "2026-01-01T01:01:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "7eb6cdf1e87983fc814aded3088f424e702d12b5",
+          "tree": "b5de145f813c1bc1ca69ee377543ae06b112e398",
+          "parents": [
+            "b27a56c03802b3f66711c59e6e09eef27fdbcf48"
+          ],
+          "author": "Bob Example \u003cbob@example.test\u003e",
+          "timestamp": "2026-01-01T01:02:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        },
+        {
+          "sha": "97f04c837671dbeb8dbabe686f800d490af6cbcc",
+          "tree": "7b6a159545ce75d7bdb6f2999a6e94c1ff873211",
+          "parents": [
+            "7eb6cdf1e87983fc814aded3088f424e702d12b5"
+          ],
+          "author": "Bob Example \u003cbob@example.test\u003e",
+          "timestamp": "2026-01-01T01:03:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
+        }
+      ]
+    }
+  ]
+}

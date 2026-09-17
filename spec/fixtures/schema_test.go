@@ -61,8 +61,25 @@ type SchemaObjectGolden struct {
 
 // canonicalOpVersionPattern mirrors spec/schemas/schema-ops.schema.json's
 // op_version_string pattern (spec/schema-ops.md §3.1): digits only, no
-// leading zero, non-empty.
-var canonicalOpVersionPattern = regexp.MustCompile(`^[1-9][0-9]*$`)
+// leading zero, non-empty, at most 16 digits.
+var canonicalOpVersionPattern = regexp.MustCompile(`^[1-9][0-9]{0,15}$`)
+
+// maxLengthRepresentable mirrors engine/state/schema.go's decodeMaxLength
+// gate (spec/schema-ops.md §3.3, WRIT-269): true when raw — a value decoded
+// from a define-field body's max_length via json.Decoder.UseNumber, as
+// FoldSchema itself decodes it — is a JSON integer representable in
+// int64. Duplicated here rather than imported because it is unexported: the
+// two must be kept in agreement by hand, the same way this file already
+// keeps canonicalOpVersionPattern in agreement with FoldSchema's own
+// canonicalOpVersion by hand.
+func maxLengthRepresentable(raw any) bool {
+	n, ok := raw.(json.Number)
+	if !ok {
+		return false
+	}
+	_, err := n.Int64()
+	return err == nil
+}
 
 func runSchemaFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 	t.Helper()
@@ -195,17 +212,21 @@ func runSchemaFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 }
 
 // assertSchemaFoldSuperset is the asymmetric cross-check spec/schema-ops.md
-// §3.1 requires. Do not copy assertSettingsFoldAgreement (settings_test.go)
-// as a symmetric equality: writ.Fold(ops, writ.SchemaRules()) does NOT
-// quarantine a non-canonical op_version body field, because ruleAccepts
-// treats "01" as an ordinary keyed-lww key-component string — that check
-// lives one layer up, in the typed writ.FoldSchema reducer (state.FoldSchema's
-// canonicalOpVersion guard). A symmetric assertion fails on this family by
-// construction, and weakening the golden to make it pass would delete the
-// rule this stage exists to pin. The correct assertion is that FoldSchema's
-// UnknownOps is a superset of Fold's, with the difference being exactly the
-// define-op/define-field/deprecate-field ops whose op_version body field is
-// not canonical.
+// §3.1 and §3.3 require. Do not copy assertSettingsFoldAgreement
+// (settings_test.go) as a symmetric equality: writ.Fold(ops,
+// writ.SchemaRules()) does NOT quarantine a non-canonical op_version body
+// field, because ruleAccepts treats "01" as an ordinary keyed-lww
+// key-component string, nor an unrepresentable max_length, because
+// ruleAccepts' keyed-lww case (max_length's own meta-rule) only asks
+// v != nil — both checks live one layer up, in the typed writ.FoldSchema
+// reducer (state.FoldSchema's canonicalOpVersion and decodeMaxLength
+// gates). A symmetric assertion fails on this family by construction, and
+// weakening the golden to make it pass would delete the rule this stage
+// exists to pin. The correct assertion is that FoldSchema's UnknownOps is
+// a superset of Fold's, with the difference being exactly: (a)
+// define-op/define-field/deprecate-field ops whose op_version body field
+// is not canonical, and (b) define-field ops whose max_length body field
+// is present and not a JSON integer representable in int64 (WRIT-269).
 func assertSchemaFoldSuperset(t *testing.T, sch writ.Schema, state writ.ObjectState, fixtureName, objectID string, opByID map[string]codec.Op) {
 	t.Helper()
 
@@ -235,21 +256,32 @@ func assertSchemaFoldSuperset(t *testing.T, sch writ.Schema, state writ.ObjectSt
 			continue
 		}
 		if op.OpType != "define-op" && op.OpType != "define-field" && op.OpType != "deprecate-field" {
-			t.Errorf("[%s/%s] op %s (op_type=%s) is schema-unknown but not generic-unknown; the only permitted asymmetry is the non-canonical op_version quarantine on define-op/define-field/deprecate-field",
+			t.Errorf("[%s/%s] op %s (op_type=%s) is schema-unknown but not generic-unknown; the only permitted asymmetries are the non-canonical op_version and unrepresentable max_length quarantines, and neither applies outside define-op/define-field/deprecate-field",
 				fixtureName, objectID, id, op.OpType)
 			continue
 		}
 		var body map[string]any
 		if len(op.Body) > 0 {
-			if err := json.Unmarshal(op.Body, &body); err != nil {
+			// UseNumber, matching state.FoldSchema's own body decode: a
+			// max_length check below needs to tell a JSON number from a
+			// JSON string the same way FoldSchema does.
+			dec := json.NewDecoder(bytes.NewReader(op.Body))
+			dec.UseNumber()
+			if err := dec.Decode(&body); err != nil {
 				t.Errorf("[%s/%s] unmarshaling op %s body: %v", fixtureName, objectID, id, err)
 				continue
 			}
 		}
 		opVersion, _ := body["op_version"].(string)
-		if canonicalOpVersionPattern.MatchString(opVersion) {
-			t.Errorf("[%s/%s] op %s is schema-unknown but not generic-unknown, yet its op_version %q is canonical; the only permitted asymmetry is the non-canonical op_version quarantine",
-				fixtureName, objectID, id, opVersion)
+		if !canonicalOpVersionPattern.MatchString(opVersion) {
+			continue // permitted: non-canonical op_version quarantine (§3.1)
 		}
+		if op.OpType == "define-field" {
+			if raw, present := body["max_length"]; present && !maxLengthRepresentable(raw) {
+				continue // permitted: unrepresentable max_length quarantine (§3.3, WRIT-269)
+			}
+		}
+		t.Errorf("[%s/%s] op %s is schema-unknown but not generic-unknown, yet its op_version %q is canonical and its max_length (if any) is int64-representable; the only permitted asymmetries are the non-canonical op_version and unrepresentable max_length quarantines",
+			fixtureName, objectID, id, opVersion)
 	}
 }

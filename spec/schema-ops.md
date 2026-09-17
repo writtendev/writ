@@ -169,24 +169,36 @@ wherever it appears in a key.
 
 **This canonical form is checked at fold time, not only by the payload
 schema.** `spec/schemas/schema-ops.schema.json`'s `op_version_string`
-pattern (`^[1-9][0-9]*$`) rejects a non-canonical `op_version` — a leading
-zero, a non-digit character, or an empty string — before a conforming
-producer ever writes one (`spec/testdata/schema-ops/invalid/define-field-op-version-leading-zero.json`
-pins the rejection). That check is producer-side, and a non-conforming
-peer's ref can still carry `"op_version": "01"` regardless of it. **A
+pattern (`^[1-9][0-9]*$`) and `maxLength: 16` bound reject a non-canonical
+`op_version` — a leading zero, a non-digit character, an empty string, or
+a digit string longer than 16 characters — before a conforming producer
+ever writes one (`spec/testdata/schema-ops/invalid/define-field-op-version-leading-zero.json`
+and `define-field-op-version-too-long.json` pin the rejection). That check
+is producer-side, and a non-conforming peer's ref can still carry
+`"op_version": "01"` or an oversized digit string regardless of it. **A
 `define-op`, `define-field`, or `deprecate-field` op whose `op_version`
-body field is not this canonical decimal encoding is uninterpretable, and a
-conforming fold MUST report it through `UnknownOps` rather than fold it
-in.** Without this check, two declarations differing only in a
-non-canonical `op_version` encoding — `"1"` and `"01"`, both denoting the
-same integer — would resolve to the same declaration key once compared
-numerically and collapse onto one, and which of the two survived would
-depend on input order rather than on the ops themselves: the fold is
-required to be pure and deterministic (`spec/fold.md`), and this
-particular nondeterminism is hostile-writer-controllable, since any peer
-can push the colliding ref. The check runs independently of, and in
-addition to, the payload schema — a reader has no producer step to lean on
-and cannot assume the log it reads was ever validated.
+body field is not this canonical decimal encoding — including one longer
+than 16 digits — is uninterpretable, and a conforming fold MUST report it
+through `UnknownOps` rather than fold it in.** Without the leading-zero
+check, two declarations differing only in a non-canonical `op_version`
+encoding — `"1"` and `"01"`, both denoting the same integer — would
+resolve to the same declaration key once compared numerically and
+collapse onto one, and which of the two survived would depend on input
+order rather than on the ops themselves. Without the 16-digit bound, an
+unbounded digit string overflows a 64-bit integer conversion and can wrap
+onto a shorter, genuine declaration's key the same way: `"18446744073709551617"`
+(2^64+1) wraps to the int64 value 1 and collides with an `op_version: "1"`
+declaration, and the fold's own strategy-agreement check then reports the
+two as disagreeing and withholds *both* — deleting the real rule, not
+merely admitting a bogus one. Sixteen digits is `op_version_string`'s own
+`maxLength`, so every canonical op_version that survives this check
+already fits inside an int64 with room to spare: nothing downstream that
+converts it can overflow. Either way, the fold is required to be pure and
+deterministic (`spec/fold.md`), and this particular nondeterminism is
+hostile-writer-controllable, since any peer can push the colliding ref.
+The check runs independently of, and in addition to, the payload schema —
+a reader has no producer step to lean on and cannot assume the log it
+reads was ever validated.
 
 This quarantine belongs to the schema object's own typed materialization,
 one layer above the generic `keyed-lww` strategy `spec/fold.md` §7.1
@@ -204,7 +216,8 @@ pins this exactly: `schema-op-version-non-canonical.yaml` carries a
 non-canonical `op_version` at all three affected op types, and its golden
 (`spec/fixtures/testdata/golden/schema/schema-op-version-non-canonical.json`)
 records the surviving canonical declarations alongside every quarantined op
-in `unknown_ops`.
+in `unknown_ops`. `schema-numeric-bounds.yaml` (same family, §3.3) covers
+the oversized-digit-string case together with `max_length`'s bound.
 
 ### 3.2. Distinct `target` per op type
 
@@ -216,6 +229,42 @@ targets a `field_*` state key; every `define-op` rule targets an `op_*`
 state key; every `define-type` rule targets a `type_*` state key. `create`
 keeps bare `namespace` / `description` state keys, since a schema object
 has exactly one `create`-scoped register set.
+
+### 3.3. `max_length` is bounded at fold time
+
+`define-field`'s `max_length` (§4.3) is not a key component — it is not
+part of `[type, op_type, op_version, field]` — so §3.1's string encoding
+does not apply to it; it is carried as a JSON number, per
+`spec/schemas/schema-ops.schema.json`'s `{"type": "integer"}`. A reader
+that decodes a JSON number through a 64-bit floating-point intermediate
+(as a naive JSON decode into a generic `float64` does) converts it to an
+integer with `int64(v)`, a conversion the language leaves
+implementation-defined for a magnitude above 2^63: `max_length: 1e300`
+decodes to `9223372036854775807` on one platform and
+`-9223372036854775808` on another, verified by reproduction on arm64 and
+amd64 (the latter under Rosetta). That is two conforming readers
+disagreeing on one op's folded value, which `spec/fold.md` requires never
+happen.
+
+**A `define-field` op whose `max_length` is present and is not a JSON
+integer representable in a 64-bit signed integer — a fractional number, a
+magnitude outside that range, or a non-number value — is uninterpretable,
+and a conforming fold MUST report it through `UnknownOps` rather than
+decode it through a lossy or platform-dependent path.** A `max_length` of
+zero or a negative number is representable in a 64-bit signed integer and
+is unaffected by this rule: it folds exactly as it always has.
+`max_length`'s payload schema states the identical bound producer-side —
+`"minimum": 1, "maximum": 9223372036854775807`, the latter added by this
+document — so a conforming producer cannot canonically emit a value every
+reader would be required to quarantine; whether a reader should also
+quarantine an in-range-but-non-conforming value like zero is a separate,
+open question this document does not settle.
+
+`schema-numeric-bounds.yaml` (`spec/fixtures/testdata/descriptions/`, the
+`schema` family, §3.1) golden-pins this alongside the oversized-`op_version`
+case: a genuine `max_length` declaration survives, and siblings carrying
+an out-of-range, fractional, or non-numeric `max_length` are quarantined
+into `unknown_ops`.
 
 ---
 
@@ -337,7 +386,9 @@ Declares one field on one op's body for one type.
 - `enum` (array of strings, optional): Required iff `value_type ==
   "enum"`; forbidden otherwise.
 - `max_length` (integer, optional): Only meaningful when `value_type` is
-  `string` or `text`.
+  `string` or `text`. Present, it MUST be a JSON integer representable in
+  a 64-bit signed integer (§3.3); a conforming fold quarantines the whole
+  op otherwise.
 - `strategy` (string, required): One member of the closed merge-strategy
   catalogue (`spec/fold.md` §5).
 - `key` (array of strings, required iff `strategy == "keyed-lww"`): The
@@ -980,9 +1031,10 @@ than restating the precedence itself (WRIT-188).
   family (`spec/fixtures/schema_test.go`, `TestSchemaFamily`) driving
   `writ.FoldSchema` directly: a bootstrap of a whole schema object, the
   §3.1 non-canonical `op_version` quarantine across all three affected op
-  types, a concurrent multi-writer `define-field` race, a
-  `deprecate-field`/redeclare interleaving, and unknown `op_type` /
-  future `op_version` on the `schema` object type itself (§10).
+  types, the §3.3 unrepresentable-`max_length` quarantine
+  (`schema-numeric-bounds`), a concurrent multi-writer `define-field`
+  race, a `deprecate-field`/redeclare interleaving, and unknown `op_type`
+  / future `op_version` on the `schema` object type itself (§10).
 - `spec/testdata/producer/` (WRIT-188) — §11's producer/reader paired
   verdicts over ops governed by a schema resolved from the log: see
   `spec/op-envelope.md` §Conformance data for the full description.
