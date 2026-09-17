@@ -1,0 +1,35 @@
+{
+  "name": "malformed-range-context-null",
+  "description": "Side's range and context are both JSON null rather than objects; a null must not decode as absent (mirrors malformed-commit-null/malformed-path-null for the range/context pair; WRIT-252 round 7 review). A null on only one of the two is already caught by the range-iff-context check, so this needs both null to isolate the type rule.",
+  "anchor": {
+    "version": 1,
+    "new": {
+      "commit": "1111111111111111111111111111111111111111",
+      "path": "main.go",
+      "blob": "2222222222222222222222222222222222222222",
+      "range": null,
+      "context": null
+    }
+  },
+  "target": {
+    "files": {
+      "main.go": "package main\n"
+    }
+  },
+  "expect": {
+    "anchor": {
+      "version": 1,
+      "new": {
+        "commit": "1111111111111111111111111111111111111111",
+        "path": "main.go",
+        "blob": "2222222222222222222222222222222222222222",
+        "range": null,
+        "context": null
+      }
+    },
+    "new": {
+      "outcome": "orphaned",
+      "reason": "malformed"
+    }
+  }
+}

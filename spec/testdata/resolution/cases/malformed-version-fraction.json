@@ -1,0 +1,53 @@
+{
+  "name": "malformed-version-fraction",
+  "description": "Anchor version is the JSON number 1.5, a fractional value rather than an integer; spec/resolution.md's Structural Pre-Check step 1 requires version to be a JSON integer, and no existing non-integer vector uses a fractional number (every one uses a string or a bound overflow), so nothing pinned the integrality check on its own (WRIT-252 round 7 review)",
+  "anchor": {
+    "version": 1.5,
+    "new": {
+      "commit": "1111111111111111111111111111111111111111",
+      "path": "main.go",
+      "blob": "2222222222222222222222222222222222222222",
+      "range": {
+        "start": 1,
+        "end": 1
+      },
+      "context": {
+        "before": [],
+        "lines": [
+          "package main"
+        ],
+        "after": []
+      }
+    }
+  },
+  "target": {
+    "files": {
+      "main.go": "package main\n"
+    }
+  },
+  "expect": {
+    "anchor": {
+      "version": 1.5,
+      "new": {
+        "commit": "1111111111111111111111111111111111111111",
+        "path": "main.go",
+        "blob": "2222222222222222222222222222222222222222",
+        "range": {
+          "start": 1,
+          "end": 1
+        },
+        "context": {
+          "before": [],
+          "lines": [
+            "package main"
+          ],
+          "after": []
+        }
+      }
+    },
+    "new": {
+      "outcome": "orphaned",
+      "reason": "malformed"
+    }
+  }
+}

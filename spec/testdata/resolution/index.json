@@ -59,6 +59,11 @@
     "outcome": "orphaned",
     "reason": "malformed"
   },
+  "malformed-blob-null.json": {
+    "description": "Side's blob is JSON null rather than a string; a null must not decode as the empty string (WRIT-252 round 7 fixer mutation sweep)",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
   "malformed-commit-null.json": {
     "description": "Side's commit is JSON null rather than a string; a null must not decode as the empty string",
     "outcome": "orphaned",
@@ -152,6 +157,11 @@
     "outcome": "orphaned",
     "reason": "malformed"
   },
+  "malformed-omitted-zero-size-64-match.json": {
+    "description": "context.omitted is 0 with range/lines sized so omitted == size-64 coincidentally holds (1-64, 64 lines); omitted \u003e= 1 is still required (WRIT-252 round 7 fixer mutation sweep)",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
   "malformed-omitted-zero.json": {
     "description": "context.omitted key is present with value 0; omitted present requires omitted >= 1 and is never reinterpreted as absent",
     "outcome": "orphaned",
@@ -164,6 +174,11 @@
   },
   "malformed-range-case-variant.json": {
     "description": "range's keys are wrongly cased (\"START\", \"End\"); exact-case object keys are required, not case-insensitive struct field matching",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
+  "malformed-range-context-null.json": {
+    "description": "Side's range and context are both JSON null rather than objects; a null must not decode as absent (WRIT-252 round 7 review)",
     "outcome": "orphaned",
     "reason": "malformed"
   },
@@ -214,6 +229,16 @@
   },
   "malformed-single-line-elided.json": {
     "description": "Elided context on a single-line range against a one-line file; the resolver ladder must not index into it (WRIT-252 repro, index out of range [1])",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
+  "malformed-version-fraction.json": {
+    "description": "Anchor version is the JSON number 1.5, a fractional value rather than an integer (WRIT-252 round 7 review)",
+    "outcome": "orphaned",
+    "reason": "malformed"
+  },
+  "malformed-version-int53-negative-overflow.json": {
+    "description": "Anchor version is the JSON number -2^53, one past the negative edge of the +/-(2^53-1) exact-integer bound (WRIT-252 round 7 review)",
     "outcome": "orphaned",
     "reason": "malformed"
   },
