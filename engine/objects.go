@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/writtendev/writ/engine/codec"
+	"github.com/writtendev/writ/engine/dag"
 	"github.com/writtendev/writ/engine/internal/fold"
 	"github.com/writtendev/writ/engine/state"
 )
@@ -61,6 +62,14 @@ type Object struct {
 	ObjectType string
 	Fields     map[string]any
 	UnknownOps []UnknownOp
+	// Verification is the worst signature-verification outcome (codec's
+	// valid < wrong-key < unsigned < corrupted-signature < payload-mutated
+	// ordering) among every op that folded into this object, known and
+	// unknown alike. It is an envelope-level fact, like an op's author or
+	// timestamp, and never affects Fields: every op folds regardless of
+	// its outcome (AGENTS.md "Fold is pure and deterministic"; WRIT-251
+	// ruling 1).
+	Verification string
 }
 
 // Objects provides generic create, apply, and get operations over
@@ -216,6 +225,16 @@ func (o *Objects) Apply(ctx context.Context, objectID string, op NewOp) error {
 // optimisation belongs in its own ticket, with evidence behind it — not
 // this one.
 //
+// Signature verification is scoped to this object, not the whole
+// enumeration: Enumerate runs with dag.VerifyOnly, matching only ops whose
+// ObjectID is objectID, so real ed25519 verification runs only for the
+// ops this call actually returns — with a trust store read fresh from
+// disk (see currentTrustStore), never the one Open froze. Verifying every
+// op in the repo on every Get, against a real trust store, cost roughly
+// (op count) x (one ed25519 verify) regardless of which object was asked
+// for — tens of milliseconds on a repo of a few thousand ops (WRIT-251
+// round 2 perf finding; see BenchmarkObjectGetLiveVerification).
+//
 // Get never mutates the DAG and never modifies state.Fold's own behavior:
 // it does I/O to fetch ops and then calls the pure fold, exactly as the
 // projection's own materializer does.
@@ -227,7 +246,12 @@ func (o *Objects) Get(ctx context.Context, objectID string) (Object, error) {
 		return Object{}, fmt.Errorf("writ: object id cannot be empty")
 	}
 
-	enumRes, err := o.store.dagStore.Enumerate()
+	// ts is read fresh from disk on every call, never the one Open froze.
+	ts, _ := o.store.currentTrustStore()
+	enumRes, err := o.store.dagStore.Enumerate(
+		dag.VerifyOnly(func(op codec.Op) bool { return op.ObjectID == objectID }),
+		dag.WithLiveTrustStore(ts),
+	)
 	if err != nil {
 		return Object{}, fmt.Errorf("writ: get object: enumerate: %w", err)
 	}
@@ -254,11 +278,17 @@ func (o *Objects) Get(ctx context.Context, objectID string) (Object, error) {
 		fields = map[string]any{}
 	}
 
+	outcomes := make([]codec.VerificationOutcome, len(ops))
+	for i, op := range ops {
+		outcomes[i] = op.Verification.Outcome
+	}
+
 	return Object{
-		ObjectID:   objectID,
-		ObjectType: objectType,
-		Fields:     fields,
-		UnknownOps: st.UnknownOps,
+		ObjectID:     objectID,
+		ObjectType:   objectType,
+		Fields:       fields,
+		UnknownOps:   st.UnknownOps,
+		Verification: string(codec.WorstOutcome(outcomes...)),
 	}, nil
 }
 

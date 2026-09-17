@@ -3,7 +3,9 @@
 package projection
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -36,6 +38,19 @@ type DB struct {
 	path      string
 	localDB   *sql.DB
 	localPath string
+	// trustStoreDigest folds a fingerprint of the reader's allowed_signers
+	// file into ApplySchema's schema_digest comparison (WRIT-251 ruling 4),
+	// so editing the trust store trips needs_rebuild on the next Refresh
+	// exactly as a real schema change does — cached Verification outcomes
+	// are stale otherwise, since they were computed against the old file's
+	// rules. Set only by WithLiveTrustStore, immediately before the
+	// Refresh/Rebuild pass that reads it: there is no construction-time
+	// value (WRIT-251 round 2 finding deleted WithTrustStoreDigest, the
+	// last caller of a value frozen at Open) — a DB with no Refresh/Rebuild
+	// pass yet, or one Open never learned a trust store for, holds the
+	// zero value, which leaves ApplySchema's digest exactly newDesc.digest,
+	// the same as a repository with no trust store at all.
+	trustStoreDigest string
 
 	// descMu guards desc: ApplySchema (called from Refresh/Rebuild, and
 	// directly by callers driving the projection package on its own) writes
@@ -344,8 +359,21 @@ func (d *DB) ApplySchema(rules map[string][]state.Rule) error {
 	d.descMu.Lock()
 	defer d.descMu.Unlock()
 
+	// Fold the trust-store digest into the compared/stored digest (ruling
+	// 4): an unconfigured or unreadable trust store leaves trustStoreDigest
+	// empty, and effectiveDigest then equals newDesc.digest exactly, so a
+	// repository with no trust store at all sees no change from this ever
+	// existing. A configured trust store changes effectiveDigest whenever
+	// its bytes change, independently of newDesc.digest, so editing
+	// allowed_signers trips needs_rebuild below on its own.
+	effectiveDigest := newDesc.digest
+	if d.trustStoreDigest != "" {
+		sum := sha256.Sum256([]byte(newDesc.digest + "\n" + d.trustStoreDigest))
+		effectiveDigest = hex.EncodeToString(sum[:])
+	}
+
 	storedDigest, hadPrior := loadMetaString(d.db, "schema_digest")
-	sameDigest := storedDigest == newDesc.digest
+	sameDigest := storedDigest == effectiveDigest
 
 	tx, err := d.db.Begin()
 	if err != nil {
@@ -447,7 +475,7 @@ func (d *DB) ApplySchema(rules map[string][]state.Rule) error {
 	if err != nil {
 		return fmt.Errorf("projection: marshal persisted query shapes: %w", err)
 	}
-	metaWrites["schema_digest"] = newDesc.digest
+	metaWrites["schema_digest"] = effectiveDigest
 	metaWrites["schema_tables"] = string(tablesJSON)
 	metaWrites["schema_descriptor"] = string(newDesc.canonicalJSON)
 	metaWrites["schema_query_shapes"] = string(queryShapesJSON)

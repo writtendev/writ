@@ -89,19 +89,22 @@
           "commit": "5cc96617b394b6a743ba37eb78db9ea4a02595dc",
           "object_type": "acme.gadget",
           "op_type": "approve",
-          "op_version": 1
+          "op_version": 1,
+          "verification": "wrong-key"
         },
         {
           "commit": "cea9b1e6a4fb6c985c41ff70e3f19cbf3a4cf691",
           "object_type": "acme.gadget",
           "op_type": "approve",
-          "op_version": 1
+          "op_version": 1,
+          "verification": "wrong-key"
         },
         {
           "commit": "65ee840d00d5fa99330d94191b5ed22e94698793",
           "object_type": "acme.gadget",
           "op_type": "approve",
-          "op_version": 1
+          "op_version": 1,
+          "verification": "wrong-key"
         }
       ]
     }

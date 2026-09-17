@@ -28,7 +28,10 @@ package projection
 // 15: WRIT-189 replaced every per-type table with ones generated from the
 // schema in the log; anchor_resolutions is generalized and its columns
 // unchanged, so it stays here rather than moving with the generated tables.
-const schemaVersion = 15
+// 16: WRIT-251 added verification and key_fingerprint columns to ops, and
+// a verification column to objects and unknown_ops, so ingest-time
+// signature verification outcomes have somewhere to be cached.
+const schemaVersion = 16
 
 // substrateTables lists the type-agnostic tables created unconditionally at
 // Open, before any schema is ever applied: meta, chain_tips, code_tips, ops,
@@ -94,7 +97,9 @@ CREATE TABLE IF NOT EXISTS ops (
     committer_tz TEXT NOT NULL,
     message TEXT NOT NULL,
     signature TEXT,
-    payload BLOB NOT NULL
+    payload BLOB NOT NULL,
+    verification TEXT NOT NULL DEFAULT '',
+    key_fingerprint TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_ops_object_id ON ops(object_id);
 
@@ -106,7 +111,8 @@ CREATE TABLE IF NOT EXISTS objects (
     author_name TEXT NOT NULL,
     author_email TEXT NOT NULL,
     created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
+    updated_at INTEGER NOT NULL,
+    verification TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_objects_author_email ON objects(author_email);
 CREATE INDEX IF NOT EXISTS idx_objects_object_type ON objects(object_type);
@@ -118,6 +124,7 @@ CREATE TABLE IF NOT EXISTS unknown_ops (
     op_type TEXT NOT NULL,
     op_version INTEGER NOT NULL,
     op_index INTEGER NOT NULL DEFAULT 0,
+    verification TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (object_id, op_id)
 );
 CREATE INDEX IF NOT EXISTS idx_unknown_ops_object_id ON unknown_ops(object_id);

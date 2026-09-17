@@ -182,19 +182,22 @@
           "commit": "419403064e838ada0deeb287f2252b8b95ad9993",
           "object_type": "acme.gadget",
           "op_type": "set-owner",
-          "op_version": 1
+          "op_version": 1,
+          "verification": "wrong-key"
         },
         {
           "commit": "4063d6efb2aa4bae34658af808af4c49c6bf106d",
           "object_type": "acme.gadget",
           "op_type": "set-tags",
-          "op_version": 1
+          "op_version": 1,
+          "verification": "wrong-key"
         },
         {
           "commit": "1a954a9de40939174f1d89b88b8969c8b9805079",
           "object_type": "acme.gadget",
           "op_type": "set-beta",
-          "op_version": 1
+          "op_version": 1,
+          "verification": "wrong-key"
         }
       ]
     }

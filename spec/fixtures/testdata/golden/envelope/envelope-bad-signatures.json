@@ -19,13 +19,12 @@
       "signed": true,
       "signature_key_fingerprint": "SHA256:O/tazBDLdOtpewVOG55l3W8ZJOSCXXSbkFws9gBOhYc",
       "verification_outcome": "wrong-key",
+      "expected_verification": "wrong-key",
       "expected": {
-        "disposition": "reject",
-        "reason": "wrong-key"
+        "disposition": "accept"
       },
       "observed": {
-        "disposition": "reject",
-        "reason": "wrong-key"
+        "disposition": "accept"
       }
     },
     {
@@ -49,13 +48,12 @@
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "payload-mutated",
+      "expected_verification": "payload-mutated",
       "expected": {
-        "disposition": "reject",
-        "reason": "payload-mutated"
+        "disposition": "accept"
       },
       "observed": {
-        "disposition": "reject",
-        "reason": "payload-mutated"
+        "disposition": "accept"
       }
     },
     {
@@ -78,13 +76,12 @@
       "canonical_payload": "{\"body\":{\"title\":\"Corrupted armor signature\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"update\",\"op_version\":1}",
       "signed": true,
       "verification_outcome": "corrupted-signature",
+      "expected_verification": "corrupted-signature",
       "expected": {
-        "disposition": "reject",
-        "reason": "corrupted-signature"
+        "disposition": "accept"
       },
       "observed": {
-        "disposition": "reject",
-        "reason": "corrupted-signature"
+        "disposition": "accept"
       }
     },
     {
@@ -107,13 +104,12 @@
       "canonical_payload": "{\"body\":{\"title\":\"Unsigned commit\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"update\",\"op_version\":1}",
       "signed": false,
       "verification_outcome": "unsigned",
+      "expected_verification": "unsigned",
       "expected": {
-        "disposition": "reject",
-        "reason": "unsigned"
+        "disposition": "accept"
       },
       "observed": {
-        "disposition": "reject",
-        "reason": "unsigned"
+        "disposition": "accept"
       }
     }
   ]

@@ -64,13 +64,15 @@
           "commit": "81468ab5bc59ed0a36e6ae6d0a880280a4b233a7",
           "object_type": "acme.widget",
           "op_type": "promote",
-          "op_version": 1
+          "op_version": 1,
+          "verification": "wrong-key"
         },
         {
           "commit": "108700f79e5a869593cfc15670d3589ef9e00f41",
           "object_type": "acme.widget",
           "op_type": "demote",
-          "op_version": 1
+          "op_version": 1,
+          "verification": "wrong-key"
         }
       ]
     }

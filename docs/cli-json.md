@@ -376,6 +376,8 @@ Folds an object's state directly from the log — never the projection cache —
 | `unknown_ops[].object_type` | string | The op's own `object_type`. |
 | `unknown_ops[].op_type` | string | The op's own `op_type`. |
 | `unknown_ops[].op_version` | integer | The op's own `op_version`. |
+| `unknown_ops[].verification` | string | That op's own signature-verification outcome — see `verification` below. |
+| `verification` | string | The worst signature-verification outcome among every op that contributed to this object, known or unknown alike, from the closed set `valid`, `wrong-key`, `unsigned`, `corrupted-signature`, `payload-mutated` (best to worst in that same order, per WRIT-251 ruling 3 — `spec/signing.md` §Verification Outcomes lists the set but not this ordering). It is an envelope-level fact, like an op's author or timestamp: verification never gates whether an op folds, so this never affects `fields` — a forged or unsigned op's fields still fold, with the tampering surfaced only here. `wrong-key` on an otherwise-legitimate signature usually means this repository has no `gpg.ssh.allowedSignersFile` configured; the porcelain form of this command prints a one-line stderr hint in that case. |
 
 #### Example Output
 
@@ -390,7 +392,8 @@ Folds an object's state directly from the log — never the projection cache —
       "title": "Fix the thing",
       "tags": ["urgent", "backend"]
     },
-    "unknown_ops": []
+    "unknown_ops": [],
+    "verification": "valid"
   }
 }
 ```
@@ -416,6 +419,7 @@ Lists collaborative objects across every schema-declared type, or within one, fr
 | `created_at` | string | Creation timestamp in RFC 3339 UTC (`...Z`). |
 | `updated_at` | string | Last modification timestamp in RFC 3339 UTC (`...Z`). |
 | `op_count` | integer | Number of ops folded into this object. |
+| `verification` | string | The same worst-outcome summary `object show`'s `verification` field reports — see that field's description above — cached in the projection at the last `Refresh`/`Rebuild` rather than recomputed live. |
 
 #### Example Output
 
@@ -430,7 +434,8 @@ Lists collaborative objects across every schema-declared type, or within one, fr
       "author": { "name": "Alice", "email": "alice@example.com" },
       "created_at": "2026-01-01T00:00:00Z",
       "updated_at": "2026-01-01T00:00:00Z",
-      "op_count": 1
+      "op_count": 1,
+      "verification": "valid"
     }
   ]
 }

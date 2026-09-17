@@ -20,13 +20,15 @@
           "commit": "ebd8d148971517f8103785fa926eeae7a6ebf9d9",
           "object_type": "gadget",
           "op_type": "create",
-          "op_version": 1
+          "op_version": 1,
+          "verification": "wrong-key"
         },
         {
           "commit": "155ca576b31eafe255b4f163f84ca833a0d57831",
           "object_type": "gadget",
           "op_type": "update",
-          "op_version": 1
+          "op_version": 1,
+          "verification": "wrong-key"
         }
       ]
     }

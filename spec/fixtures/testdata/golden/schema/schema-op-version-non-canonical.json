@@ -39,31 +39,36 @@
             "commit": "c1006d4f1f78db3b5df217bd733b6fa3ba6f1d46",
             "object_type": "schema",
             "op_type": "define-field",
-            "op_version": 1
+            "op_version": 1,
+            "verification": "wrong-key"
           },
           {
             "commit": "db7c870ef7a4dfa7fdd01563235864ca23487f3d",
             "object_type": "schema",
             "op_type": "define-op",
-            "op_version": 1
+            "op_version": 1,
+            "verification": "wrong-key"
           },
           {
             "commit": "319d940ed84091badedb44e03048d20f68eb97b9",
             "object_type": "schema",
             "op_type": "deprecate-field",
-            "op_version": 1
+            "op_version": 1,
+            "verification": "wrong-key"
           },
           {
             "commit": "c77004bf12c183e5f159b6861ca0d0fc14e70b3d",
             "object_type": "schema",
             "op_type": "define-field",
-            "op_version": 1
+            "op_version": 1,
+            "verification": "wrong-key"
           },
           {
             "commit": "9b6578afdc16a370a1a66f5fd8baf6b851961e2a",
             "object_type": "schema",
             "op_type": "define-field",
-            "op_version": 1
+            "op_version": 1,
+            "verification": "wrong-key"
           }
         ]
       }

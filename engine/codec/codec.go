@@ -55,4 +55,11 @@ type Op struct {
 	Committer Identity `json:"committer"`
 	Message   string   `json:"message"`
 	Signature string   `json:"signature,omitempty"`
+	// Verification carries the outcome of verifying this op's signature
+	// against the reader's trust store. DecodeCommit leaves it zero; only
+	// the DAG ingest boundary (dag.Store.EnumerateSince) sets it
+	// (spec/signing.md "Ingest-time verification"). It is data only: fold
+	// never reads it and every op folds regardless of its outcome
+	// (AGENTS.md "Fold is pure and deterministic").
+	Verification Verification `json:"verification"`
 }

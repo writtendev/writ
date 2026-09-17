@@ -4,12 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/writtendev/writ/engine/codec"
+	"github.com/writtendev/writ/engine/codec/sshsig"
 	"github.com/writtendev/writ/engine/dag"
+	"github.com/writtendev/writ/engine/identity"
 )
 
 func TestEnumerate_IncrementalCost(t *testing.T) {
@@ -277,5 +282,103 @@ func TestEnumerate_TwoReposGitFetch(t *testing.T) {
 	expectedRemoteRef := "refs/remotes/origin/writ/0123456789abcdef/widget"
 	if res.Cursors[expectedRemoteRef] != op1.ID {
 		t.Fatalf("cursor %s = %s, want %s", expectedRemoteRef, res.Cursors[expectedRemoteRef], op1.ID)
+	}
+}
+
+// TestEnumerateSince_Verification pins WRIT-251's ingest wiring at the dag
+// layer directly: EnumerateSince calls codec.Verify per decoded commit
+// against whatever trust store the Store was opened with, the outcome
+// rides on codec.Op.Verification, and none of it touches Rejections --
+// which WRIT-271 owns, not this ticket.
+func TestEnumerateSince_Verification(t *testing.T) {
+	if _, err := exec.LookPath("ssh-keygen"); err != nil {
+		t.Skip("ssh-keygen not found on PATH")
+	}
+
+	dir, _ := initTestRepo(t)
+	keyDir := t.TempDir()
+	privPath := filepath.Join(keyDir, "id_alice")
+	genCmd := exec.Command("ssh-keygen", "-t", "ed25519", "-N", "", "-f", privPath)
+	if out, err := genCmd.CombinedOutput(); err != nil {
+		t.Skipf("ssh-keygen unavailable: %v\n%s", err, out)
+	}
+	pubBytes, err := os.ReadFile(privPath + ".pub")
+	if err != nil {
+		t.Fatalf("read generated public key: %v", err)
+	}
+	pubLine := strings.TrimSpace(string(pubBytes))
+
+	signer, err := codec.NewSigner(identity.SigningKey{Format: "ssh", Value: privPath})
+	if err != nil {
+		t.Fatalf("codec.NewSigner: %v", err)
+	}
+
+	allowedPath := filepath.Join(keyDir, "allowed_signers")
+	if err := os.WriteFile(allowedPath, []byte("alice@example.test "+pubLine+"\n"), 0o600); err != nil {
+		t.Fatalf("write allowed_signers: %v", err)
+	}
+	ts, err := sshsig.ParseAllowedSignersFile(allowedPath)
+	if err != nil {
+		t.Fatalf("ParseAllowedSignersFile: %v", err)
+	}
+
+	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
+
+	// Append one signed op through a Store with no trust store configured.
+	unconfigured, err := dag.Open(dir, ident, withVocabularies(), dag.WithSigner(signer))
+	if err != nil {
+		t.Fatalf("Open (unconfigured) failed: %v", err)
+	}
+	env := codec.Envelope{
+		ObjectID:   "w-1",
+		ObjectType: "widget",
+		OpType:     "create",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"title":"Signed"}`),
+	}
+	if _, err := unconfigured.Append(context.Background(), env, nil); err != nil {
+		t.Fatalf("Append failed: %v", err)
+	}
+
+	resUnconfigured, err := unconfigured.Enumerate()
+	if err != nil {
+		t.Fatalf("Enumerate (unconfigured) failed: %v", err)
+	}
+	if len(resUnconfigured.Rejections) != 0 {
+		t.Fatalf("Rejections (unconfigured) = %v, want none", resUnconfigured.Rejections)
+	}
+	ops := resUnconfigured.Ops["w-1"]
+	if len(ops) != 1 {
+		t.Fatalf("w-1 ops (unconfigured) = %d, want 1", len(ops))
+	}
+	if ops[0].Verification.Outcome != codec.OutcomeWrongKey {
+		t.Errorf("Verification.Outcome (unconfigured trust store) = %q, want %q", ops[0].Verification.Outcome, codec.OutcomeWrongKey)
+	}
+
+	// A second Store, same repo, opened with no trust store of its own:
+	// this call supplies one per call via WithLiveTrustStore instead (the
+	// only way a trust store reaches EnumerateSince — WRIT-251 round 2
+	// deleted the Open-time WithTrustStore option), and the same commit
+	// now verifies as valid, with Rejections still empty.
+	configured, err := dag.Open(dir, ident, withVocabularies(), dag.WithSigner(signer))
+	if err != nil {
+		t.Fatalf("Open (configured) failed: %v", err)
+	}
+	resConfigured, err := configured.Enumerate(dag.WithLiveTrustStore(ts))
+	if err != nil {
+		t.Fatalf("Enumerate (configured) failed: %v", err)
+	}
+	if len(resConfigured.Rejections) != len(resUnconfigured.Rejections) {
+		t.Fatalf("Rejections changed with a trust store configured: %v vs %v", resConfigured.Rejections, resUnconfigured.Rejections)
+	}
+	configuredOps := resConfigured.Ops["w-1"]
+	if len(configuredOps) != 1 {
+		t.Fatalf("w-1 ops (configured) = %d, want 1", len(configuredOps))
+	}
+	if configuredOps[0].Verification.Outcome != codec.OutcomeValid {
+		t.Errorf("Verification.Outcome (configured trust store) = %q, want %q", configuredOps[0].Verification.Outcome, codec.OutcomeValid)
+	}
+	if configuredOps[0].ID != ops[0].ID {
+		t.Fatalf("the two enumerations disagree on the op id: %s vs %s", configuredOps[0].ID, ops[0].ID)
 	}
 }

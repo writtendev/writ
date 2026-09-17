@@ -60,7 +60,8 @@
           "commit": "9b3628bdc6252493d552b32fe1ee3996e3b20b89",
           "object_type": "acme.gadget",
           "op_type": "approve",
-          "op_version": 1
+          "op_version": 1,
+          "verification": "wrong-key"
         }
       ]
     }

@@ -261,10 +261,13 @@ func Load(ctx context.Context, repoDir string) (Identity, error) {
 		signingKey.Literal = false
 	}
 
-	// 6. Allowed Signers: gpg.ssh.allowedSignersFile (optional). Trimmed:
-	// unset and whitespace-only are the same absence, and the difference
-	// between them is otherwise a trust-store load against a garbage path.
-	allowedSigners := strings.TrimSpace(cfg["gpg.ssh.allowedsignersfile"])
+	// 6. Allowed Signers: gpg.ssh.allowedSignersFile (optional). Trimmed and
+	// tilde-expanded through allowedSignersFromConfig (allowedsigners.go),
+	// shared with AllowedSignersFile so the two never answer differently
+	// for the same config map. Unset and whitespace-only are the same
+	// absence, and the difference between them is otherwise a trust-store
+	// load against a garbage path.
+	allowedSigners := allowedSignersFromConfig(cfg)
 
 	return Identity{
 		WriterID: writerID,

@@ -93,13 +93,15 @@
           "commit": "3c25db2518d34838b867d74c4abd545a11feb9b4",
           "object_type": "acme.gadget",
           "op_type": "approve",
-          "op_version": 1
+          "op_version": 1,
+          "verification": "wrong-key"
         },
         {
           "commit": "d002fa6979dd164e2c9c8f244ff682f43c08b94e",
           "object_type": "acme.gadget",
           "op_type": "approve",
-          "op_version": 2
+          "op_version": 2,
+          "verification": "wrong-key"
         }
       ]
     }

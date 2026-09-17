@@ -81,6 +81,7 @@ type Object struct {
 	ObjectType string
 	Fields map[string]any
 	UnknownOps []UnknownOp
+	Verification string
 }
 
 type ObjectChange = projection.ObjectChange
@@ -233,6 +234,7 @@ func ToGitCommit(c Commit) (*object.Commit, error)
 func ValidateBody(env Envelope, vocabularies Vocabularies) error
 func ValidateEnvelope(raw []byte) error
 func Verify(c Commit, ts TrustStore) Verification
+func WorstOutcome(outcomes ...VerificationOutcome) VerificationOutcome
 func WriteCommit(ctx context.Context, s storage.Storer, commit *Commit, signer Signer) (plumbing.Hash, error)
 
 type Commit struct {
@@ -278,6 +280,7 @@ type Op struct {
 	Committer Identity `json:"committer"`
 	Message string `json:"message"`
 	Signature string `json:"signature,omitempty"`
+	Verification Verification `json:"verification"`
 }
 
 type OpVersionKey struct {
@@ -409,7 +412,9 @@ func OpenStorage(s storage.Storer, ident identity.Identity, opts ...Option) (*St
 func Order(ops []codec.Op) ([]codec.Op, error)
 func ParseChainRef(ref string) (ChainRef, error)
 func RemoteRefName(remote string, writerID identity.WriterID, objectType string) plumbing.ReferenceName
+func VerifyOnly(match func(codec.Op) bool) EnumerateOption
 func WithChainObserver(observe func(objectType string, newTip plumbing.Hash)) Option
+func WithLiveTrustStore(ts codec.TrustStore) EnumerateOption
 func WithNow(now func() time.Time) Option
 func WithProducerVocabularies(resolve func() (codec.Vocabularies, error)) Option
 func WithSigner(signer Signer) Option
@@ -430,6 +435,8 @@ type DiscoveredChain struct {
 	Ref ChainRef `json:"ref"`
 	Tip plumbing.Hash `json:"tip"`
 }
+
+type EnumerateOption func(*enumerateConfig)
 
 type EnumerateResult struct {
 	Ops map[string][]codec.Op `json:"ops"`
@@ -455,8 +462,8 @@ type Store struct {
 	// unexported fields
 }
 func (*Store) Append(ctx context.Context, env codec.Envelope, causalParents []string) (*codec.Op, error)
-func (*Store) Enumerate() (*EnumerateResult, error)
-func (*Store) EnumerateSince(cursors CursorSet) (*EnumerateResult, error)
+func (*Store) Enumerate(opts ...EnumerateOption) (*EnumerateResult, error)
+func (*Store) EnumerateSince(cursors CursorSet, opts ...EnumerateOption) (*EnumerateResult, error)
 func (*Store) Identity() identity.Identity
 func (*Store) Storer() storage.Storer
 func (*Store) WriterID() identity.WriterID
@@ -469,6 +476,7 @@ var ErrInvalid = errors.New("invalid configuration")
 var ErrMissing = errors.New("missing configuration")
 var ErrUnsupportedFormat = errors.New("unsupported format")
 
+func AllowedSignersFile(ctx context.Context, repoDir string) (string, error)
 func DerivePersonID(cfg map[string]string) (string, error)
 func EnsureRepoID(ctx context.Context, repoDir string) (RepoID, bool, error)
 func EnsureWriterID(ctx context.Context, repoDir string, taken func(WriterID) bool) (WriterID, bool, error)
@@ -543,6 +551,7 @@ var ErrNotFound = errors.New("writ: object not found")
 func LocalSchemaVersion() int
 func Open(path string, opts ...OpenOption) (*DB, error)
 func SchemaVersion() int
+func WithLiveTrustStore(ts codec.TrustStore, digest string) Option
 func WithLocalPath(path string) OpenOption
 func WithSchema(rules map[string][]state.Rule) Option
 func WithTargetRefs(refs ...string) Option
@@ -599,6 +608,7 @@ type ObjectResult struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	OpCount int `json:"op_count"`
 	LastOpID string `json:"last_op_id"`
+	Verification string `json:"verification"`
 }
 
 type OpenOption func(*openConfig)
@@ -1006,6 +1016,7 @@ type UnknownOp struct {
 	ObjectType string `json:"object_type"`
 	OpType string `json:"op_type"`
 	OpVersion int64 `json:"op_version"`
+	Verification string `json:"verification"`
 }
 
 package sync // github.com/writtendev/writ/engine/sync

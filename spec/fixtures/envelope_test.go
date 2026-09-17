@@ -46,6 +46,7 @@ type OpGoldenState struct {
 	Signed                  bool             `json:"signed"`
 	SignatureKeyFingerprint string           `json:"signature_key_fingerprint,omitempty"`
 	VerificationOutcome     string           `json:"verification_outcome"`
+	ExpectedVerification    string           `json:"expected_verification,omitempty"`
 	Expected                DispositionState `json:"expected"`
 	Observed                DispositionState `json:"observed"`
 }
@@ -160,6 +161,12 @@ func evaluateOpCommit(t *testing.T, fix *fixtures.Fixture, refName string, commi
 	}
 
 	// 2. Observed disposition evaluation
+	//
+	// Disposition comes only from codec.DecodeCommit (WRIT-251 ruling 1):
+	// signature verification never gates fold or acceptance, so a bad
+	// signature can no longer make the observed disposition "reject" --
+	// it is checked as a separate expected-vs-observed verification
+	// outcome below instead.
 	var observed DispositionState
 
 	// A-C. Decode and validate commit via codec
@@ -171,23 +178,39 @@ func evaluateOpCommit(t *testing.T, fix *fixtures.Fixture, refName string, commi
 		} else {
 			return nil, fmt.Errorf("unexpected decode error: %w", decErr)
 		}
+	} else {
+		observed = DispositionState{Disposition: "accept"}
 	}
 
-	// D. Signature verification
+	// D. Signature verification. Never part of disposition (see above):
+	// computed unconditionally so every commit's outcome is pinned in the
+	// golden file, but only compared against an expectation when the
+	// commit was actually accepted.
 	verResult := codec.Verify(pureCommit, trustStore)
-
-	if observed.Disposition == "" {
-		if !verResult.Valid {
-			observed = DispositionState{Disposition: "reject", Reason: string(verResult.Outcome)}
-		} else {
-			observed = DispositionState{Disposition: "accept"}
-		}
-	}
 
 	// Assert declared expectation matches observed disposition
 	if expected != observed {
 		t.Fatalf("fixture %s commit %s: expected disposition %+v, observed %+v (verification: %+v)",
 			fix.Name, commit.Hash.String(), expected, observed, verResult)
+	}
+
+	// Assert declared (or defaulted) expected verification outcome matches
+	// observed, for accepted commits only -- a rejected commit's signature
+	// state is not what its expect: block is describing, and
+	// expectedVerification stays "" for one so the golden never pins a
+	// value that contradicts verification_outcome (the description loader
+	// already refuses expect.verification on a reject expectation;
+	// UnmarshalYAML above).
+	var expectedVerification string
+	if observed.Disposition == "accept" {
+		expectedVerification = string(codec.OutcomeValid)
+		if cd.Expect != nil && cd.Expect.Verification != "" {
+			expectedVerification = cd.Expect.Verification
+		}
+		if expectedVerification != string(verResult.Outcome) {
+			t.Fatalf("fixture %s commit %s: expected verification %q, observed %q",
+				fix.Name, commit.Hash.String(), expectedVerification, verResult.Outcome)
+		}
 	}
 
 	parents := make([]string, len(commit.ParentHashes))
@@ -209,6 +232,7 @@ func evaluateOpCommit(t *testing.T, fix *fixtures.Fixture, refName string, commi
 		Signed:                  commit.PGPSignature != "",
 		SignatureKeyFingerprint: verResult.KeyFingerprint,
 		VerificationOutcome:     string(verResult.Outcome),
+		ExpectedVerification:    expectedVerification,
 		Expected:                expected,
 		Observed:                observed,
 	}, nil
