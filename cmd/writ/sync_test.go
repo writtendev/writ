@@ -702,12 +702,12 @@ func TestFormatSyncResult_RejectedClause(t *testing.T) {
 		{
 			name: "rejected alone",
 			res:  writ.SyncResult{Rejected: 1},
-			want: "origin: 1 op rejected",
+			want: "origin: 1 op not applied",
 		},
 		{
 			name: "rejected alongside other activity",
 			res:  writ.SyncResult{OpsFetched: 2, Rejected: 3},
-			want: "origin: fetched 2 ops, 3 ops rejected",
+			want: "origin: fetched 2 ops, 3 ops not applied",
 		},
 	}
 	for _, tc := range cases {

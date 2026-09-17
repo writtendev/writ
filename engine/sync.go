@@ -27,8 +27,13 @@ type SyncResult struct {
 	Unsynced int `json:"unsynced"`
 
 	// Rejected is the number of op commits this sync's projection refresh
-	// rejected on reader validation (see RefreshStats.Rejections) — a
-	// quarantined peer op is no longer silently discarded (WRIT-271).
+	// could not accept: a malformed peer op rejected on reader
+	// validation, or an op commit naming an object absent from this
+	// clone (dag.RejectObjectUnavailable — e.g. excluded by a partial or
+	// shallow clone's fetch filter, engine-local and not itself a
+	// reader-validation reason). See RefreshStats.Rejections for each
+	// one's specific reason — a quarantined peer op is no longer
+	// silently discarded (WRIT-271).
 	Rejected int `json:"rejected,omitempty"`
 }
 

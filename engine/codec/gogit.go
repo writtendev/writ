@@ -149,6 +149,19 @@ func fromGitCommit(s storage.Storer, commit *object.Commit) (Commit, error) {
 // nil, nil, which handed DecodeCommit an empty payload it reported as
 // non-canonical-payload: an absent-object error wearing a
 // malformed-payload's name.
+//
+// open's underlying EncodedObject lookup is typed (it wants a blob), and
+// go-git reports plumbing.ErrObjectNotFound for a type mismatch on a
+// present object the same way it reports genuine absence (WRIT-271 round
+// 1 review: an op.json entry naming a present tree — wrong mode, or a
+// mode-100644 entry whose hash happens to name a tree — hit this and was
+// misreported object-unavailable instead of its pre-existing malformed-op
+// reason). When s is available, an open failure is checked against a
+// plumbing.AnyObject probe before being propagated: genuinely absent
+// still returns the error for dag to classify object-unavailable;
+// present-but-wrong-type falls back to the pre-WRIT-271 nil, nil so
+// DecodeCommit's own tree-shape and payload rules apply exactly as they
+// did before this ticket.
 func readOpJSONBlob(s storage.Storer, hash plumbing.Hash, open func() (*object.File, error)) ([]byte, error) {
 	if s != nil {
 		size, found, err := packfileObjectSize(s, hash)
@@ -166,6 +179,13 @@ func readOpJSONBlob(s storage.Storer, hash plumbing.Hash, open func() (*object.F
 
 	file, err := open()
 	if err != nil {
+		if s != nil && errors.Is(err, plumbing.ErrObjectNotFound) {
+			if _, probeErr := s.EncodedObject(plumbing.AnyObject, hash); !errors.Is(probeErr, plumbing.ErrObjectNotFound) {
+				// hash names an object, just not a blob: a malformed op,
+				// not an object missing from this clone.
+				return nil, nil
+			}
+		}
 		return nil, fmt.Errorf("codec: open op.json blob: %w", err)
 	}
 	r, err := file.Reader()

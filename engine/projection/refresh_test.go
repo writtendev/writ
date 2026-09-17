@@ -661,7 +661,8 @@ func TestRefresh_SurfacesRejections(t *testing.T) {
 
 	// The cursor still advances past the rejected commit (WRIT-271's
 	// plan is explicit that this is deliberate, not this ticket's bug to
-	// fix): a second Refresh sees no further delta and reports it again.
+	// fix): a second Refresh sees no further delta and does not report
+	// it again.
 	stats2, err := db.Refresh(store, projection.WithSchema(testRules()))
 	if err != nil {
 		t.Fatalf("second Refresh failed: %v", err)
