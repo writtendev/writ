@@ -221,6 +221,94 @@ func TestLoad_TrimsAuthorPadding(t *testing.T) {
 	}
 }
 
+// TestLoad_RejectsIdentInjectionCharacters pins the WRIT-277 guard: git
+// strips '<', '>', and '\n' from the interior of an ident before it reaches
+// a commit's author/committer line (strbuf_addstr_without_crud); go-git's
+// Signature.Encode does not, so a user.name or user.email carrying one of
+// these three would inject or malform a commit header instead of being
+// stripped the way git itself would strip it. Load must refuse to write a
+// commit git would never have produced, rather than silently rewriting the
+// identity the user configured.
+func TestLoad_RejectsIdentInjectionCharacters(t *testing.T) {
+	cases := []struct {
+		name  string
+		value string
+	}{
+		{"full header injection payload", "Alice\ncommitter Mallory <m@x> 0 +0000"},
+		{"angle brackets with no newline", "Bob <bob@evil> x"},
+		{"bare newline", "line one\nline two"},
+		{"bare less-than", "a<b"},
+		{"bare greater-than", "a>b"},
+	}
+
+	for _, key := range []string{"user.name", "user.email"} {
+		for _, c := range cases {
+			t.Run(key+"/"+c.name, func(t *testing.T) {
+				env := setupTestEnv(t)
+				populateValidLocalConfig(t, env.repoDir)
+				setGitConfig(t, env.repoDir, key, c.value)
+
+				// The value really did survive the round trip through git;
+				// otherwise this test would pass for the wrong reason.
+				cfg, err := identity.ReadGitConfig(context.Background(), env.repoDir)
+				if err != nil {
+					t.Fatalf("ReadGitConfig: %v", err)
+				}
+				if got := cfg[strings.ToLower(key)]; got != c.value {
+					t.Fatalf("git stored %s as %q, want %q verbatim", key, got, c.value)
+				}
+
+				ident, loadErr := identity.Load(context.Background(), env.repoDir)
+				if loadErr == nil {
+					t.Fatalf("Load accepted %s = %q, want a refusal: %+v", key, c.value, ident)
+				}
+				if !errors.Is(loadErr, identity.ErrInvalid) {
+					t.Errorf("Load error = %v, want errors.Is ErrInvalid", loadErr)
+				}
+				var cfgErr *identity.ConfigError
+				if !errors.As(loadErr, &cfgErr) {
+					t.Fatalf("Load error is %T, want *identity.ConfigError", loadErr)
+				}
+				if cfgErr.Key != key {
+					t.Errorf("cfgErr.Key = %q, want %q", cfgErr.Key, key)
+				}
+				if ident.PersonIDErr == nil {
+					t.Error("ident.PersonIDErr = nil, want the reason Load failed recorded on the returned Identity")
+				}
+			})
+		}
+	}
+}
+
+// TestLoad_IdentCrudCharactersStayNarrow is the negative half of the guard
+// above: characters git strips only at the edges of an ident, not its
+// interior, stay legal inside user.name — widening the rejected set beyond
+// '<', '>', and '\n' is out of scope for WRIT-277 (see the ticket's "Scope of
+// the character set" note), and this test is what would catch that drift.
+func TestLoad_IdentCrudCharactersStayNarrow(t *testing.T) {
+	for _, value := range []string{
+		`O'Brian`,
+		`Alice "The Editor" Smith`,
+		`Doe, Jane`,
+		`Dr. Smith`,
+		`Smith: Jr`,
+	} {
+		t.Run(fmt.Sprintf("%q", value), func(t *testing.T) {
+			env := setupTestEnv(t)
+			populateValidLocalConfig(t, env.repoDir)
+			setGitConfig(t, env.repoDir, "user.name", value)
+
+			id, err := identity.Load(context.Background(), env.repoDir)
+			if err != nil {
+				t.Fatalf("Load rejected user.name = %q, want it accepted: %v", value, err)
+			}
+			if id.Author.Name != value {
+				t.Errorf("id.Author.Name = %q, want %q", id.Author.Name, value)
+			}
+		})
+	}
+}
+
 // TestLoad_WhitespaceOnlyWriterID pins the same guard on writ.writerId, which
 // was the last key in Load still tested raw.
 //

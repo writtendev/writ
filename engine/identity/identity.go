@@ -11,6 +11,25 @@ import (
 
 var writerIDRegexp = regexp.MustCompile(`^[0-9a-f]{16}$`)
 
+// firstIdentCrud reports the first of '<', '>', and '\n' found in s, and
+// whether any were found. Those three are exactly what git's own ident
+// parsing (strbuf_addstr_without_crud) strips from the interior of a
+// user.name or user.email before it reaches a commit's author/committer
+// line; go-git's Signature.Encode, which BuildCommit / ToGitCommit hand a
+// writ identity to, writes them out unmodified instead. A user.name of
+// "Alice\ncommitter Mallory <m@x> 0 +0000" is how a config value git
+// tolerates becomes an injected commit header writ would otherwise sign.
+// name and email are checked through this one function so neither can drift
+// from the other about which characters are the bug.
+func firstIdentCrud(s string) (rune, bool) {
+	for _, r := range s {
+		if r == '<' || r == '>' || r == '\n' {
+			return r, true
+		}
+	}
+	return 0, false
+}
+
 // WriterID is an opaque 64-bit identifier (16 lowercase hex characters)
 // representing a writer device namespace under refs/writ/<writer-id>/.
 type WriterID string
@@ -164,6 +183,23 @@ func Load(ctx context.Context, repoDir string) (Identity, error) {
 		}
 		return loadFailed(err), err
 	}
+	// A newline in user.name is how git tolerates a config value that writ
+	// must not: go-git's Signature.Encode writes it into the commit author
+	// line unmodified, injecting a second header (WRIT-277). '<' and '>' go
+	// with it — either can malform the line the same way — and, like the
+	// padding case above, this is a ref-namespace-shaped decision, not a
+	// message: rejecting keeps writ from ever writing a commit git itself
+	// would not have produced, at the cost of an asymmetry with git, which
+	// silently strips these three and would accept the same config.
+	if r, found := firstIdentCrud(name); found {
+		err := &ConfigError{
+			Key:     "user.name",
+			Value:   name,
+			Problem: fmt.Errorf("%w: contains %q, which git strips from an ident and writ will not silently rewrite", ErrInvalid, r),
+			Remedy:  "remove '<', '>', and newline characters from user.name",
+		}
+		return loadFailed(err), err
+	}
 
 	// 3. Author Email: user.email
 	email := strings.TrimSpace(cfg["user.email"])
@@ -171,6 +207,17 @@ func Load(ctx context.Context, repoDir string) (Identity, error) {
 		err := &ConfigError{
 			Key:     "user.email",
 			Problem: ErrMissing,
+		}
+		return loadFailed(err), err
+	}
+	// Same guard, same reason: user.email reaches the same commit line and
+	// becomes the principal signature verification matches against.
+	if r, found := firstIdentCrud(email); found {
+		err := &ConfigError{
+			Key:     "user.email",
+			Value:   email,
+			Problem: fmt.Errorf("%w: contains %q, which git strips from an ident and writ will not silently rewrite", ErrInvalid, r),
+			Remedy:  "remove '<', '>', and newline characters from user.email",
 		}
 		return loadFailed(err), err
 	}
