@@ -8,25 +8,26 @@ import (
 	"github.com/writtendev/writ/engine/state"
 )
 
-// TestApplySchemaWritesMetaOnStrategyChangeWithSameDigest is WRIT-192 round
-// 3's MAJOR finding, reproduced exactly as it was proven against the
-// pre-fix code: buildSnapshot (the digest ApplySchema's old equal-digest
-// early return keyed off) covers only column name/SQL type/indexed/PK.
-// Strategy has zero effect on the generated column — lww, create-once,
-// lattice and tombstone all emit the same ddlColumn (ddl.go's
-// buildTypeDescriptor, case "lww", "create-once", "lattice", "tombstone") —
-// so switching a target's strategy from lww to tombstone, valueType held
-// fixed, leaves the digest unchanged. Under the old code that early return
-// skipped the meta write entirely, so schema_query_shapes (which carries
-// exactly ValueType and Strategy per target) went stale: the in-process
-// descriptor was correct (ApplySchema always assigned d.desc = newDesc),
-// but the persisted copy a warm reopen rehydrates from
-// (descriptorFromPersisted) kept answering with the old (lww) strategy
-// forever — a tombstoned object that should be excluded from a default
-// (!IncludeDeleted) listing stayed in it. That is round 2's MAJOR-1 symptom,
-// reintroduced on a new trigger. The fix writes the meta keys
-// unconditionally, every ApplySchema call, regardless of whether the digest
-// changed.
+// TestApplySchemaWritesMetaOnStrategyChangeWithSameDigest started as WRIT-192
+// round 3's MAJOR finding: buildSnapshot's digest used to cover only column
+// name/SQL type/indexed/PK, so switching a target's strategy from lww to
+// tombstone, valueType held fixed, left the digest unchanged (lww,
+// create-once, lattice and tombstone all emit the same ddlColumn — ddl.go's
+// buildTypeDescriptor, case "lww", "create-once", "lattice", "tombstone").
+// Under the old ApplySchema, an equal digest skipped the meta write
+// entirely, so schema_query_shapes (which carries exactly ValueType and
+// Strategy per target) went stale — round 2's MAJOR-1 symptom, reintroduced
+// on a new trigger.
+//
+// WRIT-272 changed the premise this test's name refers to: the digest now
+// also covers each installed type's full rule table, so a strategy-only
+// change is no longer digest-preserving — it changes schema_digest and
+// takes ApplySchema's drop-and-rebuild path, which sets needs_rebuild. That
+// premise inversion is asserted below. What the test still guards is the
+// behavioural guarantee round 3 was about, unconditional-meta-write or not:
+// a tombstoned object must be excluded from a default (!IncludeDeleted)
+// listing both in-process and after a warm reopen. Those two Objects()
+// checks are unchanged from round 3.
 func TestApplySchemaWritesMetaOnStrategyChangeWithSameDigest(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "projection.db")
 
@@ -68,8 +69,16 @@ func TestApplySchemaWritesMetaOnStrategyChangeWithSameDigest(t *testing.T) {
 	if err := rawDB.QueryRow("SELECT value FROM meta WHERE key = 'schema_digest'").Scan(&digestAfter); err != nil {
 		t.Fatalf("query schema_digest after strategy change: %v", err)
 	}
-	if digestBefore != digestAfter {
-		t.Fatalf("schema_digest changed on a strategy-only change (%q -> %q): this test no longer reproduces round 3's MAJOR premise", digestBefore, digestAfter)
+	if digestBefore == digestAfter {
+		t.Fatalf("schema_digest unchanged on a strategy-only change (%q): buildSnapshot no longer hashes the rule table", digestBefore)
+	}
+
+	var needsRebuild string
+	if err := rawDB.QueryRow("SELECT value FROM meta WHERE key = 'needs_rebuild'").Scan(&needsRebuild); err != nil {
+		t.Fatalf("query needs_rebuild after strategy change: %v", err)
+	}
+	if needsRebuild != "1" {
+		t.Fatalf("expected needs_rebuild = '1' after a strategy-only schema change, got %q", needsRebuild)
 	}
 
 	// In-process: the descriptor just built is correct, so the tombstoned

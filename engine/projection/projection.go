@@ -315,26 +315,33 @@ func tableHasRows(tx *sql.Tx, table string) (bool, error) {
 // already-validated index) and reconciles it against whatever generated
 // tables exist on disk.
 //
+// The digest (buildSnapshot) covers column name, SQL type, indexed, and
+// primary key, plus every installed type's full rule table — Field,
+// Strategy, Key, Lattice, ValueType, Enum, MaxLength, KeyTypes, Target,
+// OpType, OpVersion, and ObjectType, canonicalized order-independently
+// (Deprecated is excluded:
+// it never affects folding, so a deprecate-field op must not force a
+// rebuild on its own). A schema change that alters any of those — including
+// a strategy, value_type, key, lattice, or enum change under an unchanged
+// column shape — changes the digest and takes the drop-and-rebuild path
+// below, even when the generated DDL is byte-identical.
+//
 // The meta keys (schema_digest, schema_tables, schema_descriptor,
 // schema_query_shapes) are written every call, regardless of whether the
-// digest changed. They must not be gated on the digest: the digest
-// (buildSnapshot) covers only column name/SQL type/indexed/PK, so a schema
-// change that leaves it unchanged — a strategy change alone (lww,
-// create-once, lattice and tombstone all emit the same ddlColumn), or a
-// value_type change that sqlType collapses to the same SQL type (string,
-// text, enum, timestamp, person-ref, object-ref and git-oid all land in
-// TEXT) — used to skip this write entirely under the old equal-digest early
-// return. schema_query_shapes carries exactly ValueType and Strategy per
-// target, so it went stale on precisely the changes the digest cannot see:
-// the in-process descriptor was correct (d.desc = newDesc always ran), but
-// the persisted copy a warm reopen rehydrates from
-// (descriptorFromPersisted) kept answering with the old strategy/value_type
-// forever, with nothing to repair it — the same symptom round 2's MAJOR-1
-// fixed, reintroduced on a new trigger (WRIT-192 round 3 MAJOR). Writing the
-// meta keys unconditionally is the fix; folding value_type/strategy into the
-// digest itself was considered and rejected as widening blast radius into
-// needs_rebuild's pre-existing gap (see the comment below) — that belongs to
-// its own change, if anyone wants it.
+// digest changed. They must not be gated on the digest: schema_query_shapes
+// carries exactly ValueType and Strategy per target, and gating its write on
+// the digest ties its freshness to the digest catching every change that
+// could make it stale — a coupling that once broke exactly this way (the
+// digest of the time covered only column name/SQL type/indexed/PK, so a
+// strategy or value_type change could leave it unchanged: the in-process
+// descriptor was correct (d.desc = newDesc always ran), but the persisted
+// copy a warm reopen rehydrates from (descriptorFromPersisted) kept
+// answering with the old strategy/value_type forever, with nothing to
+// repair it — the same symptom round 2's MAJOR-1 fixed, reintroduced on a
+// new trigger, WRIT-192 round 3 MAJOR). Writing the meta keys
+// unconditionally removes the coupling rather than trusting the digest to
+// stay exhaustive; it stays the rule even now that the digest also covers
+// the rule table.
 //
 // Equal digest still means no DDL is needed: generated tables already hold
 // correctly-shaped rows, so nothing is dropped or recreated and

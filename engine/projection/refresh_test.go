@@ -228,6 +228,200 @@ func TestIncrementalRefoldMatchesColdRebuild(t *testing.T) {
 	}
 }
 
+// TestStrategyOnlySchemaChangeTripsRebuild is WRIT-272's regression: a
+// schema change that alters only a field's merge strategy — value type and
+// generated column held fixed — must still change the digest and take the
+// drop-and-rebuild path, exactly like any other schema change (AGENTS.md
+// "the SQLite projection is a droppable cache, never a source of truth").
+// Before this fix, buildSnapshot's digest covered only column
+// name/SQL-type/indexed/PK, so a strategy-only change left it unchanged:
+// ApplySchema's equal-digest branch left needs_rebuild unset, and
+// incremental Refresh kept refolding only whichever objects a later op
+// happened to touch, under the new strategy, while every untouched object's
+// projected row was left exactly as the old strategy had folded it — the
+// projection answering differently than a Rebuild would have, which is what
+// "droppable cache" rules out.
+//
+// w-1 and w-2 each get create(title=A) + update(title=B) under v1 (title
+// lww); Refresh(WithSchema(v1)) folds both to title=B. Switch to v2 (title
+// create-once, same TEXT column) and append one more op to w-1 only, then
+// Refresh(WithSchema(v2)): pre-fix, the digest is unchanged, so Rebuilt is
+// false and only w-1 (the touched object) gets refolded — under
+// create-once that refold yields title=A for w-1 (the first write wins),
+// but w-2 is never touched and its row is left at its v1 value, title=B.
+// Post-fix, the strategy change trips the digest, so Refresh takes the
+// full-rebuild path: both objects read back A, and the incremental dump
+// matches a cold Rebuild(WithSchema(v2))'s dump exactly.
+func TestStrategyOnlySchemaChangeTripsRebuild(t *testing.T) {
+	ctx := context.Background()
+	_, store := createTestStore(t, "0123456789abcdef")
+
+	db, err := projection.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open projection failed: %v", err)
+	}
+	defer db.Close()
+
+	v1 := testRules()
+
+	// w-1 and w-2 share one writer chain (refs/writ/<writer>/widget, keyed
+	// by object type, not by object): the chain tip Append attaches each op
+	// to alternates between them, so w-1's later op must name its own prior
+	// op as an explicit causal parent — the frontier a real caller passes
+	// (engine/objects.go's update path) — or dag.Order (scoped to one
+	// object's ops, parent edges leaving that set dropped) sees it as
+	// unrelated to w-1's own history instead of following it.
+	lastOp := make(map[string]string)
+	for _, id := range []string{"w-1", "w-2"} {
+		createOp, err := store.Append(ctx, makeWidgetEnv(id, "create", map[string]any{
+			"title":       "A",
+			"description": "d",
+		}), nil)
+		if err != nil {
+			t.Fatalf("append create %s: %v", id, err)
+		}
+		updateOp, err := store.Append(ctx, makeWidgetEnv(id, "update", map[string]any{
+			"title": "B",
+		}), []string{createOp.ID})
+		if err != nil {
+			t.Fatalf("append update %s: %v", id, err)
+		}
+		lastOp[id] = updateOp.ID
+	}
+
+	if _, err := db.Refresh(store, projection.WithSchema(v1)); err != nil {
+		t.Fatalf("Refresh v1: %v", err)
+	}
+
+	for _, id := range []string{"w-1", "w-2"} {
+		var title string
+		if err := db.DB().QueryRow("SELECT f_title FROM o_widget WHERE object_id = ?", id).Scan(&title); err != nil {
+			t.Fatalf("query %s title after v1 refresh: %v", id, err)
+		}
+		if title != "B" {
+			t.Fatalf("expected %s title = %q after v1 refresh, got %q", id, "B", title)
+		}
+	}
+
+	// v2: title's strategy alone changes, lww -> create-once. Same value
+	// type (string), so the same TEXT column — the pre-fix digest is
+	// unchanged.
+	v2 := testRules()
+	for i := range v2["widget"] {
+		if v2["widget"][i].Field == "title" {
+			v2["widget"][i].Strategy = "create-once"
+		}
+	}
+
+	if _, err := store.Append(ctx, makeWidgetEnv("w-1", "update", map[string]any{
+		"title": "C",
+	}), []string{lastOp["w-1"]}); err != nil {
+		t.Fatalf("append second update w-1: %v", err)
+	}
+
+	stats, err := db.Refresh(store, projection.WithSchema(v2))
+	if err != nil {
+		t.Fatalf("Refresh v2: %v", err)
+	}
+	if !stats.Rebuilt {
+		t.Fatalf("expected Rebuilt = true on a strategy-only schema change, got %+v", stats)
+	}
+
+	incrementalDump, err := db.DumpTables()
+	if err != nil {
+		t.Fatalf("DumpTables incremental: %v", err)
+	}
+
+	for _, id := range []string{"w-1", "w-2"} {
+		var title string
+		if err := db.DB().QueryRow("SELECT f_title FROM o_widget WHERE object_id = ?", id).Scan(&title); err != nil {
+			t.Fatalf("query %s title after v2 refresh: %v", id, err)
+		}
+		if title != "A" {
+			t.Fatalf("expected %s title = %q after v2 refresh (create-once, first write wins), got %q", id, "A", title)
+		}
+	}
+
+	statsCold, err := db.Rebuild(store, projection.WithSchema(v2))
+	if err != nil {
+		t.Fatalf("cold Rebuild v2: %v", err)
+	}
+	if !statsCold.Rebuilt {
+		t.Fatalf("expected cold Rebuild to report Rebuilt = true, got %+v", statsCold)
+	}
+
+	coldDump, err := db.DumpTables()
+	if err != nil {
+		t.Fatalf("DumpTables cold: %v", err)
+	}
+
+	if !reflect.DeepEqual(incrementalDump, coldDump) {
+		t.Fatalf("incremental dump != cold dump:\nincremental: %+v\ncold: %+v", incrementalDump, coldDump)
+	}
+}
+
+// TestDeprecatedOnlySchemaChangeDoesNotTripRebuild pins snapshotRules'
+// Deprecated exclusion (engine/projection/ddl.go): flipping Deprecated on a
+// field, with every other rule unchanged, must not change schema_digest or
+// force a drop-and-rebuild. Deprecated is carried-through metadata nothing
+// on the fold or materialization path reads, so a deprecate-field op must
+// stay as cheap as any other no-op schema reapply. Without the exclusion,
+// this test fails at the Rebuilt assertion the same way
+// TestStrategyOnlySchemaChangeTripsRebuild fails without its fix.
+func TestDeprecatedOnlySchemaChangeDoesNotTripRebuild(t *testing.T) {
+	ctx := context.Background()
+	_, store := createTestStore(t, "0123456789abcdef")
+
+	db, err := projection.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open projection failed: %v", err)
+	}
+	defer db.Close()
+
+	v1 := testRules()
+
+	if _, err := store.Append(ctx, makeWidgetEnv("w-1", "create", map[string]any{
+		"title":       "A",
+		"description": "d",
+	}), nil); err != nil {
+		t.Fatalf("append create w-1: %v", err)
+	}
+
+	if _, err := db.Refresh(store, projection.WithSchema(v1)); err != nil {
+		t.Fatalf("Refresh v1: %v", err)
+	}
+
+	var digestBefore string
+	if err := db.DB().QueryRow("SELECT value FROM meta WHERE key = 'schema_digest'").Scan(&digestBefore); err != nil {
+		t.Fatalf("query schema_digest before deprecation: %v", err)
+	}
+
+	// v2: title's Deprecated flag alone changes. Every other field of the
+	// rule, including Strategy and ValueType, is identical to v1.
+	v2 := testRules()
+	for i := range v2["widget"] {
+		if v2["widget"][i].Field == "title" && v2["widget"][i].OpType == "create" {
+			v2["widget"][i].Deprecated = true
+		}
+	}
+
+	stats, err := db.Refresh(store, projection.WithSchema(v2))
+	if err != nil {
+		t.Fatalf("Refresh v2: %v", err)
+	}
+	if stats.Rebuilt {
+		t.Fatalf("expected Rebuilt = false on a Deprecated-only schema change, got %+v", stats)
+	}
+
+	var digestAfter string
+	if err := db.DB().QueryRow("SELECT value FROM meta WHERE key = 'schema_digest'").Scan(&digestAfter); err != nil {
+		t.Fatalf("query schema_digest after deprecation: %v", err)
+	}
+	if digestBefore != digestAfter {
+		t.Fatalf("schema_digest changed on a Deprecated-only change (before %q, after %q): snapshotRules no longer excludes Deprecated", digestBefore, digestAfter)
+	}
+}
+
 func TestNewWriterNamespaceDetected(t *testing.T) {
 	ctx := context.Background()
 	repo, storeA := createTestStore(t, "0123456789abcdef")
