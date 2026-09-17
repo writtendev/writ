@@ -1,0 +1,303 @@
+name: schema-driven-ungrammatical-declaration
+description: >
+  WRIT-253: nothing on the read path checks a schema op's declared "type"
+  or a schema object's own "namespace" against the object_type/namespace
+  grammar before this ticket's resolver gate. codec.DecodeCommit only runs
+  ValidateEnvelope, which bounds the wrapping op's own object_type
+  ("schema") and op_type ("define-type"/"create"), never the strings
+  carried inside the op body -- so a hand-crafted define-type (the same
+  "non-conforming producer" scenario schema-driven-unqualified-declaration
+  pins) is free to declare bytes that break out of a generated SQL string
+  literal or a shell word once installed. This is a resolver rule, not a
+  wire-grammar one: every op below decodes and folds into schema state
+  exactly as written (expect: accept throughout), and only
+  writ.RulesFromSchemas's grammar gate (validObjectTypeGrammar,
+  validNamespaceGrammar) stands between a folded declaration and
+  installation.
+
+  One schema object, namespace "acme", declares a control ("acme.gadget",
+  which installs and folds a real object normally) alongside five
+  ungrammatical type names: a quote that breaks a SQL string literal
+  ("acme.it's"), the ".lock" exclusion that is grammar-legal but
+  ref-unwritable ("acme.lock"), an uppercase segment ("acme.Foo"), a
+  second segment past the 64-character per-segment bound (65 "a"s), and a
+  NUL byte that truncates generated SQL text at the C-string boundary
+  ("acme.x\u0000y"). None of the five is reachable as a real object's own
+  wire object_type -- that value IS checked by the ordinary envelope
+  grammar on every op, hostile or not -- so only the declaration itself,
+  and its own define-field, demonstrate the drop; there is no
+  UnknownOp-shaped object to fold alongside acme.gadget's.
+
+  A second schema object declares a namespace that is itself
+  ungrammatical, "a') OR 1 --" (WRIT-253's own SQL-injection
+  reproduction), and one type under it, "a') OR 1 --.z", with a tombstone
+  field. Because the namespace fails its own grammar first, this is one
+  conflict for the whole schema object, not one per type it declares
+  (spec/schema-ops.md §6): every type an ungrammatical namespace declares
+  is necessarily unqualifiable under it.
+
+  acme.gadget's own ops fold normally throughout, unaffected by any of
+  the six hostile declarations. (pins: reader)
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: define-type-gadget
+            parents: [create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "acme.gadget"
+            expect: accept
+
+          - id: define-field-gadget
+            parents: [define-type-gadget]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.gadget"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: define-type-quote
+            parents: [define-field-gadget]
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "acme.it's"
+            expect: accept
+
+          - id: define-field-quote
+            parents: [define-type-quote]
+            author: alice
+            timestamp: 2026-01-01T00:04:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.it's"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: define-type-dotlock
+            parents: [define-field-quote]
+            author: alice
+            timestamp: 2026-01-01T00:05:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "acme.lock"
+            expect: accept
+
+          - id: define-field-dotlock
+            parents: [define-type-dotlock]
+            author: alice
+            timestamp: 2026-01-01T00:06:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.lock"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: define-type-uppercase
+            parents: [define-field-dotlock]
+            author: alice
+            timestamp: 2026-01-01T00:07:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "acme.Foo"
+            expect: accept
+
+          - id: define-field-uppercase
+            parents: [define-type-uppercase]
+            author: alice
+            timestamp: 2026-01-01T00:08:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.Foo"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: define-type-oversegment
+            parents: [define-field-uppercase]
+            author: alice
+            timestamp: 2026-01-01T00:09:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "acme.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            expect: accept
+
+          - id: define-field-oversegment
+            parents: [define-type-oversegment]
+            author: alice
+            timestamp: 2026-01-01T00:10:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: define-type-nul
+            parents: [define-field-oversegment]
+            author: alice
+            timestamp: 2026-01-01T00:11:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "acme.x\u0000y"
+            expect: accept
+
+          - id: define-field-nul
+            parents: [define-type-nul]
+            author: alice
+            timestamp: 2026-01-01T00:12:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.x\u0000y"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+  - name: refs/writ/fedcba9876543210/schema
+    history:
+      - commits:
+          - id: hostile-create
+            author: bob
+            timestamp: 2026-01-01T00:00:30Z
+            op:
+              object_id: sch-hostile
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "a') OR 1 --"
+            expect: accept
+
+          - id: hostile-define-type
+            parents: [hostile-create]
+            author: bob
+            timestamp: 2026-01-01T00:01:30Z
+            op:
+              object_id: sch-hostile
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "a') OR 1 --.z"
+            expect: accept
+
+          - id: hostile-define-field
+            parents: [hostile-define-type]
+            author: bob
+            timestamp: 2026-01-01T00:02:30Z
+            op:
+              object_id: sch-hostile
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "a') OR 1 --.z"
+                op_type: "archive"
+                op_version: "1"
+                field: "archived"
+                value_type: "bool"
+                strategy: "tombstone"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/gadget
+    history:
+      - commits:
+          - id: gadget-create
+            author: alice
+            timestamp: 2026-01-01T00:13:00Z
+            op:
+              object_id: gadget-1
+              object_type: acme.gadget
+              op_type: create
+              op_version: 1
+              body:
+                title: "Widget"
+            expect: accept

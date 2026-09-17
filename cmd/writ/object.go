@@ -64,14 +64,18 @@ func runObject(ctx context.Context, defaultDir string, args []string, stdout, st
 // declares, sorted and escaped for display, for use in an "unknown type"
 // error message.
 //
-// Each t.Name is a folded define-type body `type` value, which carries no
-// grammar gate on the read path at all -- runSchemaShow's comment on the
-// same value spells out why. Both callers join the result straight into a
-// human-readable message and neither needs the raw form, so the escape is
-// applied here once rather than at each render site; a caller that did
-// need the raw value should take it from Store.Types and escape at its own
-// render, the way runSchemaApply handles namespaces. Sorting after
-// escaping is deliberate: the order is the one a human reads.
+// Each t.Name is a folded define-type body `type` value; runSchemaShow's
+// comment on the same value has the detail, but in short: decoding it
+// never grammar-checked it on its own, and WRIT-253's resolver gate
+// (writ.RulesFromSchemas) is what now keeps a hostile one from ever
+// reaching types in the first place, before this function ever sees it.
+// The escape here stays regardless, as defense in depth. Both callers
+// join the result straight into a human-readable message and neither
+// needs the raw form, so the escape is applied here once rather than at
+// each render site; a caller that did need the raw value should take it
+// from Store.Types and escape at its own render, the way runSchemaApply
+// handles namespaces. Sorting after escaping is deliberate: the order is
+// the one a human reads.
 func declaredTypeNames(types []writ.SchemaType) []string {
 	names := make([]string, 0, len(types))
 	for _, t := range types {
@@ -1057,16 +1061,19 @@ func runSchemaShow(ctx context.Context, defaultDir string, args []string, stdout
 		//
 		// t.Name is a folded define-type body `type` value (state.Schema,
 		// engine/state/schema.go's FoldSchema): unlike object_type/op_type
-		// above, this is not envelope-derived, so it carries no decode-path
-		// grammar gate at all -- spec/schemas/op-envelope.schema.json
-		// leaves an op's `body` as a bare "type": "object". A foreign
-		// define-type whose body type carries a forbidden code point
-		// decodes cleanly, passes FoldSchema's `!= ""` check, and passes
-		// typeIsQualifiedForNamespace (engine/schema.go), which checks
-		// only the namespace prefix and single-segment shape, never
-		// character grammar. Every human view of this value therefore has
-		// to escape it: this listing, the single-type view below, and
-		// declaredTypeNames' "declares:" list (which escapes for its own
+		// above, it is not envelope-derived, so decoding it alone never
+		// grammar-checked it -- spec/schemas/op-envelope.schema.json
+		// leaves an op's `body` as a bare "type": "object". WRIT-253
+		// closed that gap one layer up instead: writ.RulesFromSchemas now
+		// drops -- and reports as a SchemaConflict -- any declared type
+		// failing the object_type grammar, or bound by a schema object
+		// whose own namespace fails the namespace grammar, before either
+		// can ever reach buildTypeDescriptor, so `types` here can no
+		// longer carry a forbidden code point at all. The escaping stays
+		// anyway, as defense in depth (a description or a conflict's own
+		// Reason text still flows through the same human-facing views
+		// with no such gate): this listing, the single-type view below,
+		// and declaredTypeNames' "declares:" list (which escapes for its own
 		// two callers) -- see TestSchemaShow_HostileTypeNameRendersEscaped
 		// and TestObjectUnknownType_HostileDeclaredTypeListRendersEscaped.
 		for _, t := range types {

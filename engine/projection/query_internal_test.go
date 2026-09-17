@@ -76,19 +76,62 @@ func TestObjectsNotDeletedClauseRestrictTypes(t *testing.T) {
 		t.Fatalf("buildDescriptor: %v", err)
 	}
 
-	allClause := objectsNotDeletedClause(desc, nil)
+	allClause, allParams := objectsNotDeletedClause(desc, nil)
 	if !strings.Contains(allClause, "o_widget") {
 		t.Fatalf("unrestricted not-deleted clause does not mention o_widget: %s", allClause)
 	}
 	if !strings.Contains(allClause, "o_gadget") {
 		t.Fatalf("unrestricted not-deleted clause does not mention o_gadget: %s", allClause)
 	}
+	if len(allParams) != 2 {
+		t.Fatalf("expected 2 object_type params (widget, gadget), got %+v", allParams)
+	}
 
-	widgetOnlyClause := objectsNotDeletedClause(desc, []string{"widget"})
+	widgetOnlyClause, widgetOnlyParams := objectsNotDeletedClause(desc, []string{"widget"})
 	if !strings.Contains(widgetOnlyClause, "o_widget") {
 		t.Fatalf("restricted (widget) not-deleted clause does not mention o_widget: %s", widgetOnlyClause)
 	}
 	if strings.Contains(widgetOnlyClause, "o_gadget") {
 		t.Fatalf("restricted (widget) not-deleted clause still mentions o_gadget, restrictTypes had no effect: %s", widgetOnlyClause)
+	}
+	if len(widgetOnlyParams) != 1 || widgetOnlyParams[0] != "widget" {
+		t.Fatalf("expected exactly one object_type param (widget), got %+v", widgetOnlyParams)
+	}
+}
+
+// TestObjectsNotDeletedClauseParameterizesObjectType pins WRIT-253's fix:
+// the clause used to splice a declared object type straight into the SQL
+// text as a single-quoted literal ("o.object_type != '"+objectType+"'"),
+// the one place a schema-derived value reached SQL neither via quoteIdent
+// nor as a parameter. Nothing upstream of this package's callers grammar-
+// checks a declared type — ApplySchema takes a caller-supplied rules map
+// directly, and the resolver gate the rest of WRIT-253 adds lives above
+// this package, not in it — so this package's own defense has to hold
+// regardless. A type name carrying its own quote and comment syntax, e.g.
+// "a') OR 1 --", used to break out of the literal: this asserts the
+// generated clause carries no trace of the hostile text and instead binds
+// it as a "?" parameter.
+func TestObjectsNotDeletedClauseParameterizesObjectType(t *testing.T) {
+	const hostile = `a') OR 1 --`
+	rules := map[string][]state.Rule{
+		hostile: {
+			{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string", ObjectType: hostile},
+			{OpType: "archive", OpVersion: 1, Field: "archived", Strategy: "tombstone", ValueType: "bool", ObjectType: hostile},
+		},
+	}
+	desc, err := buildDescriptor(rules)
+	if err != nil {
+		t.Fatalf("buildDescriptor: %v", err)
+	}
+
+	clause, params := objectsNotDeletedClause(desc, nil)
+	if strings.Contains(clause, hostile) {
+		t.Fatalf("not-deleted clause embeds the hostile object type as literal text: %s", clause)
+	}
+	if !strings.Contains(clause, "o.object_type != ?") {
+		t.Fatalf("not-deleted clause does not parameterize object_type: %s", clause)
+	}
+	if len(params) != 1 || params[0] != hostile {
+		t.Fatalf("expected one param carrying the hostile object type verbatim, got %+v", params)
 	}
 }

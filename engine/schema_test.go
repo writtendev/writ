@@ -12,8 +12,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+
 	writ "github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/engine/codec"
+	"github.com/writtendev/writ/engine/codec/canonicaljson"
 	"github.com/writtendev/writ/engine/dag"
 	"github.com/writtendev/writ/engine/identity"
 	"github.com/writtendev/writ/engine/schemasrc"
@@ -211,11 +215,336 @@ func TestRulesFromSchemas_UnqualifiedConsumerTypeDroppedNotInstalled(t *testing.
 		t.Errorf("expected the multi-dot type dropped, got %+v", rules["acme.foo.bar"])
 	}
 	if len(conflicts) != 3 {
-		t.Fatalf("expected 3 conflicts (one per unqualified declaration), got %+v", conflicts)
+		t.Fatalf("expected 3 conflicts (one per bad declaration), got %+v", conflicts)
 	}
+
+	reasons := make(map[string]string, len(conflicts))
 	for _, c := range conflicts {
-		if !strings.Contains(c.Reason, "not qualified with this schema object's own namespace") {
-			t.Errorf("conflict reason does not name the namespace-qualification failure: %+v", c)
+		reasons[c.ObjectType] = c.Reason
+	}
+	// "standup" and "bigco.retro" are grammar-legal object types — each is
+	// a single, correctly-shaped segment or two — so both are caught only
+	// by the qualification check (§2, §6.4), not by WRIT-253's newer
+	// object_type grammar gate.
+	if !strings.Contains(reasons["standup"], "not qualified with this schema object's own namespace") {
+		t.Errorf("standup's conflict reason does not name the namespace-qualification failure: %q", reasons["standup"])
+	}
+	if !strings.Contains(reasons["bigco.retro"], "not qualified with this schema object's own namespace") {
+		t.Errorf("bigco.retro's conflict reason does not name the namespace-qualification failure: %q", reasons["bigco.retro"])
+	}
+	// "acme.foo.bar" carries two dots, which the object_type grammar
+	// (spec/op-envelope.md: at most one) already refuses on its own —
+	// WRIT-253's grammar gate runs before the qualification check and
+	// catches it first, so this one is reported as an invalid object
+	// type instead. Both checks would have dropped it either way.
+	if !strings.Contains(reasons["acme.foo.bar"], "not a valid object type") {
+		t.Errorf("acme.foo.bar's conflict reason does not name the object_type grammar failure: %q", reasons["acme.foo.bar"])
+	}
+}
+
+// TestRulesFromSchemas_UngrammaticalDeclarationDroppedNotInstalled pins
+// WRIT-253's resolver gate: nothing upstream of resolveSchemaTypes checks
+// a schema op's declared "type" or a schema object's own "namespace"
+// against the object_type/namespace grammar, so a hand-crafted define-type
+// (or a peer that bypassed producer validation) is otherwise free to
+// declare bytes that break out of a SQL string literal (engine/projection)
+// or a shell word (cmd/writ completion, WRIT-250) once installed. Each
+// case is exactly one of WRIT-253's own repro shapes, kept to a single
+// schema object with one well-formed sibling type declared alongside the
+// hostile one, so the same test also pins that a malformed declaration
+// never takes a legitimate sibling down with it — except when the
+// grammar failure is the schema object's own namespace: there is no
+// sibling to save, since every type it declares is unqualifiable under
+// an ungrammatical namespace (the same reasoning the namespace-grammar
+// gate itself documents).
+func TestRulesFromSchemas_UngrammaticalDeclarationDroppedNotInstalled(t *testing.T) {
+	tests := []struct {
+		name                 string
+		namespace            string
+		hostileType          string
+		wantSiblingInstalled bool
+	}{
+		{
+			name:                 "quote breaks out of a SQL string literal",
+			namespace:            "acme",
+			hostileType:          "acme.it's",
+			wantSiblingInstalled: true,
+		},
+		{
+			name:                 "NUL byte truncates generated SQL text",
+			namespace:            "acme",
+			hostileType:          "acme.x\x00y",
+			wantSiblingInstalled: true,
+		},
+		{
+			name:                 "quote and shell metacharacters",
+			namespace:            "acme",
+			hostileType:          `acme.Foo Bar"; DROP`,
+			wantSiblingInstalled: true,
+		},
+		{
+			name:                 "dot-lock exclusion (ref-unwritable)",
+			namespace:            "acme",
+			hostileType:          "acme.lock",
+			wantSiblingInstalled: true,
+		},
+		{
+			name:                 "65-char second segment exceeds the per-segment bound",
+			namespace:            "acme",
+			hostileType:          "acme." + strings.Repeat("a", 65),
+			wantSiblingInstalled: true,
+		},
+		{
+			name:                 "ungrammatical namespace withholds every type it declares",
+			namespace:            "a') OR 1 --",
+			hostileType:          "a') OR 1 --.z",
+			wantSiblingInstalled: false,
+		},
+		{
+			name:                 "namespace itself carries a dot",
+			namespace:            "acme.b",
+			hostileType:          "acme.b.c",
+			wantSiblingInstalled: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			siblingType := tc.namespace + ".gadget"
+			sch := state.Schema{
+				ObjectID:  "sch-a",
+				Namespace: tc.namespace,
+				Types: []state.SchemaType{
+					{Name: tc.hostileType, Fields: []state.SchemaField{mkField(tc.hostileType, "create", 1, "title", "lww")}},
+					{Name: siblingType, Fields: []state.SchemaField{mkField(siblingType, "create", 1, "title", "lww")}},
+				},
+			}
+
+			rules, conflicts := writ.RulesFromSchemas([]state.Schema{sch})
+
+			if _, ok := rules[tc.hostileType]; ok {
+				t.Errorf("expected the hostile declaration dropped, got %+v", rules[tc.hostileType])
+			}
+			if len(conflicts) != 1 {
+				t.Fatalf("expected exactly 1 conflict, got %+v", conflicts)
+			}
+
+			_, siblingInstalled := rules[siblingType]
+			if siblingInstalled != tc.wantSiblingInstalled {
+				t.Errorf("sibling type %q installed=%v, want %v (conflicts: %+v)", siblingType, siblingInstalled, tc.wantSiblingInstalled, conflicts)
+			}
+		})
+	}
+}
+
+// writeForeignSchemaOp appends a raw "schema" op commit directly to
+// refs/writ/<writerID>/schema in dir's repository, bypassing
+// engine/codec.BuildCommit entirely -- and with it the bootstrap JSON
+// Schema validation dag.Store.Append always runs for object_type "schema"
+// (validateAgainstBootstrap), which enforces spec/schemas/schema-ops.schema.json's
+// type_name pattern on a define-type's own "type" field. A conforming
+// Store.ApplySchema call can therefore never carry an ungrammatical
+// declared type past the producer boundary at all: the scenario WRIT-253's
+// resolver gate defends against is "nothing on the read path checks a
+// schema op's declared type... against the grammar this section requires
+// of them" (spec/schema-ops.md §2) -- a hand-crafted commit, or a
+// non-conforming peer, that never went through a conforming producer in
+// the first place. Mirrors cmd/writ/textsafe_render_test.go's
+// writeForeignOp, which does the same thing for a hostile person-ref
+// value, for the identical reason.
+//
+// parent is the previous op's commit hash in this chain (empty for the
+// first op), and seq spaces out each commit's author timestamp so the
+// causal chain and total order agree unambiguously. The new commit's hash
+// is returned so the caller can chain the next op onto it.
+func writeForeignSchemaOp(t *testing.T, dir, writerID, parent, objectID, opType string, body map[string]any, seq int) string {
+	t.Helper()
+
+	repo, err := git.PlainOpen(dir)
+	if err != nil {
+		t.Fatalf("opening repo at %s: %v", dir, err)
+	}
+
+	raw, err := json.Marshal(map[string]any{
+		"object_id":   objectID,
+		"object_type": "schema",
+		"op_type":     opType,
+		"op_version":  1,
+		"body":        body,
+	})
+	if err != nil {
+		t.Fatalf("marshal op payload: %v", err)
+	}
+	canon, err := canonicaljson.Marshal(raw)
+	if err != nil {
+		t.Fatalf("canonicalize op payload: %v", err)
+	}
+
+	when := time.Date(2026, 3, 1, 0, 0, seq, 0, time.UTC)
+	who := codec.Identity{Name: "Foreign Client", Email: "foreign@example.com", When: when}
+	var parents []string
+	if parent != "" {
+		parents = []string{parent}
+	}
+	commit := &codec.Commit{
+		Parents:   parents,
+		Author:    who,
+		Committer: who,
+		Message:   fmt.Sprintf("writ: %s schema/%s\n", opType, objectID),
+		Tree:      []codec.TreeEntry{{Name: "op.json", Mode: "100644", Data: canon}},
+	}
+
+	hash, err := codec.WriteCommit(context.Background(), repo.Storer, commit, nil)
+	if err != nil {
+		t.Fatalf("writing foreign schema commit: %v", err)
+	}
+
+	refName := plumbing.ReferenceName(fmt.Sprintf("refs/writ/%s/schema", writerID))
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(refName, hash)); err != nil {
+		t.Fatalf("setting ref %s: %v", refName, err)
+	}
+	return hash.String()
+}
+
+// TestStoreHostileDeclaredTypeOmittedAndProjectionIntact checks that hostile declared types never reach Types() or break object listings.
+func TestStoreHostileDeclaredTypeOmittedAndProjectionIntact(t *testing.T) {
+	store, ctx, dir := openStoreWithCoreSchema(t)
+
+	widgetID, err := store.Objects.Create(ctx, "acme.widget", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Legitimate Widget"},
+	})
+	if err != nil {
+		t.Fatalf("Objects.Create(widget) failed: %v", err)
+	}
+	liveNoteID, err := store.Objects.Create(ctx, "acme.note", writ.NewOp{
+		Type: "create",
+		Fields: map[string]any{
+			"text":    "a live note",
+			"subject": map[string]string{"object_type": "acme.widget", "object_id": widgetID},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Objects.Create(live note) failed: %v", err)
+	}
+	deletedNoteID, err := store.Objects.Create(ctx, "acme.note", writ.NewOp{
+		Type: "create",
+		Fields: map[string]any{
+			"text":    "a note about to be soft-deleted",
+			"subject": map[string]string{"object_type": "acme.widget", "object_id": widgetID},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Objects.Create(deleted note) failed: %v", err)
+	}
+	if err := store.Objects.Apply(ctx, deletedNoteID, writ.NewOp{Type: "delete"}); err != nil {
+		t.Fatalf("Objects.Apply(delete) failed: %v", err)
+	}
+
+	const (
+		foreignWriterID = "fedcba9876543210"
+		hostileLimit    = `a') OR 1 --`
+		hostileDelete   = `acme.x'); DELETE FROM objects; --`
+		// hostileNamespace is WRIT-253's own repro shape at the
+		// namespace level, not just the type level: a schema object
+		// whose namespace itself carries SQL break-out syntax, and
+		// hostileNSType is a type declared under it.
+		hostileNamespace = `a') OR 1 --`
+		hostileNSType    = hostileNamespace + `.z`
+	)
+
+	p := writeForeignSchemaOp(t, dir, foreignWriterID, "", "sch-hostile", "create", map[string]any{"namespace": "acme"}, 0)
+	p = writeForeignSchemaOp(t, dir, foreignWriterID, p, "sch-hostile", "define-type", map[string]any{"type": hostileLimit}, 1)
+	p = writeForeignSchemaOp(t, dir, foreignWriterID, p, "sch-hostile", "define-op", map[string]any{"type": hostileLimit, "op_type": "archive", "op_version": "1"}, 2)
+	p = writeForeignSchemaOp(t, dir, foreignWriterID, p, "sch-hostile", "define-field", map[string]any{
+		"type": hostileLimit, "op_type": "archive", "op_version": "1",
+		"field": "archived", "value_type": "bool", "strategy": "tombstone",
+	}, 3)
+	p = writeForeignSchemaOp(t, dir, foreignWriterID, p, "sch-hostile", "define-type", map[string]any{"type": hostileDelete}, 4)
+	p = writeForeignSchemaOp(t, dir, foreignWriterID, p, "sch-hostile", "define-op", map[string]any{"type": hostileDelete, "op_type": "archive", "op_version": "1"}, 5)
+	p = writeForeignSchemaOp(t, dir, foreignWriterID, p, "sch-hostile", "define-field", map[string]any{
+		"type": hostileDelete, "op_type": "archive", "op_version": "1",
+		"field": "archived", "value_type": "bool", "strategy": "tombstone",
+	}, 6)
+
+	p = writeForeignSchemaOp(t, dir, foreignWriterID, p, "sch-hostile-ns", "create", map[string]any{"namespace": hostileNamespace}, 7)
+	p = writeForeignSchemaOp(t, dir, foreignWriterID, p, "sch-hostile-ns", "define-type", map[string]any{"type": hostileNSType}, 8)
+	p = writeForeignSchemaOp(t, dir, foreignWriterID, p, "sch-hostile-ns", "define-op", map[string]any{"type": hostileNSType, "op_type": "archive", "op_version": "1"}, 9)
+	_ = writeForeignSchemaOp(t, dir, foreignWriterID, p, "sch-hostile-ns", "define-field", map[string]any{
+		"type": hostileNSType, "op_type": "archive", "op_version": "1",
+		"field": "archived", "value_type": "bool", "strategy": "tombstone",
+	}, 10)
+
+	if _, err := store.Refresh(ctx); err != nil {
+		t.Fatalf("Refresh (with hostile declarations in the log) failed: %v", err)
+	}
+
+	types, err := store.Types(ctx)
+	if err != nil {
+		t.Fatalf("Store.Types failed: %v", err)
+	}
+	for _, typ := range types {
+		if typ.Name == hostileLimit || typ.Name == hostileDelete || typ.Name == hostileNSType {
+			t.Errorf("Store.Types installed the hostile declared type %q: %+v", typ.Name, typ)
+		}
+	}
+
+	// No Type filter on any of the three listings below: filtering to
+	// only the legitimate types (as an earlier revision of this test
+	// did) makes objectsNotDeletedClause's restrictTypes argument
+	// exclude every hostile type's clause before the query is even
+	// built (engine/projection/query.go) -- these assertions could then
+	// never catch a regression that let a hostile declared type reach
+	// installed rules, because the clause responsible for the
+	// tombstone/LIMIT behavior under test would simply never be
+	// emitted. The default, unrestricted listing walks every installed
+	// type's clause instead, schema objects included -- sch-acme (aka
+	// coreSchemaObjectID), sch-hostile, and sch-hostile-ns are objects
+	// like any other (store_test.go's coreSchemaObjectID doc comment) --
+	// which is what actually exercises the fix.
+	wantLiveIDs := map[string]bool{
+		widgetID: true, liveNoteID: true,
+		coreSchemaObjectID: true, "sch-hostile": true, "sch-hostile-ns": true,
+	}
+
+	live, err := store.Query.Objects(writ.ObjectFilter{})
+	if err != nil {
+		t.Fatalf("Query.Objects (default) failed: %v", err)
+	}
+	if len(live) != len(wantLiveIDs) {
+		t.Fatalf("Query.Objects (default) = %d results, want %d (widget + live note + the three schema objects): %+v", len(live), len(wantLiveIDs), live)
+	}
+	for _, o := range live {
+		if o.ObjectID == deletedNoteID {
+			t.Errorf("Query.Objects (default) included the soft-deleted note %s despite the hostile declarations in the log: %+v", deletedNoteID, live)
+		}
+		if !wantLiveIDs[o.ObjectID] {
+			t.Errorf("Query.Objects (default) returned unexpected object %s: %+v", o.ObjectID, live)
+		}
+	}
+
+	limited, err := store.Query.Objects(writ.ObjectFilter{Limit: 1})
+	if err != nil {
+		t.Fatalf("Query.Objects (Limit: 1) failed: %v", err)
+	}
+	if len(limited) != 1 {
+		t.Fatalf("Query.Objects (Limit: 1) = %d results, want exactly 1", len(limited))
+	}
+
+	all, err := store.Query.Objects(writ.ObjectFilter{IncludeDeleted: true})
+	if err != nil {
+		t.Fatalf("Query.Objects (IncludeDeleted: true) failed: %v", err)
+	}
+	wantAllIDs := map[string]bool{
+		widgetID: true, liveNoteID: true, deletedNoteID: true,
+		coreSchemaObjectID: true, "sch-hostile": true, "sch-hostile-ns": true,
+	}
+	if len(all) != len(wantAllIDs) {
+		t.Fatalf("Query.Objects (IncludeDeleted: true) = %d results, want %d (the objects table must stay intact): %+v", len(all), len(wantAllIDs), all)
+	}
+	for _, o := range all {
+		if !wantAllIDs[o.ObjectID] {
+			t.Errorf("Query.Objects (IncludeDeleted: true) returned unexpected object %s: %+v", o.ObjectID, all)
 		}
 	}
 }

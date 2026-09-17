@@ -1,0 +1,170 @@
+{
+  "schemas": [
+    {
+      "object_id": "sch-acme",
+      "schema": {
+        "object_id": "sch-acme",
+        "namespace": "acme",
+        "types": [
+          {
+            "type": "acme.Foo",
+            "fields": [
+              {
+                "field": "title",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              }
+            ]
+          },
+          {
+            "type": "acme.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "fields": [
+              {
+                "field": "title",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              }
+            ]
+          },
+          {
+            "type": "acme.gadget",
+            "fields": [
+              {
+                "field": "title",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              }
+            ]
+          },
+          {
+            "type": "acme.it's",
+            "fields": [
+              {
+                "field": "title",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              }
+            ]
+          },
+          {
+            "type": "acme.lock",
+            "fields": [
+              {
+                "field": "title",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              }
+            ]
+          },
+          {
+            "type": "acme.x\u0000y",
+            "fields": [
+              {
+                "field": "title",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "object_id": "sch-hostile",
+      "schema": {
+        "object_id": "sch-hostile",
+        "namespace": "a') OR 1 --",
+        "types": [
+          {
+            "type": "a') OR 1 --.z",
+            "fields": [
+              {
+                "field": "archived",
+                "op_type": "archive",
+                "op_version": 1,
+                "value_type": "bool",
+                "strategy": "tombstone"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "conflicts": [
+    {
+      "object_type": "acme.Foo",
+      "namespace": "acme",
+      "object_ids": [
+        "sch-acme"
+      ],
+      "reason": "define-type \"acme.Foo\" is not a valid object type (must match ^[a-z][a-z0-9-]{0,63}(\\.[a-z][a-z0-9-]{0,63})?$, max 129 chars, and not end in \".lock\") and was not installed"
+    },
+    {
+      "object_type": "acme.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "namespace": "acme",
+      "object_ids": [
+        "sch-acme"
+      ],
+      "reason": "define-type \"acme.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\" is not a valid object type (must match ^[a-z][a-z0-9-]{0,63}(\\.[a-z][a-z0-9-]{0,63})?$, max 129 chars, and not end in \".lock\") and was not installed"
+    },
+    {
+      "object_type": "acme.it's",
+      "namespace": "acme",
+      "object_ids": [
+        "sch-acme"
+      ],
+      "reason": "define-type \"acme.it's\" is not a valid object type (must match ^[a-z][a-z0-9-]{0,63}(\\.[a-z][a-z0-9-]{0,63})?$, max 129 chars, and not end in \".lock\") and was not installed"
+    },
+    {
+      "object_type": "acme.lock",
+      "namespace": "acme",
+      "object_ids": [
+        "sch-acme"
+      ],
+      "reason": "define-type \"acme.lock\" is not a valid object type (must match ^[a-z][a-z0-9-]{0,63}(\\.[a-z][a-z0-9-]{0,63})?$, max 129 chars, and not end in \".lock\") and was not installed"
+    },
+    {
+      "object_type": "acme.x\u0000y",
+      "namespace": "acme",
+      "object_ids": [
+        "sch-acme"
+      ],
+      "reason": "define-type \"acme.x\\x00y\" is not a valid object type (must match ^[a-z][a-z0-9-]{0,63}(\\.[a-z][a-z0-9-]{0,63})?$, max 129 chars, and not end in \".lock\") and was not installed"
+    },
+    {
+      "namespace": "a') OR 1 --",
+      "object_ids": [
+        "sch-hostile"
+      ],
+      "reason": "namespace \"a') OR 1 --\" is not a valid namespace (must match ^[a-z][a-z0-9-]*$, max 64 chars) and none of its types were installed"
+    }
+  ],
+  "objects": [
+    {
+      "object_id": "gadget-1",
+      "object_type": "acme.gadget",
+      "total_order": [
+        {
+          "commit": "71346dcb97a919c2e43f2a0625cd644b235437f0",
+          "t_star": 1767226380
+        }
+      ],
+      "state": {
+        "title": "Widget"
+      }
+    }
+  ]
+}
