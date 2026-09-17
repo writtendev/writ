@@ -256,12 +256,42 @@ func (a *setObservedRemoveAccumulator) Apply(rule Rule, op codec.Op, body map[st
 }
 
 func (a *setObservedRemoveAccumulator) HasValue() bool { return a.hasOps }
+
+// Result computes add-wins presence per spec/fold.md §5.4: presence is
+// existential over adds, quantified per item — ∃a. adds(a,x) ∧ ∀r.
+// removes(r,x) → a ⊀ r. Grouping a.removes by item once, up front, is the
+// same equivalence a pairwise scan computes, not a different one: the
+// item-scoped guard a pairwise loop would use (rem.item == add.item) is
+// exactly this index's key, and items are normalized before they ever
+// reach a.adds/a.removes (see Apply above), so indexing on the stored
+// string changes nothing. This makes the common case — many adds of
+// distinct items, most with no removes at all — linear instead of
+// quadratic: an item with no removes is present with zero IsAncestor
+// calls, which, combined with the lazy reachability oracle (reach.go),
+// means an OR-set that never removes anything never builds the ancestry
+// bitset either.
 func (a *setObservedRemoveAccumulator) Result() (any, error) {
+	removesByItem := make(map[string][]string, len(a.removes))
+	for _, rem := range a.removes {
+		removesByItem[rem.item] = append(removesByItem[rem.item], rem.opID)
+	}
+
 	presentSet := make(map[string]bool)
 	for _, add := range a.adds {
+		if presentSet[add.item] {
+			// Presence is existential over adds: once one add has
+			// established an item is present, a second add of the same
+			// item can only agree, never reverse it.
+			continue
+		}
+		itemRemoves := removesByItem[add.item]
+		if len(itemRemoves) == 0 {
+			presentSet[add.item] = true
+			continue
+		}
 		removed := false
-		for _, rem := range a.removes {
-			if rem.item == add.item && a.reach.IsAncestor(add.opID, rem.opID) {
+		for _, remOpID := range itemRemoves {
+			if a.reach.IsAncestor(add.opID, remOpID) {
 				removed = true
 				break
 			}
@@ -346,6 +376,13 @@ func (a *tombstoneAccumulator) Apply(rule Rule, op codec.Op, body map[string]any
 }
 
 func (a *tombstoneAccumulator) HasValue() bool { return a.hasTombstone }
+
+// Result is pairwise (deletes × undeletes) on purpose, unlike
+// set-observed-remove's Result above: a delete/undelete carries no item
+// key to index by, since a tombstone is one field, not a keyed
+// collection, so there is nothing here for an index to group on. The
+// bound on this loop is a per-object op-count cap (WRIT-268's explicitly
+// deferred follow-up), not a smarter loop shape. No behavior change.
 func (a *tombstoneAccumulator) Result() (any, error) {
 	isDeleted := false
 	for _, d := range a.deletes {
@@ -536,6 +573,13 @@ func (a *multiValueAccumulator) HasValue() bool {
 	return len(a.writes) > 0
 }
 
+// Result is pairwise (writes²) on purpose, unlike set-observed-remove's
+// Result above: a write carries no item key to index by — every write
+// competes with every other write for the same one register, not a
+// keyed collection's distinct entries — so there is nothing here for an
+// index to group on. The bound on this loop is a per-object op-count cap
+// (WRIT-268's explicitly deferred follow-up), not a smarter loop shape.
+// No behavior change.
 func (a *multiValueAccumulator) Result() (any, error) {
 	if len(a.writes) == 0 {
 		return "", nil

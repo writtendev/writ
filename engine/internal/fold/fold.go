@@ -171,7 +171,11 @@ func Fold(ops []codec.Op, rules []Rule) (ObjectState, error) {
 	}
 	objectType := orderedOps[0].Op.ObjectType
 
-	reach := BuildReachability(orderedOps)
+	// Lazy: BuildReachability's own output is unchanged, only when it runs
+	// moves. set-observed-remove, tombstone, and multi-value are the only
+	// strategies that ever call IsAncestor, so a lww/create-once/set-union
+	// /append/lattice/keyed-lww fold never pays for the n×⌈n/64⌉ bitset.
+	reach := newLazyReachOracle(orderedOps)
 
 	bodyMap := make(map[string]map[string]any, len(orderedOps))
 	rawBodyMap := make(map[string]map[string]json.RawMessage, len(orderedOps))
