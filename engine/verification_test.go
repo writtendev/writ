@@ -589,3 +589,107 @@ func futureOpVerification(store *writ.Store, ctx context.Context) (string, error
 	}
 	return "", fmt.Errorf("future-op UnknownOp not found in Schema() for %s", coreSchemaObjectID)
 }
+
+// TestVerification_SchemaAgreesWithObjectsGetForMixedTypeOp is WRIT-251
+// round 3's reproduction. Store.Schema scopes dag.VerifyOnly's predicate
+// to an op's own ObjectType ("schema"), because it does not know which
+// ObjectIDs are schema objects until it has decoded them. A forged op
+// sharing a schema object's ID but declaring some other object_type never
+// satisfies that predicate on its own, so before this fix its
+// Verification stayed the zero value (Outcome "", outside the closed
+// outcome vocabulary) whenever EnumerateSince happened to decode it ahead
+// of any of that object's genuine schema-typed ops — decode order is
+// tip-first per chain, not causal order, and this op's forged chain has
+// no ancestor of its own for the walk to visit first. Objects.Get and
+// Query.Object are both already scoped by ObjectID rather than type, so
+// they were never affected: this test pins Schema() agreeing with them,
+// not just reporting some outcome.
+func TestVerification_SchemaAgreesWithObjectsGetForMixedTypeOp(t *testing.T) {
+	allowedPath := filepath.Join(t.TempDir(), "allowed_signers")
+	dir, signer, _, pubLine := setupSignedRepo(t, allowedPath)
+	writeAllowedSigners(t, allowedPath, "alice@example.com", pubLine)
+
+	ctx := context.Background()
+	s, err := writ.Open(dir, writ.WithSigner(signer))
+	if err != nil {
+		t.Fatalf("writ.Open: %v", err)
+	}
+	defer s.Close()
+	applyCoreSchema(t, ctx, s)
+
+	repo, err := git.PlainOpen(dir)
+	if err != nil {
+		t.Fatalf("git.PlainOpen: %v", err)
+	}
+	// Unsigned, forged op: same ObjectID as the schema object, a foreign
+	// object_type, wired onto the schema frontier so it lands mid the
+	// object's real history exactly as reported.
+	forgeOp(t, repo, malloryWriterID, coreSchemaObjectID, "acme.widget", "update", 1,
+		map[string]any{"title": "x"}, "", schemaFrontierForTest(t, s)...)
+
+	if _, err := s.Refresh(ctx); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	schemaVerification, ok, err := schemaUnknownOpVerification(s, ctx, coreSchemaObjectID, "acme.widget")
+	if err != nil {
+		t.Fatalf("Schema: %v", err)
+	}
+	if !ok {
+		t.Fatalf("Schema().UnknownOps missing the forged acme.widget op on %s", coreSchemaObjectID)
+	}
+	if schemaVerification != "unsigned" {
+		t.Errorf("Schema().UnknownOps verification for the forged op = %q, want %q", schemaVerification, "unsigned")
+	}
+
+	obj, err := s.Objects.Get(ctx, coreSchemaObjectID)
+	if err != nil {
+		t.Fatalf("Objects.Get: %v", err)
+	}
+	var objGetVerification string
+	var found bool
+	for _, u := range obj.UnknownOps {
+		if u.ObjectType == "acme.widget" {
+			objGetVerification, found = u.Verification, true
+		}
+	}
+	if !found {
+		t.Fatalf("Objects.Get UnknownOps missing the forged acme.widget op")
+	}
+	if objGetVerification != "unsigned" {
+		t.Fatalf("Objects.Get UnknownOps verification for the forged op = %q, want %q (test setup, not the fix under test)", objGetVerification, "unsigned")
+	}
+
+	if schemaVerification != objGetVerification {
+		t.Errorf("Schema().UnknownOps verification = %q, want it to agree with Objects.Get's %q (WRIT-251 round 3)", schemaVerification, objGetVerification)
+	}
+
+	res, err := s.Query.Object(coreSchemaObjectID)
+	if err != nil {
+		t.Fatalf("Query.Object: %v", err)
+	}
+	if res.Verification != "unsigned" {
+		t.Errorf("Query.Object.Verification = %q, want %q", res.Verification, "unsigned")
+	}
+}
+
+// schemaUnknownOpVerification returns the Verification outcome
+// store.Schema reports for objectID's UnknownOp whose own ObjectType is
+// otherObjectType, and whether such an UnknownOp was found at all.
+func schemaUnknownOpVerification(store *writ.Store, ctx context.Context, objectID, otherObjectType string) (verification string, ok bool, err error) {
+	schemas, err := store.Schema(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	for _, sch := range schemas {
+		if sch.ObjectID != objectID {
+			continue
+		}
+		for _, uo := range sch.UnknownOps {
+			if uo.ObjectType == otherObjectType {
+				return uo.Verification, true, nil
+			}
+		}
+	}
+	return "", false, nil
+}

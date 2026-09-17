@@ -60,15 +60,32 @@ func (s *Store) Schema(ctx context.Context) ([]state.Schema, error) {
 		return nil, fmt.Errorf("writ: store is nil")
 	}
 
-	// Verification is scoped to ops on "schema" objects — the only ops
-	// whose outcome ever surfaces here, via UnknownOp.Verification inside
-	// state.FoldSchema — and read against a trust store loaded fresh from
-	// disk, never the one Open froze (WRIT-251 round 2 findings: this call
-	// used to verify every op of every object type, real ed25519 cost,
-	// then discard everything but the schema ones' results; and it used to
-	// fall back to dagStore's Open-time trust store, so a long-lived
-	// handle could report "valid" from Query.Object but a stale outcome
-	// here for the same op).
+	// Verification is scoped to every op belonging to a "schema" object —
+	// the only ops whose outcome ever surfaces here, via
+	// UnknownOp.Verification inside state.FoldSchema — and read against a
+	// trust store loaded fresh from disk, never the one Open froze
+	// (WRIT-251 round 2 findings: this call used to verify every op of
+	// every object type, real ed25519 cost, then discard everything but
+	// the schema ones' results; and it used to fall back to dagStore's
+	// Open-time trust store, so a long-lived handle could report "valid"
+	// from Query.Object but a stale outcome here for the same op).
+	//
+	// The predicate below matches on the op's own ObjectType, not on
+	// object membership directly, because at decode time that is the only
+	// thing distinguishing a schema object without already knowing its
+	// ID — but dag.VerifyOnly resolves that predicate to object
+	// membership itself (see its doc comment): every op sharing an
+	// ObjectID with at least one ObjectType=="schema" op is verified,
+	// including a same-ID op of some other type that dag.EnumerateSince
+	// happens to decode first. Below, anyOpHasObjectType/FoldSchema is
+	// exactly that same membership test applied a second time, to decide
+	// which objects are schema objects at all rather than which ops to
+	// verify — the two must agree, and did not before WRIT-251 round 3:
+	// this predicate alone used to leave a same-ID, different-type forged
+	// op unverified whenever it decoded ahead of the object's genuine
+	// schema-typed op, so it surfaced in UnknownOps with an empty
+	// Verification.Outcome instead of the real one Objects.Get and
+	// Query.Object already reported for it.
 	ts, _ := s.currentTrustStore()
 	enumRes, err := s.dagStore.Enumerate(
 		dag.VerifyOnly(func(op codec.Op) bool { return op.ObjectType == "schema" }),
@@ -783,7 +800,10 @@ func (s *Store) SchemaAfterApply(ctx context.Context, objectID string, delta []c
 	// objectID is known upfront, so verification is scoped to just its
 	// ops, against a trust store loaded fresh from disk (WRIT-251 round 2
 	// findings: this call used to verify every op in the repo and fall
-	// back to dagStore's Open-time trust store for the ops it kept).
+	// back to dagStore's Open-time trust store for the ops it kept). Every
+	// op here shares this one known ObjectID, so unlike Store.Schema's
+	// ObjectType-keyed predicate, this match is decode-order independent
+	// and round 3's forged-op-decodes-first finding does not apply to it.
 	ts, _ := s.currentTrustStore()
 	enumRes, err := s.dagStore.Enumerate(
 		dag.VerifyOnly(func(op codec.Op) bool { return op.ObjectID == objectID }),

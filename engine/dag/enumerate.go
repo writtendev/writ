@@ -63,12 +63,28 @@ type enumerateConfig struct {
 // without touching the Store's own persistent configuration.
 type EnumerateOption func(*enumerateConfig)
 
-// VerifyOnly scopes signature verification, for this call only, to the
-// decoded ops for which match returns true; every other decoded op keeps
-// the zero Verification. EnumerateSince calls match immediately after
-// decoding each op and before grouping, so match can key off any field
-// the decode just produced — including ObjectID and ObjectType — without
-// the caller having to know the answer beforehand.
+// VerifyOnly scopes signature verification, for this call only, to every
+// op belonging to an ObjectID for which at least one decoded op satisfies
+// match; every op whose ObjectID never has a satisfying op keeps the zero
+// Verification. EnumerateSince calls match immediately after decoding
+// each op and before grouping, so match can key off any field the decode
+// just produced — including ObjectID and ObjectType — without the caller
+// having to know the answer beforehand.
+//
+// The scope is ObjectID membership, not "this op itself satisfies match":
+// EnumerateSince decodes tip-first, so an op nearer some chain's tip
+// decodes before an ancestor deeper in that same object's history, and a
+// type- or body-keyed match can see a non-matching op for an ObjectID
+// before it ever sees the matching op that puts that ObjectID in scope.
+// A caller matching on ObjectType, as Store.Schema does, would otherwise
+// silently skip a forged, wrong-type op carrying a schema object's own ID
+// whenever that op decodes ahead of the object's genuine schema-typed op
+// (WRIT-251 round 3 finding — see EnumerateSince's matchedObjects/
+// pendingByObject for how the backfill this requires stays a bounded,
+// per-object lookup rather than a second walk of the repository). An
+// ObjectID-keyed match, by contrast, never has this problem: every op for
+// a given ObjectID agrees on whether match(op) is true, in any decode
+// order, so membership and "this op itself satisfies match" coincide.
 //
 // This takes a predicate rather than a plain list of object IDs (as first
 // proposed in review) because one of its two callers can't supply IDs in
@@ -243,6 +259,39 @@ func (s *Store) EnumerateSince(cursors CursorSet, opts ...EnumerateOption) (*Enu
 	// EnumerateSince call must see that fresh, not through a cache built
 	// before it happened.
 	cachedStorer := packidx.WithCache(s.storer)
+
+	// matchedObjects and pendingByObject exist only to make VerifyOnly's
+	// membership scoping (see that option's doc comment) hold regardless
+	// of decode order; cfg.verifyMatch == nil (verify everything) never
+	// touches either, so Refresh/Rebuild's full-verify pass pays nothing
+	// extra for this.
+	//
+	// commitsToDecode is walked tip-first (Step 3's BFS starts at each
+	// chain's current tip and visits parents only after their children),
+	// so an op nearer a chain's tip decodes before an ancestor deeper in
+	// that same object's history. A predicate keyed on the op's own type
+	// or body, rather than a caller-known ObjectID, can therefore see a
+	// non-matching op for some ObjectID before it ever sees the matching
+	// op that puts that ObjectID in scope (WRIT-251 round 3: Store.Schema
+	// matches "op.ObjectType == \"schema\"", so a forged, wrong-type op
+	// carrying a schema object's ID decodes — and, before this fix, was
+	// left unverified — ahead of that object's own genuine schema-typed
+	// op, usually its oldest and so its tip-furthest one). matchedObjects
+	// records, the moment any op for an ObjectID satisfies cfg.verifyMatch,
+	// that every op sharing that ObjectID is in scope. pendingByObject
+	// records exactly the ops skipped before that moment, by their
+	// position in result.Ops[objectID], so the backfill pass below can
+	// verify them once the object is confirmed — without a second walk of
+	// the repository: only the specific commits named there are re-fetched
+	// by ID, through this same cachedStorer, and only for objects that
+	// end up matched at all.
+	var matchedObjects map[string]bool
+	var pendingByObject map[string][]int
+	if cfg.verifyMatch != nil {
+		matchedObjects = make(map[string]bool)
+		pendingByObject = make(map[string][]int)
+	}
+
 	for _, commitObj := range commitsToDecode {
 		// pureCommit.Payload comes from FromGitCommit (gogit.go), which
 		// builds it by re-encoding go-git's already-parsed *object.Commit
@@ -283,11 +332,39 @@ func (s *Store) EnumerateSince(cursors CursorSet, opts ...EnumerateOption) (*Enu
 		// Scoped to match's ops when cfg.verifyMatch is set (VerifyOnly);
 		// nil means every decoded op is verified, still using this pass's
 		// own pureCommit and never a value retained across calls.
-		if cfg.verifyMatch == nil || cfg.verifyMatch(op) {
+		switch {
+		case cfg.verifyMatch == nil:
 			op.Verification = codec.Verify(pureCommit, cfg.trustStore)
+		case cfg.verifyMatch(op):
+			op.Verification = codec.Verify(pureCommit, cfg.trustStore)
+			matchedObjects[op.ObjectID] = true
+		case matchedObjects[op.ObjectID]:
+			// A prior op decoded earlier in this same pass already put
+			// this ObjectID in scope (see matchedObjects' doc comment
+			// above), so this one is too even though it does not itself
+			// satisfy cfg.verifyMatch.
+			op.Verification = codec.Verify(pureCommit, cfg.trustStore)
+		default:
+			// Not yet known to be in scope. Recorded for the backfill
+			// pass below in case a later-decoded op for this same
+			// ObjectID does satisfy cfg.verifyMatch.
+			pendingByObject[op.ObjectID] = append(pendingByObject[op.ObjectID], len(result.Ops[op.ObjectID]))
 		}
 
 		result.Ops[op.ObjectID] = append(result.Ops[op.ObjectID], op)
+	}
+
+	// Backfill: verify every op this pass deferred (the switch's default
+	// case above) whose ObjectID a later-decoded op confirmed was in
+	// scope after all. Each is a single commit lookup by the ID already
+	// decoded onto it, through the same cachedStorer this whole pass
+	// uses — not a second walk of the ancestry, and bounded by that one
+	// object's own out-of-scope-looking op count, not the size of the
+	// repository (WRIT-251 round 3).
+	for objID := range matchedObjects {
+		for _, idx := range pendingByObject[objID] {
+			result.Ops[objID][idx].Verification = verifyCommitByID(cachedStorer, result.Ops[objID][idx].ID, cfg.trustStore)
+		}
 	}
 
 	// Step 5: Group and sort ops by op ID
@@ -305,6 +382,27 @@ func (s *Store) EnumerateSince(cursors CursorSet, opts ...EnumerateOption) (*Enu
 	})
 
 	return result, nil
+}
+
+// verifyCommitByID re-derives one already-decoded commit's pure form and
+// verifies it, for EnumerateSince's backfill pass only: id is always a
+// commit this same call already decoded successfully once (it comes from
+// an Op already sitting in result.Ops), so a failure here is not expected
+// in practice — a zero Verification (Outcome "") on the rare error path
+// is distinguishable from every real outcome and is preferable to
+// silently reporting a wrong one. This is one targeted object lookup, not
+// a walk: it costs what one commit and its tree already known to exist
+// cost, the same as any other single entry of the loop above.
+func verifyCommitByID(s storage.Storer, id string, ts codec.TrustStore) codec.Verification {
+	commitObj, err := object.GetCommit(s, plumbing.NewHash(id))
+	if err != nil {
+		return codec.Verification{}
+	}
+	pureCommit, err := codec.FromGitCommit(s, commitObj)
+	if err != nil {
+		return codec.Verification{}
+	}
+	return codec.Verify(pureCommit, ts)
 }
 
 // isAncestor reports whether candidate is reachable from tip.
