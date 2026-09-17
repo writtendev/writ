@@ -1,0 +1,193 @@
+name: schema-numeric-bounds
+description: >
+  WRIT-269's two decode defects, both closed inside FoldSchema's fold-time
+  quarantine (spec/schema-ops.md §3.1, §3.3): (1) an op_version digit string
+  longer than op_version_string's 16-digit bound overflows a 64-bit integer
+  conversion and can wrap onto a shorter, genuine declaration's key —
+  "18446744073709551617" (2^64+1) wraps to the int64 value 1, the same key
+  a canonical "1" declaration uses; (2) a max_length that is not a JSON
+  integer representable in int64 — out of range, fractional, or a JSON
+  string rather than a number — decodes through an implementation-defined
+  or lossy path. Alice writes a canonical define-field on each of four
+  fields: one plain declaration, and three exercising the narrow max_length
+  quarantine's boundary (a valid max_length, a zero max_length, and a
+  negative max_length) — the ticket's orchestrator ruling leaves zero and
+  negative exactly as they fold today, so all four of Alice's declarations
+  MUST survive into Schema.Types. Bob, on his own ref, writes one
+  oversized-op_version sibling and three malformed-max_length siblings
+  (1e300, a fractional value, and a JSON string); every one of Bob's four
+  ops MUST be quarantined into UnknownOps and none may reach Schema.Types
+  (pins: reader — the producer half of the op_version bound is pinned by
+  spec/testdata/schema-ops/invalid/define-field-op-version-too-long.json,
+  and the producer half of max_length's existing minimum:1 bound is pinned
+  by spec/testdata/schema-ops/invalid/define-field-max-length-zero.json;
+  neither pins a reader-side max_length shape, which is this fixture's
+  job).
+
+refs:
+  - name: refs/writ/1234567890abcdef/schema
+    history:
+      - commits:
+          - id: alice-create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: alice-define-field-plain
+            parents: [alice-create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "create"
+                op_version: "1"
+                field: "value"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: alice-define-field-max-length-valid
+            parents: [alice-define-field-plain]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "create"
+                op_version: "1"
+                field: "length_ok"
+                value_type: "string"
+                max_length: 10
+                strategy: "lww"
+            expect: accept
+
+          - id: alice-define-field-max-length-zero
+            parents: [alice-define-field-max-length-valid]
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "create"
+                op_version: "1"
+                field: "length_zero"
+                value_type: "string"
+                max_length: 0
+                strategy: "lww"
+            expect: accept
+
+          - id: alice-define-field-max-length-negative
+            parents: [alice-define-field-max-length-zero]
+            author: alice
+            timestamp: 2026-01-01T00:04:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "create"
+                op_version: "1"
+                field: "length_negative"
+                value_type: "string"
+                max_length: -5
+                strategy: "lww"
+            expect: accept
+
+  - name: refs/writ/abcdef1234567890/schema
+    history:
+      - commits:
+          - id: bob-define-field-op-version-overflow
+            author: bob
+            timestamp: 2026-01-01T01:00:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "create"
+                op_version: "18446744073709551617"
+                field: "value"
+                value_type: "int"
+                strategy: "set-union"
+            expect: accept
+
+          - id: bob-define-field-max-length-out-of-range
+            parents: [bob-define-field-op-version-overflow]
+            author: bob
+            timestamp: 2026-01-01T01:01:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "create"
+                op_version: "1"
+                field: "length_out_of_range"
+                value_type: "string"
+                max_length: 1e300
+                strategy: "lww"
+            expect: accept
+
+          - id: bob-define-field-max-length-fractional
+            parents: [bob-define-field-max-length-out-of-range]
+            author: bob
+            timestamp: 2026-01-01T01:02:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "create"
+                op_version: "1"
+                field: "length_fractional"
+                value_type: "string"
+                max_length: 1.5
+                strategy: "lww"
+            expect: accept
+
+          - id: bob-define-field-max-length-string
+            parents: [bob-define-field-max-length-fractional]
+            author: bob
+            timestamp: 2026-01-01T01:03:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "create"
+                op_version: "1"
+                field: "length_string"
+                value_type: "string"
+                max_length: "50"
+                strategy: "lww"
+            expect: accept

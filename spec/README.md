@@ -283,7 +283,13 @@ apart (see the **Pins** column in the file table above):
   pins the producer half of §3.1, and
   `fixtures/testdata/golden/schema/schema-op-version-non-canonical.json`
   (§3.1) and `fixtures/testdata/golden/schema-driven/schema-driven-invalid-rule.json`
-  (§9) pin the reader half of both.
+  (§9) pin the reader half of both. §3.1's 16-digit `op_version` bound and
+  §3.3's `max_length` bound are the same split again:
+  `testdata/schema-ops/invalid/define-field-op-version-too-long.json` pins
+  the producer half (`define-field-max-length-zero.json` already pinned
+  `max_length`'s producer-side `minimum: 1`), and
+  `fixtures/testdata/golden/schema/schema-numeric-bounds.json` pins the
+  reader half of both.
 
 On the read path, `value_type` is consulted for exactly one purpose —
 `person-ref` normalization (`spec/value-types.md` §Producer-side and

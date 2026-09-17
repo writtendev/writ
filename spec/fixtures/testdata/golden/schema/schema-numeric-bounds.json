@@ -1,0 +1,78 @@
+{
+  "objects": [
+    {
+      "object_id": "sch-acme",
+      "schema": {
+        "object_id": "sch-acme",
+        "namespace": "acme",
+        "types": [
+          {
+            "type": "acme.widget",
+            "fields": [
+              {
+                "field": "length_negative",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "max_length": -5,
+                "strategy": "lww"
+              },
+              {
+                "field": "length_ok",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "max_length": 10,
+                "strategy": "lww"
+              },
+              {
+                "field": "length_zero",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              },
+              {
+                "field": "value",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              }
+            ]
+          }
+        ],
+        "unknown_ops": [
+          {
+            "commit": "9b12df08267b09d176f24c23dd96908f4e47eff9",
+            "object_type": "schema",
+            "op_type": "define-field",
+            "op_version": 1,
+            "verification": "wrong-key"
+          },
+          {
+            "commit": "b27a56c03802b3f66711c59e6e09eef27fdbcf48",
+            "object_type": "schema",
+            "op_type": "define-field",
+            "op_version": 1,
+            "verification": "wrong-key"
+          },
+          {
+            "commit": "7eb6cdf1e87983fc814aded3088f424e702d12b5",
+            "object_type": "schema",
+            "op_type": "define-field",
+            "op_version": 1,
+            "verification": "wrong-key"
+          },
+          {
+            "commit": "97f04c837671dbeb8dbabe686f800d490af6cbcc",
+            "object_type": "schema",
+            "op_type": "define-field",
+            "op_version": 1,
+            "verification": "wrong-key"
+          }
+        ]
+      }
+    }
+  ]
+}
