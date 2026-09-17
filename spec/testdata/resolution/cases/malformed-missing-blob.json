@@ -1,0 +1,29 @@
+{
+  "name": "malformed-missing-blob",
+  "description": "Side omits the required blob key entirely; anchor.schema.json requires commit, path, and blob on a side, so an absent key fails to decode as a v1 side anchor exactly as a wrongly-typed one does (mirrors malformed-missing-commit for the blob field; WRIT-252 round 6 review)",
+  "anchor": {
+    "version": 1,
+    "new": {
+      "commit": "1111111111111111111111111111111111111111",
+      "path": "main.go"
+    }
+  },
+  "target": {
+    "files": {
+      "main.go": "package main\n"
+    }
+  },
+  "expect": {
+    "anchor": {
+      "version": 1,
+      "new": {
+        "commit": "1111111111111111111111111111111111111111",
+        "path": "main.go"
+      }
+    },
+    "new": {
+      "outcome": "orphaned",
+      "reason": "malformed"
+    }
+  }
+}

@@ -229,9 +229,10 @@ func TestNormalizeOnlyPersonRef(t *testing.T) {
 // field-rules.schema.json's value_type enum — in the shape of
 // TestFieldRuleVocabulariesIsExhaustive (engine/codec/valuetype_test.go),
 // round 1's fix for the same class of problem. value.Known cannot import
-// spec (engine/internal/value stays person + stdlib only, so fold stays free
-// of I/O: engine/internal/fold/imports_test.go), so the binding has to live
-// here instead, in the external test package, which is free to import both.
+// spec (engine/internal/value stays person, engine/internal/anchorshape, and
+// stdlib only, so fold stays free of I/O: engine/internal/fold/imports_test.go),
+// so the binding has to live here instead, in the external test package,
+// which is free to import both.
 //
 // Without this, a 13th value type added to spec.KnownValueTypes, both
 // schemas, and value-types.md's prose count — but forgotten in value.Known
@@ -272,6 +273,122 @@ func TestKnownValueTypesDriftGuard(t *testing.T) {
 		if err != nil && strings.Contains(err.Error(), "unknown value type") {
 			t.Errorf("value.Validate(%q, ...) = %v; Validate's switch has no case for %q", vt, err, vt)
 		}
+	}
+}
+
+// TestValidateAnchorArithmeticVectors drives value.Validate's anchor
+// range/context/omitted arithmetic check (added for WRIT-252, alongside the
+// read-side structural pre-check in engine/resolve) against the anchor
+// conformance vectors under spec/testdata/anchors/: every valid vector must
+// be accepted, and every invalid vector whose reason is the cross-field
+// arithmetic spec/anchors.md §Context capture defines (as opposed to a
+// schema-only shape problem) must be rejected. spec/anchors_test.go's
+// TestInvalidAnchorVectors already covers the full invalid set against the
+// schema and spec's own anchorInvariants; this pins that the producer-side
+// check in this package independently rejects the same arithmetic-class
+// vectors, which is what stops writ itself from ever writing the shape that
+// made the resolver ladder panic.
+func TestValidateAnchorArithmeticVectors(t *testing.T) {
+	for _, name := range readDirNames(t, "testdata/anchors/valid") {
+		t.Run("valid/"+name, func(t *testing.T) {
+			raw, err := spec.FS.ReadFile("testdata/anchors/valid/" + name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var decoded map[string]any
+			if err := json.Unmarshal(raw, &decoded); err != nil {
+				t.Fatalf("decoding %s: %v", name, err)
+			}
+			if err := value.Validate("anchor", value.Params{}, decoded); err != nil {
+				t.Errorf("value.Validate rejected valid vector %s: %v", name, err)
+			}
+		})
+	}
+
+	rawIndex, err := spec.FS.ReadFile("testdata/anchors/invalid/index.json")
+	if err != nil {
+		t.Fatalf("reading anchors/invalid/index.json: %v", err)
+	}
+	var index map[string]struct {
+		Kind   string `json:"kind"`
+		Reason string `json:"reason"`
+	}
+	if err := json.Unmarshal(rawIndex, &index); err != nil {
+		t.Fatalf("decoding anchors/invalid/index.json: %v", err)
+	}
+
+	// The arithmetic class: cross-field rules JSON Schema cannot express, the
+	// same ones spec/anchors_test.go's anchorInvariants enforces. The other
+	// invalid vectors are schema-only shape problems (wrong types, missing
+	// fields, path syntax) this package's Validate deliberately leaves to the
+	// codec's schema validation, not to value.Validate.
+	arithmeticVectors := []string{
+		"omitted-arithmetic-wrong.json",
+		"omitted-with-short-lines.json",
+		"long-range-missing-omitted.json",
+		"long-range-not-elided.json",
+		"context-length-mismatch.json",
+		"end-before-start.json",
+		"line-zero.json",
+	}
+
+	for _, name := range arithmeticVectors {
+		entry, ok := index[name]
+		if !ok {
+			t.Fatalf("testdata/anchors/invalid/index.json has no entry for %s", name)
+		}
+		t.Run("invalid/"+name, func(t *testing.T) {
+			raw, err := spec.FS.ReadFile("testdata/anchors/invalid/" + name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var decoded map[string]any
+			if err := json.Unmarshal(raw, &decoded); err != nil {
+				t.Fatalf("decoding %s: %v", name, err)
+			}
+			if err := value.Validate("anchor", value.Params{}, decoded); err == nil {
+				t.Errorf("value.Validate accepted invalid vector %s; want rejected: %s", name, entry.Reason)
+			}
+		})
+	}
+}
+
+// TestValidateRejectsMalformedResolutionVectors drives every "malformed-*"
+// case under spec/testdata/resolution/cases/ through value.Validate and
+// requires each to be refused. Those vectors are, by construction and by
+// spec/testdata/resolution/index.json's own reason field, shapes
+// engine/resolve's read-side pre-check orphans as "malformed" — so writ's
+// own producer, which shares anchorshape.SideWellFormed with that pre-check
+// (WRIT-252 round 2), must refuse writing every one of them too. This is
+// the producer half of the lockstep round-2 review asked to be tested
+// directly rather than only asserted in a comment: it fails against the
+// round-2 code this round's fixer inherited, where value.Validate accepted
+// (among others) malformed-context-missing-collar's and
+// malformed-lines-null-entry's shapes.
+func TestValidateRejectsMalformedResolutionVectors(t *testing.T) {
+	cases, err := spec.ResolutionVectors()
+	if err != nil {
+		t.Fatalf("loading resolution vectors: %v", err)
+	}
+
+	tested := 0
+	for _, c := range cases {
+		if !strings.HasPrefix(c.Name, "malformed-") {
+			continue
+		}
+		tested++
+		t.Run(c.Name, func(t *testing.T) {
+			var decoded any
+			if err := json.Unmarshal(c.Anchor, &decoded); err != nil {
+				t.Fatalf("decoding %s: %v", c.Name, err)
+			}
+			if err := value.Validate("anchor", value.Params{}, decoded); err == nil {
+				t.Errorf("value.Validate accepted malformed resolution vector %s; want rejected", c.Name)
+			}
+		})
+	}
+	if tested == 0 {
+		t.Fatal("no malformed-* resolution vectors found under spec/testdata/resolution/cases")
 	}
 }
 

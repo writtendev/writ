@@ -1,0 +1,53 @@
+{
+  "name": "malformed-blob-null",
+  "description": "Side's blob is JSON null rather than a string; a null must not decode as the empty string (mirrors malformed-commit-null/malformed-path-null for the third required field; found by fixer round-7 mutation sweep: a mutant that keeps the presence check but drops the type check on blob alone passes the whole conformance suite because no vector previously set blob to null)",
+  "anchor": {
+    "version": 1,
+    "new": {
+      "commit": "1111111111111111111111111111111111111111",
+      "path": "main.go",
+      "blob": null,
+      "range": {
+        "start": 1,
+        "end": 1
+      },
+      "context": {
+        "before": [],
+        "lines": [
+          "package main"
+        ],
+        "after": []
+      }
+    }
+  },
+  "target": {
+    "files": {
+      "main.go": "package main\n"
+    }
+  },
+  "expect": {
+    "anchor": {
+      "version": 1,
+      "new": {
+        "commit": "1111111111111111111111111111111111111111",
+        "path": "main.go",
+        "blob": null,
+        "range": {
+          "start": 1,
+          "end": 1
+        },
+        "context": {
+          "before": [],
+          "lines": [
+            "package main"
+          ],
+          "after": []
+        }
+      }
+    },
+    "new": {
+      "outcome": "orphaned",
+      "reason": "malformed"
+    }
+  }
+}

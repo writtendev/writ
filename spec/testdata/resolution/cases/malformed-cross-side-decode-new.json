@@ -1,0 +1,98 @@
+{
+  "name": "malformed-cross-side-decode-new",
+  "description": "New side's commit is JSON null (a decode failure, not an arithmetic one) while old resolves exactly; the mirror of malformed-cross-side-decode-old, pinning that side-level decode failure is independent of which side (old or new) fails (WRIT-252 round 6 review)",
+  "anchor": {
+    "version": 1,
+    "old": {
+      "commit": "3333333333333333333333333333333333333333",
+      "path": "runner.go",
+      "blob": "a80b170f9de307e5cfadd9a133f2b18edadb533d",
+      "range": {
+        "start": 1,
+        "end": 1
+      },
+      "context": {
+        "before": [],
+        "lines": [
+          "func Run() {"
+        ],
+        "after": [
+          "\tnewWork()"
+        ]
+      }
+    },
+    "new": {
+      "commit": null,
+      "path": "runner.go",
+      "blob": "2222222222222222222222222222222222222222",
+      "range": {
+        "start": 1,
+        "end": 1
+      },
+      "context": {
+        "before": [],
+        "lines": [
+          "oldWork()"
+        ],
+        "after": []
+      }
+    }
+  },
+  "target": {
+    "files": {
+      "runner.go": "func Run() {\n\tnewWork()\n\tcommonWork()\n}\n"
+    }
+  },
+  "expect": {
+    "anchor": {
+      "version": 1,
+      "old": {
+        "commit": "3333333333333333333333333333333333333333",
+        "path": "runner.go",
+        "blob": "a80b170f9de307e5cfadd9a133f2b18edadb533d",
+        "range": {
+          "start": 1,
+          "end": 1
+        },
+        "context": {
+          "before": [],
+          "lines": [
+            "func Run() {"
+          ],
+          "after": [
+            "\tnewWork()"
+          ]
+        }
+      },
+      "new": {
+        "commit": null,
+        "path": "runner.go",
+        "blob": "2222222222222222222222222222222222222222",
+        "range": {
+          "start": 1,
+          "end": 1
+        },
+        "context": {
+          "before": [],
+          "lines": [
+            "oldWork()"
+          ],
+          "after": []
+        }
+      }
+    },
+    "old": {
+      "outcome": "resolved",
+      "match": "exact-path-blob",
+      "path": "runner.go",
+      "range": {
+        "start": 1,
+        "end": 1
+      }
+    },
+    "new": {
+      "outcome": "orphaned",
+      "reason": "malformed"
+    }
+  }
+}

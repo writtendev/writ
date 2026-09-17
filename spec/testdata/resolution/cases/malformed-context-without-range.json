@@ -1,0 +1,45 @@
+{
+  "name": "malformed-context-without-range",
+  "description": "Side carries context but no range key at all; the mirror of malformed-range-without-context, pinning the other direction of the range/context presence symmetry (WRIT-252 round 6 review)",
+  "anchor": {
+    "version": 1,
+    "new": {
+      "commit": "1111111111111111111111111111111111111111",
+      "path": "main.go",
+      "blob": "1111111111111111111111111111111111111111",
+      "context": {
+        "before": [],
+        "lines": [
+          "package main"
+        ],
+        "after": []
+      }
+    }
+  },
+  "target": {
+    "files": {
+      "main.go": "package main\n"
+    }
+  },
+  "expect": {
+    "anchor": {
+      "version": 1,
+      "new": {
+        "commit": "1111111111111111111111111111111111111111",
+        "path": "main.go",
+        "blob": "1111111111111111111111111111111111111111",
+        "context": {
+          "before": [],
+          "lines": [
+            "package main"
+          ],
+          "after": []
+        }
+      }
+    },
+    "new": {
+      "outcome": "orphaned",
+      "reason": "malformed"
+    }
+  }
+}

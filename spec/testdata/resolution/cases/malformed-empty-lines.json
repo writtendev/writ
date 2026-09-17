@@ -1,0 +1,49 @@
+{
+  "name": "malformed-empty-lines",
+  "description": "context.lines is an empty array; step 3 requires context.lines to be non-empty regardless of range, and no existing vector fails on this condition alone (WRIT-252 round 6 review)",
+  "anchor": {
+    "version": 1,
+    "new": {
+      "commit": "1111111111111111111111111111111111111111",
+      "path": "main.go",
+      "blob": "1111111111111111111111111111111111111111",
+      "range": {
+        "start": 1,
+        "end": 1
+      },
+      "context": {
+        "before": [],
+        "lines": [],
+        "after": []
+      }
+    }
+  },
+  "target": {
+    "files": {
+      "main.go": "package main\n"
+    }
+  },
+  "expect": {
+    "anchor": {
+      "version": 1,
+      "new": {
+        "commit": "1111111111111111111111111111111111111111",
+        "path": "main.go",
+        "blob": "1111111111111111111111111111111111111111",
+        "range": {
+          "start": 1,
+          "end": 1
+        },
+        "context": {
+          "before": [],
+          "lines": [],
+          "after": []
+        }
+      }
+    },
+    "new": {
+      "outcome": "orphaned",
+      "reason": "malformed"
+    }
+  }
+}

@@ -1,8 +1,11 @@
 // Package value implements the closed value-type catalogue (spec/value-types.md):
 // producer-side validation, and the one normalization behaviour the catalogue
 // defines. It is modelled on engine/internal/person and, like it, is a pure
-// leaf package — person and the standard library only, no I/O — so the fold,
-// which must stay free of I/O, can call it without pulling anything else in.
+// leaf package — person, engine/internal/anchorshape, and the standard
+// library only, no I/O — so the fold, which must stay free of I/O, can call
+// it without pulling anything else in. anchorshape is itself stdlib-only
+// (see its own doc comment), so this adds nothing to that closure beyond
+// one more leaf.
 package value
 
 import (
@@ -10,6 +13,7 @@ import (
 	"regexp"
 	"unicode/utf8"
 
+	"github.com/writtendev/writ/engine/internal/anchorshape"
 	"github.com/writtendev/writ/engine/internal/person"
 )
 
@@ -28,11 +32,6 @@ var Known = map[string]bool{
 	"position":   true,
 	"anchor":     true,
 }
-
-// maxSafeInt is the canonical-encoding bound of spec/canonicalization.md:
-// integers beyond ±2^53-1 silently lose precision once round-tripped through
-// an IEEE-754 double, so int and number are both bounded here.
-const maxSafeInt = 1<<53 - 1
 
 // Params carries the parameterisation a value type MAY declare per
 // spec/value-types.md: enum's member list, and string/text's max_length
@@ -78,8 +77,8 @@ func Validate(valueType string, params Params, v any) error {
 		if n != float64(int64(n)) {
 			return fmt.Errorf("value: int value %v is not an integer", v)
 		}
-		if n < -maxSafeInt || n > maxSafeInt {
-			return fmt.Errorf("value: int value %v exceeds spec/canonicalization.md's ±2^53-1 bound", v)
+		if n < -anchorshape.MaxSafeInt || n > anchorshape.MaxSafeInt {
+			return fmt.Errorf("value: int value %v exceeds spec/value-types.md's ±2^53-1 bound", v)
 		}
 		return nil
 	case "number":
@@ -87,8 +86,8 @@ func Validate(valueType string, params Params, v any) error {
 		if !ok {
 			return fmt.Errorf("value: number value must be a JSON number")
 		}
-		if n < -maxSafeInt || n > maxSafeInt {
-			return fmt.Errorf("value: number value %v exceeds spec/canonicalization.md's ±2^53-1 bound", v)
+		if n < -anchorshape.MaxSafeInt || n > anchorshape.MaxSafeInt {
+			return fmt.Errorf("value: number value %v exceeds spec/value-types.md's ±2^53-1 bound", v)
 		}
 		return nil
 	case "bool":
@@ -171,8 +170,8 @@ func jsonNumber(v any) (float64, bool) {
 // anchor.schema.json require beyond "is a JSON object": version 1, at least
 // one of old/new, and each present side's required fields and its
 // range/context pairing. It is not a JSON Schema validator — value stays a
-// pure leaf package, person and the standard library only — only the finite,
-// known shape of this one catalogue type.
+// pure leaf package, person, engine/internal/anchorshape, and the standard
+// library only — only the finite, known shape of this one catalogue type.
 func validateAnchor(m map[string]any) error {
 	if v, ok := m["version"]; !ok || v != float64(1) {
 		return fmt.Errorf("version must be 1")
@@ -195,24 +194,30 @@ func validateAnchor(m map[string]any) error {
 	return nil
 }
 
-// validateAnchorSide checks one side's required fields (commit, path, blob)
-// and the dependentRequired pairing between range and context that
-// anchor.schema.json declares.
+// validateAnchorSide checks one side against anchorshape.SideWellFormed —
+// the structural-decode-plus-arithmetic predicate spec/resolution.md's
+// Structural Pre-Check defines, and the same one engine/resolve's read-side
+// pre-check calls. This is what keeps writ itself from ever writing the
+// shape that made the resolver ladder panic (WRIT-252): producer and reader
+// now ask the identical question about a side's shape, rather than each
+// hand-writing its own copy that can drift (round-2 review of this PR found
+// exactly that drift, in both directions).
+//
+// It additionally refuses an empty commit/path/blob. spec/resolution.md's
+// Structural Pre-Check does not — it is decode-and-arithmetic only, per the
+// ruling, and leaves format/emptiness constraints to whatever validates
+// against anchor.schema.json on the read side (nothing does, today) — but
+// writ's own producer always has, and nothing in this round's review asked
+// that to change.
 func validateAnchorSide(v any) error {
-	m, ok := v.(map[string]any)
-	if !ok {
-		return fmt.Errorf("must be a JSON object")
+	if !anchorshape.SideWellFormed(v) {
+		return fmt.Errorf("does not decode as a well-formed v1 side anchor (spec/resolution.md Structural Pre-Check)")
 	}
+	m := v.(map[string]any) // anchorshape.SideWellFormed already confirmed this succeeds.
 	for _, field := range []string{"commit", "path", "blob"} {
-		s, ok := m[field].(string)
-		if !ok || s == "" {
-			return fmt.Errorf("%s is required", field)
+		if m[field].(string) == "" {
+			return fmt.Errorf("%s must not be empty", field)
 		}
-	}
-	_, hasRange := m["range"]
-	_, hasContext := m["context"]
-	if hasRange != hasContext {
-		return fmt.Errorf("range and context must be present together")
 	}
 	return nil
 }

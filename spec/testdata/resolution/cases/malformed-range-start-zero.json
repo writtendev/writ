@@ -1,0 +1,53 @@
+{
+  "name": "malformed-range-start-zero",
+  "description": "range.start is 0; step 3 requires range.start >= 1, and no existing vector fails on this condition alone (WRIT-252 round 6 review)",
+  "anchor": {
+    "version": 1,
+    "new": {
+      "commit": "1111111111111111111111111111111111111111",
+      "path": "main.go",
+      "blob": "1111111111111111111111111111111111111111",
+      "range": {
+        "start": 0,
+        "end": 0
+      },
+      "context": {
+        "before": [],
+        "lines": [
+          "package main"
+        ],
+        "after": []
+      }
+    }
+  },
+  "target": {
+    "files": {
+      "main.go": "package main\n"
+    }
+  },
+  "expect": {
+    "anchor": {
+      "version": 1,
+      "new": {
+        "commit": "1111111111111111111111111111111111111111",
+        "path": "main.go",
+        "blob": "1111111111111111111111111111111111111111",
+        "range": {
+          "start": 0,
+          "end": 0
+        },
+        "context": {
+          "before": [],
+          "lines": [
+            "package main"
+          ],
+          "after": []
+        }
+      }
+    },
+    "new": {
+      "outcome": "orphaned",
+      "reason": "malformed"
+    }
+  }
+}

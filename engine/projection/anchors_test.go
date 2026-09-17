@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -268,5 +269,227 @@ func TestAnchorResolutionAndCodeRefMove(t *testing.T) {
 	}
 	if startLine != 3 || endLine != 4 {
 		t.Fatalf("expected re-anchored range [3, 4], got [%d, %d]", startLine, endLine)
+	}
+}
+
+// writeForeignCommit writes a real op commit directly via codec.WriteCommit
+// and advances refName to it, without going through dag.Store.Append or
+// codec.BuildCommit: both call validateProducerOp, and since WRIT-252's fix
+// makes value.Validate itself reject a malformed anchor, this client can no
+// longer produce one that way. A peer running an older or buggy client is
+// not bound by this client's producer validation — it pushes real commits
+// under its own chain ref — so this is what actually lands on the log for
+// Chains/EnumerateSince (and therefore both Refresh and Rebuild) to
+// discover exactly as if a real peer had pushed it, rather than a synthetic
+// enumeration result.
+func writeForeignCommit(t *testing.T, repo *git.Repository, refName plumbing.ReferenceName, parent plumbing.Hash, env codec.Envelope, when time.Time) plumbing.Hash {
+	t.Helper()
+	raw, err := codec.EncodePayload(env)
+	if err != nil {
+		t.Fatalf("EncodePayload: %v", err)
+	}
+	author := codec.Identity{Name: "Peer Writer", Email: "peer@example.com", When: when}
+	var parents []string
+	if !parent.IsZero() {
+		parents = []string{parent.String()}
+	}
+	commit := &codec.Commit{
+		Parents:   parents,
+		Author:    author,
+		Committer: author,
+		Message:   codec.Message(env),
+		Tree: []codec.TreeEntry{
+			{Name: "op.json", Mode: "100644", Data: raw},
+		},
+	}
+	hash, err := codec.WriteCommit(context.Background(), repo.Storer, commit, nil)
+	if err != nil {
+		t.Fatalf("WriteCommit: %v", err)
+	}
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(refName, hash)); err != nil {
+		t.Fatalf("SetReference %s: %v", refName, err)
+	}
+	return hash
+}
+
+// TestAnchorResolutionMalformedAnchorsDoNotBrickRefresh is WRIT-252's own
+// regression test: a peer-pushed anchor that fails to decode, or whose
+// range/context arithmetic is inconsistent, must resolve to a "malformed"
+// orphan rather than panicking the resolver ladder or aborting the refresh
+// transaction. Both ticket repros are exercised: a short-range elided
+// context (the panic) and version encoded as a JSON string (the transaction
+// abort). Both ops are written as real commits under a foreign peer's chain
+// ref via writeForeignCommit, bypassing dag.Store.Append's producer
+// validation — the only way to get a malformed anchor onto the log now that
+// value.Validate rejects it at write time (engine/internal/value's own
+// WRIT-252 change), exactly as a peer running an older or buggy client
+// would.
+func TestAnchorResolutionMalformedAnchorsDoNotBrickRefresh(t *testing.T) {
+	repo, err := git.Init(memory.NewStorage(), nil)
+	if err != nil {
+		t.Fatalf("git.Init: %v", err)
+	}
+
+	fileV1 := "package main\n"
+	c1Hash := createCommitWithFiles(t, repo, nil, map[string]string{"main.go": fileV1}, "initial code")
+	mainRef := plumbing.ReferenceName("refs/heads/main")
+	_ = repo.Storer.SetReference(plumbing.NewReferenceFromStrings(mainRef.String(), c1Hash.String()))
+	headRef := plumbing.ReferenceName("HEAD")
+	_ = repo.Storer.SetReference(plumbing.NewSymbolicReference(headRef, mainRef))
+
+	store, err := dag.OpenRepo(repo, identity.Identity{
+		WriterID: identity.WriterID("0123456789abcdef"),
+		Author: identity.Author{
+			Name:  "Note Writer",
+			Email: "note-writer@example.com",
+		},
+	}, withVocabularies(noteRules()))
+	if err != nil {
+		t.Fatalf("dag.OpenRepo: %v", err)
+	}
+
+	db, err := projection.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open projection failed: %v", err)
+	}
+	defer db.Close()
+
+	base := time.Unix(1700000000, 0).UTC()
+
+	// Ticket repro 1: elided context (omitted > 0) on a range shorter than
+	// 64 lines. This is the exact shape that indexed a negative offset into
+	// the resolver ladder before WRIT-252 (ladder.go's Rung 3/4 loops).
+	ctxLines64 := make([]any, 64)
+	for i := range ctxLines64 {
+		ctxLines64[i] = fmt.Sprintf("ctx%d", i)
+	}
+	shortRangeElidedAnchor := map[string]any{
+		"version": 1,
+		"new": map[string]any{
+			"commit": c1Hash.String(),
+			"path":   "main.go",
+			"blob":   "1111111111111111111111111111111111111111",
+			"range":  map[string]any{"start": 1, "end": 1},
+			"context": map[string]any{
+				"before":  []any{},
+				"lines":   ctxLines64,
+				"omitted": 1,
+				"after":   []any{},
+			},
+		},
+	}
+
+	// Ticket repro 2: version encoded as a JSON string rather than an
+	// integer. ParseAnchor fails to decode this at all, which used to abort
+	// materializeAnchors and, with it, the whole refresh transaction.
+	versionStringAnchor := map[string]any{
+		"version": "1",
+		"new": map[string]any{
+			"commit": c1Hash.String(),
+			"path":   "main.go",
+			"blob":   "1111111111111111111111111111111111111111",
+		},
+	}
+
+	bodyFor := func(anchor map[string]any) []byte {
+		body := map[string]any{
+			"subject": map[string]any{
+				"object_type": "widget",
+				"object_id":   "w-1",
+			},
+			"text":   "hostile anchor",
+			"anchor": anchor,
+		}
+		raw, err := json.Marshal(body)
+		if err != nil {
+			t.Fatalf("marshal body: %v", err)
+		}
+		return raw
+	}
+
+	envFor := func(objID string, bodyRaw []byte) codec.Envelope {
+		env := codec.Envelope{
+			ObjectID:   objID,
+			ObjectType: "note",
+			OpType:     "create",
+			OpVersion:  1,
+			Body:       bodyRaw,
+		}
+		raw, err := codec.EncodePayload(env)
+		if err != nil {
+			t.Fatalf("EncodePayload: %v", err)
+		}
+		env.Raw = raw
+		return env
+	}
+
+	peerRef := plumbing.ReferenceName("refs/writ/fedcba9876543210/note")
+	c1 := writeForeignCommit(t, repo, peerRef, plumbing.ZeroHash, envFor("n-short-range-elided", bodyFor(shortRangeElidedAnchor)), base)
+	writeForeignCommit(t, repo, peerRef, c1, envFor("n-version-string", bodyFor(versionStringAnchor)), base.Add(time.Second))
+
+	// Refresh #1: must not panic and must not return an error (both repros
+	// used to do one or the other).
+	stats1, err := db.Refresh(store, projection.WithSchema(noteRules()))
+	if err != nil {
+		t.Fatalf("Refresh 1 failed: %v", err)
+	}
+	if stats1.AnchorsResolved != 2 {
+		t.Fatalf("expected 2 anchors resolved, got %d", stats1.AnchorsResolved)
+	}
+
+	// Refresh #2: re-resolving on a no-op delta must also not panic or
+	// error (materializeAnchors treats existing per-target-commit
+	// resolutions as already-done, but this is the transaction the ticket's
+	// "Refresh #1, #2 and Rebuild all fail" repro named explicitly).
+	if _, err := db.Refresh(store, projection.WithSchema(noteRules())); err != nil {
+		t.Fatalf("Refresh 2 failed: %v", err)
+	}
+
+	// Rebuild: same requirement, via the cold-rebuild path instead of the
+	// incremental one.
+	if _, err := db.Rebuild(store, projection.WithSchema(noteRules())); err != nil {
+		t.Fatalf("Rebuild failed: %v", err)
+	}
+
+	// The ops table is populated: materializeAnchors failing used to roll
+	// back the whole transaction, discarding the ops insert along with it.
+	var opCount int
+	if err := db.DB().QueryRow("SELECT COUNT(*) FROM ops").Scan(&opCount); err != nil {
+		t.Fatalf("query ops count: %v", err)
+	}
+	if opCount != 2 {
+		t.Fatalf("expected 2 ops rows, got %d", opCount)
+	}
+
+	// Each object row materialized with its other fields intact: the
+	// anchor degrading does not take the rest of the object down with it.
+	for _, tc := range []struct {
+		objID string
+		text  string
+	}{
+		{"n-short-range-elided", "hostile anchor"},
+		{"n-version-string", "hostile anchor"},
+	} {
+		var gotText string
+		if err := db.DB().QueryRow("SELECT f_text FROM o_note WHERE object_id = ?", tc.objID).Scan(&gotText); err != nil {
+			t.Fatalf("query note %s: %v", tc.objID, err)
+		}
+		if gotText != tc.text {
+			t.Errorf("note %s: f_text = %q, want %q", tc.objID, gotText, tc.text)
+		}
+	}
+
+	// anchor_resolutions holds outcome=orphaned, reason=malformed for both.
+	for _, objID := range []string{"n-short-range-elided", "n-version-string"} {
+		var outcome, reason string
+		err := db.DB().QueryRow(
+			"SELECT outcome, reason FROM anchor_resolutions WHERE object_id = ? AND side = 'new'", objID,
+		).Scan(&outcome, &reason)
+		if err != nil {
+			t.Fatalf("query anchor_resolutions for %s: %v", objID, err)
+		}
+		if outcome != "orphaned" || reason != "malformed" {
+			t.Errorf("object %s: anchor_resolutions = (outcome=%s, reason=%s), want (orphaned, malformed)", objID, outcome, reason)
+		}
 	}
 }

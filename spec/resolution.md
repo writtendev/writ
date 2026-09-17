@@ -125,7 +125,7 @@ An anchor's overall resolution status is derived from its side results:
 | Field     | Type   | Required | Meaning |
 | --------- | ------ | -------- | ------- |
 | `outcome` | string | yes      | Const `"orphaned"`. |
-| `reason`  | string | yes      | The reason for orphaning from the v1 enumeration: `"path-absent"`, `"no-candidate"`, `"below-threshold"`, `"ambiguous"`, or `"unsupported-version"`. |
+| `reason`  | string | yes      | The reason for orphaning from the v1 enumeration: `"path-absent"`, `"no-candidate"`, `"below-threshold"`, `"ambiguous"`, `"unsupported-version"`, or `"malformed"`. |
 
 ## The Matching Ladder
 
@@ -139,6 +139,89 @@ evaluated.
 If `anchor.version` is not `1` (or not supported by the implementation), the
 side immediately degrades to:
 $$\{ \text{"outcome"}: \text{"orphaned"}, \text{"reason"}: \text{"unsupported-version"} \}$$
+
+### Structural Pre-Check
+
+Before the ladder runs, every present side is checked for structural
+soundness. A side that fails this check cannot be indexed safely and
+degrades to:
+$$\{ \text{"outcome"}: \text{"orphaned"}, \text{"reason"}: \text{"malformed"} \}$$
+
+The check proceeds in fixed order:
+
+1. **Anchor decode.** The anchor bytes must decode as a JSON object, and
+   `version` must be present as a JSON integer.
+   - An integer `version` that is not `1` is not a structural problem: it
+     keeps going to the Version Pre-Check above and degrades to
+     `"unsupported-version"` exactly as today, regardless of anything else
+     about the anchor's shape.
+   - A missing `version`, or a `version` that is present but not a JSON
+     integer (for example the string `"1"`), is `"malformed"`.
+   - "JSON integer" here is the same exact-integer bound step 2 below gives
+     `range.start`, `range.end`, and `context.omitted`: ±2⁵³−1
+     (`spec/value-types.md`). A `version` within that bound decodes to an
+     integer and is compared to `1` as above; a `version` outside it — for
+     example `9007199254740992` (2⁵³) — is not an integer under this rule
+     and is therefore `"malformed"`, not `"unsupported-version"`, exactly
+     as an out-of-bound `range.end` is `"malformed"` rather than treated as
+     some other kind of number.
+   - An anchor-level decode failure of this kind orphans **every side
+     present** at the top level (`old` and/or `new`) as `"malformed"` — there
+     is no per-side information left to distinguish them.
+2. **Side decode.** For `version: 1`, every side present (an `old` or `new`
+   key at the top level) that fails to decode as a v1 side anchor — the side
+   is not an object; `commit`, `path`, or `blob` is absent or is not a
+   string; `range` is not `{ "start": int, "end": int }`; or `context` is not
+   `{ "before": [string], "lines": [string], "after": [string], "omitted"?: int }`
+   — orphans that side, and only that side, as `"malformed"`. A well-formed
+   side next to a malformed one still runs the ladder normally, so the
+   overall anchor can resolve to `partial` (§Overall Anchor Resolution
+   Status).
+   - `commit`, `path`, and `blob` are required on a side by
+     `anchor.schema.json`; a side missing any of the three fails to decode
+     as a v1 side anchor exactly as one carrying the wrong type for it does
+     — this step does not distinguish "absent" from "present but wrong
+     type" for these three, or for `before`/`lines`/`after` below.
+   - Decoding here is exact, not lenient: an object's members are matched by
+     exact case (`"START"` is not `"start"`, `"LINES"` is not `"lines"`), and
+     every member above must be the precise JSON type stated. JSON `null`
+     satisfies none of them — a `null` `commit`/`path`/`blob` is not a
+     string, and a `null` `range` or `context` is not an object — so a side
+     carrying `null` for any of these decodes exactly as if that member were
+     the wrong type, not as if it were absent. `context` requires `before`,
+     `lines`, and `after` all to be present as string arrays; none of the
+     three defaults when its key is missing, and a `null` value for any of
+     the three is likewise not a string array.
+   - `context.omitted`'s presence is judged by whether the key exists in the
+     JSON object at all, never by its value: a `context` carrying
+     `"omitted": null` fails this step (`null` is not a JSON integer), and
+     one carrying `"omitted": 0` decodes here but then fails step 3's
+     `context.omitted >= 1` below. Neither is reinterpreted as `omitted`
+     being absent just because its value is falsy.
+   - An `int` above is required to be within ±2⁵³−1 — the exact-integer
+     bound `spec/value-types.md` gives every catalogue `int`/`number`
+     field, which step 1's `version` check above uses too — so a
+     `range.start`, `range.end`, or `context.omitted` outside that bound
+     fails this step exactly as a non-integer number would.
+3. **Arithmetic.** A side that decoded successfully is checked against the
+   cross-field arithmetic `spec/anchors.md` §Context capture defines, which
+   JSON Schema cannot express:
+   - `range` present if and only if `context` is present.
+   - `range.start >= 1` and `range.end >= range.start`.
+   - `context.lines` is non-empty.
+   - `context.omitted` absent: `len(context.lines) == range.end - range.start + 1`,
+     and that span is at most 64 lines.
+   - `context.omitted` present: `context.omitted >= 1`,
+     `len(context.lines) == 64`, and
+     `context.omitted == (range.end - range.start + 1) - 64`.
+
+   A side failing this arithmetic orphans as `"malformed"`, independently of
+   the other side.
+
+This is a structural gate, not a content judgement: it says nothing about
+whether the anchored content still exists in the target tree, only whether
+the anchor is shaped well enough for the ladder to evaluate that question at
+all.
 
 ### Whole-File Anchors
 
@@ -288,6 +371,7 @@ rules:
 
 | Reason | Condition |
 | ------ | --------- |
+| `"malformed"` | The side failed the Structural Pre-Check above: it does not decode as a v1 side anchor, or its range/context/omitted arithmetic is inconsistent. Checked, and assigned, before the ladder runs — none of the other reasons below apply once this one does. |
 | `"unsupported-version"` | Anchor version is unsupported or unimplemented. |
 | `"path-absent"` | The recorded path is absent from the target tree, and no candidate file yielded any matching lines (max score is 0). |
 | `"no-candidate"` | The file at `anchor.path` exists (or candidate files were checked), but has fewer lines than range length $N$, or every candidate window scored 0 points. |
@@ -308,7 +392,9 @@ The guiding principle of Writ's anchoring model is that **anchored objects are
 never silently lost**.
 
 1. **Preservation:** Implementations MUST NOT drop, discard, or hide orphaned
-   anchors.
+   anchors. This applies equally to a `"malformed"` orphan: its raw anchor
+   bytes are preserved for display exactly as any other orphan's are, even
+   though they failed to decode cleanly.
 2. **Presentation:** Clients MUST present an orphaned anchor to the user with:
    - Clear visual indication that it is *orphaned* / *unanchored* in
      the current tree.

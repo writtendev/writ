@@ -1,0 +1,23 @@
+{
+  "name": "malformed-side-null",
+  "description": "The new side is JSON null rather than an object; a null side must not silently decode as an empty (whole-file, path-absent) side (round-2 review of WRIT-252's PR)",
+  "anchor": {
+    "version": 1,
+    "new": null
+  },
+  "target": {
+    "files": {
+      "main.go": "package main\n"
+    }
+  },
+  "expect": {
+    "anchor": {
+      "version": 1,
+      "new": null
+    },
+    "new": {
+      "outcome": "orphaned",
+      "reason": "malformed"
+    }
+  }
+}

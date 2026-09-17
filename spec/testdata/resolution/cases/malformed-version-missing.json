@@ -1,0 +1,51 @@
+{
+  "name": "malformed-version-missing",
+  "description": "Anchor object has no version key at all; a missing version is malformed exactly as a present-but-non-integer version is, not treated as version 1 or as unsupported-version (spec/resolution.md Structural Pre-Check step 1, WRIT-252 round 5 review)",
+  "anchor": {
+    "new": {
+      "commit": "1111111111111111111111111111111111111111",
+      "path": "main.go",
+      "blob": "2222222222222222222222222222222222222222",
+      "range": {
+        "start": 1,
+        "end": 1
+      },
+      "context": {
+        "before": [],
+        "lines": [
+          "package main"
+        ],
+        "after": []
+      }
+    }
+  },
+  "target": {
+    "files": {
+      "main.go": "package main\n"
+    }
+  },
+  "expect": {
+    "anchor": {
+      "new": {
+        "commit": "1111111111111111111111111111111111111111",
+        "path": "main.go",
+        "blob": "2222222222222222222222222222222222222222",
+        "range": {
+          "start": 1,
+          "end": 1
+        },
+        "context": {
+          "before": [],
+          "lines": [
+            "package main"
+          ],
+          "after": []
+        }
+      }
+    },
+    "new": {
+      "outcome": "orphaned",
+      "reason": "malformed"
+    }
+  }
+}

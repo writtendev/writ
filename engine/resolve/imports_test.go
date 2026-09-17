@@ -19,6 +19,7 @@ var allowedImports = map[string]bool{
 	`"sort"`:          true,
 	`"strings"`:       true,
 	`"unicode/utf8"`:  true,
+	`"github.com/writtendev/writ/engine/internal/anchorshape"`: true,
 }
 
 func TestImportsAllowlist(t *testing.T) {

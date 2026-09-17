@@ -2,6 +2,8 @@ package resolve
 
 import (
 	"sort"
+
+	"github.com/writtendev/writ/engine/internal/anchorshape"
 )
 
 // Match type constants from spec/resolution.md.
@@ -19,6 +21,7 @@ const (
 	ReasonBelowThreshold     = "below-threshold"
 	ReasonAmbiguous          = "ambiguous"
 	ReasonUnsupportedVersion = "unsupported-version"
+	ReasonMalformed          = "malformed"
 )
 
 // Outcome constants.
@@ -53,6 +56,20 @@ func resolveSide(version int, s *SideAnchor, t *Tree) *SideResult {
 		return nil
 	}
 
+	// Structural pre-check (spec/resolution.md §Structural Pre-Check): a side
+	// that decoded successfully but whose range/context arithmetic is
+	// inconsistent orphans as malformed before the ladder runs. This is the
+	// single owner of that guarantee — Rungs 3 and 4 below trust it and no
+	// longer defensively re-check bounds against it. It also covers
+	// Go-constructed anchors bypassing ParseAnchor, which is how the original
+	// panic reproduced (WRIT-252).
+	if !sideWellFormed(s) {
+		return &SideResult{
+			Outcome: OutcomeOrphaned,
+			Reason:  ReasonMalformed,
+		}
+	}
+
 	// Whole-file anchor (no range specified)
 	if s.Range == nil {
 		return resolveWholeFileSide(s, t)
@@ -60,6 +77,40 @@ func resolveSide(version int, s *SideAnchor, t *Tree) *SideResult {
 
 	// Ranged anchor
 	return resolveRangedSide(s, t)
+}
+
+// sideWellFormed implements the structural pre-check's arithmetic step
+// (spec/resolution.md §Structural Pre-Check, mirroring spec/anchors.md
+// §Context capture) for a side already decoded into Go's typed SideAnchor —
+// the shape Go-constructed anchors carry (this covers Resolve's own callers,
+// which bypass JSON decoding entirely; ResolveRaw's raw-bytes path checks
+// the same arithmetic earlier, via anchorshape.SideWellFormed, before a
+// SideAnchor like this one is even built): range and context must be
+// present together; a present pair's numbers reduce to
+// anchorshape.RangeContextWellFormed, the one arithmetic implementation
+// both paths share, so the two cannot drift the way a second hand-written
+// copy here once could. A side failing any of it has no safe way to be
+// indexed by the ladder.
+//
+// Context.Omitted is a plain int with no separate presence flag, so a
+// Go-constructed SideAnchor cannot express "omitted present with value 0"
+// distinctly from "omitted absent" — both collapse to the same zero value.
+// hasOmitted below is therefore Omitted != 0, matching Context's own
+// `json:"omitted,omitempty"` tag (a Context built this way already cannot
+// round-trip that distinction either).
+func sideWellFormed(s *SideAnchor) bool {
+	hasRange := s.Range != nil
+	hasContext := s.Context != nil
+	if hasRange != hasContext {
+		return false
+	}
+	if !hasRange {
+		return true
+	}
+
+	r, ctx := s.Range, s.Context
+	hasOmitted := ctx.Omitted != 0
+	return anchorshape.RangeContextWellFormed(r.Start, r.End, len(ctx.Lines), ctx.Omitted, hasOmitted)
 }
 
 func resolveWholeFileSide(s *SideAnchor, t *Tree) *SideResult {
@@ -119,13 +170,9 @@ func resolveRangedSide(s *SideAnchor, t *Tree) *SideResult {
 		}
 	}
 
+	// rangeLen is always >= 1 here: sideWellFormed (resolveSide's pre-check)
+	// requires range.end >= range.start before the ladder ever runs.
 	rangeLen := s.Range.End - s.Range.Start + 1
-	if rangeLen <= 0 {
-		if _, ok := t.files[s.Path]; ok {
-			return &SideResult{Outcome: OutcomeOrphaned, Reason: ReasonNoCandidate}
-		}
-		return &SideResult{Outcome: OutcomeOrphaned, Reason: ReasonPathAbsent}
-	}
 
 	// Candidate paths scope for Rungs 3 and 4
 	var candidatePaths []string
@@ -161,34 +208,29 @@ func resolveRangedSide(s *SideAnchor, t *Tree) *SideResult {
 			continue
 		}
 		for start := 1; start <= len(lines)-rangeLen+1; start++ {
+			// sideWellFormed guarantees len(ctxLines) == rangeLen when not
+			// elided, and == 64 (with rangeLen >= 65) when elided, so no
+			// length guard is needed before indexing ctxLines here.
 			matched := true
 			if !isElided {
-				if len(ctxLines) < rangeLen {
-					matched = false
-				} else {
-					for i := 0; i < rangeLen; i++ {
-						if lines[start+i-1] != ctxLines[i] {
-							matched = false
-							break
-						}
+				for i := 0; i < rangeLen; i++ {
+					if lines[start+i-1] != ctxLines[i] {
+						matched = false
+						break
 					}
 				}
 			} else {
-				if len(ctxLines) < 64 {
-					matched = false
-				} else {
-					for i := 0; i < 32; i++ {
-						if lines[start+i-1] != ctxLines[i] {
+				for i := 0; i < 32; i++ {
+					if lines[start+i-1] != ctxLines[i] {
+						matched = false
+						break
+					}
+				}
+				if matched {
+					for j := 0; j < 32; j++ {
+						if lines[start+rangeLen-32+j-1] != ctxLines[32+j] {
 							matched = false
 							break
-						}
-					}
-					if matched {
-						for j := 0; j < 32; j++ {
-							if lines[start+rangeLen-32+j-1] != ctxLines[32+j] {
-								matched = false
-								break
-							}
 						}
 					}
 				}
@@ -265,22 +307,20 @@ func resolveRangedSide(s *SideAnchor, t *Tree) *SideResult {
 			totalWindowsChecked++
 			anchoredMatches := 0
 			if !isElided {
-				for i := 0; i < rangeLen && i < len(ctxLines); i++ {
+				for i := 0; i < rangeLen; i++ {
 					if lines[start+i-1] == ctxLines[i] {
 						anchoredMatches++
 					}
 				}
 			} else {
-				if len(ctxLines) >= 64 {
-					for i := 0; i < 32; i++ {
-						if lines[start+i-1] == ctxLines[i] {
-							anchoredMatches++
-						}
+				for i := 0; i < 32; i++ {
+					if lines[start+i-1] == ctxLines[i] {
+						anchoredMatches++
 					}
-					for j := 0; j < 32; j++ {
-						if lines[start+rangeLen-32+j-1] == ctxLines[32+j] {
-							anchoredMatches++
-						}
+				}
+				for j := 0; j < 32; j++ {
+					if lines[start+rangeLen-32+j-1] == ctxLines[32+j] {
+						anchoredMatches++
 					}
 				}
 			}

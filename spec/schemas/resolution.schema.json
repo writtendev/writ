@@ -54,7 +54,8 @@
             "no-candidate",
             "below-threshold",
             "ambiguous",
-            "unsupported-version"
+            "unsupported-version",
+            "malformed"
           ]
         }
       },

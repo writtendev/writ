@@ -1,0 +1,55 @@
+{
+  "name": "malformed-non-elided-length-mismatch",
+  "description": "context.omitted is absent and context.lines has 2 entries while range covers 3 lines (1-3); step 3 requires len(context.lines) == range.end - range.start + 1 when omitted is absent, and no existing vector fails on this condition alone (WRIT-252 round 6 review)",
+  "anchor": {
+    "version": 1,
+    "new": {
+      "commit": "1111111111111111111111111111111111111111",
+      "path": "main.go",
+      "blob": "1111111111111111111111111111111111111111",
+      "range": {
+        "start": 1,
+        "end": 3
+      },
+      "context": {
+        "before": [],
+        "lines": [
+          "line1",
+          "line2"
+        ],
+        "after": []
+      }
+    }
+  },
+  "target": {
+    "files": {
+      "main.go": "package main\n"
+    }
+  },
+  "expect": {
+    "anchor": {
+      "version": 1,
+      "new": {
+        "commit": "1111111111111111111111111111111111111111",
+        "path": "main.go",
+        "blob": "1111111111111111111111111111111111111111",
+        "range": {
+          "start": 1,
+          "end": 3
+        },
+        "context": {
+          "before": [],
+          "lines": [
+            "line1",
+            "line2"
+          ],
+          "after": []
+        }
+      }
+    },
+    "new": {
+      "outcome": "orphaned",
+      "reason": "malformed"
+    }
+  }
+}

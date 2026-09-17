@@ -23,7 +23,10 @@ import "github.com/writtendev/writ/engine/codec"
 //     anchors and other structured payloads as opaque data (spec/fold.md §6),
 //     so the check reads the value at the declared field and, where the
 //     strategy consumes a collection, its immediate elements. It never
-//     recurses: an anchor whose context collar is null is well formed.
+//     recurses into a structured payload's interior at all — whether that
+//     interior would itself be well-formed is a question for the value
+//     type's own producer-side check (engine/internal/value) and the
+//     read-side resolver (engine/resolve), never for fold.
 //   - Whether a value the strategy stores verbatim matches the type its
 //     vocabulary schema declares. The fold catalogue knows strategies, not
 //     schemas, and teaching it types would make the rules a second source of

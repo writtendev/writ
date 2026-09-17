@@ -1688,33 +1688,31 @@ func TestBuildCommitRejectsDeclaredFieldNullValue(t *testing.T) {
 	}
 }
 
-// TestBuildCommitAcceptsNestedNullInStructuredValue pins WRIT-222's scope
-// boundary: rule 6 refuses a declared field's own top-level value being
-// null, never a null appearing inside a structured value the field's
-// value_type itself permits. An anchor's range/context collar pairs on
-// presence only (engine/internal/value's validateAnchorSide), so a
-// well-formed anchor may carry null on both once both are present --
-// exactly the shape engine/internal/fold/reject.go's own doc comment
-// blesses ("an anchor whose context collar is null is well formed"). This
-// is the falsifiable half of the scope boundary the ticket's acceptance
-// criteria ask for: the rule is not "no null anywhere in a body".
+// TestBuildCommitAcceptsNestedNullInStructuredValue pins rule 6's scope
+// boundary: it refuses a declared field's own top-level value being null,
+// never a null appearing inside that value's interior. An anchor used to be
+// this test's example (its range/context collar paired on presence only,
+// so null-on-both was tolerated once both were present) — round-1 review of
+// this PR found the producer and the read-side pre-check
+// (engine/resolve.decodeRange/decodeContext) disagreed about exactly that
+// shape, so engine/internal/value.validateAnchorSide no longer tolerates a
+// null range or context in any combination, and an anchor can no longer
+// supply this example. An untyped field (r.ValueType == "" in
+// engine/codec/schema.go) typechecks nothing, so its interior is ordinary
+// free-form JSON and serves the same purpose without depending on any
+// value type's own internal null tolerance. This is the falsifiable half
+// of the scope boundary: the rule is not "no null anywhere in a body".
 func TestBuildCommitAcceptsNestedNullInStructuredValue(t *testing.T) {
-	body := `{"anchor_field":{"version":1,"new":{` +
-		`"commit":"1111111111111111111111111111111111111111",` +
-		`"path":"main.go",` +
-		`"blob":"2222222222222222222222222222222222222222",` +
-		`"range":null,"context":null}}}`
+	body := `{"untyped_field":{"a":1,"nested":null}}`
 	_, err := codec.BuildCommit(codec.Envelope{
 		ObjectID:   "w-1",
 		ObjectType: "widget",
 		OpType:     "create",
 		OpVersion:  1,
 		Body:       json.RawMessage(body),
-	}, testAuthor(), nil, declareVocabulary("widget",
-		spec.FieldRule{OpType: "create", OpVersion: 1, Field: "anchor_field", Strategy: "lww", ValueType: "anchor"},
-	))
+	}, testAuthor(), nil, declaredFieldNullVocabulary())
 	if err != nil {
-		t.Fatalf("BuildCommit rejected an anchor value whose interior range/context collar is null: %v", err)
+		t.Fatalf("BuildCommit rejected an untyped field value whose interior held a nested null: %v", err)
 	}
 }
 
