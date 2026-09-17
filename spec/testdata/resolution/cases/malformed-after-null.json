@@ -1,0 +1,53 @@
+{
+  "name": "malformed-after-null",
+  "description": "context.after is JSON null rather than a string array; the mirror of malformed-before-null for the after field. Dropping only the after check lets this reach toNonNullStrings in resolve.go, which panics on a nil interface instead of orphaning malformed (WRIT-252 round 8 review)",
+  "anchor": {
+    "version": 1,
+    "new": {
+      "commit": "1111111111111111111111111111111111111111",
+      "path": "main.go",
+      "blob": "2222222222222222222222222222222222222222",
+      "range": {
+        "start": 1,
+        "end": 1
+      },
+      "context": {
+        "before": [],
+        "lines": [
+          "line 1"
+        ],
+        "after": null
+      }
+    }
+  },
+  "target": {
+    "files": {
+      "main.go": "line 1\n"
+    }
+  },
+  "expect": {
+    "anchor": {
+      "version": 1,
+      "new": {
+        "commit": "1111111111111111111111111111111111111111",
+        "path": "main.go",
+        "blob": "2222222222222222222222222222222222222222",
+        "range": {
+          "start": 1,
+          "end": 1
+        },
+        "context": {
+          "before": [],
+          "lines": [
+            "line 1"
+          ],
+          "after": null
+        }
+      }
+    },
+    "new": {
+      "outcome": "orphaned",
+      "reason": "malformed"
+    }
+  }
+}

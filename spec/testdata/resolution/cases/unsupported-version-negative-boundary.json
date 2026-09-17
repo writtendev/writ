@@ -1,0 +1,53 @@
+{
+  "name": "unsupported-version-negative-boundary",
+  "description": "Anchor version is the JSON number -9007199254740991 (-(2^53-1)), exactly the negative edge of the +/-(2^53-1) exact-integer bound spec/resolution.md's Structural Pre-Check step 1 gives every catalogue int field including version; the side is otherwise perfectly well-formed. Round 7's malformed-version-int53-negative-overflow pins the rejecting side one past this edge (-2^53); nothing pins the accepting side, where a decoded version outside {1} must fall through to unsupported-version rather than being wrongly refused as malformed (WRIT-252 round 8 review)",
+  "anchor": {
+    "version": -9007199254740991,
+    "new": {
+      "commit": "1111111111111111111111111111111111111111",
+      "path": "main.go",
+      "blob": "2222222222222222222222222222222222222222",
+      "range": {
+        "start": 1,
+        "end": 1
+      },
+      "context": {
+        "before": [],
+        "lines": [
+          "package main"
+        ],
+        "after": []
+      }
+    }
+  },
+  "target": {
+    "files": {
+      "main.go": "package main\n"
+    }
+  },
+  "expect": {
+    "anchor": {
+      "version": -9007199254740991,
+      "new": {
+        "commit": "1111111111111111111111111111111111111111",
+        "path": "main.go",
+        "blob": "2222222222222222222222222222222222222222",
+        "range": {
+          "start": 1,
+          "end": 1
+        },
+        "context": {
+          "before": [],
+          "lines": [
+            "package main"
+          ],
+          "after": []
+        }
+      }
+    },
+    "new": {
+      "outcome": "orphaned",
+      "reason": "unsupported-version"
+    }
+  }
+}
