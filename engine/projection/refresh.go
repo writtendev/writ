@@ -50,6 +50,17 @@ type Stats struct {
 	// Changed lists the objects modified during an incremental refresh pass.
 	// Left empty on a full rebuild, where Rebuilt: true indicates all objects may have changed.
 	Changed []ObjectChange `json:"changed,omitempty"`
+
+	// Rejections records op commits that failed reader validation during
+	// this pass (dag.EnumerateSince's own Rejections, carried through
+	// unchanged). The list covers only the commits this pass walked: an
+	// incremental Refresh sees only the chains it enumerated since the
+	// stored cursors, so a rejection a chain's tip already passed on a
+	// prior pass is not re-reported here, and the cursor still advances
+	// past a rejected commit regardless (WRIT-271) — the caller of the
+	// pass that observed a rejection is the only caller that sees it,
+	// until a full Rebuild re-derives it from a cold walk.
+	Rejections []dag.Rejection `json:"rejections,omitempty"`
 }
 
 type refreshConfig struct {
@@ -314,6 +325,7 @@ func (d *DB) Refresh(store *dag.Store, opts ...Option) (Stats, error) {
 		AnchorsResolved: anchorsResolved,
 		Rebuilt:         false,
 		Changed:         changed,
+		Rejections:      enumRes.Rejections,
 	}, nil
 }
 
@@ -440,6 +452,7 @@ func (d *DB) rebuildWithConfig(store *dag.Store, cfg *refreshConfig, targetTips 
 		ObjectsTouched:  len(enumRes.Ops),
 		AnchorsResolved: anchorsResolved,
 		Rebuilt:         true,
+		Rejections:      enumRes.Rejections,
 	}, nil
 }
 

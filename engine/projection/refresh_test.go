@@ -9,6 +9,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/storage"
 	"github.com/go-git/go-git/v5/storage/memory"
 	"github.com/writtendev/writ/engine/codec"
 	"github.com/writtendev/writ/engine/dag"
@@ -569,6 +570,149 @@ func TestRollbackTriggersRebuild(t *testing.T) {
 	}
 	if title != "Divergent Title" {
 		t.Fatalf("expected title 'Divergent Title', got %q", title)
+	}
+}
+
+// writeExtraTreeEntryCommit writes a commit directly into repo's object
+// store — bypassing dag.Store.Append, which would refuse to build a
+// non-canonical tree shape — whose tree carries an "extra" entry beside
+// op.json, as parent's child. This is spec/op-envelope.md reader
+// validation rule 1's tree-shape check: a reader MUST reject a commit
+// whose tree does not contain exactly one entry.
+func writeExtraTreeEntryCommit(ctx context.Context, s storage.Storer, parent string, opRaw []byte) (string, error) {
+	c := codec.Commit{
+		Parents: []string{parent},
+		Author: codec.Identity{
+			Name:  "Test Writer",
+			Email: "writer@example.com",
+			When:  time.Unix(1700000010, 0).UTC(),
+		},
+		Committer: codec.Identity{
+			Name:  "Test Writer",
+			Email: "writer@example.com",
+			When:  time.Unix(1700000010, 0).UTC(),
+		},
+		Message: "writ: create widget/extra-tree-entry\n",
+		Tree: []codec.TreeEntry{
+			{Name: "extra", Mode: "100644", Data: []byte("junk")},
+			{Name: "op.json", Mode: "100644", Data: opRaw},
+		},
+	}
+	h, err := codec.WriteCommit(ctx, s, &c, nil)
+	if err != nil {
+		return "", err
+	}
+	return h.String(), nil
+}
+
+// TestRefresh_SurfacesRejections and TestRebuild_SurfacesRejections pin
+// WRIT-271: Refresh/Rebuild used to consume dag.EnumerateSince's result
+// without ever reading its Rejections field, so a peer's quarantined op
+// had no diagnostic path anywhere above the dag package. Reproduces the
+// ticket's own repro: append one valid op, then write a commit with tree
+// {extra, op.json} as the new tip of the widget chain.
+func TestRefresh_SurfacesRejections(t *testing.T) {
+	ctx := context.Background()
+	repo, store := createTestStore(t, "0123456789abcdef")
+
+	db, err := projection.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open projection failed: %v", err)
+	}
+	defer db.Close()
+
+	env1 := makeWidgetEnv("w-rej", "create", map[string]any{"title": "Title 1"})
+	op1, err := store.Append(ctx, env1, nil)
+	if err != nil {
+		t.Fatalf("store.Append failed: %v", err)
+	}
+
+	if _, err := db.Refresh(store, projection.WithSchema(testRules())); err != nil {
+		t.Fatalf("initial Refresh failed: %v", err)
+	}
+
+	envExtra := makeWidgetEnv("w-rej-2", "create", map[string]any{"title": "Extra"})
+	malformedHash, err := writeExtraTreeEntryCommit(ctx, repo.Storer, op1.ID, envExtra.Raw)
+	if err != nil {
+		t.Fatalf("writeExtraTreeEntryCommit failed: %v", err)
+	}
+	refName := plumbing.ReferenceName("refs/writ/0123456789abcdef/widget")
+	if err := repo.Storer.SetReference(plumbing.NewReferenceFromStrings(refName.String(), malformedHash)); err != nil {
+		t.Fatalf("advance ref to malformed commit: %v", err)
+	}
+
+	stats, err := db.Refresh(store, projection.WithSchema(testRules()))
+	if err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+	if stats.Rebuilt {
+		t.Fatalf("expected an incremental refresh (fast-forward), got Rebuilt=true")
+	}
+	if len(stats.Rejections) != 1 {
+		t.Fatalf("Rejections = %v, want exactly one", stats.Rejections)
+	}
+	rej := stats.Rejections[0]
+	if rej.CommitID != malformedHash {
+		t.Errorf("rejection commit = %s, want %s", rej.CommitID, malformedHash)
+	}
+	if rej.Reason != codec.RejectExtraTreeEntry {
+		t.Errorf("rejection reason = %q, want %q", rej.Reason, codec.RejectExtraTreeEntry)
+	}
+
+	// The cursor still advances past the rejected commit (WRIT-271's
+	// plan is explicit that this is deliberate, not this ticket's bug to
+	// fix): a second Refresh sees no further delta and reports it again.
+	stats2, err := db.Refresh(store, projection.WithSchema(testRules()))
+	if err != nil {
+		t.Fatalf("second Refresh failed: %v", err)
+	}
+	if len(stats2.Rejections) != 0 {
+		t.Errorf("second Refresh Rejections = %v, want none (the pass that observed the rejection is the only one that reports it)", stats2.Rejections)
+	}
+}
+
+func TestRebuild_SurfacesRejections(t *testing.T) {
+	ctx := context.Background()
+	repo, store := createTestStore(t, "0123456789abcdef")
+
+	env1 := makeWidgetEnv("w-rej", "create", map[string]any{"title": "Title 1"})
+	op1, err := store.Append(ctx, env1, nil)
+	if err != nil {
+		t.Fatalf("store.Append failed: %v", err)
+	}
+
+	envExtra := makeWidgetEnv("w-rej-2", "create", map[string]any{"title": "Extra"})
+	malformedHash, err := writeExtraTreeEntryCommit(ctx, repo.Storer, op1.ID, envExtra.Raw)
+	if err != nil {
+		t.Fatalf("writeExtraTreeEntryCommit failed: %v", err)
+	}
+	refName := plumbing.ReferenceName("refs/writ/0123456789abcdef/widget")
+	if err := repo.Storer.SetReference(plumbing.NewReferenceFromStrings(refName.String(), malformedHash)); err != nil {
+		t.Fatalf("advance ref to malformed commit: %v", err)
+	}
+
+	db, err := projection.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open projection failed: %v", err)
+	}
+	defer db.Close()
+
+	stats, err := db.Rebuild(store, projection.WithSchema(testRules()))
+	if err != nil {
+		t.Fatalf("Rebuild failed: %v", err)
+	}
+	if !stats.Rebuilt {
+		t.Fatalf("expected Rebuilt=true")
+	}
+	if len(stats.Rejections) != 1 {
+		t.Fatalf("Rejections = %v, want exactly one", stats.Rejections)
+	}
+	rej := stats.Rejections[0]
+	if rej.CommitID != malformedHash {
+		t.Errorf("rejection commit = %s, want %s", rej.CommitID, malformedHash)
+	}
+	if rej.Reason != codec.RejectExtraTreeEntry {
+		t.Errorf("rejection reason = %q, want %q", rej.Reason, codec.RejectExtraTreeEntry)
 	}
 }
 

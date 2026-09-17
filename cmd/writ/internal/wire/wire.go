@@ -73,6 +73,7 @@ type SyncResult struct {
 	OpsPushed      int      `json:"ops_pushed"`
 	ObjectsTouched int      `json:"objects_touched"`
 	Unsynced       int      `json:"unsynced"`
+	Rejected       int      `json:"rejected,omitempty"`
 	Failure        *Failure `json:"failure,omitempty"`
 }
 
@@ -120,6 +121,7 @@ func FromSyncResult(remote string, res writ.SyncResult) SyncResult {
 		OpsPushed:      res.OpsPushed,
 		ObjectsTouched: res.ObjectsTouched,
 		Unsynced:       res.Unsynced,
+		Rejected:       res.Rejected,
 	}
 }
 
@@ -151,6 +153,7 @@ func FromSyncResultFailure(remote string, res writ.SyncResult, err error) SyncRe
 		OpsPushed:      res.OpsPushed,
 		ObjectsTouched: res.ObjectsTouched,
 		Unsynced:       unsynced,
+		Rejected:       res.Rejected,
 		Failure:        failure,
 	}
 }

@@ -53,24 +53,25 @@ func fromGitCommit(s storage.Storer, commit *object.Commit) (Commit, error) {
 		}
 		if entry.Mode == filemode.Dir && s != nil {
 			subTree, err := object.GetTree(s, entry.Hash)
-			if err == nil {
-				for _, subEntry := range subTree.Entries {
-					subTe := TreeEntry{
-						Name: subEntry.Name,
-						Mode: subEntry.Mode.String(),
-						Hash: subEntry.Hash.String(),
-					}
-					if subEntry.Name == "op.json" {
-						data, err := readOpJSONBlob(s, subEntry.Hash, func() (*object.File, error) {
-							return subTree.TreeEntryFile(&subEntry)
-						})
-						if err != nil {
-							return Commit{}, fmt.Errorf("codec: read op.json blob: %w", err)
-						}
-						subTe.Data = data
-					}
-					te.Entries = append(te.Entries, subTe)
+			if err != nil {
+				return Commit{}, fmt.Errorf("codec: subtree %s: %w", entry.Name, err)
+			}
+			for _, subEntry := range subTree.Entries {
+				subTe := TreeEntry{
+					Name: subEntry.Name,
+					Mode: subEntry.Mode.String(),
+					Hash: subEntry.Hash.String(),
 				}
+				if subEntry.Name == "op.json" {
+					data, err := readOpJSONBlob(s, subEntry.Hash, func() (*object.File, error) {
+						return subTree.TreeEntryFile(&subEntry)
+					})
+					if err != nil {
+						return Commit{}, fmt.Errorf("codec: read op.json blob: %w", err)
+					}
+					subTe.Data = data
+				}
+				te.Entries = append(te.Entries, subTe)
 			}
 		}
 		treeEntries = append(treeEntries, te)
@@ -136,6 +137,18 @@ func fromGitCommit(s storage.Storer, commit *object.Commit) (Commit, error) {
 // content — DecodeCommit rejects on its length alone — so its bytes
 // don't matter, only that there are exactly MaxPayloadBytes+1 of them,
 // the same length a real oversized blob would be capped to below.
+//
+// open, file.Reader, and io.ReadAll failures below are returned, not
+// swallowed: the object.Tree.TreeEntryFile call open closes over reaches
+// s.EncodedObject, which surfaces plumbing.ErrObjectNotFound verbatim
+// when the op.json blob is genuinely absent from this clone (a partial
+// or shallow clone, most commonly). Wrapping with %w lets
+// dag.EnumerateSince (WRIT-271) distinguish that case — reason
+// object-unavailable, engine-local, not a reader-validation rejection —
+// from a malformed op. Before WRIT-271 these three failures returned
+// nil, nil, which handed DecodeCommit an empty payload it reported as
+// non-canonical-payload: an absent-object error wearing a
+// malformed-payload's name.
 func readOpJSONBlob(s storage.Storer, hash plumbing.Hash, open func() (*object.File, error)) ([]byte, error) {
 	if s != nil {
 		size, found, err := packfileObjectSize(s, hash)
@@ -153,17 +166,17 @@ func readOpJSONBlob(s storage.Storer, hash plumbing.Hash, open func() (*object.F
 
 	file, err := open()
 	if err != nil {
-		return nil, nil
+		return nil, fmt.Errorf("codec: open op.json blob: %w", err)
 	}
 	r, err := file.Reader()
 	if err != nil {
-		return nil, nil
+		return nil, fmt.Errorf("codec: read op.json blob: %w", err)
 	}
 	defer r.Close()
 
 	data, err := io.ReadAll(io.LimitReader(r, MaxPayloadBytes+1))
 	if err != nil {
-		return nil, nil
+		return nil, fmt.Errorf("codec: read op.json blob: %w", err)
 	}
 	return data, nil
 }
