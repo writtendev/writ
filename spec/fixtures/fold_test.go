@@ -193,72 +193,23 @@ func runFoldFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 		// (spec/fold.md §5), so handing it the union of the rules for the
 		// types present does exactly that.
 		writRules := rulesForObject(rulesByType, codecOps)
-		rules := make([]spec.FieldRule, 0, len(writRules))
-		for _, wr := range writRules {
-			rules = append(rules, spec.FieldRule{
-				OpType:     wr.OpType,
-				OpVersion:  wr.OpVersion,
-				Field:      wr.Field,
-				Target:     wr.Target,
-				Strategy:   wr.Strategy,
-				Key:        wr.Key,
-				Lattice:    wr.Lattice,
-				ValueType:  wr.ValueType,
-				Enum:       wr.Enum,
-				MaxLength:  wr.MaxLength,
-				KeyTypes:   wr.KeyTypes,
-				ObjectType: wr.ObjectType,
-			})
-		}
 
-		var orderOps []spec.OrderOp
-		var mergeOps []spec.MergeOp
-
-		for _, cop := range codecOps {
-			orderOps = append(orderOps, spec.OrderOp{
-				ID:       cop.ID,
-				Parents:  cop.Parents,
-				Time:     cop.Author.When.UTC().Unix(),
-				ObjectID: cop.ObjectID,
-			})
-
-			var body map[string]any
-			if len(cop.Body) > 0 {
-				if err := json.Unmarshal(cop.Body, &body); err != nil {
-					t.Fatalf("unmarshaling op %s body: %v", cop.ID, err)
-				}
-			}
-			if body == nil {
-				body = make(map[string]any)
-			}
-
-			mergeOps = append(mergeOps, spec.MergeOp{
-				ID:         cop.ID,
-				Parents:    cop.Parents,
-				Time:       cop.Author.When.UTC().Unix(),
-				ObjectID:   cop.ObjectID,
-				ObjectType: cop.ObjectType,
-				OpType:     cop.OpType,
-				OpVersion:  cop.OpVersion,
-				Author: spec.MergeAuthor{
-					Name:  cop.Author.Name,
-					Email: cop.Author.Email,
-				},
-				Body: body,
-			})
-		}
-
-		effectiveTimes := spec.EffectiveTimes(orderOps, objID)
-		totalOrder, err := spec.TotalOrder(orderOps, objID)
+		// Cross-check: public writ.Fold produces byte-identical canonical
+		// state, TotalOrder and UnknownOps against the spec reference
+		// reducer. This fixture family's own golden is built from the
+		// reference fold's output (crossCheckSpecFold's returned State,
+		// TotalOrder, EffectiveTimes and UnknownOps below), not the
+		// engine's, so a divergence fails loudly here rather than baking
+		// itself into the golden silently.
+		engineRes, err := writ.Fold(codecOps, writRules)
 		if err != nil {
-			return nil, fmt.Errorf("total order for object %s: %w", objID, err)
+			return nil, fmt.Errorf("writ.Fold for object %s: %w", objID, err)
 		}
 
-		folded, err := spec.Fold(mergeOps, rules)
+		cc, err := crossCheckSpecFold(t, fix.Name, objID, codecOps, writRules, engineRes)
 		if err != nil {
-			return nil, fmt.Errorf("fold for object %s: %w", objID, err)
+			return nil, err
 		}
-		foldedState := folded.State
 
 		// The golden's unknown_ops is the fold's own quarantine channel, not a
 		// second guess at it. Two populations reach that channel and
@@ -279,10 +230,10 @@ func runFoldFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 		for _, cop := range codecOps {
 			byID[cop.ID] = cop
 		}
-		expectedObjectType := byID[totalOrder[0]].ObjectType
+		expectedObjectType := byID[cc.TotalOrder[0]].ObjectType
 
 		var unknownOps []FoldUnknownOp
-		for _, u := range folded.UnknownOps {
+		for _, u := range cc.UnknownOps {
 			unknownOps = append(unknownOps, FoldUnknownOp{
 				Commit:     u.Commit,
 				Label:      shaToLabel[u.Commit],
@@ -292,11 +243,6 @@ func runFoldFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 			})
 		}
 
-		// Cross-check: public writ.Fold produces byte-identical canonical state and total order
-		engineRes, err := writ.Fold(codecOps, writRules)
-		if err != nil {
-			return nil, fmt.Errorf("writ.Fold for object %s: %w", objID, err)
-		}
 		if engineRes.ObjectType != expectedObjectType {
 			t.Fatalf("engine ObjectType mismatch for %s in %s: got %q, want %q",
 				objID, fix.Name, engineRes.ObjectType, expectedObjectType)
@@ -306,60 +252,20 @@ func runFoldFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 				objID, fix.Name, got, expectedObjectType)
 		}
 
-		engineJSON, err := canonicaljson.Marshal(mustJSON(t, engineRes.State))
-		if err != nil {
-			return nil, fmt.Errorf("canonicalizing engine state for %s: %w", objID, err)
-		}
-
 		// Commutativity verification: shuffle input ops 100 times and verify identical output
-		expectedJSON, err := canonicaljson.Marshal(mustJSON(t, foldedState))
+		expectedJSON, err := canonicaljson.Marshal(mustJSON(t, cc.State))
 		if err != nil {
 			return nil, fmt.Errorf("canonicalizing folded state for %s: %w", objID, err)
 		}
 
-		if !bytes.Equal(engineJSON, expectedJSON) {
-			t.Fatalf("engine fold state differs from spec reference for object %s in fixture %s:\n engine: %s\n ref:    %s",
-				objID, fix.Name, string(engineJSON), string(expectedJSON))
-		}
-
-		if len(engineRes.TotalOrder) != len(totalOrder) {
-			t.Fatalf("engine TotalOrder length mismatch for %s in %s: got %d, want %d",
-				objID, fix.Name, len(engineRes.TotalOrder), len(totalOrder))
-		}
-		for i, ref := range engineRes.TotalOrder {
-			if ref.Commit != totalOrder[i] || ref.TStar != effectiveTimes[ref.Commit] {
-				t.Fatalf("engine TotalOrder[%d] mismatch for %s in %s: got (%s, %d), want (%s, %d)",
-					i, objID, fix.Name, ref.Commit, ref.TStar, totalOrder[i], effectiveTimes[totalOrder[i]])
-			}
-		}
-
-		// The quarantine channel is cross-checked here on the same terms as
-		// State and TotalOrder. It is the third thing fold returns and the one
-		// this fixture family exists to exercise; leaving it out would let the
-		// two implementations disagree about which ops contributed nothing —
-		// and, since a quarantined op contributes no writes, they could reach
-		// identical State by quarantining different operations.
-		if len(engineRes.UnknownOps) != len(folded.UnknownOps) {
-			t.Fatalf("engine quarantined %d ops for %s in %s, spec reference quarantined %d:\n engine: %v\n ref:    %v",
-				len(engineRes.UnknownOps), objID, fix.Name, len(folded.UnknownOps),
-				engineRes.UnknownOps, folded.UnknownOps)
-		}
-		for i, engU := range engineRes.UnknownOps {
-			refU := folded.UnknownOps[i]
-			if engU.Commit != refU.Commit || engU.ObjectType != refU.ObjectType || engU.OpType != refU.OpType || engU.OpVersion != refU.OpVersion {
-				t.Fatalf("engine UnknownOps[%d] mismatch for %s in %s:\n got: %+v\nwant: %+v",
-					i, objID, fix.Name, engU, refU)
-			}
-		}
-
 		for i := 0; i < 100; i++ {
-			shuffledMerge := make([]spec.MergeOp, len(mergeOps))
-			copy(shuffledMerge, mergeOps)
+			shuffledMerge := make([]spec.MergeOp, len(cc.MergeOps))
+			copy(shuffledMerge, cc.MergeOps)
 			r.Shuffle(len(shuffledMerge), func(i, j int) {
 				shuffledMerge[i], shuffledMerge[j] = shuffledMerge[j], shuffledMerge[i]
 			})
 
-			shuffledFolded, err := spec.Fold(shuffledMerge, rules)
+			shuffledFolded, err := spec.Fold(shuffledMerge, cc.Rules)
 			if err != nil {
 				t.Fatalf("commutativity violation on permutation #%d for object %s: %v", i, objID, err)
 			}
@@ -376,11 +282,11 @@ func runFoldFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 		}
 
 		var orderEntries []FoldOpOrderEntry
-		for _, sha := range totalOrder {
+		for _, sha := range cc.TotalOrder {
 			orderEntries = append(orderEntries, FoldOpOrderEntry{
 				Commit: sha,
 				Label:  shaToLabel[sha],
-				TStar:  effectiveTimes[sha],
+				TStar:  cc.EffectiveTimes[sha],
 			})
 		}
 
@@ -388,7 +294,7 @@ func runFoldFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 			ObjectID:   objID,
 			ObjectType: expectedObjectType,
 			TotalOrder: orderEntries,
-			State:      foldedState,
+			State:      cc.State,
 			UnknownOps: unknownOps,
 		})
 	}
@@ -495,4 +401,152 @@ func mustJSON(t *testing.T, v any) []byte {
 		t.Fatalf("marshal json: %v", err)
 	}
 	return b
+}
+
+// specFoldCrossCheck is the reference reducer's own output for the ops
+// crossCheckSpecFold folded, returned so a caller building its golden from
+// the reference implementation (as runFoldFixture does) does not need to
+// fold a second time.
+type specFoldCrossCheck struct {
+	Rules          []spec.FieldRule
+	MergeOps       []spec.MergeOp
+	State          map[string]any
+	TotalOrder     []string
+	EffectiveTimes map[string]int64
+	UnknownOps     []spec.UnknownOp
+}
+
+// crossCheckSpecFold folds codecOps through the reference implementation
+// (spec.Fold, spec.TotalOrder, spec.EffectiveTimes, built from writRules the
+// same way the engine's own rule table is) and requires the result to agree
+// byte-for-byte with engineRes -- codecOps folded through the public
+// writ.Fold, using the same writRules -- on canonical State, TotalOrder
+// (commit + t*), and UnknownOps.
+//
+// Both runFoldFixture (fold-* / forward-compat-* fixtures) and
+// runSchemaDrivenFixture (schema-driven-* fixtures) call this for every
+// non-schema object, so a divergence between the engine and the reference
+// reducer can't hide in either fixture family (WRIT-274) -- before this, only
+// the fold-* family ran the comparison at all.
+func crossCheckSpecFold(t *testing.T, fixName, objID string, codecOps []codec.Op, writRules []writ.Rule, engineRes writ.ObjectState) (specFoldCrossCheck, error) {
+	t.Helper()
+
+	var rules []spec.FieldRule
+	for _, wr := range writRules {
+		rules = append(rules, spec.FieldRule{
+			OpType:     wr.OpType,
+			OpVersion:  wr.OpVersion,
+			Field:      wr.Field,
+			Target:     wr.Target,
+			Strategy:   wr.Strategy,
+			Key:        wr.Key,
+			Lattice:    wr.Lattice,
+			ValueType:  wr.ValueType,
+			Enum:       wr.Enum,
+			MaxLength:  wr.MaxLength,
+			KeyTypes:   wr.KeyTypes,
+			ObjectType: wr.ObjectType,
+		})
+	}
+
+	var orderOps []spec.OrderOp
+	var mergeOps []spec.MergeOp
+
+	for _, cop := range codecOps {
+		orderOps = append(orderOps, spec.OrderOp{
+			ID:       cop.ID,
+			Parents:  cop.Parents,
+			Time:     cop.Author.When.UTC().Unix(),
+			ObjectID: cop.ObjectID,
+		})
+
+		var body map[string]any
+		if len(cop.Body) > 0 {
+			if err := json.Unmarshal(cop.Body, &body); err != nil {
+				t.Fatalf("unmarshaling op %s body: %v", cop.ID, err)
+			}
+		}
+		if body == nil {
+			body = make(map[string]any)
+		}
+
+		mergeOps = append(mergeOps, spec.MergeOp{
+			ID:         cop.ID,
+			Parents:    cop.Parents,
+			Time:       cop.Author.When.UTC().Unix(),
+			ObjectID:   cop.ObjectID,
+			ObjectType: cop.ObjectType,
+			OpType:     cop.OpType,
+			OpVersion:  cop.OpVersion,
+			Author: spec.MergeAuthor{
+				Name:  cop.Author.Name,
+				Email: cop.Author.Email,
+			},
+			Body: body,
+		})
+	}
+
+	effectiveTimes := spec.EffectiveTimes(orderOps, objID)
+	totalOrder, err := spec.TotalOrder(orderOps, objID)
+	if err != nil {
+		return specFoldCrossCheck{}, fmt.Errorf("total order for object %s in %s: %w", objID, fixName, err)
+	}
+
+	folded, err := spec.Fold(mergeOps, rules)
+	if err != nil {
+		return specFoldCrossCheck{}, fmt.Errorf("fold for object %s in %s: %w", objID, fixName, err)
+	}
+
+	engineJSON, err := canonicaljson.Marshal(mustJSON(t, engineRes.State))
+	if err != nil {
+		return specFoldCrossCheck{}, fmt.Errorf("canonicalizing engine state for %s in %s: %w", objID, fixName, err)
+	}
+	expectedJSON, err := canonicaljson.Marshal(mustJSON(t, folded.State))
+	if err != nil {
+		return specFoldCrossCheck{}, fmt.Errorf("canonicalizing spec reference state for %s in %s: %w", objID, fixName, err)
+	}
+
+	if !bytes.Equal(engineJSON, expectedJSON) {
+		t.Fatalf("engine fold state differs from spec reference for object %s in fixture %s:\n engine: %s\n ref:    %s",
+			objID, fixName, string(engineJSON), string(expectedJSON))
+	}
+
+	if len(engineRes.TotalOrder) != len(totalOrder) {
+		t.Fatalf("engine TotalOrder length mismatch for %s in %s: got %d, want %d",
+			objID, fixName, len(engineRes.TotalOrder), len(totalOrder))
+	}
+	for i, ref := range engineRes.TotalOrder {
+		if ref.Commit != totalOrder[i] || ref.TStar != effectiveTimes[ref.Commit] {
+			t.Fatalf("engine TotalOrder[%d] mismatch for %s in %s: got (%s, %d), want (%s, %d)",
+				i, objID, fixName, ref.Commit, ref.TStar, totalOrder[i], effectiveTimes[totalOrder[i]])
+		}
+	}
+
+	// The quarantine channel is cross-checked here on the same terms as
+	// State and TotalOrder. It is the third thing fold returns; leaving it
+	// out would let the two implementations disagree about which ops
+	// contributed nothing -- and, since a quarantined op contributes no
+	// writes, they could reach identical State by quarantining different
+	// operations.
+	if len(engineRes.UnknownOps) != len(folded.UnknownOps) {
+		t.Fatalf("engine quarantined %d ops for %s in %s, spec reference quarantined %d:\n engine: %v\n ref:    %v",
+			len(engineRes.UnknownOps), objID, fixName, len(folded.UnknownOps),
+			engineRes.UnknownOps, folded.UnknownOps)
+	}
+	for i, engU := range engineRes.UnknownOps {
+		refU := folded.UnknownOps[i]
+		if engU.Commit != refU.Commit || engU.ObjectType != refU.ObjectType || engU.OpType != refU.OpType || engU.OpVersion != refU.OpVersion {
+			t.Fatalf("engine UnknownOps[%d] mismatch for %s in %s:\n got: %+v\nwant: %+v",
+				i, objID, fixName, engU, refU)
+		}
+	}
+
+	return specFoldCrossCheck{
+		Rules:          rules,
+		MergeOps:       mergeOps,
+		State:          folded.State,
+		TotalOrder:     totalOrder,
+		EffectiveTimes: effectiveTimes,
+		UnknownOps:     folded.UnknownOps,
+	}, nil
 }

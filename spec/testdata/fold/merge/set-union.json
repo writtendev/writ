@@ -1,6 +1,6 @@
 {
   "name": "set-union",
-  "description": "Grow-only set union combining elements from concurrent ops",
+  "description": "Grow-only set union combining elements from concurrent ops. tags declares no value_type, so its elements are not normalized -- which is what lets this vector also pin spec/fold.md §5/§8's UTF-8 byte sort order (ruled over UTF-16 code unit order, spec/fold.md §8): '\\ue000' (BMP private use, UTF-8 EE 80 80) and '\\ud83d\\ude00' (U+1F600, a supplementary-plane character, UTF-8 F0 9F 98 80). UTF-8 byte order places \\ue000 before \\ud83d\\ude00 (0xEE < 0xF0); UTF-16 code unit order would place \\ud83d\\ude00 first, because its surrogate pair's lead unit D83D sorts below E000 -- see spec/canonicalization.md's 'supplementary-plane vs BMP' vector, which governs JSON object member keys under that opposite order on purpose. expected_state below is the UTF-8 ordering only; a UTF-16 implementation fails here loudly rather than silently.",
   "object_id": "obj-1",
   "fields": {
     "tags": { "strategy": "set-union" }
@@ -21,7 +21,7 @@
       "time": 200,
       "object_id": "obj-1",
       "body": {
-        "tags": ["gamma"]
+        "tags": ["gamma", "", "😀"]
       }
     },
     {
@@ -35,6 +35,6 @@
     }
   ],
   "expected_state": {
-    "tags": ["alpha", "beta", "delta", "gamma"]
+    "tags": ["alpha", "beta", "delta", "gamma", "", "😀"]
   }
 }

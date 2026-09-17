@@ -327,8 +327,8 @@ every match identically (WRIT-201).
 **Canonical rule order.** Where more than one rule bound to one target
 matches a single operation, those rules contribute their writes in
 ascending `(op_type, op_version, field)`: `op_type` compared in canonical
-code unit order, then `op_version` numerically, then `field` in canonical
-code unit order. This order is a property of `Fold` itself, not of the
+UTF-8 byte order, then `op_version` numerically, then `field` in canonical
+UTF-8 byte order. This order is a property of `Fold` itself, not of the
 sequence a caller hands its rules in — an implementation MUST NOT let the
 order a rule table happens to list, load or enumerate its rules in reach
 folded state. Every component of the key is rule content, and a rule table
@@ -384,7 +384,7 @@ Typed domain serializations (such as language-specific state structs) MAY omit e
 - **Reduction:** Any operation specifying one or more elements adds them to the set.
 - **Empty elements are dropped:** An element whose value, after any normalization the field declares (`spec/identifiers.md` §Person identifiers), is the empty string MUST NOT enter the set. This rule applies to **every** item-valued field regardless of its op type, not only to person-valued fields: an empty tag, an empty remote URL, and an empty assignee are equally meaningless, and reducers MUST agree on discarding them. Producers are already forbidden from emitting such elements by the governing schema; the rule exists so that a non-conforming or future writer emitting an empty-string element cannot make two conforming readers disagree. Dropping governs materialized state only and does not weaken the preserve-and-ignore rule (`spec/forward-compatibility.md`): the operation carrying the element remains in the DAG, reachable, replicated, and byte-for-byte intact.
 - **Elements are strings.** An element whose JSON value is not a string, or a field whose value is neither a string nor an array of strings, makes the whole operation uninterpretable per §7.1. `null` is such a value, at the field or as an element.
-- **Result:** The mathematical set union of all added elements. In serialized state, elements are emitted in canonical sorted order (UTF-16 code unit order for strings, ascending numerical order for numbers). An operation whose elements are all dropped still counts as a write of the field: the field is present in the generic folded state map with the empty set as its value. Typed domain serializations MAY omit an empty collection rather than emitting it.
+- **Result:** The mathematical set union of all added elements. In serialized state, elements are emitted in canonical sorted order (UTF-8 byte order for strings, ascending numerical order for numbers). An operation whose elements are all dropped still counts as a write of the field: the field is present in the generic folded state map with the empty set as its value. Typed domain serializations MAY omit an empty collection rather than emitting it.
 
 #### 4. `set-observed-remove` (Add-Wins OR-Set)
 - **Initial state:** Empty set $\emptyset$.
@@ -464,7 +464,7 @@ strategy (ARCHITECTURE.md §Document concurrency model).
   - **Settled (single maximal write):** Serialized as a single string:
     `body = "..."`.
   - **Conflicted (multiple concurrent maximal writes):** Serialized as a JSON
-    array of strings sorted in canonical code unit order:
+    array of strings sorted in canonical UTF-8 byte order:
     `body = ["...", "..."]`. Both versions are preserved as data; neither is
     invented.
 - **Input validity (§7.1):** The value is a string. A value of any other JSON
@@ -634,8 +634,21 @@ To guarantee that folded state is byte-identical across independent
 implementations:
 - JSON object fields are serialized canonically per `spec/canonicalization.md`.
 - Collections derived from `append` strategies are ordered by the total order $L$, and within one operation — which occupies a single position in $L$ — by §5's canonical rule order, ascending `(op_type, op_version, field)` over the rules that operation matched, then by the order any one rule's own array-valued field lists its entries in.
-- Collections derived from `set-union` and `set-observed-remove` are serialized as JSON arrays sorted in canonical code unit order.
-- Conflicted multi-value registers (`multi-value`) are serialized as JSON arrays of strings sorted in canonical code unit order.
+- Collections derived from `set-union` and `set-observed-remove` are serialized as JSON arrays sorted in canonical UTF-8 byte order.
+- Conflicted multi-value registers (`multi-value`) are serialized as JSON arrays of strings sorted in canonical UTF-8 byte order.
+
+This is deliberately not `spec/canonicalization.md`'s ordering. JCS governs
+JSON *object member keys*, in UTF-16 code unit order; this section governs
+*collection element order* within folded state, in UTF-8 byte order. The two
+diverge once an element leaves the Basic Multilingual Plane — a
+supplementary-plane character encodes as a UTF-16 surrogate pair in
+U+D800–U+DFFF and so sorts *before* BMP characters at U+E000 and above under
+code-unit comparison, and *after* them under UTF-8 byte comparison — and
+that divergence is on purpose here, not an oversight to reconcile: every
+comparator in the engine and the reference reducer already sorts by UTF-8
+bytes, the order Go and most other languages hand an implementer natively,
+and this section says so rather than mandating an order neither
+implementation takes.
 
 ## 9. Conformance data
 

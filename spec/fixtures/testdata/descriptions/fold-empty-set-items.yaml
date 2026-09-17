@@ -16,7 +16,18 @@ description: >
   normalized to empty, and is therefore dropped. A reducer that trimmed
   object-ref items would fold the two identically and fail here. Object
   w-empty-only carries nothing but empty items, pinning that the field is
-  still written and folds to the empty set in the generic state map.
+  still written and folds to the empty set in the generic state map. Object
+  w-sort-order pins the canonical-JSON path for spec/fold.md §5.3/§8's
+  element sort order (ruled UTF-8 byte order over UTF-16 code unit order):
+  its labels field declares no value_type, so its elements are not
+  normalized, and its one write carries a BMP private-use character (U+E000)
+  and a supplementary-plane character (U+1F600, "😀") alongside plain ASCII.
+  UTF-8 byte order sorts U+E000 before U+1F600 (leading bytes 0xEE < 0xF0);
+  UTF-16 code unit order -- spec/canonicalization.md's ordering for JSON
+  object member keys, deliberately not this one -- would sort them the other
+  way, because U+1F600's surrogate pair leads with D83D, below E000. A
+  reducer sorting by code unit instead of by byte fails this fixture's
+  golden.
 
 refs:
   - name: refs/writ/0123456789abcdef/schema
@@ -159,6 +170,23 @@ refs:
                 strategy: "set-observed-remove"
             expect: accept
 
+          - id: schema-define-labels
+            parents: [schema-define-assign-remove]
+            author: alice
+            timestamp: 2025-12-01T00:08:00Z
+            op:
+              object_id: sch-acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "tag"
+                op_version: "1"
+                field: "labels"
+                strategy: "set-union"
+            expect: accept
+
   - name: refs/writ/0123456789abcdef/widget
     history:
       - commits:
@@ -239,6 +267,33 @@ refs:
               op_version: 1
               body:
                 add: [""]
+            expect: accept
+
+          - id: alice-create-sort-order
+            parents: [alice-tag-empty-only]
+            author: alice
+            timestamp: 2026-02-01T00:06:00Z
+            op:
+              object_id: w-sort-order
+              object_type: acme.widget
+              op_type: create
+              op_version: 1
+              body:
+                title: "Sort Order Test"
+                description: "Pins UTF-8 byte sort order (spec/fold.md §5.3, §8) for a set field with no value_type"
+            expect: accept
+
+          - id: alice-labels-sort-order
+            parents: [alice-create-sort-order]
+            author: alice
+            timestamp: 2026-02-01T00:07:00Z
+            op:
+              object_id: w-sort-order
+              object_type: acme.widget
+              op_type: tag
+              op_version: 1
+              body:
+                labels: ["gamma", "alpha", "", "", "😀"]
             expect: accept
 
   - name: refs/writ/fedcba9876543210/widget

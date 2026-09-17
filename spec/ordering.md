@@ -134,8 +134,7 @@ greater than `"V"`. Forbidding trailing `'0'` eliminates redundant aliases,
 guarantees canonical uniqueness, and ensures that string comparison strictly
 matches fractional magnitude.
 
-Producers MUST NOT emit keys ending with `'0'`. Readers and validators MUST
-reject non-canonical keys as invalid input.
+Producers MUST NOT emit keys ending with `'0'`.
 
 ---
 
