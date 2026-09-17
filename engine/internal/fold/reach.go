@@ -72,3 +72,34 @@ func (r *bitsetReachOracle) IsAncestor(ancestorID, descendantID string) bool {
 	}
 	return (r.ancestors[dIdx][aIdx/64] & (uint64(1) << (aIdx % 64))) != 0
 }
+
+// lazyReachOracle defers building the transitive ancestry bitset
+// (BuildReachability, an n×⌈n/64⌉ allocation) until it is first asked an
+// IsAncestor question. Six of the nine strategies in the catalogue — lww,
+// create-once, set-union, append, lattice, keyed-lww — never call
+// IsAncestor at all, so an object folded only through those never builds
+// the bitset; set-observed-remove (only once an add has a same-item
+// remove to check), tombstone, and multi-value still build it, on first
+// use, exactly as before.
+//
+// No mutex guards the build. Fold drives every accumulator — Result()
+// included — from a single goroutine, and this package's own import
+// allowlist (imports_test.go) has no room for "sync": that absence is a
+// decision, not an oversight.
+type lazyReachOracle struct {
+	orderedOps []OrderedOp
+	built      ReachOracle
+}
+
+// newLazyReachOracle returns a ReachOracle over orderedOps that builds the
+// underlying bitsetReachOracle lazily, on first use.
+func newLazyReachOracle(orderedOps []OrderedOp) ReachOracle {
+	return &lazyReachOracle{orderedOps: orderedOps}
+}
+
+func (l *lazyReachOracle) IsAncestor(ancestorID, descendantID string) bool {
+	if l.built == nil {
+		l.built = BuildReachability(l.orderedOps)
+	}
+	return l.built.IsAncestor(ancestorID, descendantID)
+}

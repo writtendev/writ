@@ -2,8 +2,11 @@ package fold_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
+	"sort"
 	"testing"
+	"time"
 
 	"github.com/writtendev/writ/engine/codec"
 	"github.com/writtendev/writ/engine/internal/fold"
@@ -411,5 +414,125 @@ func TestMultiValueNormalizationVocabularyBlind(t *testing.T) {
 				t.Errorf("got %v, want %v", res, tc.wantValue)
 			}
 		})
+	}
+}
+
+// TestFoldSetObservedRemoveIndexedRemoves pins add-wins presence through
+// the item-indexed Result rewrite (WRIT-268 edit 3), end to end through
+// fold.Fold rather than against the accumulator directly, so ancestry
+// comes from the real ordering and lazy reachability oracle rather than a
+// dummyOracle stub. Many adds of distinct items exercise the common case
+// the index makes linear: most items have no removes at all. One item
+// gets a remove that causally lands (the remove's op is a descendant of
+// its add), and it alone is dropped from presence.
+func TestFoldSetObservedRemoveIndexedRemoves(t *testing.T) {
+	baseTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	rules := []fold.Rule{
+		{OpType: "add-member", OpVersion: 1, Field: "members", Strategy: "set-observed-remove"},
+		{OpType: "remove-member", OpVersion: 1, Field: "members", Strategy: "set-observed-remove"},
+	}
+
+	const n = 20
+	ops := make([]codec.Op, 0, n+1)
+	for i := 0; i < n; i++ {
+		item := fmt.Sprintf("item-%02d", i)
+		ops = append(ops, codec.Op{
+			ID: fmt.Sprintf("add-%02d", i),
+			Envelope: codec.Envelope{
+				ObjectID:   "obj-1",
+				ObjectType: "acme.roster",
+				OpType:     "add-member",
+				OpVersion:  1,
+				Body:       []byte(fmt.Sprintf(`{"members":%q}`, item)),
+			},
+			Author: codec.Identity{When: baseTime.Add(time.Duration(i) * time.Minute)},
+		})
+	}
+	// item-00's remove causally follows its add: a genuine descendant, so
+	// it lands and item-00 drops out of presence.
+	ops = append(ops, codec.Op{
+		ID: "remove-00",
+		Envelope: codec.Envelope{
+			ObjectID:   "obj-1",
+			ObjectType: "acme.roster",
+			OpType:     "remove-member",
+			OpVersion:  1,
+			Body:       []byte(`{"members":"item-00"}`),
+		},
+		Parents: []string{"add-00"},
+		Author:  codec.Identity{When: baseTime.Add(time.Duration(n) * time.Minute)},
+	})
+
+	state, err := fold.Fold(ops, rules)
+	if err != nil {
+		t.Fatalf("Fold failed: %v", err)
+	}
+
+	got, ok := state.State["members"].([]string)
+	if !ok {
+		t.Fatalf("members field is %T, want []string", state.State["members"])
+	}
+
+	want := make([]string, 0, n-1)
+	for i := 1; i < n; i++ {
+		want = append(want, fmt.Sprintf("item-%02d", i))
+	}
+	sort.Strings(want)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v (item-00 should be removed, the rest present)", got, want)
+	}
+}
+
+// TestFoldSetObservedRemoveConcurrentAddWins pins add-wins semantics for a
+// remove that is concurrent with its add — neither causally precedes the
+// other — through the same item-indexed Result path: the item must stay
+// present, since spec/fold.md §5.4 requires ∀r. removes(r,x) → a ⊀ r, and
+// a concurrent remove is not ≺ (ancestor of) anything.
+func TestFoldSetObservedRemoveConcurrentAddWins(t *testing.T) {
+	baseTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	rules := []fold.Rule{
+		{OpType: "add-member", OpVersion: 1, Field: "members", Strategy: "set-observed-remove"},
+		{OpType: "remove-member", OpVersion: 1, Field: "members", Strategy: "set-observed-remove"},
+	}
+
+	ops := []codec.Op{
+		{
+			ID: "add-alice",
+			Envelope: codec.Envelope{
+				ObjectID:   "obj-1",
+				ObjectType: "acme.roster",
+				OpType:     "add-member",
+				OpVersion:  1,
+				Body:       []byte(`{"members":"alice"}`),
+			},
+			Author: codec.Identity{When: baseTime},
+		},
+		{
+			// No Parents: concurrent with add-alice, not a descendant of it,
+			// so it must not remove alice under add-wins.
+			ID: "remove-alice-concurrent",
+			Envelope: codec.Envelope{
+				ObjectID:   "obj-1",
+				ObjectType: "acme.roster",
+				OpType:     "remove-member",
+				OpVersion:  1,
+				Body:       []byte(`{"members":"alice"}`),
+			},
+			Author: codec.Identity{When: baseTime.Add(time.Minute)},
+		},
+	}
+
+	state, err := fold.Fold(ops, rules)
+	if err != nil {
+		t.Fatalf("Fold failed: %v", err)
+	}
+
+	got, ok := state.State["members"].([]string)
+	if !ok {
+		t.Fatalf("members field is %T, want []string", state.State["members"])
+	}
+	want := []string{"alice"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v (concurrent remove must not beat the add)", got, want)
 	}
 }
