@@ -247,6 +247,32 @@ func TestOpenMatrix(t *testing.T) {
 	}
 }
 
+// TestWriteRefusesInjectedIdentity is the write-boundary proof for WRIT-277:
+// identity.Load's rejection of a user.name carrying an ident-injection
+// character (see engine/identity) reaches the actual write path, not just
+// the config reader. A repository configured this way must behave exactly
+// like the unconfigured repository in TestOpenMatrix above — reads succeed,
+// and the first write fails with ErrNoIdentity before writing anything —
+// rather than letting dag.Append build a commit from the rejected identity.
+func TestWriteRefusesInjectedIdentity(t *testing.T) {
+	dir, _ := setupConfiguredRepo(t)
+	runGitCmd(t, dir, "config", "user.name", "Alice\ncommitter Mallory <m@x> 0 +0000")
+
+	s, err := writ.Open(dir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer s.Close()
+
+	_, err = s.Objects.Create(context.Background(), "acme.widget", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Should never be written"},
+	})
+	if !errors.Is(err, writ.ErrNoIdentity) {
+		t.Errorf("expected ErrNoIdentity, got: %v", err)
+	}
+}
+
 func TestStoreCloseAndRefresh(t *testing.T) {
 	repoDir, _ := setupConfiguredRepo(t)
 	s, err := writ.Open(repoDir, writ.WithSigner(dummySigner()))
