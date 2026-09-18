@@ -912,13 +912,17 @@ A repository designator MUST be **32 lowercase hexadecimal characters**
 
 The repository designator is **immutable**: it remains unchanged when a
 repository is renamed, transferred between organizations, or re-remoted. A
-clone carries no `.git/config`, so `writ init` in a clone mints a fresh
+clone does not inherit the source repository's local configuration, so it
+has no `writ.repoId` of its own; `writ init` in a clone mints a fresh
 designator rather than inheriting the original's.
 
 ### Storage and discovery
 
-`writ init` mints the designator and records it in local repository
-configuration under `writ.repoId`. An engine reads it from merged git
+`writ init` mints the designator into local repository configuration under
+`writ.repoId` only when the key is absent from merged git config. A present
+value that parses is reused unchanged; a present value that does not parse
+is a hard error naming the remedy (unset the key, then re-run `writ init`)
+rather than a silent re-mint. An engine reads the designator from merged git
 config (local, then global, per git's own precedence — see
 `spec/ref-layout.md` §Sourcing precedence for the sibling key,
 `writ.writerId`). If the key is absent, the repository has simply never
