@@ -34,7 +34,7 @@ type ObjectResult struct {
 	// time — an envelope-level fact like Author and CreatedAt, not
 	// something a caller needs to ask the DAG for separately. It is
 	// reported, not enforced: an object whose ops did not verify still
-	// appears in results with its fields materialized.
+	// appears in results, unfiltered by that outcome.
 	Verification string `json:"verification"`
 }
 

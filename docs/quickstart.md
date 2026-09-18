@@ -269,7 +269,7 @@ writ object list my-project.ticket
 
 Output:
 ```
-0192a1b2  my-project.ticket  Alice <alice@example.com>  2026-08-31 16:00:00
+0192a1b2  my-project.ticket  Alice <alice@example.com>  2026-08-31 16:00:00  [verification: wrong-key]
 ```
 
 And show one object's full folded state:
@@ -286,8 +286,8 @@ verification  wrong-key
 title         Add main entry point (ready for review)
 ```
 
-Still `wrong-key`, for the same reason as step 4: no trust store was ever configured, on
-either clone, so there is no key list for either party's ops to check out against.
+Still `wrong-key`, for the same reason as step 4: no trust store was ever configured in
+either repository, so there is no key list to check either party's ops against.
 
 ## Where to go next
 
