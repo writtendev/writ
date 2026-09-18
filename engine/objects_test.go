@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/engine/codec"
 )
@@ -242,6 +244,125 @@ type widgetv {
 	}
 	if obj.Fields["title"] != "explicit version" {
 		t.Errorf("Fields[title] = %v, want %q", obj.Fields["title"], "explicit version")
+	}
+}
+
+// TestObjectsApply_SequentialAppliesNeverDuplicateAParent is WRIT-281's
+// end-to-end case. Objects.Apply hands dag.Store.Append the object's
+// current frontier (projection.DB.Frontier) as causalParents, and right
+// after the writer's own op on that object, the frontier is exactly that
+// op — the writer's own chain tip. Two sequential Applies must therefore
+// each hand Append a causal parent equal to the tip it is about to
+// prepend, and the resulting commits must not carry a duplicated parent
+// line for it, while fold and enumerate stay exactly as before.
+func TestObjectsApply_SequentialAppliesNeverDuplicateAParent(t *testing.T) {
+	store, ctx, _ := openStoreWithCoreSchema(t)
+
+	id, err := store.Objects.Create(ctx, "acme.widget", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Original"},
+	})
+	if err != nil {
+		t.Fatalf("Objects.Create failed: %v", err)
+	}
+
+	projDB := writ.StoreProjection(store)
+
+	frontierAfterCreate, err := projDB.Frontier(id)
+	if err != nil {
+		t.Fatalf("Frontier after Create failed: %v", err)
+	}
+	if len(frontierAfterCreate) != 1 {
+		t.Fatalf("Frontier after Create = %v, want exactly one op", frontierAfterCreate)
+	}
+
+	if err := store.Objects.Apply(ctx, id, writ.NewOp{
+		Type:   "update",
+		Fields: map[string]any{"title": "First update"},
+	}); err != nil {
+		t.Fatalf("Objects.Apply 1 failed: %v", err)
+	}
+
+	frontierAfterApply1, err := projDB.Frontier(id)
+	if err != nil {
+		t.Fatalf("Frontier after Apply 1 failed: %v", err)
+	}
+	if len(frontierAfterApply1) != 1 || frontierAfterApply1[0] == frontierAfterCreate[0] {
+		t.Fatalf("Frontier after Apply 1 = %v, want exactly one op distinct from %v", frontierAfterApply1, frontierAfterCreate)
+	}
+
+	if err := store.Objects.Apply(ctx, id, writ.NewOp{
+		Type:   "update",
+		Fields: map[string]any{"title": "Second update"},
+	}); err != nil {
+		t.Fatalf("Objects.Apply 2 failed: %v", err)
+	}
+
+	frontierAfterApply2, err := projDB.Frontier(id)
+	if err != nil {
+		t.Fatalf("Frontier after Apply 2 failed: %v", err)
+	}
+	if len(frontierAfterApply2) != 1 || frontierAfterApply2[0] == frontierAfterApply1[0] {
+		t.Fatalf("Frontier after Apply 2 = %v, want exactly one op distinct from %v", frontierAfterApply2, frontierAfterApply1)
+	}
+
+	dagStore := writ.StoreDAGStore(store)
+	result, err := dagStore.Enumerate()
+	if err != nil {
+		t.Fatalf("Enumerate failed: %v", err)
+	}
+	ops, ok := result.Ops[id]
+	if !ok || len(ops) != 3 {
+		t.Fatalf("Ops[%s] = %+v, want 3 ops (create + 2 updates)", id, ops)
+	}
+	opsByID := make(map[string]codec.Op, len(ops))
+	for _, op := range ops {
+		opsByID[op.ID] = op
+
+		// No op's Parents contains a repeat, and the actual commit agrees
+		// byte-for-byte with the returned codec.Op view of it.
+		seen := make(map[string]bool, len(op.Parents))
+		for _, p := range op.Parents {
+			if seen[p] {
+				t.Fatalf("op %s has a repeated parent %s: %v", op.ID, p, op.Parents)
+			}
+			seen[p] = true
+		}
+		commitObj, err := object.GetCommit(dagStore.Storer(), plumbing.NewHash(op.ID))
+		if err != nil {
+			t.Fatalf("GetCommit(%s) failed: %v", op.ID, err)
+		}
+		if len(commitObj.ParentHashes) != len(op.Parents) {
+			t.Fatalf("op %s: commit has %d ParentHashes, op.Parents has %d (%v vs %v)", op.ID, len(commitObj.ParentHashes), len(op.Parents), commitObj.ParentHashes, op.Parents)
+		}
+	}
+
+	// The core WRIT-281 scenario by construction: the second Apply's
+	// frontier (the first Apply's own op) equals the chain tip Append was
+	// about to prepend, so op2 must carry it exactly once, not twice.
+	op2, ok := opsByID[frontierAfterApply2[0]]
+	if !ok {
+		t.Fatalf("op %s (frontier after Apply 2) missing from Enumerate", frontierAfterApply2[0])
+	}
+	if len(op2.Parents) != 1 || op2.Parents[0] != frontierAfterApply1[0] {
+		t.Fatalf("op2.Parents = %v, want exactly [%s]", op2.Parents, frontierAfterApply1[0])
+	}
+
+	op1, ok := opsByID[frontierAfterApply1[0]]
+	if !ok {
+		t.Fatalf("op %s (frontier after Apply 1) missing from Enumerate", frontierAfterApply1[0])
+	}
+	if len(op1.Parents) != 1 || op1.Parents[0] != frontierAfterCreate[0] {
+		t.Fatalf("op1.Parents = %v, want exactly [%s]", op1.Parents, frontierAfterCreate[0])
+	}
+
+	// Fold is unaffected: Get still reads back the last write.
+	obj, err := store.Objects.Get(ctx, id)
+	if err != nil {
+		t.Fatalf("Objects.Get failed: %v", err)
+	}
+	if obj.Fields["title"] != "Second update" {
+		t.Errorf("Fields[title] = %v, want %q", obj.Fields["title"], "Second update")
 	}
 }
 
