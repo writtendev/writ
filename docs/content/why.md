@@ -61,10 +61,13 @@ on an ordinary `git fetch` carries review history along with the code.
 Four design choices carry most of the weight:
 
 **Per-writer namespaces.** You only ever push to `refs/writ/<your-writer-id>/*`,
-so your own push never non-fast-forwards against your own prior push — the
-ordinary class of push conflicts disappears between cooperating writers,
-which is what lets the sync layer stay thin enough to be boring. No git host
-authenticates per-ref ownership, though: this is a convention everyone with
+so no one else's push ever races yours there — the ordinary class of push
+conflicts disappears between cooperating writers, which is what lets the
+sync layer stay thin enough to be boring. (Your own push can still land
+non-fast-forward against your own prior push — after a backup restore or a
+rebase of unpushed-but-shared history, say — but that's a conflict with
+your own past self, never with a teammate.) No git host authenticates
+per-ref ownership, though: this is a convention everyone with
 push access is trusted to follow, not an access-control guarantee, and a
 forged or overwritten op stays detectable after the fact via its signature.
 

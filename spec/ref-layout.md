@@ -11,10 +11,15 @@ compatibility guarantees.
 
 ## Per-writer append chains
 
-Every writer pushes only to their own namespace, so a writer's own push
-never non-fast-forwards against their own prior push: the ordinary class of
-push conflicts is structurally eliminated between honest, cooperating
-writers. This is not an access-control guarantee: no git host authenticates
+Every writer pushes only to their own namespace, so no other writer's push
+ever races yours there: the ordinary class of push conflicts — one writer's
+push landing non-fast-forward against another's — is structurally
+eliminated between honest, cooperating writers. A writer's own push can
+still be rejected non-fast-forward against their own prior push — a backup
+restore or a rebase of unpushed-but-shared history rewrites that writer's
+own local history, and the next plain push is rejected until they force it
+(see §Fetch refspec) — but that rejection is never caused by a second
+writer. This is not an access-control guarantee: no git host authenticates
 per-ref ownership under `refs/writ/*`, so any principal with push access to
 the repository can write (or force-push) into another writer's namespace.
 Everyone with push access is trusted not to; a forged or overwritten op
@@ -203,8 +208,8 @@ Key properties:
   is not data loss — any op another writer causally built on the rewound
   ops stays reachable from *that other writer's own chain*
   (`ARCHITECTURE.md` §Ref layout), so nothing referenced from elsewhere in
-  the DAG disappears — but the rewound writer's own view of their own
-  history can move backward without warning.
+  the DAG disappears — but this clone's view of that writer's history can
+  move backward without warning.
 - **Remote-tracking namespace:** Fetching into `refs/remotes/<remote>/writ/*`
   keeps remote chains isolated from the local writing namespace `refs/writ/*`.
   This prevents plain `git fetch` from failing with non-fast-forward errors

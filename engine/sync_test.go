@@ -430,6 +430,94 @@ func TestStoreSync_BrokenPeerDoesNotStrandLocalWrites(t *testing.T) {
 	}
 }
 
+// TestStoreSync_FetchFailureDoesNotBlockPush isolates WRIT-270 change B: push
+// must not be gated on fetch (or refspec-Ensure) succeeding. The other two
+// new tests above don't pin this on their own --
+// TestStoreSync_BrokenPeerDoesNotStrandLocalWrites' fetch actually succeeds
+// under the forced refspec (change A), so Bob's push there would also run
+// under the old `if fetchErr == nil && s.hasIdentity && ...` gate; reverting
+// just that gate leaves `go test ./engine/... ./cmd/...` fully green (round
+// 1 finding). This test instead makes the *fetch phase itself* fail --
+// before Fetch ever runs -- for a reason a push to Alice's own namespace
+// does not share: PushRefspec is built per invocation and passed on the
+// command line, never read from .git/config (spec/ref-layout.md §Exact
+// refspecs), so an unwritable .git/config breaks refspec Ensure without
+// touching push at all.
+func TestStoreSync_FetchFailureDoesNotBlockPush(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: file permissions do not block writes")
+	}
+
+	bareDir, aliceDir, _ := setupSyncHarness(t)
+	ctx := context.Background()
+
+	sA, err := writ.Open(aliceDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Open Alice failed: %v", err)
+	}
+	defer sA.Close()
+
+	applyCoreSchema(t, ctx, sA)
+
+	// First sync succeeds normally: Ensure adds the canonical forced
+	// refspec, establishing a clean baseline before the induced failure.
+	if _, err := sA.Sync(ctx, "origin"); err != nil {
+		t.Fatalf("Alice Sync of the schema failed: %v", err)
+	}
+
+	// An op that must still reach the remote despite the fetch phase
+	// failing below.
+	if _, err := sA.Objects.Create(ctx, "acme.widget", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Should Still Push"},
+	}); err != nil {
+		t.Fatalf("Alice create widget: %v", err)
+	}
+
+	// Drift the refspec back to the pre-WRIT-270 unforced form directly
+	// (bypassing Ensure), so the next Sync's Ensure step has real repair
+	// work to do, then make .git read-only-and-executable so that repair
+	// write fails. A refspec already in StatusValid makes Ensure a no-op
+	// that never touches the config, so the drift is required to force the
+	// write. Restricting .git itself, not just .git/config, is required:
+	// `git config --add` rewrites the file via a lock-and-rename, which
+	// only needs write permission on the containing directory, not on the
+	// file it replaces -- chmod-ing the file alone doesn't stop it.
+	gitDir := filepath.Join(aliceDir, ".git")
+	runGitCmd(t, aliceDir, "config", "--unset-all", "remote.origin.fetch", `^(\+)?refs/writ/`)
+	runGitCmd(t, aliceDir, "config", "--add", "remote.origin.fetch", "refs/writ/*:refs/remotes/origin/writ/*")
+	if err := os.Chmod(gitDir, 0o555); err != nil {
+		t.Fatalf("chmod .git read-only: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(gitDir, 0o755) })
+
+	syncRes, err := sA.Sync(ctx, "origin")
+	if err == nil {
+		t.Fatalf("expected Sync to report the Ensure/fetch failure, got nil error")
+	}
+	var syncErr *writ.SyncError
+	if !errors.As(err, &syncErr) {
+		t.Fatalf("expected error to be *writ.SyncError, got %T: %v", err, err)
+	}
+
+	// The push must have landed anyway: this is exactly what change B adds,
+	// and what reverting `if fetchErr == nil && s.hasIdentity && ...` breaks.
+	if syncRes.OpsPushed != 1 {
+		t.Errorf("OpsPushed = %d, want 1 (push must not be gated on fetch/Ensure succeeding)", syncRes.OpsPushed)
+	}
+
+	if err := os.Chmod(gitDir, 0o755); err != nil {
+		t.Fatalf("restore .git permissions: %v", err)
+	}
+
+	// Confirm directly on the bare remote that Alice's op actually landed
+	// there, not merely reported as pushed by a stale local count.
+	aliceChainRef := "refs/writ/0123456789abcdef/acme.widget"
+	if tip := strings.TrimSpace(runGitCmd(t, bareDir, "rev-parse", aliceChainRef)); tip == "" {
+		t.Fatalf("Alice's widget ref did not land on the remote")
+	}
+}
+
 func TestStoreSync_PreReceiveHookFailureAndRetry(t *testing.T) {
 	bareDir, aliceDir, bobDir := setupSyncHarness(t)
 	ctx := context.Background()

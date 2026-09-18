@@ -884,11 +884,11 @@ func TestInit_MultiRemoteAndPositional(t *testing.T) {
 		originFetch := getGitConfigAll(t, env.repoDir, "remote.origin.fetch")
 		upstreamFetch := getGitConfigAll(t, env.repoDir, "remote.upstream.fetch")
 
-		if len(originFetch) == 0 || !strings.Contains(originFetch[len(originFetch)-1], "refs/writ/*:refs/remotes/origin/writ/*") {
-			t.Errorf("origin fetch refspec missing: %v", originFetch)
+		if len(originFetch) == 0 || originFetch[len(originFetch)-1] != "+refs/writ/*:refs/remotes/origin/writ/*" {
+			t.Errorf("origin fetch refspec = %v, want exactly the forced canonical entry", originFetch)
 		}
-		if len(upstreamFetch) == 0 || !strings.Contains(upstreamFetch[len(upstreamFetch)-1], "refs/writ/*:refs/remotes/upstream/writ/*") {
-			t.Errorf("upstream fetch refspec missing: %v", upstreamFetch)
+		if len(upstreamFetch) == 0 || upstreamFetch[len(upstreamFetch)-1] != "+refs/writ/*:refs/remotes/upstream/writ/*" {
+			t.Errorf("upstream fetch refspec = %v, want exactly the forced canonical entry", upstreamFetch)
 		}
 	})
 
@@ -906,8 +906,8 @@ func TestInit_MultiRemoteAndPositional(t *testing.T) {
 		originFetch := getGitConfigAll(t, env.repoDir, "remote.origin.fetch")
 		upstreamFetch := getGitConfigAll(t, env.repoDir, "remote.upstream.fetch")
 
-		if len(originFetch) == 0 || !strings.Contains(originFetch[len(originFetch)-1], "refs/writ/*:refs/remotes/origin/writ/*") {
-			t.Errorf("origin fetch refspec missing: %v", originFetch)
+		if len(originFetch) == 0 || originFetch[len(originFetch)-1] != "+refs/writ/*:refs/remotes/origin/writ/*" {
+			t.Errorf("origin fetch refspec = %v, want exactly the forced canonical entry", originFetch)
 		}
 		for _, e := range upstreamFetch {
 			if strings.Contains(e, "writ") {
