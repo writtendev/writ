@@ -118,7 +118,7 @@ func ValidateRemoteName(name string) error {
 	return nil
 }
 
-// RemoteConfigured reports whether remote.<remote>.url is configured in
+// RemoteConfigured reports whether remote is configured at all in
 // .git/config -- the existence probe Ensure and the upfront guard in
 // engine's Store.Sync both need before doing anything else. Plain "git
 // remote" is not the right probe: a remote left holding only a phantom
@@ -126,20 +126,39 @@ func ValidateRemoteName(name string) error {
 // Exported so Store.Sync can run the same check before Ensure, Fetch, or
 // Push -- see that function's doc comment for why it must.
 //
+// Checks remote.<remote>.url OR remote.<remote>.pushurl: a remote
+// configured with only pushurl (no fetch url) is real, git-supported
+// configuration -- "git remote" lists it and "git push" works against it --
+// so probing url alone made such a remote read as nonexistent and stranded
+// ops that used to push fine (round-1 review finding). A remote defined
+// only via the legacy $GIT_DIR/remotes/<name> file (pre-"git config
+// remote.*", no remote.<name>.* section at all) is a known, deliberate gap:
+// this probe still reports such a remote as unconfigured. That form
+// predates and is superseded by the config-based remote this codebase
+// otherwise assumes throughout (Check/Ensure both key off
+// remote.<name>.fetch in .git/config), so widening the probe to also read
+// that file is out of scope here.
+//
 // --get-all, not --get: a remote configured with two urls (push
 // mirroring) makes --get exit 2, which would misreport as unconfigured.
 func (c *Client) RemoteConfigured(ctx context.Context, remote string) (bool, error) {
-	configKey := fmt.Sprintf("remote.%s.url", remote)
-	stdout, stderr, err := c.runGit(ctx, "config", "--get-all", "--null", "--end-of-options", configKey)
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
-			// Exit code 1 from git config --get-all means key is not set.
-			return false, nil
+	for _, key := range []string{"url", "pushurl"} {
+		configKey := fmt.Sprintf("remote.%s.%s", remote, key)
+		stdout, stderr, err := c.runGit(ctx, "config", "--get-all", "--null", "--end-of-options", configKey)
+		if err != nil {
+			var exitErr *exec.ExitError
+			if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+				// Exit code 1 from git config --get-all means key is not
+				// set; try the next candidate key before giving up.
+				continue
+			}
+			return false, c.classifyGitError(remote, []string{"config", "--get-all", "--null", "--end-of-options", configKey}, err, stderr, stdout)
 		}
-		return false, c.classifyGitError(remote, []string{"config", "--get-all", "--null", "--end-of-options", configKey}, err, stderr, stdout)
+		if len(bytes.TrimSpace(stdout)) > 0 {
+			return true, nil
+		}
 	}
-	return len(bytes.TrimSpace(stdout)) > 0, nil
+	return false, nil
 }
 
 // Check inspects .git/config for the given remote's fetch refspecs and reports any drift.
@@ -213,8 +232,9 @@ func (c *Client) Check(ctx context.Context, remote string) (RefspecStatus, error
 // Ensure operates purely on git config and does not require a complete or signing-capable
 // identity on the Client (e.g. during 'writ init', before signing keys are configured).
 //
-// Ensure confirms the remote is actually configured (remote.<remote>.url is
-// set) before it ever writes anything: this is what closes the phantom-
+// Ensure confirms the remote is actually configured (remote.<remote>.url or
+// remote.<remote>.pushurl is set) before it ever writes anything: this is
+// what closes the phantom-
 // remote bug (WRIT-283) where "writ sync nosuchremote" and "writ init
 // nosuchremote" -- init calls Ensure directly, once per remote -- both left
 // a url-less [remote "nosuchremote"] fetch-only section behind, and where a
