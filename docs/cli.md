@@ -133,6 +133,9 @@ Usage: writ object show [-C <dir>] <object-id> [--json]
 #### Description
 
 Fold an object's state directly from the log and print it, keyed by target field.
+The verification row is reported, never enforced -- every op folds regardless of
+its signature outcome, and a caller presenting this state as authentic checks it
+itself.
 
 #### Flags
 

@@ -139,7 +139,10 @@ var objectShowCmd = &command{
 	Name:      "show",
 	Short:     "Show an object's folded state",
 	UsageLine: "Usage: writ object show [-C <dir>] <object-id> [--json]",
-	Long:      "Fold an object's state directly from the log and print it, keyed by target field.",
+	Long: "Fold an object's state directly from the log and print it, keyed by target field.\n" +
+		"The verification row is reported, never enforced -- every op folds regardless of\n" +
+		"its signature outcome, and a caller presenting this state as authentic checks it\n" +
+		"itself.",
 	Flags: []flagSpec{
 		{Name: "C"},
 		{Name: "json"},

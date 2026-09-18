@@ -32,7 +32,9 @@ type ObjectResult struct {
 	// ruling 3's ordering) among the object's contributing ops, cached in
 	// the objects table's own column by the materializer at Refresh/Rebuild
 	// time — an envelope-level fact like Author and CreatedAt, not
-	// something a caller needs to ask the DAG for separately.
+	// something a caller needs to ask the DAG for separately. It is
+	// reported, not enforced: an object whose ops did not verify still
+	// appears in results with its fields materialized.
 	Verification string `json:"verification"`
 }
 

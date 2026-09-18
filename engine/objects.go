@@ -68,7 +68,9 @@ type Object struct {
 	// unknown alike. It is an envelope-level fact, like an op's author or
 	// timestamp, and never affects Fields: every op folds regardless of
 	// its outcome (AGENTS.md "Fold is pure and deterministic"; WRIT-251
-	// ruling 1).
+	// ruling 1). A caller that presents Fields as authentic content must
+	// check this field itself and decide what to do — see the package
+	// doc's trust model.
 	Verification string
 }
 
@@ -206,6 +208,11 @@ func (o *Objects) Apply(ctx context.Context, objectID string, op NewOp) error {
 }
 
 // Get folds objectID's state directly from the DAG and returns it.
+//
+// Get folds every op the object carries regardless of its signature
+// verification outcome, and reports the worst of them on
+// Object.Verification rather than filtering on it — see the package
+// doc's trust model.
 //
 // This reads from the DAG, never the projection: Store.Schema already sets
 // this precedent, for the same reason — the projection is a droppable cache

@@ -160,10 +160,20 @@ writ object show 0192a1b2c3d4e5f60718293a4b5c6d7e
 
 Output:
 ```
-object_id    0192a1b2c3d4e5f60718293a4b5c6d7e
-object_type  my-project.ticket
-title        Add main entry point (ready for review)
+object_id     0192a1b2c3d4e5f60718293a4b5c6d7e
+object_type   my-project.ticket
+verification  wrong-key
+title         Add main entry point (ready for review)
 ```
+
+`verification` reports `wrong-key`, not `valid`, because this guide never configured a
+trust store: step 1 set `gpg.format` and `user.signingKey` so ops could be *signed*, but
+signed and *trusted* are different questions, and nothing here named which keys are
+authorized to sign as which people. `writ` prints a one-line hint to stderr saying so.
+Folding never depends on the answer — `title` above is correct either way — but a caller
+that wants to treat this state as authentic checks `verification` itself; configuring a
+`gpg.ssh.allowedSignersFile` mapping principals to authorized keys is what turns this
+`wrong-key` into `valid` (`spec/signing.md` §Trust Store), and is a walkthrough of its own.
 
 ## 5. Sync Operations with Remote
 
@@ -270,10 +280,14 @@ writ object show 0192a1b2
 
 Output:
 ```
-object_id    0192a1b2c3d4e5f60718293a4b5c6d7e
-object_type  my-project.ticket
-title        Add main entry point (ready for review)
+object_id     0192a1b2c3d4e5f60718293a4b5c6d7e
+object_type   my-project.ticket
+verification  wrong-key
+title         Add main entry point (ready for review)
 ```
+
+Still `wrong-key`, for the same reason as step 4: no trust store was ever configured, on
+either clone, so there is no key list for either party's ops to check out against.
 
 ## Where to go next
 

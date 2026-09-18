@@ -9,6 +9,19 @@
 // All client layers — CLI, downstream TUIs/viewers, GitHub bridges, and hosted services — build
 // on this single interface.
 //
+// Trust model: verification is reported, never enforced. Every op folds
+// into an object's state regardless of its signature outcome — an op
+// signed with a key the trust store does not authorize, or not signed at
+// all, contributes its fields exactly as a valid one does, with the
+// outcome surfaced on Object.Verification and ObjectResult.Verification.
+// The engine does not filter for two reasons: the fold is pure and
+// deterministic (ops in, state out, no I/O), and a trust store is
+// resolved locally, so dropping ops against it would make an object's
+// state depend on who is reading it — two clones of the same repository
+// would disagree about what the object says. A caller that renders folded
+// state as authentic must check Verification itself and decide what to
+// do; nothing below this API does it for them.
+//
 // Basic usage:
 //
 //	store, err := writ.Open("/path/to/repo")
