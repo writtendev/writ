@@ -287,6 +287,79 @@ func TestRefspec_EnsureRejectsUnconfiguredRemote(t *testing.T) {
 	}
 }
 
+// TestRefspec_RemoteConfiguredAcceptsURLOrPushurl pins the round-1 review
+// fix for RemoteConfigured (WRIT-283): a remote reads as configured if
+// either remote.<name>.url or remote.<name>.pushurl is set. A push-only
+// remote (pushurl with no url) is legitimate, git-supported configuration
+// -- "git remote" lists it and "git push" works against it -- and probing
+// url alone made it read as nonexistent, stranding ops it could otherwise
+// still push (the round-1 finding). This runs alongside, not instead of,
+// TestRefspec_EnsureRejectsUnconfiguredRemote: both properties -- widened
+// acceptance for a real remote, and a byte-identical .git/config for a
+// truly unconfigured one -- must hold at once.
+func TestRefspec_RemoteConfiguredAcceptsURLOrPushurl(t *testing.T) {
+	tests := []struct {
+		name       string
+		configArgs [][]string
+	}{
+		{
+			name: "url only",
+			configArgs: [][]string{
+				{"config", "remote.r.url", "https://example.test/r.git"},
+			},
+		},
+		{
+			name: "pushurl only, no url",
+			configArgs: [][]string{
+				{"config", "remote.r.pushurl", "https://example.test/r.git"},
+			},
+		},
+		{
+			name: "both url and pushurl",
+			configArgs: [][]string{
+				{"config", "remote.r.url", "https://example.test/r-fetch.git"},
+				{"config", "remote.r.pushurl", "https://example.test/r-push.git"},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, _ := initTestRepo(t)
+			ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
+
+			for _, args := range tc.configArgs {
+				cmd := exec.Command("git", args...)
+				cmd.Dir = dir
+				if err := cmd.Run(); err != nil {
+					t.Fatalf("git %v: %v", args, err)
+				}
+			}
+
+			client, err := writsync.Open(dir, ident)
+			if err != nil {
+				t.Fatalf("Open client: %v", err)
+			}
+
+			configured, err := client.RemoteConfigured(context.Background(), "r")
+			if err != nil {
+				t.Fatalf("RemoteConfigured: %v", err)
+			}
+			if !configured {
+				t.Errorf("RemoteConfigured(%q) = false, want true", tc.name)
+			}
+
+			// Ensure must also succeed end-to-end against this remote --
+			// the phantom-section bug this probe exists to prevent is only
+			// closed if a remote that RemoteConfigured accepts is one
+			// Ensure is actually willing to write refspecs for.
+			if _, err := client.Ensure(context.Background(), "r"); err != nil {
+				t.Errorf("Ensure(%q) after RemoteConfigured=true: %v", tc.name, err)
+			}
+		})
+	}
+}
+
 // writeArgvStub writes a shell script standing in for the git binary: it
 // appends every argument it is invoked with, one per line, to outPath, and
 // exits 0 without doing anything else. Client.Fetch and Client.Push only
