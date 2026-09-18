@@ -76,10 +76,25 @@ func joinBalanced(parts []string, op string) string {
 // sqliteMaxVariableNumber mirrors SQLite's default SQLITE_MAX_VARIABLE_NUMBER
 // (modernc.org/sqlite, the driver this package runs on, does not raise it).
 // wideTextSearchBindThreshold is half of that: objectsTextClause's own LIKE
-// binds are only one contributor to a query's total bind count (f.Type,
-// f.Author, and objectsNotDeletedClause's per-type object_type binds share
-// the same connection-wide counter), so the threshold leaves that much
-// headroom rather than cutting it as close as correctness alone would allow.
+// binds are only one contributor to a query's total bind count, which also
+// includes f.Type, f.Author, and the limit param — all fixed-size, one or
+// two binds regardless of schema shape — sharing the same connection-wide
+// counter, and the threshold leaves that much headroom for those rather
+// than cutting it as close as correctness alone would allow.
+//
+// It does NOT leave headroom for objectsNotDeletedClause's per-type
+// object_type binds: those scale with the same quantity this threshold
+// bounds (a schema of many narrow types has a type count roughly equal to
+// its contributing text-column count), so at the threshold both clauses'
+// binds can sum past sqliteMaxVariableNumber regardless of which branch
+// objectsTextClause takes — the wide branch binds one param per
+// contributing type too, so switching to it does not help. This is not a
+// regression: such a schema already breaches SQLITE_MAX_EXPR_DEPTH at
+// roughly 1,000 types, well short of the ~16,383 types this shape needs, so
+// no divisor here changes what actually fails first. The /2 buys headroom
+// against the fixed-size contributors above; it was never sized to cover
+// objectsNotDeletedClause's per-type cost, which is a distinct bind ceiling
+// this constant does not address.
 const sqliteMaxVariableNumber = 32766
 const wideTextSearchBindThreshold = sqliteMaxVariableNumber / 2
 
