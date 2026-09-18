@@ -408,3 +408,100 @@ func TestAllowedSigners_OpenSSHMatchSemantics(t *testing.T) {
 		}
 	})
 }
+
+// TestAllowedSigners_TrailingStarRun pins WRIT-302 round 1's major finding:
+// matchPattern must implement the semantics of the NFA match.c has shipped
+// for match_pattern since rev 1.46 -- what real `ssh-keygen -Y verify`
+// does today -- not the older recursive match_pattern the initial port of
+// this file reproduced instead. The two disagree on exactly one class: a
+// residual pattern tail of two or more consecutive '*' matched against a
+// string the rest of the pattern has already exhausted. The recursive
+// matcher's star-handling loop only tried consuming a byte of s while s
+// was still non-empty, so it never tried the star's zero-byte expansion
+// once s ran out, and wrongly failed; the NFA (and real OpenSSH) matches.
+//
+// CI's own ssh-keygen interop oracle runs OpenSSH 9.x, which still ships
+// the pre-1.46 recursive matcher and agrees with the wrong port on this
+// exact class -- interop cannot catch a regression here. These cases must
+// be pinned at the unit layer.
+func TestAllowedSigners_TrailingStarRun(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	newKey := func(t *testing.T) (ssh.PublicKey, string) {
+		t.Helper()
+		pub, _, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sshPub, err := ssh.NewPublicKey(pub)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return sshPub, strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPub)))
+	}
+
+	cases := []struct {
+		name       string
+		principals string
+		value      string
+		want       bool
+	}{
+		{
+			// The exact case from the round 1 finding: real
+			// `ssh-keygen -Y verify` authorizes this; the pre-fix port
+			// returned wrong-key.
+			name:       "trailing double asterisk against an exhausted string",
+			principals: "alice@example.test**",
+			value:      "alice@example.test",
+			want:       true,
+		},
+		{
+			name:       "trailing triple asterisk against an exhausted string",
+			principals: "alice@example.test***",
+			value:      "alice@example.test",
+			want:       true,
+		},
+		{
+			// Exercises the star run reached through the backtracking
+			// loop of a leading '*', not just a literal prefix: the
+			// recursion must still try the trailing "**" once the
+			// leading '*' has found the position where the rest of the
+			// pattern exhausts s.
+			name:       "leading wildcard combined with a trailing asterisk run",
+			principals: "*e@example.test**",
+			value:      "alice@example.test",
+			want:       true,
+		},
+		{
+			// A '?' immediately before the trailing run: '?' must still
+			// consume exactly one byte before the run tries its
+			// zero-byte expansion against the now-exhausted remainder.
+			name:       "question mark then trailing asterisk run against an exhausted string",
+			principals: "alice@example.tes?**",
+			value:      "alice@example.test",
+			want:       true,
+		},
+		{
+			// Negative control: the trailing run does not make the
+			// pattern match unrelated values -- it only closes the gap
+			// on values the rest of the pattern already accounts for.
+			name:       "trailing asterisk run does not authorize an unrelated value",
+			principals: "alice@example.test**",
+			value:      "bob@example.test",
+			want:       false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sshPub, pubLine := newKey(t)
+			ts, err := sshsig.ParseAllowedSigners(strings.NewReader(tc.principals + " " + pubLine + "\n"))
+			if err != nil {
+				t.Fatalf("ParseAllowedSigners failed: %v", err)
+			}
+			if got := ts.IsAuthorized(sshPub, tc.value, "git", now); got != tc.want {
+				t.Errorf("principals=%q, value=%q: IsAuthorized = %v, want %v", tc.principals, tc.value, got, tc.want)
+			}
+		})
+	}
+}

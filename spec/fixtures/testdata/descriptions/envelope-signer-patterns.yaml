@@ -5,22 +5,35 @@ description: >
   match_pattern_list, now that spec/signing.md states the matching rule
   normatively. A trust_store: override replaces the generated default
   (literal `<email> <pubkey>` lines only, no patterns) with the six rules
-  below, so each commit's verification outcome is decided by exactly one
-  rule: a wildcard crossing '/', a bracket class matched literally instead
-  of as a character class, a backslash matched literally instead of as an
-  escape, an unbalanced '[' matched literally instead of erroring, a
-  globbed namespaces= option, and a negated namespaces= option. Every
-  commit still folds (WRIT-251 ruling 1: verification never gates fold),
-  so each is accepted and pins the verification outcome codec.Verify must
-  observe rather than a reject reason.
+  below, exercising a wildcard crossing '/', a bracket class matched
+  literally instead of as a character class, a backslash matched literally
+  instead of as an escape, an unbalanced '[' matched literally instead of
+  erroring, a globbed namespaces= option, and a negated namespaces= option.
+  Every commit still folds (WRIT-251 ruling 1: verification never gates
+  fold), so each is accepted and pins the verification outcome
+  codec.Verify must observe rather than a reject reason.
 
-  Rule/commit pairing is chosen so no rule can authorize a commit other
-  than its own intended target: cases 2, 3, 5, and 6 all involve the
-  already-existing alice or bob identities, so each is placed on whichever
-  physical key (via sign_as where the rule's key must differ from the
-  commit's own author identity) and principal/namespace combination keeps
-  every other rule in this trust_store from also matching it -- see the
-  per-commit comments below.
+  Rule/commit pairing keeps every rule but one pair from authorizing a
+  commit other than its own intended target: cases 5 and 6 are each
+  decided by exactly one rule, isolated the same way -- placed (via
+  sign_as where the rule's key must differ from the commit's own author
+  identity) on whichever physical key and principal/namespace combination
+  keeps every other rule in this trust_store from also matching -- see the
+  per-commit comments below. Cases 2 and 3
+  (signer-pattern-bracket-class-literal and signer-pattern-backslash-literal)
+  are not isolated from each other: both are the identical scenario, alice's
+  author identity signed with bob's key, because rule 2's bracket-literal
+  pattern (`ali[cd]e@*.test`, over `path.Match`, parses as a class matching
+  the literal 'c' in "alice") and rule 3's backslash-literal pattern
+  (`alice\@*.test`, over `path.Match`'s escape handling) both happen to
+  match `alice@example.test` under the pre-fix matcher, so the same
+  `wrong-key` -> `valid` flip on either commit is produced jointly by both
+  rules rather than by "its own" rule alone. This does not make either case
+  vacuous -- a matcher that fixes only one of bracket or backslash handling
+  still fails whichever commit the other, still-broken rule keeps matching
+  -- but a failure on either commit alone does not tell you which of the
+  two rules is at fault; the two commits do not each carry independent
+  information the way 1, 4, 5, and 6 do.
 
 trust_store:
   - principals: ["*@example.test"]
@@ -64,8 +77,11 @@ refs:
           # ali[cd]e@*.test must NOT match alice@example.test (path.Match
           # parses [cd] as a class and matches; OpenSSH does not). Signed
           # with bob's key (sign_as) so alice's broad *@example.test rule
-          # (a different key) can't authorize it, and no bob-keyed rule
-          # here matches alice@example.test either.
+          # (a different key) can't authorize it. Not isolated from case
+          # 3 below: rule 3 (alice\@*.test) also matches alice@example.test
+          # under the pre-fix matcher, so this and case 3 are the same
+          # scenario decided jointly by rules 2 and 3 -- see the
+          # description's "Cases 2 and 3" paragraph above.
           - id: signer-pattern-bracket-class-literal
             author: alice
             sign_as: bob
@@ -83,7 +99,10 @@ refs:
           # Case 3: a backslash is literal, not an escape. alice\@*.test
           # must NOT match alice@example.test (path.Match's '\' escapes
           # the '@'; OpenSSH's match_pattern has no escaping). Same
-          # sign_as: bob isolation as case 2.
+          # sign_as: bob as case 2, and the same alice@example.test
+          # scenario -- rule 2 (ali[cd]e@*.test) also matches it under the
+          # pre-fix matcher, so this case is decided jointly with case 2,
+          # not by rule 3 alone; see the description above.
           - id: signer-pattern-backslash-literal
             author: alice
             sign_as: bob

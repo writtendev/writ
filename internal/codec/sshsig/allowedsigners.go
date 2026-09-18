@@ -273,14 +273,19 @@ func matchNamespace(allowed []string, ns string) bool {
 // otherwise. Both matchPrincipal and matchNamespace require == 1, the
 // same test sshsig.c's check_allowed_keys_line applies to both lists.
 //
-// OpenSSH's match_pattern_list caps each subpattern at 1024 bytes -- a
-// match.c buffer-size limit, not a matching semantic -- and this port
-// deliberately does not replicate that cap (spec/signing.md states the
-// divergence normatively). An empty subpattern (from a doubled comma, or
-// an empty Principals/Namespaces element) is not special-cased: it falls
-// out of matchPattern's own base case, which matches only the empty
-// string, exactly as match_pattern_list's C loop does for a zero-length
-// subpattern.
+// OpenSSH's match_pattern_list copies each subpattern into a 1024-byte
+// buffer and aborts the entire list -- discarding even an
+// already-recorded match from an earlier subpattern -- once a subpattern
+// reaches 1023 bytes. That is a match.c buffer-size artifact, not a
+// matching semantic, and this port deliberately does not replicate it:
+// every subpattern is matched in full regardless of length, and one
+// oversized subpattern never voids the rest of the list (spec/signing.md
+// "Pattern Matching" states this divergence normatively; conforming
+// verifiers MUST NOT impose a subpattern length limit). An empty
+// subpattern (from a doubled comma, or an empty Principals/Namespaces
+// element) is not special-cased: it falls out of matchPattern's own base
+// case, which matches only the empty string, exactly as
+// match_pattern_list's C loop does for a zero-length subpattern.
 func matchPatternList(s string, patterns []string) int {
 	ret := 0
 	for _, pat := range patterns {
@@ -299,14 +304,27 @@ func matchPatternList(s string, patterns []string) int {
 	return ret
 }
 
-// matchPattern reports whether s matches pattern, ported byte-for-byte
-// from OpenSSH match.c's match_pattern: '*' matches any run of bytes
-// including none, '?' matches exactly one byte, and every other byte --
-// '[', ']', and '\' included -- compares literally (match.c knows only
-// '*' and '?'; it never enters a character class or an escape). Matching
-// is byte-wise, not rune-wise, mirroring a NUL-terminated C string: '?'
-// consumes one byte of a multi-byte UTF-8 sequence, not one rune, and a
-// literal byte in the pattern must match the corresponding byte of s.
+// matchPattern reports whether s matches pattern, matching the semantics
+// of the NFA match.c has used for match_pattern since OpenSSH rev 1.46
+// (2026-05-31) -- the algorithm real `ssh-keygen -Y verify` runs today:
+// '*' matches any run of bytes including none, '?' matches exactly one
+// byte, and every other byte -- '[', ']', and '\' included -- compares
+// literally (match.c knows only '*' and '?'; it never enters a character
+// class or an escape). Matching is byte-wise, not rune-wise, mirroring a
+// NUL-terminated C string: '?' consumes one byte of a multi-byte UTF-8
+// sequence, not one rune, and a literal byte in the pattern must match
+// the corresponding byte of s.
+//
+// A run of two or more consecutive '*' is not special-cased; it falls
+// out of trying the star's zero-byte expansion -- matching the rest of
+// the pattern against s unchanged, including when s is already "" --
+// before requiring s to be non-empty to try consuming a byte. That
+// ordering matters: the recursive matcher match.c shipped before rev
+// 1.46 only tried a star's expansion while s was still non-empty, so a
+// residual pattern tail of two or more '*' against an already-exhausted
+// s wrongly failed to match there. This is the one class where the two
+// algorithms diverge (see spec/signing.md "Pattern Matching"); matching
+// s == "" here is what closes it.
 func matchPattern(s, pattern string) bool {
 	for {
 		if pattern == "" {
@@ -330,13 +348,20 @@ func matchPattern(s, pattern string) bool {
 				}
 			}
 
-			for s != "" {
+			// Try the star consuming zero bytes first -- matching
+			// pattern against s as-is, which includes s == "" and is
+			// required for a residual tail that can itself match empty
+			// (i.e. one or more further '*') -- then one byte, two
+			// bytes, and so on until s itself is exhausted.
+			for {
 				if matchPattern(s, pattern) {
 					return true
 				}
+				if s == "" {
+					return false
+				}
 				s = s[1:]
 			}
-			return false
 		}
 
 		if s == "" {
