@@ -32,7 +32,17 @@ func fromGitCommit(s storage.Storer, commit *object.Commit) (Commit, error) {
 
 	tree, err := commit.Tree()
 	if err != nil {
-		return Commit{}, fmt.Errorf("codec: commit tree: %w", err)
+		if s == nil || !errors.Is(err, plumbing.ErrObjectNotFound) || !objectPresentButWrongType(s, commit.TreeHash) {
+			return Commit{}, fmt.Errorf("codec: commit tree: %w", err)
+		}
+		// commit.TreeHash names a present object, just not a tree: there
+		// are no tree entries to report, which DecodeCommit's rule 1 turns
+		// into missing-op-json — the same reason this shape reported
+		// before this typed lookup's failure was ever probed (WRIT-271
+		// round 2 review: commit.Tree() was one of two typed lookups still
+		// misreporting a present-but-wrong-type object as
+		// object-unavailable).
+		tree = &object.Tree{}
 	}
 
 	var treeEntries []TreeEntry
@@ -54,7 +64,15 @@ func fromGitCommit(s storage.Storer, commit *object.Commit) (Commit, error) {
 		if entry.Mode == filemode.Dir && s != nil {
 			subTree, err := object.GetTree(s, entry.Hash)
 			if err != nil {
-				return Commit{}, fmt.Errorf("codec: subtree %s: %w", entry.Name, err)
+				if !errors.Is(err, plumbing.ErrObjectNotFound) || !objectPresentButWrongType(s, entry.Hash) {
+					return Commit{}, fmt.Errorf("codec: subtree %s: %w", entry.Name, err)
+				}
+				// entry.Hash names a present object, just not a tree: no
+				// subentries to report for it — the same outcome this
+				// branch had before it started propagating this typed
+				// lookup's error at all (WRIT-271 round 2 review: the
+				// other of the two unprobed typed lookups).
+				subTree = &object.Tree{}
 			}
 			for _, subEntry := range subTree.Entries {
 				subTe := TreeEntry{
@@ -179,12 +197,10 @@ func readOpJSONBlob(s storage.Storer, hash plumbing.Hash, open func() (*object.F
 
 	file, err := open()
 	if err != nil {
-		if s != nil && errors.Is(err, plumbing.ErrObjectNotFound) {
-			if _, probeErr := s.EncodedObject(plumbing.AnyObject, hash); !errors.Is(probeErr, plumbing.ErrObjectNotFound) {
-				// hash names an object, just not a blob: a malformed op,
-				// not an object missing from this clone.
-				return nil, nil
-			}
+		if s != nil && errors.Is(err, plumbing.ErrObjectNotFound) && objectPresentButWrongType(s, hash) {
+			// hash names an object, just not a blob: a malformed op,
+			// not an object missing from this clone.
+			return nil, nil
 		}
 		return nil, fmt.Errorf("codec: open op.json blob: %w", err)
 	}
@@ -199,6 +215,28 @@ func readOpJSONBlob(s storage.Storer, hash plumbing.Hash, open func() (*object.F
 		return nil, fmt.Errorf("codec: read op.json blob: %w", err)
 	}
 	return data, nil
+}
+
+// objectPresentButWrongType reports whether hash names some object in s
+// that just isn't the type a typed lookup wanted — go-git's typed lookups
+// (object.GetCommit, object.GetTree, object.GetBlob, and the commit.Tree()
+// and Tree.TreeEntryFile methods built on them) report
+// plumbing.ErrObjectNotFound for that case the same way they do for
+// genuine absence, because filesystem.ObjectStorage's EncodedObject
+// returns that same sentinel when it finds the object but its type
+// doesn't match the one requested. Every typed lookup fromGitCommit makes
+// — commit.Tree(), the op.json blob open in readOpJSONBlob, and the
+// filemode.Dir subtree fetch — is expected to call this on an
+// ErrObjectNotFound before deciding the referenced object is missing from
+// this clone (dag.RejectObjectUnavailable, WRIT-271): a caller that
+// skips the probe misclassifies a present-but-wrong-type object the same
+// way round 1 and round 2 of WRIT-271's review each found one call site
+// doing. The probe itself asks with plumbing.AnyObject, which skips the
+// type check entirely, so it succeeds on any object present under hash
+// regardless of its actual type.
+func objectPresentButWrongType(s storage.Storer, hash plumbing.Hash) bool {
+	_, err := s.EncodedObject(plumbing.AnyObject, hash)
+	return !errors.Is(err, plumbing.ErrObjectNotFound)
 }
 
 // ToGitCommit converts a pure, repository-independent Commit into a go-git object.Commit,

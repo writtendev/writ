@@ -104,6 +104,83 @@ func writeCommitWithPresentWrongTypeOpJSON(repo *git.Repository, parent plumbing
 	return repo.Storer.SetEncodedObject(commitObj)
 }
 
+// writeBlob writes an arbitrary blob object into repo's object store and
+// returns its hash. Used to build tree/commit shapes whose op.json entry
+// or TreeHash names a git object that IS present but is a blob, not a
+// tree — the WRIT-271 round 2 review case: object.GetTree and
+// commit.Tree() are typed lookups that report plumbing.ErrObjectNotFound
+// for this "present but wrong type" case exactly as they do for genuine
+// absence, and fromGitCommit's presence probe for it must not depend on
+// what kind of present object was found.
+func writeBlob(repo *git.Repository, data []byte) (plumbing.Hash, error) {
+	blobObj := repo.Storer.NewEncodedObject()
+	blobObj.SetType(plumbing.BlobObject)
+	w, err := blobObj.Writer()
+	if err != nil {
+		return plumbing.ZeroHash, err
+	}
+	if _, err := w.Write(data); err != nil {
+		_ = w.Close()
+		return plumbing.ZeroHash, err
+	}
+	if err := w.Close(); err != nil {
+		return plumbing.ZeroHash, err
+	}
+	return repo.Storer.SetEncodedObject(blobObj)
+}
+
+// writeCommitWithEntryNamingPresentBlob writes a chain-tip commit whose
+// tree has exactly entries, unmodified — letting the caller point any
+// entry's hash at a blob that IS present in the store instead of a tree.
+func writeCommitWithEntryNamingPresentBlob(repo *git.Repository, parent plumbing.Hash, entries []object.TreeEntry) (plumbing.Hash, error) {
+	tree := &object.Tree{Entries: entries}
+	treeObj := repo.Storer.NewEncodedObject()
+	treeObj.SetType(plumbing.TreeObject)
+	if err := tree.Encode(treeObj); err != nil {
+		return plumbing.ZeroHash, err
+	}
+	treeHash, err := repo.Storer.SetEncodedObject(treeObj)
+	if err != nil {
+		return plumbing.ZeroHash, err
+	}
+
+	sig := object.Signature{Name: "Mallory", Email: "mallory@example.test", When: time.Now().UTC()}
+	commit := &object.Commit{
+		Author:       sig,
+		Committer:    sig,
+		Message:      "writ: create widget/wrongtype\n",
+		TreeHash:     treeHash,
+		ParentHashes: []plumbing.Hash{parent},
+	}
+	commitObj := repo.Storer.NewEncodedObject()
+	commitObj.SetType(plumbing.CommitObject)
+	if err := commit.Encode(commitObj); err != nil {
+		return plumbing.ZeroHash, err
+	}
+	return repo.Storer.SetEncodedObject(commitObj)
+}
+
+// writeCommitWithTreeHashNamingPresentBlob writes a chain-tip commit whose
+// TreeHash itself names a blob that IS present in the store but is never
+// a tree at all — the shape that exercises fromGitCommit's commit.Tree()
+// call rather than its op.json or subtree handling.
+func writeCommitWithTreeHashNamingPresentBlob(repo *git.Repository, parent, blobHash plumbing.Hash) (plumbing.Hash, error) {
+	sig := object.Signature{Name: "Mallory", Email: "mallory@example.test", When: time.Now().UTC()}
+	commit := &object.Commit{
+		Author:       sig,
+		Committer:    sig,
+		Message:      "writ: create widget/wrongtype\n",
+		TreeHash:     blobHash,
+		ParentHashes: []plumbing.Hash{parent},
+	}
+	commitObj := repo.Storer.NewEncodedObject()
+	commitObj.SetType(plumbing.CommitObject)
+	if err := commit.Encode(commitObj); err != nil {
+		return plumbing.ZeroHash, err
+	}
+	return repo.Storer.SetEncodedObject(commitObj)
+}
+
 // TestEnumerate_ObjectUnavailableDistinctFromMalformed pins WRIT-271's
 // absent-vs-malformed split at the dag layer: a chain whose tip's op.json
 // blob is absent from the object store — the shape a partial or shallow
@@ -258,5 +335,172 @@ func TestEnumerate_ValidModeHashNamesTreeNotObjectUnavailable(t *testing.T) {
 	}
 	if rej := res.Rejections[0]; rej.Reason != codec.RejectNonCanonicalPayload {
 		t.Errorf("rejection reason = %q, want %q", rej.Reason, codec.RejectNonCanonicalPayload)
+	}
+}
+
+// TestEnumerate_InvalidModePresentBlobNotObjectUnavailable pins WRIT-271
+// round 2's finding: an op.json entry with a non-regular mode (040000)
+// whose hash names a *blob* that IS present in the store must be reported
+// invalid-op-json-mode, not object-unavailable. This is the case round
+// 1's TestEnumerate_InvalidModePresentTreeNotObjectUnavailable failed to
+// cover — it points its bad entry at a present tree, the one shape
+// object.GetTree succeeds on, so it passed while this bug (an unprobed
+// object.GetTree call in fromGitCommit's filemode.Dir branch) survived.
+func TestEnumerate_InvalidModePresentBlobNotObjectUnavailable(t *testing.T) {
+	dir, repo := initTestRepo(t)
+	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
+	store, err := dag.Open(dir, ident, withVocabularies())
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+
+	env := codec.Envelope{
+		ObjectID:   "w-1",
+		ObjectType: "widget",
+		OpType:     "create",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"title":"Widget 1"}`),
+	}
+	op1, err := store.Append(context.Background(), env, nil)
+	if err != nil {
+		t.Fatalf("Append failed: %v", err)
+	}
+
+	blobHash, err := writeBlob(repo, []byte("not a tree"))
+	if err != nil {
+		t.Fatalf("writeBlob failed: %v", err)
+	}
+
+	badHash, err := writeCommitWithEntryNamingPresentBlob(repo, plumbing.NewHash(op1.ID), []object.TreeEntry{
+		{Name: "op.json", Mode: filemode.Dir, Hash: blobHash},
+	})
+	if err != nil {
+		t.Fatalf("writeCommitWithEntryNamingPresentBlob failed: %v", err)
+	}
+	refName := plumbing.ReferenceName("refs/writ/0123456789abcdef/widget")
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(refName, badHash)); err != nil {
+		t.Fatalf("advance ref to bad commit: %v", err)
+	}
+
+	res, err := store.Enumerate()
+	if err != nil {
+		t.Fatalf("Enumerate failed: %v", err)
+	}
+	if len(res.Rejections) != 1 {
+		t.Fatalf("rejections = %v, want exactly one", res.Rejections)
+	}
+	if rej := res.Rejections[0]; rej.Reason != codec.RejectInvalidOpJSONMode {
+		t.Errorf("rejection reason = %q, want %q", rej.Reason, codec.RejectInvalidOpJSONMode)
+	}
+}
+
+// TestEnumerate_ExtraTreeEntryPresentBlobNotObjectUnavailable pins
+// WRIT-271 round 2's finding: an "extra" tree entry (mode 040000) besides
+// op.json, whose hash names a *blob* that IS present in the store, must
+// be reported extra-tree-entry, not object-unavailable — the same
+// unprobed object.GetTree call as
+// TestEnumerate_InvalidModePresentBlobNotObjectUnavailable, exercised
+// through a second tree entry instead of op.json itself.
+func TestEnumerate_ExtraTreeEntryPresentBlobNotObjectUnavailable(t *testing.T) {
+	dir, repo := initTestRepo(t)
+	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
+	store, err := dag.Open(dir, ident, withVocabularies())
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+
+	env := codec.Envelope{
+		ObjectID:   "w-1",
+		ObjectType: "widget",
+		OpType:     "create",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"title":"Widget 1"}`),
+	}
+	op1, err := store.Append(context.Background(), env, nil)
+	if err != nil {
+		t.Fatalf("Append failed: %v", err)
+	}
+
+	opJSONBlobHash, err := writeBlob(repo, []byte(`{}`))
+	if err != nil {
+		t.Fatalf("writeBlob failed: %v", err)
+	}
+	extraBlobHash, err := writeBlob(repo, []byte("not a tree"))
+	if err != nil {
+		t.Fatalf("writeBlob failed: %v", err)
+	}
+
+	badHash, err := writeCommitWithEntryNamingPresentBlob(repo, plumbing.NewHash(op1.ID), []object.TreeEntry{
+		{Name: "extra", Mode: filemode.Dir, Hash: extraBlobHash},
+		{Name: "op.json", Mode: filemode.Regular, Hash: opJSONBlobHash},
+	})
+	if err != nil {
+		t.Fatalf("writeCommitWithEntryNamingPresentBlob failed: %v", err)
+	}
+	refName := plumbing.ReferenceName("refs/writ/0123456789abcdef/widget")
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(refName, badHash)); err != nil {
+		t.Fatalf("advance ref to bad commit: %v", err)
+	}
+
+	res, err := store.Enumerate()
+	if err != nil {
+		t.Fatalf("Enumerate failed: %v", err)
+	}
+	if len(res.Rejections) != 1 {
+		t.Fatalf("rejections = %v, want exactly one", res.Rejections)
+	}
+	if rej := res.Rejections[0]; rej.Reason != codec.RejectExtraTreeEntry {
+		t.Errorf("rejection reason = %q, want %q", rej.Reason, codec.RejectExtraTreeEntry)
+	}
+}
+
+// TestEnumerate_MissingOpJSONPresentBlobTreeHashNotObjectUnavailable pins
+// WRIT-271 round 2's finding: a commit whose TreeHash names a *blob* that
+// IS present in the store, rather than a tree at all, must be reported
+// missing-op-json, not object-unavailable — fromGitCommit's commit.Tree()
+// call was the other typed lookup round 2 found unprobed.
+func TestEnumerate_MissingOpJSONPresentBlobTreeHashNotObjectUnavailable(t *testing.T) {
+	dir, repo := initTestRepo(t)
+	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
+	store, err := dag.Open(dir, ident, withVocabularies())
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+
+	env := codec.Envelope{
+		ObjectID:   "w-1",
+		ObjectType: "widget",
+		OpType:     "create",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"title":"Widget 1"}`),
+	}
+	op1, err := store.Append(context.Background(), env, nil)
+	if err != nil {
+		t.Fatalf("Append failed: %v", err)
+	}
+
+	blobHash, err := writeBlob(repo, []byte("not a tree"))
+	if err != nil {
+		t.Fatalf("writeBlob failed: %v", err)
+	}
+
+	badHash, err := writeCommitWithTreeHashNamingPresentBlob(repo, plumbing.NewHash(op1.ID), blobHash)
+	if err != nil {
+		t.Fatalf("writeCommitWithTreeHashNamingPresentBlob failed: %v", err)
+	}
+	refName := plumbing.ReferenceName("refs/writ/0123456789abcdef/widget")
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(refName, badHash)); err != nil {
+		t.Fatalf("advance ref to bad commit: %v", err)
+	}
+
+	res, err := store.Enumerate()
+	if err != nil {
+		t.Fatalf("Enumerate failed: %v", err)
+	}
+	if len(res.Rejections) != 1 {
+		t.Fatalf("rejections = %v, want exactly one", res.Rejections)
+	}
+	if rej := res.Rejections[0]; rej.Reason != codec.RejectMissingOpJSON {
+		t.Errorf("rejection reason = %q, want %q", rej.Reason, codec.RejectMissingOpJSON)
 	}
 }
