@@ -48,12 +48,12 @@ func TestAPIShapeNoGitInternalsLeak(t *testing.T) {
 }
 
 // checkType walks typ's exported methods and, for a struct, its exported
-// fields — recursing through pointer, slice, array, and map key/value
-// element types so a composite field's own named type is reached before
-// it is tested — reporting any git-plumbing leak found along the way
-// through report. report is threaded through rather than a *testing.T
-// directly so a capturing caller (TestAPILeakGuardBites) can collect
-// findings instead of failing the test outright.
+// fields — recursing through pointer, slice, array, chan, and map
+// key/value element types so a composite field's own named type is
+// reached before it is tested — reporting any git-plumbing leak found
+// along the way through report. report is threaded through rather than a
+// *testing.T directly so a capturing caller (TestAPILeakGuardBites) can
+// collect findings instead of failing the test outright.
 func checkType(report func(format string, args ...any), typ reflect.Type, visited map[reflect.Type]bool) {
 	if typ == nil || visited[typ] {
 		return
@@ -92,7 +92,7 @@ func checkType(report func(format string, args ...any), typ reflect.Type, visite
 			assertNoGitLeak(report, typ.String()+"."+f.Name+" field", f.Type, make(map[reflect.Type]bool))
 			checkType(report, f.Type, visited)
 		}
-	case reflect.Pointer, reflect.Slice, reflect.Array:
+	case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Chan:
 		checkType(report, typ.Elem(), visited)
 	case reflect.Map:
 		checkType(report, typ.Key(), visited)
@@ -172,6 +172,33 @@ func TestAPILeakGuardBites(t *testing.T) {
 
 		if len(findings) == 0 {
 			t.Fatal("expected a finding for leakyMap.Carriers (map[string]carrier, carrier.Hash is plumbing.Hash), got none — checkType must recurse into a map's element type to ever reach carrier's own fields")
+		}
+		if !containsSubstring(findings, "carrier.Hash field") {
+			t.Errorf("findings did not name carrier.Hash field: %v", findings)
+		}
+	})
+
+	t.Run("go-git type behind a chan, reached by checkType's own recursion", func(t *testing.T) {
+		// carrier itself is an ordinary local struct with no go-git
+		// methods of its own — only checkType recursing into the chan's
+		// element type ever reaches carrier's field, so this pins
+		// checkType's `case reflect.Chan` alone: delete chan from that
+		// switch (leaving pointer/slice/array/map), and checkType never
+		// walks into carrier at all, while the same field shape as a
+		// slice, array, pointer, or map already reddens.
+		type carrier struct {
+			Hash plumbing.Hash
+		}
+		type leakyChan struct {
+			C chan carrier
+		}
+		var findings []string
+		report := func(format string, args ...any) { findings = append(findings, fmt.Sprintf(format, args...)) }
+
+		checkType(report, reflect.TypeOf(leakyChan{}), make(map[reflect.Type]bool))
+
+		if len(findings) == 0 {
+			t.Fatal("expected a finding for leakyChan.C (chan carrier, carrier.Hash is plumbing.Hash), got none — checkType must recurse into a chan's element type to ever reach carrier's own fields")
 		}
 		if !containsSubstring(findings, "carrier.Hash field") {
 			t.Errorf("findings did not name carrier.Hash field: %v", findings)
@@ -425,17 +452,14 @@ func reachesType(typ, target reflect.Type, visited map[reflect.Type]bool) bool {
 // into its element (map key and value both) — so a writ-named container
 // over a forbidden type, such as `type Sigs []object.Signature` or
 // `type P *object.Signature`, is still caught even though the container's
-// own PkgPath is this package, not go-git's. Func-kinded and
-// interface-kinded types stay out of scope: a static reflect.Type carries
-// no way to reach a func's parameter/result types or an interface's
-// method set the way it reaches a struct's fields, so this walk cannot see
-// through either — a forbidden type appearing only as a func parameter, a
-// func result, or behind an unnamed interface value is not found by this
-// check. The substring match over typ.String() this replaced did see
-// through both (it matched the rendered type expression, func and
-// interface signatures included), so this is narrower than the old check
-// in exactly those two cases. That narrowing is deliberate and out of
-// scope for this ticket, not a claimed equivalence.
+// own PkgPath is this package, not go-git's. checkType's own NumMethod
+// loop, above, is what reaches a method's parameter and result types
+// before calling into this function — and it does the same for an
+// interface's method set, since reflect.Type.NumMethod and Method work
+// the same way whether typ is concrete or an interface. Between the two
+// functions, a forbidden type reached through a struct field, a
+// container element, a method signature, or an interface's method set is
+// found.
 //
 // visited guards against a self-referential named composite (`type L
 // []L`, `type P *P`, `type M map[string]M`) recursing forever — the same
