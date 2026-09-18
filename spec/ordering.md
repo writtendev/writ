@@ -111,7 +111,8 @@ In character code ranges:
 ## 5. Canonical Form
 
 To guarantee a 1-to-1 bijection between position values and their string
-representations, position keys MUST adhere to strict canonical formatting.
+representations, a producer MUST emit position keys adhering to strict
+canonical formatting.
 
 A string is in **canonical form** if and only if:
 1. It is non-empty (`length >= 1`).

@@ -411,10 +411,11 @@ Typed domain serializations (such as language-specific state structs) MAY omit e
 
 #### 6. `tombstone` (Deletion and edit interleavings)
 - **Initial state:** `deleted = false`.
-- **The flag is a boolean.** Where an operation carries the declared tombstone field, its value MUST be `true` or `false`. Any other JSON type — `null` included — makes the whole operation uninterpretable per §7.1. An operation that carries no such field is unaffected: whether it deletes is then read from its op type, as below.
+- **The flag is a boolean.** Where an operation carries the declared tombstone field, its value MUST be `true` or `false`. Any other JSON type — `null` included — makes the whole operation uninterpretable per §7.1.
+- **Op types and precedence.** This strategy reads two literal op types, `delete` and `undelete`. Where an operation carries the declared field, the field is authoritative — `true` marks the entity `deleted = true`, `false` marks it `deleted = false` — regardless of which op type the operation carries: the op type is metadata describing intent, not the data. An operation that carries no such field is still a write of the tombstone target when its op type is `delete` or `undelete`; the op type then decides, as below. An operation of any other op type carrying no such field makes no tombstone contribution.
 - **Semantics:**
-  - A delete operation marks the entity as `deleted = true`.
-  - An undelete operation marks the entity as `deleted = false`.
+  - A delete operation — one whose declared field is `true`, or one carrying no such field whose op type is `delete` — marks the entity as `deleted = true`.
+  - An undelete operation — one whose declared field is `false`, or one carrying no such field whose op type is `undelete` — marks the entity as `deleted = false`.
   - **Causal undelete requirement:** An undelete operation $u$ only clears deletions in its causal past:
     $$\text{deleted} \iff \exists d \in S \text{ s.t. } \text{is\_delete}(d) \land (\forall u \in S \text{ s.t. } \text{is\_undelete}(u), d \not\prec u)$$
   - **Concurrent delete and undelete:** If a delete $d$ and undelete $u$ are concurrent ($d \parallel u$), deletion wins (`deleted = true`).
