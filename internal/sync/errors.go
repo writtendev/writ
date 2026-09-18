@@ -22,6 +22,12 @@ const (
 	// FailureKindNotFound indicates the remote or repository was not found.
 	FailureKindNotFound FailureKind = "not-found"
 
+	// FailureKindInvalidName indicates the remote name itself is
+	// syntactically unusable (see ErrInvalidRemoteName) -- a usage error
+	// distinct from FailureKindNotFound, which means the name is
+	// well-formed but no such remote is configured.
+	FailureKindInvalidName FailureKind = "invalid-name"
+
 	// FailureKindCanceled indicates the operation was canceled or timed out.
 	FailureKindCanceled FailureKind = "canceled"
 
@@ -40,8 +46,9 @@ var (
 
 	// ErrInvalidRemoteName indicates that a remote name is syntactically
 	// unusable: empty, "-"-leading (which a git subcommand would parse as
-	// a flag -- see ValidateRemoteName), containing "/", or otherwise not
-	// a valid fetch-refspec destination component.
+	// a flag -- see ValidateRemoteName), or otherwise not usable as the
+	// <name> path component of the fetch-refspec destination
+	// refs/remotes/<name>/writ/*.
 	ErrInvalidRemoteName = errors.New("invalid remote name")
 
 	// ErrAuth indicates that git remote authentication failed.

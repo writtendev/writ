@@ -63,7 +63,7 @@ Reports the count of unpushed local operations without performing network transp
 |---|---|---|
 | `remote` | string | Name of the git remote (e.g. `origin`). |
 | `unsynced` | integer | Number of local operations not yet pushed to the remote. |
-| `failure` | object (optional) | Structured failure object (`kind`, `message`, `advice`, `retryable`) when sync status query failed. |
+| `failure` | object (optional) | Structured failure object (`kind`, `message`, `advice`, `retryable`) when sync status query failed. `kind` is one of `auth`, `network`, `rejected`, `not-found` (well-formed but unconfigured remote), `invalid-name` (syntactically invalid remote name, exit `2`), `canceled`, `unknown`. |
 
 #### Example Output
 
@@ -99,7 +99,7 @@ Synchronizes operations with remote git repositories (fetches, pushes, and refre
 | `objects_touched` | integer | Number of collaborative objects updated in the projection cache. |
 | `unsynced` | integer | Remaining unsynced operations count for the remote. |
 | `rejected` | integer (optional) | Number of op commits this sync's projection refresh could not accept — malformed ops rejected on reader validation, or op commits naming an object absent from this clone (e.g. excluded by a partial clone's fetch filter). Omitted when zero. |
-| `failure` | object (optional) | Structured failure object (`kind`, `message`, `advice`, `retryable`) when transport failed. |
+| `failure` | object (optional) | Structured failure object (`kind`, `message`, `advice`, `retryable`) when transport failed. `kind` is one of `auth`, `network`, `rejected`, `not-found` (well-formed but unconfigured remote), `invalid-name` (syntactically invalid remote name, exit `2`), `canceled`, `unknown`. |
 
 #### Example Output
 

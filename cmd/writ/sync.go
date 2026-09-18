@@ -207,6 +207,8 @@ func exitCodeFor(err error) int {
 			return 6
 		case string(sync.FailureKindNetwork):
 			return 7
+		case string(sync.FailureKindInvalidName):
+			return 2
 		case string(sync.FailureKindNotFound):
 			return 3
 		case string(sync.FailureKindRejected):

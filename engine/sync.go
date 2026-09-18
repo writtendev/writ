@@ -283,7 +283,7 @@ func (s *Store) checkRemoteAvailable(ctx context.Context, remote string) error {
 	if err := writsync.ValidateRemoteName(remote); err != nil {
 		return &SyncError{
 			Remote:  remote,
-			Kind:    string(writsync.FailureKindNotFound),
+			Kind:    string(writsync.FailureKindInvalidName),
 			Message: err.Error(),
 			Err:     writsync.ErrInvalidRemoteName,
 		}
@@ -362,7 +362,7 @@ func (s *Store) SyncStatus(ctx context.Context, remote string) (SyncStatus, erro
 	if err := writsync.ValidateRemoteName(remote); err != nil {
 		return SyncStatus{}, &SyncError{
 			Remote:  remote,
-			Kind:    string(writsync.FailureKindNotFound),
+			Kind:    string(writsync.FailureKindInvalidName),
 			Message: err.Error(),
 			Err:     writsync.ErrInvalidRemoteName,
 		}
