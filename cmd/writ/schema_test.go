@@ -1433,3 +1433,16 @@ func TestGolden_SchemaApply(t *testing.T) {
 
 	compareOrUpdateGolden(t, "schema_apply.json", stdout.Bytes())
 }
+
+// TestSchemaShow_NonRepoExitCode pins the exit-code contract (WRIT-283):
+// docs/cli-json.md §2.5 promises exit 5 for "not a git repository / store
+// cannot be opened" on every verb, not just `writ sync`.
+func TestSchemaShow_NonRepoExitCode(t *testing.T) {
+	nonRepoDir := t.TempDir()
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"-C", nonRepoDir, "schema", "show", "--json"}, &stdout, &stderr)
+	if code != 5 {
+		t.Errorf("schema show --json on a non-repo dir exited with %d, want 5; stderr: %s", code, stderr.String())
+	}
+}

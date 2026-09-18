@@ -265,7 +265,7 @@ var syncCmd = &command{
 	ExitCodes: []string{
 		"0  Success",
 		"1  Transport or unclassified git failure",
-		"2  Usage error (bad flag, no resolvable default remote)",
+		"2  Usage error (bad flag, no resolvable default remote, invalid remote name)",
 		"3  Unknown or unconfigured remote",
 		"4  Rejected non-fast-forward update",
 		"5  Not a git repository / store cannot be opened",

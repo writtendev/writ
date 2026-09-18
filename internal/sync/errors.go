@@ -38,6 +38,12 @@ var (
 	// or could not be found.
 	ErrUnknownRemote = errors.New("unknown remote")
 
+	// ErrInvalidRemoteName indicates that a remote name is syntactically
+	// unusable: empty, "-"-leading (which a git subcommand would parse as
+	// a flag -- see ValidateRemoteName), containing "/", or otherwise not
+	// a valid fetch-refspec destination component.
+	ErrInvalidRemoteName = errors.New("invalid remote name")
+
 	// ErrAuth indicates that git remote authentication failed.
 	ErrAuth = errors.New("authentication failed")
 

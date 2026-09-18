@@ -934,6 +934,36 @@ func TestInit_NoRemotes(t *testing.T) {
 	}
 }
 
+// TestInit_NoSuchRemoteWritesNoPhantomSection is the writ-init half of the
+// WRIT-283 regression pin: cmd/writ/init.go calls client.Ensure directly,
+// once per positional remote name, so the same phantom-remote bug that hit
+// `writ sync nosuchremote` (a url-less [remote "nosuchremote"] fetch-only
+// section, after which plain `git remote` started exiting 128) hit
+// `writ init nosuchremote` too. Fixing the guard inside Ensure covers both
+// call sites; writ init's own exit code (1, not sync's 2/3/5) is
+// deliberately out of scope for this ticket.
+func TestInit_NoSuchRemoteWritesNoPhantomSection(t *testing.T) {
+	env := setupTestCLIEnv(t)
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns", "nosuchremote"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("init nosuchremote exited with %d, want 1; stderr: %s", code, stderr.String())
+	}
+
+	if entries := getGitConfigAll(t, env.repoDir, "remote.nosuchremote.fetch"); len(entries) != 0 {
+		t.Errorf("remote.nosuchremote.fetch = %v, want no such key at all", entries)
+	}
+
+	config, err := os.ReadFile(filepath.Join(env.repoDir, ".git", "config"))
+	if err != nil {
+		t.Fatalf("read .git/config: %v", err)
+	}
+	if strings.Contains(string(config), "nosuchremote") {
+		t.Errorf(".git/config mentions nosuchremote at all, want no phantom section:\n%s", config)
+	}
+}
+
 func TestInit_BareRepository(t *testing.T) {
 	requireGit(t)
 	tempDir := t.TempDir()

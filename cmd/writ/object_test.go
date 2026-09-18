@@ -1327,3 +1327,28 @@ func TestObjectListCLI_ClampsOutOfRangeAuthorTimestamp(t *testing.T) {
 		t.Errorf("engine Query.Object UpdatedAt.Year() = %d, want 11476 -- the clamp must not travel into the engine/projection", result.UpdatedAt.Year())
 	}
 }
+
+// TestObject_NonRepoExitCode pins the exit-code contract (WRIT-283):
+// docs/cli-json.md §2.5 promises exit 5 for "not a git repository / store
+// cannot be opened" on every verb, not just `writ sync`. renderErr now maps
+// writ.ErrStoreOpen/writ.ErrNotRepository to 5 for every command that
+// routes through it, which is every `object`/`schema` subcommand.
+func TestObject_NonRepoExitCode(t *testing.T) {
+	nonRepoDir := t.TempDir()
+
+	t.Run("list", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		code := run(context.Background(), []string{"-C", nonRepoDir, "object", "list", "--json"}, &stdout, &stderr)
+		if code != 5 {
+			t.Errorf("object list --json on a non-repo dir exited with %d, want 5; stderr: %s", code, stderr.String())
+		}
+	})
+
+	t.Run("show", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		code := run(context.Background(), []string{"-C", nonRepoDir, "object", "show", "deadbeefdeadbeefdeadbeefdeadbeef", "--json"}, &stdout, &stderr)
+		if code != 5 {
+			t.Errorf("object show --json on a non-repo dir exited with %d, want 5; stderr: %s", code, stderr.String())
+		}
+	})
+}

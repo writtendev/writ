@@ -37,7 +37,7 @@ All plumbing commands emit a single top-level JSON document on `stdout` adhering
 5. **Machine-Readable Exit Codes:** Classification uses process exit codes:
    - `0`: Success.
    - `1`: Unclassified runtime failure or transport error.
-   - `2`: Usage error (invalid flag, missing required argument).
+   - `2`: Usage error (invalid flag, missing required argument, syntactically invalid remote name).
    - `3`: Unknown or unconfigured git remote.
    - `4`: Rejected non-fast-forward update.
    - `5`: Not a git repository or store cannot be opened.
