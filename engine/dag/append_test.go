@@ -269,6 +269,169 @@ func TestAppend_CausalParents(t *testing.T) {
 	}
 }
 
+// TestAppend_CausalParentEqualToChainTipAppearsOnce pins WRIT-281: a causal
+// parent that is also the writer's own chain tip — exactly what a caller
+// passing "the ops I observed" (projection.DB.Frontier) hands Append right
+// after its own Create — must not produce a duplicated parent line. Both
+// codec.Op.Parents (the Go-side view) and the actual commit's ParentHashes
+// (the wire truth) must agree that the tip appears once.
+func TestAppend_CausalParentEqualToChainTipAppearsOnce(t *testing.T) {
+	dir, repo := initTestRepo(t)
+	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
+	store, err := dag.Open(dir, ident, withVocabularies())
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+
+	env1 := codec.Envelope{
+		ObjectID:   "w-1",
+		ObjectType: "widget",
+		OpType:     "create",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"title":"Initial"}`),
+	}
+	op1, err := store.Append(context.Background(), env1, nil)
+	if err != nil {
+		t.Fatalf("Append 1 failed: %v", err)
+	}
+
+	env2 := codec.Envelope{
+		ObjectID:   "w-1",
+		ObjectType: "widget",
+		OpType:     "update",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"title":"Updated"}`),
+	}
+	// op1 is both the widget chain's tip and the caller-supplied causal
+	// parent — the frontier-includes-own-tip case the ticket describes.
+	op2, err := store.Append(context.Background(), env2, []string{op1.ID})
+	if err != nil {
+		t.Fatalf("Append 2 failed: %v", err)
+	}
+
+	if len(op2.Parents) != 1 || op2.Parents[0] != op1.ID {
+		t.Fatalf("op2.Parents = %v, want [%s]", op2.Parents, op1.ID)
+	}
+
+	commitObj, err := repo.CommitObject(plumbing.NewHash(op2.ID))
+	if err != nil {
+		t.Fatalf("CommitObject failed: %v", err)
+	}
+	if len(commitObj.ParentHashes) != 1 || commitObj.ParentHashes[0].String() != op1.ID {
+		t.Fatalf("commit ParentHashes = %v, want [%s]", commitObj.ParentHashes, op1.ID)
+	}
+}
+
+// TestAppend_DuplicateCausalParentsCollapse pins WRIT-281's general dedup:
+// a causalParents slice naming the same hash twice collapses to one entry,
+// both when the chain is empty (root op, no tip to absorb into) and when
+// the chain already has a tip.
+func TestAppend_DuplicateCausalParentsCollapse(t *testing.T) {
+	dir, _ := initTestRepo(t)
+	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
+	store, err := dag.Open(dir, ident, withVocabularies())
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+
+	envA := codec.Envelope{
+		ObjectID:   "w-a",
+		ObjectType: "widget",
+		OpType:     "create",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"title":"A"}`),
+	}
+	opA, err := store.Append(context.Background(), envA, nil)
+	if err != nil {
+		t.Fatalf("Append A failed: %v", err)
+	}
+
+	envRoot := codec.Envelope{
+		ObjectID:   "wp-1",
+		ObjectType: "waypoint",
+		OpType:     "create",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"text":"hello"}`),
+	}
+
+	// Empty chain: the duplicate causal parent still collapses to one entry.
+	opRoot, err := store.Append(context.Background(), envRoot, []string{opA.ID, opA.ID})
+	if err != nil {
+		t.Fatalf("Append root with duplicate causal parents failed: %v", err)
+	}
+	if len(opRoot.Parents) != 1 || opRoot.Parents[0] != opA.ID {
+		t.Fatalf("opRoot.Parents = %v, want [%s]", opRoot.Parents, opA.ID)
+	}
+
+	// Non-empty chain: the duplicate still collapses, and parents[0] stays
+	// the waypoint chain's tip.
+	opNext, err := store.Append(context.Background(), envRoot, []string{opA.ID, opA.ID})
+	if err != nil {
+		t.Fatalf("Append non-root with duplicate causal parents failed: %v", err)
+	}
+	if len(opNext.Parents) != 2 || opNext.Parents[0] != opRoot.ID || opNext.Parents[1] != opA.ID {
+		t.Fatalf("opNext.Parents = %v, want [%s, %s]", opNext.Parents, opRoot.ID, opA.ID)
+	}
+}
+
+// TestAppend_CausalParentOrderPreserved pins WRIT-281's order-preserving
+// dedup: the caller-supplied causal parent order survives untouched, even
+// when a lexical sort of the hashes involved would produce a different
+// order. spec/ref-layout.md's producer requirement pins only parents[0] to
+// the chain predecessor; Append must not reorder anything after it.
+func TestAppend_CausalParentOrderPreserved(t *testing.T) {
+	dir, _ := initTestRepo(t)
+	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
+	store, err := dag.Open(dir, ident, withVocabularies())
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+
+	mkWaypoint := func(objectID string) *codec.Op {
+		t.Helper()
+		env := codec.Envelope{
+			ObjectID:   objectID,
+			ObjectType: "waypoint",
+			OpType:     "create",
+			OpVersion:  1,
+			Body:       json.RawMessage(`{"text":"` + objectID + `"}`),
+		}
+		op, err := store.Append(context.Background(), env, nil)
+		if err != nil {
+			t.Fatalf("Append %s failed: %v", objectID, err)
+		}
+		return op
+	}
+
+	one := mkWaypoint("wp-1")
+	two := mkWaypoint("wp-2")
+
+	// a, b: the causal parents in the order Append will be called with,
+	// chosen so b sorts lexically before a — a sort would move b first,
+	// which the assertion below would catch.
+	a, b := one, two
+	if a.ID < b.ID {
+		a, b = two, one
+	}
+
+	tip := mkWaypoint("wp-3")
+
+	next, err := store.Append(context.Background(), codec.Envelope{
+		ObjectID:   "wp-4",
+		ObjectType: "waypoint",
+		OpType:     "create",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"text":"next"}`),
+	}, []string{a.ID, b.ID})
+	if err != nil {
+		t.Fatalf("Append with ordered causal parents failed: %v", err)
+	}
+
+	if len(next.Parents) != 3 || next.Parents[0] != tip.ID || next.Parents[1] != a.ID || next.Parents[2] != b.ID {
+		t.Fatalf("parents = %v, want [%s, %s, %s]", next.Parents, tip.ID, a.ID, b.ID)
+	}
+}
+
 func writeNonOpCommit(repo *git.Repository) (plumbing.Hash, error) {
 	// Create a commit with empty tree (no op.json)
 	treeObj := repo.Storer.NewEncodedObject()
