@@ -911,24 +911,19 @@ A repository designator MUST be **32 lowercase hexadecimal characters**
 `writ init` initializes the repository.
 
 The repository designator is **immutable**: it remains unchanged when a
-repository is renamed, transferred between organizations, cloned, or mirrored
-across different remotes.
+repository is renamed, transferred between organizations, or re-remoted. A
+clone carries no `.git/config`, so `writ init` in a clone mints a fresh
+designator rather than inheriting the original's.
 
 ### Storage and discovery
 
-To allow a local clone to determine its own repository identity:
-
-1. **Ref carrier (`refs/writ/meta/repo-id`):** The repository designator is
-   recorded in git under `refs/writ/meta/repo-id` as a lightweight ref (or
-   single commit holding the repo ID). Because it lives under `refs/writ/*`,
-   it is fetched by standard `git fetch` operations, ensuring a fresh clone
-   immediately knows its repository ID.
-2. **Config cache (`writ.repo-id`):** `writ init` records the repository
-   designator in `.git/config` under the key `writ.repo-id`. When present,
-   engines and tools MAY read `writ.repo-id` from local config as a fast cache
-   to avoid reading git ref objects on every invocation. If `.git/config` lacks
-   the key, the engine reads `refs/writ/meta/repo-id` and populates the config
-   cache.
+`writ init` mints the designator and records it in local repository
+configuration under `writ.repoId`. An engine reads it from merged git
+config (local, then global, per git's own precedence — see
+`spec/ref-layout.md` §Sourcing precedence for the sibling key,
+`writ.writerId`). If the key is absent, the repository has simply never
+been initialized, and the engine reports no designator rather than
+erroring.
 
 ### Object homing
 
