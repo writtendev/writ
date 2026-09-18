@@ -2,11 +2,11 @@
   "refs": [
     {
       "name": "refs/writ/0123456789abcdef/schema",
-      "commit": "a71419e885345cb596768c03a19ea3e15002fb86"
+      "commit": "1d1db1c45f315df5f28b66797f8afc7e28c26194"
     },
     {
       "name": "refs/writ/0123456789abcdef/widget",
-      "commit": "4741c921b668dcf7e589eaa696df3371247007df"
+      "commit": "32bb7035cf644b329415445821ed85aeafd76a2f"
     },
     {
       "name": "refs/writ/fedcba9876543210/widget",
@@ -103,6 +103,17 @@
           "timestamp": "2025-12-01T00:07:00Z",
           "message": "writ: define-field schema/sch-acme\n",
           "signed": true
+        },
+        {
+          "sha": "1d1db1c45f315df5f28b66797f8afc7e28c26194",
+          "tree": "15e32607ac79fe2f46fb32329d4a3be2d58b60bd",
+          "parents": [
+            "a71419e885345cb596768c03a19ea3e15002fb86"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:08:00Z",
+          "message": "writ: define-field schema/sch-acme\n",
+          "signed": true
         }
       ]
     },
@@ -172,6 +183,28 @@
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-02-01T00:05:00Z",
           "message": "writ: tag acme.widget/w-empty-only\n",
+          "signed": true
+        },
+        {
+          "sha": "2769fafb7396eca59835474b92744b6255fee988",
+          "tree": "ca1673d31f5e54d1be9c55edf351614bc5ddf1dc",
+          "parents": [
+            "4741c921b668dcf7e589eaa696df3371247007df"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-02-01T00:06:00Z",
+          "message": "writ: create acme.widget/w-sort-order\n",
+          "signed": true
+        },
+        {
+          "sha": "32bb7035cf644b329415445821ed85aeafd76a2f",
+          "tree": "40bb172317bf526e247672b07c72e65f704e825a",
+          "parents": [
+            "2769fafb7396eca59835474b92744b6255fee988"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-02-01T00:07:00Z",
+          "message": "writ: tag acme.widget/w-sort-order\n",
           "signed": true
         }
       ]

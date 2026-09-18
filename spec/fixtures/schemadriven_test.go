@@ -202,6 +202,15 @@ func runSchemaDrivenFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error)
 			return nil, fmt.Errorf("writ.Fold for object %s (%s) in %s: %w", objID, objType, fix.Name, err)
 		}
 
+		// Cross-check: the spec reference reducer must agree with the engine
+		// on this object too (WRIT-274). Before this, only fold_test.go's
+		// fold-* fixtures ran spec.Fold at all, so a divergence between the
+		// engine and the reference reducer that only a schema-driven fixture
+		// exercised had no way to surface.
+		if _, err := crossCheckSpecFold(t, fix.Name, objID, ops, rules[objType], objState); err != nil {
+			return nil, err
+		}
+
 		expectedJSON, err := canonicaljson.Marshal(mustJSON(t, objState.State))
 		if err != nil {
 			return nil, fmt.Errorf("canonicalizing state for %s: %w", objID, err)

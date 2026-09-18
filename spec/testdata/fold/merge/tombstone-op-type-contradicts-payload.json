@@ -1,0 +1,46 @@
+{
+  "name": "tombstone-op-type-contradicts-payload",
+  "description": "The payload field is authoritative when an operation carries it, even when its literal op_type says the opposite (spec/fold.md §5.6): a delete-typed op whose body carries the declared field as false folds to false, and an undelete-typed op whose body carries the field as true folds to true. Only op_type \"delete\" and \"undelete\" are the tombstone strategy's recognized op types; that fallback applies only when the operation writes no value for the field at all.",
+  "object_id": "obj-1",
+  "fields": {
+    "title": { "strategy": "lww" },
+    "deleted": { "strategy": "tombstone" },
+    "archived": { "strategy": "tombstone" }
+  },
+  "ops": [
+    {
+      "id": "op-root",
+      "parents": [],
+      "time": 100,
+      "object_id": "obj-1",
+      "body": {
+        "title": "Item 1"
+      }
+    },
+    {
+      "id": "op-del-false",
+      "parents": ["op-root"],
+      "op_type": "delete",
+      "time": 200,
+      "object_id": "obj-1",
+      "body": {
+        "deleted": false
+      }
+    },
+    {
+      "id": "op-undel-true",
+      "parents": ["op-root"],
+      "op_type": "undelete",
+      "time": 250,
+      "object_id": "obj-1",
+      "body": {
+        "archived": true
+      }
+    }
+  ],
+  "expected_state": {
+    "title": "Item 1",
+    "deleted": false,
+    "archived": true
+  }
+}

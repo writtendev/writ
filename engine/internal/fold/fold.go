@@ -42,7 +42,7 @@ func (r Rule) TargetKey() string {
 }
 
 // ruleOrderLess is the canonical rule order spec/fold.md §5 requires two
-// rules bound to one target to contribute in: ascending op_type (code unit
+// rules bound to one target to contribute in: ascending op_type (UTF-8 byte
 // order), then op_version, then field. Every component is rule content a
 // reader of the schema can derive for itself, which is what makes two
 // independent implementations fold the same log to the same state when one

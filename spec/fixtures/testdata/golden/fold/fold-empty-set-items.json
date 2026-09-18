@@ -63,6 +63,32 @@
         "tags": [],
         "title": "Empty Items Only"
       }
+    },
+    {
+      "object_id": "w-sort-order",
+      "object_type": "acme.widget",
+      "total_order": [
+        {
+          "commit": "2769fafb7396eca59835474b92744b6255fee988",
+          "label": "alice-create-sort-order",
+          "t_star": 1769904360
+        },
+        {
+          "commit": "32bb7035cf644b329415445821ed85aeafd76a2f",
+          "label": "alice-labels-sort-order",
+          "t_star": 1769904420
+        }
+      ],
+      "state": {
+        "description": "Pins UTF-8 byte sort order (spec/fold.md §5.3, §8) for a set field with no value_type",
+        "labels": [
+          "alpha",
+          "gamma",
+          "",
+          "😀"
+        ],
+        "title": "Sort Order Test"
+      }
     }
   ]
 }

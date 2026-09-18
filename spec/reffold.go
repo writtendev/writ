@@ -1026,6 +1026,13 @@ func Fold(ops []MergeOp, rules []FieldRule) (FoldResult, error) {
 					if opMatchesRule(op, r) {
 						if _, alreadySet := state[targetKey]; !alreadySet {
 							if val, present := op.Body[r.Field]; present && val != nil {
+								// create-once is a scalar position
+								// (spec/value-types.md §Normalization), so a
+								// person-ref value normalizes here exactly as
+								// it does under lww.
+								if s, ok := val.(string); ok && r.NormalizesValue() {
+									val = normalizePerson(s)
+								}
 								state[targetKey] = val
 							}
 						}
@@ -1221,10 +1228,25 @@ func Fold(ops []MergeOp, rules []FieldRule) (FoldResult, error) {
 				}
 				for _, r := range frs {
 					if opMatchesRule(op, r) {
-						if op.OpType == "delete" || op.Body[r.Field] == true {
+						// The payload field is authoritative when the
+						// operation carries it, and the op type is metadata
+						// describing intent, not the data (spec/fold.md
+						// §5.6); the literal "delete"/"undelete" op type
+						// decides only when the operation writes no value
+						// for the field at all. §7.1 already makes an
+						// operation uninterpretable before this runs if the
+						// field is present but not a bool.
+						if val, hasField := op.Body[r.Field]; hasField {
+							if val == true {
+								deletes = append(deletes, op.ID)
+							} else {
+								undeletes = append(undeletes, op.ID)
+							}
+							hasTombstone = true
+						} else if op.OpType == "delete" {
 							deletes = append(deletes, op.ID)
 							hasTombstone = true
-						} else if op.OpType == "undelete" || op.Body[r.Field] == false {
+						} else if op.OpType == "undelete" {
 							undeletes = append(undeletes, op.ID)
 							hasTombstone = true
 						}
@@ -1394,6 +1416,13 @@ func Fold(ops []MergeOp, rules []FieldRule) (FoldResult, error) {
 					if opMatchesRule(op, rule) {
 						if raw, ok := op.Body[rule.Field]; ok && raw != nil {
 							if s, ok := raw.(string); ok {
+								// multi-value is a scalar position
+								// (spec/value-types.md §Normalization), so a
+								// person-ref value normalizes here exactly as
+								// it does under lww and create-once.
+								if rule.NormalizesValue() {
+									s = normalizePerson(s)
+								}
 								writes = append(writes, mvWrite{opID: op.ID, val: s})
 							}
 						}

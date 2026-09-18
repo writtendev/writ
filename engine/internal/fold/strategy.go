@@ -363,12 +363,27 @@ func newTombstoneAccumulator(rule Rule, reach ReachOracle) (Accumulator, error) 
 	}, nil
 }
 
+// Apply reads the declared field when the operation carries it -- the
+// payload is authoritative there, and the op type is metadata describing
+// intent, not the data (spec/fold.md §5.6) -- and falls back to the literal
+// "delete"/"undelete" op type only when the operation writes no value for
+// the field at all. A field present but not a bool never reaches here: §7.1
+// makes such an operation uninterpretable before any accumulator sees it.
 func (a *tombstoneAccumulator) Apply(rule Rule, op codec.Op, body map[string]any, _ map[string]json.RawMessage) error {
-	val, hasField := body[rule.Field]
-	if op.OpType == "delete" || (hasField && val == true) {
+	if val, hasField := body[rule.Field]; hasField {
+		if val == true {
+			a.deletes = append(a.deletes, op.ID)
+		} else {
+			a.undeletes = append(a.undeletes, op.ID)
+		}
+		a.hasTombstone = true
+		return nil
+	}
+	switch op.OpType {
+	case "delete":
 		a.deletes = append(a.deletes, op.ID)
 		a.hasTombstone = true
-	} else if op.OpType == "undelete" || (hasField && val == false) {
+	case "undelete":
 		a.undeletes = append(a.undeletes, op.ID)
 		a.hasTombstone = true
 	}
