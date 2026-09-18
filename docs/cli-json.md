@@ -40,7 +40,7 @@ All plumbing commands emit a single top-level JSON document on `stdout` adhering
    - `4`: Rejected non-fast-forward update.
    - `5`: Not a git repository or store cannot be opened.
 6. **No Null Collections:** Empty collections serialize as `[]`, never `null`.
-7. **Deterministic Formatting & Ordering:** Timestamps are formatted as ISO 8601 / RFC 3339 UTC with a trailing `Z` (e.g. `2026-01-01T00:00:00Z`). All list responses have a deterministic total order, using object ID ascending as a tiebreaker.
+7. **Deterministic Formatting & Ordering:** Timestamps are formatted as ISO 8601 / RFC 3339 UTC with a trailing `Z` (e.g. `2026-01-01T00:00:00Z`). All list responses have a deterministic total order, using object ID ascending as a tiebreaker. A timestamp whose source value falls outside years 0–9999 (RFC 3339's representable range — reachable only from a peer-controlled commit author time, which is otherwise unbounded) is clamped to the nearest representable bound, and the true value is carried in the corresponding `*_epoch` field (see `ObjectSummary` below); list ordering is always computed on the true value, never the clamped rendering.
 8. **Pre-v0.1.0 exception to rule 1:** WRIT-195 removed the `review.*`, `issue.*`, `comment.*`, `label.*`, `state.*`, `settings`, and `doc.*` kinds (and their payload shapes) from this same `schema_version: 1` envelope, replacing them with the generic `object.*`/`schema.*` verbs below. Nothing has shipped yet (`AGENTS.md`: "Nothing has shipped: no tags, no users, no external implementations"), so this is a deliberate pre-v0.1.0 break, not a violation of rule 1 going forward — additive-only evolution is the promise from here on, not a retroactive one.
 9. **Person-identifier rendering is escaped:** `--json` output escapes the forbidden repertoire's code points (spec/identifiers.md §Rendering a person identifier: control characters, bidi controls/isolates/overrides, zero-width/invisible characters, and other format characters) at the JSON level, over the whole encoded document rather than only fields known to be `person-ref`. A code point within the Basic Multilingual Plane escapes as `\uXXXX`; a code point above it (the tag block is the reachable case) escapes as its UTF-16 surrogate pair, `\uXXXX\uXXXX`. This is lossless: decoding the output recovers the exact value that was folded, unchanged.
 
@@ -417,8 +417,10 @@ Lists collaborative objects across every schema-declared type, or within one, fr
 | `object_id` | string | 32-character lowercase hex identifier. |
 | `object_type` | string | The object's type. |
 | `author` | object | `{ "name": string, "email": string }` — the object's creating author. |
-| `created_at` | string | Creation timestamp in RFC 3339 UTC (`...Z`). |
-| `updated_at` | string | Last modification timestamp in RFC 3339 UTC (`...Z`). |
+| `created_at` | string | Creation timestamp in RFC 3339 UTC (`...Z`). Clamped to `0000-01-01T00:00:00Z`/`9999-12-31T23:59:59Z` when the source value falls outside that range. |
+| `created_at_epoch` | integer, optional | Seconds since the Unix epoch. Present only when `created_at` was clamped. |
+| `updated_at` | string | Last modification timestamp in RFC 3339 UTC (`...Z`). Clamped to `0000-01-01T00:00:00Z`/`9999-12-31T23:59:59Z` when the source value falls outside that range. |
+| `updated_at_epoch` | integer, optional | Seconds since the Unix epoch. Present only when `updated_at` was clamped. |
 | `op_count` | integer | Number of ops folded into this object. |
 | `verification` | string | The same worst-outcome summary `object show`'s `verification` field reports — see that field's description above — cached in the projection at the last `Refresh`/`Rebuild` rather than recomputed live. |
 
