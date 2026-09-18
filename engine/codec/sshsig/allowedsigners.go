@@ -270,10 +270,17 @@ func matchPrincipal(patterns []string, principal string) bool {
 	return matched
 }
 
+// Principal and namespace matching is deliberately case-sensitive, mirroring
+// OpenSSH sshsig.c's check_allowed_keys_line, which calls
+// match_pattern_list(x, list, 0) for both the principal and the namespaces=
+// option -- the trailing 0 is match.c's dolower, so neither comparison folds
+// case. Do not "fix" this back to case-insensitive: an allowed_signers file
+// is OpenSSH's format, not writ's, and writ does not get to normalize it the
+// way engine/internal/person deliberately case-folds writ's own person-refs.
 func matchNamespace(allowed []string, ns string) bool {
 	for _, a := range allowed {
 		a = strings.TrimSpace(a)
-		if a == "*" || strings.EqualFold(a, ns) {
+		if a == "*" || a == ns {
 			return true
 		}
 	}
@@ -284,11 +291,11 @@ func matchPattern(pat, val string) bool {
 	if pat == "*" {
 		return true
 	}
-	if strings.EqualFold(pat, val) {
+	if pat == val {
 		return true
 	}
 	if strings.ContainsAny(pat, "*?") {
-		matched, err := path.Match(strings.ToLower(pat), strings.ToLower(val))
+		matched, err := path.Match(pat, val)
 		if err == nil && matched {
 			return true
 		}

@@ -146,7 +146,7 @@ spec/
     ├── forwardcompat_test.go — forward-compatibility fixture family registration & preservation test
     ├── generate.go         — deterministic bare git repository builder
     ├── harness.go          — golden-file test harness and fixture family runner
-    ├── identity.go         — fixture identities (alice, bob) and signing config
+    ├── identity.go         — fixture identities (alice, bob, alice_upper) and signing config
     ├── manifest.go         — manifest data model (SHAs, trees, parents, refs)
     ├── op.go               — OpDesc to canonical payload & commit message derivation
     ├── orphananchors_test.go — orphan-anchors fixture family registration & resolution test

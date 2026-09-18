@@ -32,9 +32,11 @@ func TestOpenCloseMemory(t *testing.T) {
 	// digest key rather than this one. WRIT-251 took it to 16, adding
 	// verification (and, on ops, key_fingerprint) columns to ops, objects,
 	// and unknown_ops so ingest-time signature verification has somewhere
-	// to be cached.
-	if v := projection.SchemaVersion(); v != 16 {
-		t.Fatalf("expected schema version 16, got %d", v)
+	// to be cached. WRIT-278 took it to 17: sshsig principal/namespace
+	// matching became case-sensitive, changing what a cached verification
+	// value means without touching a column.
+	if v := projection.SchemaVersion(); v != 17 {
+		t.Fatalf("expected schema version 17, got %d", v)
 	}
 
 	var version string
