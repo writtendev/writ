@@ -31,6 +31,9 @@ Verify:
 writ version
 ```
 
-writ needs full history for `refs/writ/*`: clone without `--depth` or set
-`fetch-depth: 0` in CI (`actions/checkout` defaults to shallow) — see
+writ needs every object a `refs/writ/*` op commit's ancestry names, not
+just the commits: clone without `--filter` (or, in CI, leave
+`actions/checkout`'s `filter:` input unset) — a partial clone leaves
+those objects missing and `writ sync` cannot backfill them. An ordinary
+shallow (`--depth=...`) clone is fine; see
 [Clone with full history](docs/quickstart.md#clone-with-full-history).

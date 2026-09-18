@@ -250,8 +250,9 @@ var syncCmd = &command{
 	Long: "Synchronize collaborative SDLC operations with one or more git remotes.\n\n" +
 		"Fetch remote operations, push local operations, and refresh the local projection cache.\n" +
 		"With no remote specified, defaults to 'origin' or the sole configured remote.\n\n" +
-		"A shallow or partial clone is missing some op commits, so those ops are rejected rather\n" +
-		"than applied; check out at full depth in CI (fetch-depth: 0 for actions/checkout).",
+		"A partial clone (--filter=...) is missing objects those op commits need, so those ops\n" +
+		"are rejected rather than applied; an ordinary shallow clone (--depth=...) is not affected.\n" +
+		"Clone without --filter (in CI, leave actions/checkout's filter: input unset).",
 	Flags: []flagSpec{
 		{Name: "C"},
 		{Name: "status"},

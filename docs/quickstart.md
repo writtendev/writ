@@ -207,23 +207,32 @@ origin: fetched 8 ops, 2 objects updated
 ### Clone with full history
 
 Writ's operations are commits under `refs/writ/*`, and folding an object
-correctly needs that commit's full ancestry to be present locally. A
-shallow clone (`--depth=...`) or a partial clone (`--filter=...`) leaves
-some op commits absent from the local object store, and fetching into a
-repository that is already shallow keeps it shallow. This is not an
-error: `writ object show` still returns a result, folded from whatever
-subset of its ops happens to be present.
+correctly needs each op commit's full ancestry — including its blobs —
+to be present locally. `writ sync` fetches those refs without `--depth`,
+so an ordinary **shallow** clone (`--depth=...`) of the repository does
+not truncate them: `writ sync` still fetches the complete op chains even
+though `.git/shallow` stays in place. A **partial** clone
+(`--filter=...`) is the one that bites: it leaves some op commits'
+objects missing from the local store, and an ordinary `writ sync` does
+not backfill them.
 
-* GitHub Actions: `actions/checkout` defaults to `fetch-depth: 1` — set
-  `fetch-depth: 0`.
-* Plain git: clone without `--depth` or `--filter`; repair an existing
-  shallow clone with `git fetch --unshallow`, a partial clone with
-  `git fetch --refetch`.
+* GitHub Actions: `actions/checkout`'s `filter:` input is independent of
+  its `fetch-depth:` input — leave `filter:` unset (the default) rather
+  than passing `blob:none` or similar.
+* Plain git: clone without `--filter`. Repair an existing partial clone
+  with `git fetch --refetch --no-filter`; plain `--refetch` re-applies
+  the clone's configured filter and leaves the same objects missing.
+
+A partial clone's missing objects make `writ object show` fail outright
+— `writ: object not found`, exit 1 — not a silently-wrong result.
 
 `writ sync` reports ops it could not apply — `N ops not applied` in
-porcelain, `"rejected": N` under `--json` — and a nonzero count right
-after a fresh clone means op commits are missing locally, not that a
-peer wrote bad ops.
+porcelain, `"rejected": N` under `--json` — and that count mixes two
+different causes it does not distinguish on its own: a malformed op
+rejected on reader validation, or an op commit naming an object this
+clone does not have (a partial clone, above). See
+`RefreshStats.Rejections` in the Go API, or `docs/cli-json.md`'s
+`rejected` field, to tell which.
 
 Your collaborator can now list and inspect tickets offline — filtering to
 one schema-declared type at a time:
