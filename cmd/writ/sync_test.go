@@ -316,11 +316,13 @@ func TestSync_RefspecSelfHealing(t *testing.T) {
 		t.Fatalf("sync in fresh clone exited with %d; stderr: %s", code, stderr.String())
 	}
 
-	// Verify writ fetch refspec was self-healed/configured
+	// Verify writ fetch refspec was self-healed/configured with the forced
+	// (leading '+') canonical form, not merely something containing the
+	// unforced literal.
 	afterFetch := getGitConfigAll(t, freshDir, "remote.origin.fetch")
 	hasWritRefspec := false
 	for _, f := range afterFetch {
-		if strings.Contains(f, "refs/writ/*:refs/remotes/origin/writ/*") {
+		if f == "+refs/writ/*:refs/remotes/origin/writ/*" {
 			hasWritRefspec = true
 			break
 		}

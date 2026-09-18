@@ -113,8 +113,14 @@ too — Codeberg untested either way) treats `refs/heads/*` as unrestricted:
 
 - Prefix-encode: `refs/heads/writ/<writer-id>/<object-type>`
   instead of `refs/writ/<writer-id>/<object-type>`. Same tree
-  shape, same per-writer-namespace non-fast-forward-freedom property
-  (ARCHITECTURE.md). Costs: these op-commits now show up in branch-listing
+  shape, same per-writer-namespace property: no other writer has cause to
+  push into your namespace, so your push never races a colleague's — while
+  your own push can still be rejected non-fast-forward against your own
+  prior push after a restore or a rebase of shared history, and that
+  rejection is never caused by a second writer (ARCHITECTURE.md) — not an
+  access-control guarantee against another writer with push access
+  writing into this namespace; see `spec/ref-layout.md` §Per-writer append
+  chains. Costs: these op-commits now show up in branch-listing
   UI unless clients filter the `writ/` prefix out (a client concern, not a
   protocol one) — and, more seriously, `refs/heads/*` is exactly the
   namespace most hosts hang CI triggers (`on: push`) and branch-protection

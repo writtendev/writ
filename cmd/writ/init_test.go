@@ -44,8 +44,8 @@ func TestInit_Idempotent(t *testing.T) {
 	if len(writEntries1) != 1 {
 		t.Fatalf("expected 1 writ fetch refspec after first init, got %d: %v", len(writEntries1), writEntries1)
 	}
-	if writEntries1[0] != "refs/writ/*:refs/remotes/origin/writ/*" {
-		t.Errorf("refspec = %q, want refs/writ/*:refs/remotes/origin/writ/*", writEntries1[0])
+	if writEntries1[0] != "+refs/writ/*:refs/remotes/origin/writ/*" {
+		t.Errorf("refspec = %q, want +refs/writ/*:refs/remotes/origin/writ/*", writEntries1[0])
 	}
 
 	writerID1 := getGitConfigAll(t, env.repoDir, "writ.writerId")
@@ -293,7 +293,7 @@ func TestInit_PartialFailureIsReportedAndRecovers(t *testing.T) {
 			writEntries = append(writEntries, entry)
 		}
 	}
-	if len(writEntries) != 1 || writEntries[0] != "refs/writ/*:refs/remotes/origin/writ/*" {
+	if len(writEntries) != 1 || writEntries[0] != "+refs/writ/*:refs/remotes/origin/writ/*" {
 		t.Errorf("writ refspecs = %v, want exactly the canonical one", writEntries)
 	}
 }
@@ -345,12 +345,13 @@ func TestInit_DriftRepair(t *testing.T) {
 	env := setupTestCLIEnv(t)
 	addRemote(t, env.repoDir, "origin", "https://example.com/repo.git")
 
-	// Pre-seed forced writ refspec alongside head and custom refspecs
+	// Pre-seed an unforced writ refspec (the pre-WRIT-270 canonical form,
+	// now drift) alongside head and custom refspecs.
 	setGitConfig(t, env.repoDir, "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
-	cmd := exec.Command("git", "config", "--add", "remote.origin.fetch", "+refs/writ/*:refs/remotes/origin/writ/*")
+	cmd := exec.Command("git", "config", "--add", "remote.origin.fetch", "refs/writ/*:refs/remotes/origin/writ/*")
 	cmd.Dir = env.repoDir
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("seed forced refspec: %v", err)
+		t.Fatalf("seed unforced refspec: %v", err)
 	}
 	cmd = exec.Command("git", "config", "--add", "remote.origin.fetch", "refs/custom/*:refs/remotes/origin/custom/*")
 	cmd.Dir = env.repoDir
@@ -368,7 +369,7 @@ func TestInit_DriftRepair(t *testing.T) {
 	expectedEntries := []string{
 		"+refs/heads/*:refs/remotes/origin/*",
 		"refs/custom/*:refs/remotes/origin/custom/*",
-		"refs/writ/*:refs/remotes/origin/writ/*",
+		"+refs/writ/*:refs/remotes/origin/writ/*",
 	}
 
 	if len(fetchEntries) != len(expectedEntries) {
@@ -883,11 +884,11 @@ func TestInit_MultiRemoteAndPositional(t *testing.T) {
 		originFetch := getGitConfigAll(t, env.repoDir, "remote.origin.fetch")
 		upstreamFetch := getGitConfigAll(t, env.repoDir, "remote.upstream.fetch")
 
-		if len(originFetch) == 0 || !strings.Contains(originFetch[len(originFetch)-1], "refs/writ/*:refs/remotes/origin/writ/*") {
-			t.Errorf("origin fetch refspec missing: %v", originFetch)
+		if len(originFetch) == 0 || originFetch[len(originFetch)-1] != "+refs/writ/*:refs/remotes/origin/writ/*" {
+			t.Errorf("origin fetch refspec = %v, want exactly the forced canonical entry", originFetch)
 		}
-		if len(upstreamFetch) == 0 || !strings.Contains(upstreamFetch[len(upstreamFetch)-1], "refs/writ/*:refs/remotes/upstream/writ/*") {
-			t.Errorf("upstream fetch refspec missing: %v", upstreamFetch)
+		if len(upstreamFetch) == 0 || upstreamFetch[len(upstreamFetch)-1] != "+refs/writ/*:refs/remotes/upstream/writ/*" {
+			t.Errorf("upstream fetch refspec = %v, want exactly the forced canonical entry", upstreamFetch)
 		}
 	})
 
@@ -905,8 +906,8 @@ func TestInit_MultiRemoteAndPositional(t *testing.T) {
 		originFetch := getGitConfigAll(t, env.repoDir, "remote.origin.fetch")
 		upstreamFetch := getGitConfigAll(t, env.repoDir, "remote.upstream.fetch")
 
-		if len(originFetch) == 0 || !strings.Contains(originFetch[len(originFetch)-1], "refs/writ/*:refs/remotes/origin/writ/*") {
-			t.Errorf("origin fetch refspec missing: %v", originFetch)
+		if len(originFetch) == 0 || originFetch[len(originFetch)-1] != "+refs/writ/*:refs/remotes/origin/writ/*" {
+			t.Errorf("origin fetch refspec = %v, want exactly the forced canonical entry", originFetch)
 		}
 		for _, e := range upstreamFetch {
 			if strings.Contains(e, "writ") {

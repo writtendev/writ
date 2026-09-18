@@ -98,11 +98,19 @@ func (s *Store) Sync(ctx context.Context, remote string) (SyncResult, error) {
 		return SyncResult{}, fmt.Errorf("writ: remote cannot be empty")
 	}
 
-	var syncErr error
+	// fetchErr and pushErr are tracked separately because push must not be
+	// gated on fetch (or refspec-ensure) success: PushRefspec is constructed
+	// per invocation and passed on the command line, never read from
+	// .git/config, so pushing this writer's own ops depends on neither step.
+	// A peer's broken chain or a dead remote's fetch failure must never
+	// strand this writer's unpushed ops (WRIT-270). They fold into one
+	// syncErr below, fetch taking precedence when both are set: it is the
+	// earlier stage, and it is the one that explains a dead remote.
+	var fetchErr, pushErr error
 
 	// 1. Ensure fetch refspec
 	if _, err := s.syncClient.Ensure(ctx, remote); err != nil {
-		syncErr = fmt.Errorf("ensure refspecs: %w", err)
+		fetchErr = fmt.Errorf("ensure refspecs: %w", err)
 	}
 
 	// 2. Fetch remote operations
@@ -115,11 +123,11 @@ func (s *Store) Sync(ctx context.Context, remote string) (SyncResult, error) {
 		}
 	}
 
-	if syncErr == nil {
+	if fetchErr == nil {
 		var err error
 		fetchRes, err = s.syncClient.Fetch(ctx, remote)
 		if err != nil {
-			syncErr = err
+			fetchErr = err
 		}
 	}
 
@@ -128,10 +136,11 @@ func (s *Store) Sync(ctx context.Context, remote string) (SyncResult, error) {
 		opsFetched = writsync.CountChainUpdates(s.storer, fetchRes.Updates, stopTipsBeforeFetch)
 	}
 
-	// 3. Push local operations if identity is configured
+	// 3. Push local operations if identity is configured. Unconditional on
+	// fetchErr: see the note above the fetchErr/pushErr declarations.
 	opsPushed := 0
 	var pushRes *writsync.PushResult
-	if syncErr == nil && s.hasIdentity && s.identity.WriterID != "" {
+	if s.hasIdentity && s.identity.WriterID != "" {
 		var stopTipsBeforePush []plumbing.Hash
 		chainsBeforePush, err := dag.Chains(s.storer)
 		if err == nil {
@@ -141,14 +150,15 @@ func (s *Store) Sync(ctx context.Context, remote string) (SyncResult, error) {
 				}
 			}
 		}
-		var pushErr error
 		pushRes, pushErr = s.syncClient.Push(ctx, remote)
-		if pushErr != nil {
-			syncErr = pushErr
-		}
 		if pushRes != nil {
 			opsPushed = writsync.CountChainUpdates(s.storer, pushRes.Updates, stopTipsBeforePush)
 		}
+	}
+
+	syncErr := fetchErr
+	if syncErr == nil {
+		syncErr = pushErr
 	}
 
 	// Invalidate the producer-vocabularies cache once the fetch step has

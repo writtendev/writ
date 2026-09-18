@@ -7,7 +7,6 @@ import (
 
 	"github.com/writtendev/writ/engine/codec"
 	"github.com/writtendev/writ/engine/scenario"
-	writsync "github.com/writtendev/writ/engine/sync"
 )
 
 var (
@@ -280,10 +279,10 @@ func TestChainRollback(t *testing.T) {
 			ObjectType:    "acme.widget",
 			TargetOpIndex: 0,
 		},
-		// 6. Bob fetches: must reject non-fast-forward update (spec/ref-layout.md §168)
+		// 6. Bob fetches: the forced fetch refspec (WRIT-270) lands the
+		// rewind instead of rejecting it (spec/ref-layout.md §Fetch refspec).
 		scenario.Fetch{
-			Device:        bobLaptop,
-			ExpectedError: writsync.ErrNonFastForward,
+			Device: bobLaptop,
 		},
 		// 7. Alice recovers by restoring local ref to op2 and appending op3
 		scenario.ResetLocalChain{

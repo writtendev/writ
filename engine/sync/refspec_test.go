@@ -67,38 +67,40 @@ func TestRefspec_EnsureIdempotentRepair(t *testing.T) {
 			initialState:  writsync.StatusMissing,
 		},
 		{
-			name: "valid writ refspec already present",
+			name: "valid (forced) writ refspec already present",
 			initialConfig: []string{
-				"refs/writ/*:refs/remotes/origin/writ/*",
+				"+refs/writ/*:refs/remotes/origin/writ/*",
 			},
 			initialState: writsync.StatusValid,
 		},
 		{
-			name: "forced writ refspec with leading plus",
+			// The pre-WRIT-270 canonical form: a real old clone's
+			// .git/config, now drift that Ensure must repair.
+			name: "unforced writ refspec (old clone, no leading plus)",
 			initialConfig: []string{
-				"+refs/writ/*:refs/remotes/origin/writ/*",
+				"refs/writ/*:refs/remotes/origin/writ/*",
 			},
-			initialState: writsync.StatusForced,
+			initialState: writsync.StatusUnforced,
 		},
 		{
 			name: "duplicate writ refspecs",
 			initialConfig: []string{
-				"refs/writ/*:refs/remotes/origin/writ/*",
-				"refs/writ/*:refs/remotes/origin/writ/*",
+				"+refs/writ/*:refs/remotes/origin/writ/*",
+				"+refs/writ/*:refs/remotes/origin/writ/*",
 			},
 			initialState: writsync.StatusDuplicate,
 		},
 		{
 			name: "wrong destination namespace",
 			initialConfig: []string{
-				"refs/writ/*:refs/writ/*",
+				"+refs/writ/*:refs/writ/*",
 			},
 			initialState: writsync.StatusWrongDestination,
 		},
 		{
 			name: "wrong destination remote",
 			initialConfig: []string{
-				"refs/writ/*:refs/remotes/other/writ/*",
+				"+refs/writ/*:refs/remotes/other/writ/*",
 			},
 			initialState: writsync.StatusWrongDestination,
 		},
@@ -188,7 +190,7 @@ func TestRefspec_EnsureIdempotentRepair(t *testing.T) {
 					foundHeads++
 				case "+refs/custom/*:refs/remotes/origin/custom/*":
 					foundCustom++
-				case "refs/writ/*:refs/remotes/origin/writ/*":
+				case "+refs/writ/*:refs/remotes/origin/writ/*":
 					foundWrit++
 				}
 			}

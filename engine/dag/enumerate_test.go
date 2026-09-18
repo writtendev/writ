@@ -422,8 +422,8 @@ func TestEnumerate_TwoReposGitFetch(t *testing.T) {
 		t.Fatalf("w1 push failed: %v (%s)", err, out)
 	}
 
-	// Writer 2 configures the normative fetch refspec: refs/writ/*:refs/remotes/origin/writ/*
-	cmdConfig := exec.Command("git", "-C", w2Dir, "config", "--add", "remote.origin.fetch", "refs/writ/*:refs/remotes/origin/writ/*")
+	// Writer 2 configures the normative fetch refspec: +refs/writ/*:refs/remotes/origin/writ/*
+	cmdConfig := exec.Command("git", "-C", w2Dir, "config", "--add", "remote.origin.fetch", "+refs/writ/*:refs/remotes/origin/writ/*")
 	if out, err := cmdConfig.CombinedOutput(); err != nil {
 		t.Fatalf("git config remote.origin.fetch failed: %v (%s)", err, out)
 	}

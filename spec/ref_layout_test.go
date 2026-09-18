@@ -98,7 +98,7 @@ func TestRefLayoutVectorsLoad(t *testing.T) {
 
 func TestRefspecsPinned(t *testing.T) {
 	doc := loadRefVectors(t)
-	const wantFetch = "refs/writ/*:refs/remotes/<remote>/writ/*"
+	const wantFetch = "+refs/writ/*:refs/remotes/<remote>/writ/*"
 	const wantPush = "refs/writ/<writer-id>/*:refs/writ/<writer-id>/*"
 	if doc.Refspecs.Fetch != wantFetch {
 		t.Errorf("fetch refspec = %q, want %q", doc.Refspecs.Fetch, wantFetch)

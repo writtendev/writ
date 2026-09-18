@@ -133,6 +133,34 @@ func TestClassifyGitError(t *testing.T) {
 			wantAdviceSub: "rejected non-fast-forward update",
 		},
 		{
+			// WRIT-270: the advice on the push path must name the real
+			// cause -- a fetch already succeeded (forced refspec), so
+			// "fetch latest ops before pushing" no longer applies.
+			name:          "non_fast_forward_rejected_push_names_real_cause",
+			remote:        "origin",
+			args:          []string{"push", "--porcelain", "origin", "refs/writ/alice/widget:refs/writ/alice/widget"},
+			inputErr:      errors.New("exit status 1"),
+			stderr:        "To origin\n!	refs/writ/alice/widget:refs/writ/alice/widget	[rejected] (non-fast-forward)\nerror: failed to push some refs to 'origin'\nhint: Updates were rejected because the tip of your current branch is behind",
+			wantKind:      sync.FailureKindRejected,
+			wantSentinel:  sync.ErrNonFastForward,
+			wantRetryable: false,
+			wantAdviceSub: "fetching will not fix it",
+		},
+		{
+			// The fetch path keeps the old wording: unreachable via a
+			// forced fetch refspec in normal operation, but ClassifyGitError
+			// is generic and must still behave sanely if ever hit.
+			name:          "non_fast_forward_rejected_fetch_keeps_old_advice",
+			remote:        "origin",
+			args:          []string{"fetch", "origin"},
+			inputErr:      errors.New("exit status 128"),
+			stderr:        "fatal: some local refs could not be updated; try running 'git remote prune origin' to remove any old, conflicting branches\n! [rejected]        refs/writ/alice/widget -> origin/writ/alice/widget  (non-fast-forward)",
+			wantKind:      sync.FailureKindRejected,
+			wantSentinel:  sync.ErrNonFastForward,
+			wantRetryable: false,
+			wantAdviceSub: "fetch latest ops before pushing",
+		},
+		{
 			name:          "repository_not_found",
 			remote:        "origin",
 			args:          []string{"fetch", "origin"},

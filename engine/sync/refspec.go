@@ -21,8 +21,9 @@ const (
 	// StatusMissing indicates no writ fetch refspec exists for the remote.
 	StatusMissing RefspecState = "missing"
 
-	// StatusForced indicates a forced (+refs/writ/...) fetch refspec exists.
-	StatusForced RefspecState = "forced"
+	// StatusUnforced indicates a non-forced (no leading '+') fetch refspec
+	// exists: the pre-WRIT-270 canonical form, now drift that Ensure repairs.
+	StatusUnforced RefspecState = "unforced"
 
 	// StatusDuplicate indicates multiple writ fetch refspecs exist for the remote.
 	StatusDuplicate RefspecState = "duplicate"
@@ -47,12 +48,13 @@ func (s RefspecStatus) Valid() bool {
 }
 
 // FetchRefspec returns the canonical fetch refspec for the given remote:
-// refs/writ/*:refs/remotes/<remote>/writ/*
+// +refs/writ/*:refs/remotes/<remote>/writ/*
 //
-// Per spec/ref-layout.md, the leading '+' is deliberately omitted so that remote
-// rollbacks surface as rejected non-fast-forwards rather than silently rewriting history.
+// Per spec/ref-layout.md, the leading '+' forces the fetch: a peer's rewind of
+// their own chain lands instead of being rejected as a non-fast-forward, so
+// one bad peer can never wedge every other writer's sync (WRIT-270).
 func FetchRefspec(remote string) string {
-	return fmt.Sprintf("refs/writ/*:refs/remotes/%s/writ/*", remote)
+	return fmt.Sprintf("+refs/writ/*:refs/remotes/%s/writ/*", remote)
 }
 
 // PushRefspec returns the canonical push refspec for the given writer ID:
@@ -121,8 +123,8 @@ func (c *Client) Check(ctx context.Context, remote string) (RefspecStatus, error
 		switch {
 		case entry == expected:
 			state = StatusValid
-		case strings.HasPrefix(entry, "+"):
-			state = StatusForced
+		case entry == strings.TrimPrefix(expected, "+"):
+			state = StatusUnforced
 		default:
 			state = StatusWrongDestination
 		}

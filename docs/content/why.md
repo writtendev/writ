@@ -55,15 +55,21 @@ $ writ sync                        # git push, to your own ref namespace
 
 That is the whole deployment story. No server, no database, no webhook, no
 account. `writ init` adds one line to `.git/config`
-(`remote.origin.fetch = refs/writ/*:refs/remotes/origin/writ/*`) and from then
+(`remote.origin.fetch = +refs/writ/*:refs/remotes/origin/writ/*`) and from then
 on an ordinary `git fetch` carries review history along with the code.
 
 Four design choices carry most of the weight:
 
-**Per-writer namespaces.** You only ever push to `refs/writ/<your-writer-id>/*`.
-Nobody else writes there, so your push can never non-fast-forward against a
-colleague's. The entire class of push conflicts disappears — which is what
-lets the sync layer stay thin enough to be boring.
+**Per-writer namespaces.** You only ever push to `refs/writ/<your-writer-id>/*`,
+so no one else's push ever races yours there — the ordinary class of push
+conflicts disappears between cooperating writers, which is what lets the
+sync layer stay thin enough to be boring. (Your own push can still land
+non-fast-forward against your own prior push — after a backup restore or a
+rebase of unpushed-but-shared history, say — but that's a conflict with
+your own past self, never with a teammate.) No git host authenticates
+per-ref ownership, though: this is a convention everyone with
+push access is trusted to follow, not an access-control guarantee, and a
+forged or overwritten op stays detectable after the fact via its signature.
 
 **Fold, not state.** Concurrent edits don't conflict; they coexist as sibling
 operations and reconcile at read time under rules the spec defines

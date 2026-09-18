@@ -1,6 +1,6 @@
 {
   "refspecs": {
-    "fetch": "refs/writ/*:refs/remotes/<remote>/writ/*",
+    "fetch": "+refs/writ/*:refs/remotes/<remote>/writ/*",
     "push": "refs/writ/<writer-id>/*:refs/writ/<writer-id>/*"
   },
   "valid": [

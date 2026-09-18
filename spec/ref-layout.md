@@ -11,9 +11,22 @@ compatibility guarantees.
 
 ## Per-writer append chains
 
-Push conflicts are structurally eliminated by giving every writer their own
-namespace: a writer only ever pushes to their own ref, so pushes cannot
-non-fast-forward against another writer.
+Every writer pushes only to their own namespace, so no other writer's push
+ever races yours there: the ordinary class of push conflicts — one writer's
+push landing non-fast-forward against another's — is structurally
+eliminated between honest, cooperating writers. A writer's own push can
+still be rejected non-fast-forward against their own prior push — a backup
+restore or a rebase of unpushed-but-shared history rewrites that writer's
+own local history, and the next plain push is rejected until they force it
+(see §Fetch refspec) — but that rejection is never caused by a second
+writer. This is not an access-control guarantee: no git host authenticates
+per-ref ownership under `refs/writ/*`, so any principal with push access to
+the repository can write (or force-push) into another writer's namespace.
+Everyone with push access is trusted not to; a forged or overwritten op
+remains detectable after the fact through its signature (`spec/signing.md`),
+even though the ref that carried it can be overwritten. Host-side
+enforcement of per-ref ownership is future work, not a property this spec
+claims today.
 
 Within a writer's namespace, operations are stored as **append chains**, one
 chain per writer per object type:
@@ -169,18 +182,34 @@ For each configured remote `<remote>`, `writ init` appends the following
 fetch refspec:
 
 ```
-remote.<remote>.fetch = refs/writ/*:refs/remotes/<remote>/writ/*
+remote.<remote>.fetch = +refs/writ/*:refs/remotes/<remote>/writ/*
 ```
 
 Command executed:
 ```bash
-git config --add remote.<remote>.fetch 'refs/writ/*:refs/remotes/<remote>/writ/*'
+git config --add remote.<remote>.fetch '+refs/writ/*:refs/remotes/<remote>/writ/*'
 ```
 
 Key properties:
-- **No leading `+` (non-forced):** Deliberately omitted so that remote
-  rollbacks or non-fast-forward updates are rejected by git (`[rejected] (non-fast-forward)`)
-  rather than silently dropping or rewriting remote history.
+- **Leading `+` (forced):** A peer force-pushing a rewind of their own chain
+  (a backup restore, a rebase of unpushed-but-shared history, or a plain
+  `--force`) is a normal, non-hostile event, not an attack to reject. A
+  non-forced refspec turns that single event into a team-wide availability
+  failure: every other writer's `writ sync` fails non-fast-forward on every
+  retry, and the rewinding peer's own unrelated ops can never reach the
+  remote either, recoverable only by raw `git fetch`/`update-ref` plumbing.
+  The forced refspec instead lets the rewind land: the local remote-tracking
+  ref for that peer moves back silently, `dag.EnumerateSince` reports the
+  chain as `Rewound`, and `engine/projection/refresh.go` falls through to a
+  full projection rebuild — the safety a non-forced refspec would have
+  bought is safety the projection layer already provides on every fetch.
+  The accepted cost: this clone's local view of the rewound peer can lose
+  ops it previously showed, silently, the moment the forced fetch runs. That
+  is not data loss — any op another writer causally built on the rewound
+  ops stays reachable from *that other writer's own chain*
+  (`ARCHITECTURE.md` §Ref layout), so nothing referenced from elsewhere in
+  the DAG disappears — but this clone's view of that writer's history can
+  move backward without warning.
 - **Remote-tracking namespace:** Fetching into `refs/remotes/<remote>/writ/*`
   keeps remote chains isolated from the local writing namespace `refs/writ/*`.
   This prevents plain `git fetch` from failing with non-fast-forward errors
