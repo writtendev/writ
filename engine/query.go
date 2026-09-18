@@ -48,6 +48,9 @@ type Query struct {
 }
 
 // Objects executes a cross-type summary query over collaborative objects.
+// Results include objects whose ops did not verify; ObjectResult.Verification
+// reports the outcome, nothing here filters on it — see the engine package
+// doc's trust model.
 func (q *Query) Objects(f ObjectFilter) ([]ObjectResult, error) {
 	if q == nil || q.store == nil {
 		return nil, fmt.Errorf("writ: store is nil")
@@ -59,6 +62,7 @@ func (q *Query) Objects(f ObjectFilter) ([]ObjectResult, error) {
 }
 
 // Object fetches summary metadata for a single collaborative object by its ID, returning ErrNotFound if not found.
+// Verification is reported on the result, not enforced; see ObjectResult.Verification.
 func (q *Query) Object(id string) (ObjectResult, error) {
 	if q == nil || q.store == nil {
 		return ObjectResult{}, fmt.Errorf("writ: store is nil")

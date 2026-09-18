@@ -2,6 +2,8 @@
 
 The `--json` flag turns `writ` into a machine-readable plumbing tool for scripts, automation, and AI agents. Every read verb supports `--json` and emits a versioned, schema-stable JSON envelope on standard output.
 
+**Trust model:** folded state includes ops whose signature did not verify. Both `object.show` and `object.list` carry a `verification` field reporting the worst outcome among an object's ops (see that field below), but nothing here filters on it: the engine reports verification rather than enforcing it, because fold must stay pure and deterministic and a locally-resolved trust store cannot be allowed to change what state an object folds to. A consumer that treats this data as authentic is responsible for checking `verification == "valid"` itself.
+
 ---
 
 ## 1. The Common Envelope
@@ -471,6 +473,12 @@ writ object show <id> --json | jq -r '.data.fields.title'
 ### Check whether an object carries any unrecognized (forward-compatibility) ops
 ```bash
 writ object show <id> --json | jq -e '.data.unknown_ops | length > 0' > /dev/null
+```
+
+### Check whether an object's signature verification is valid before trusting it
+```bash
+writ object show <id> --json | jq -e '.data.verification == "valid"' > /dev/null
+writ object list --json | jq -r '.data[] | select(.verification != "valid") | .object_id'
 ```
 
 ### Check total unsynced operations before network sync
