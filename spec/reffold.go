@@ -724,17 +724,21 @@ func uninterpretable(op MergeOp, rules []FieldRule) bool {
 }
 
 // opMatchesRule reports whether rule r governs op. An empty OpType or a zero
-// OpVersion on the rule, or a zero OpVersion on the op, matches anything; the
-// same holds for ObjectType (spec/fold.md §5), read straight off op with no
-// clock, I/O or ambient state involved.
+// OpVersion on the rule matches anything; the same holds for ObjectType
+// (spec/fold.md §5), read straight off op with no clock, I/O or ambient
+// state involved. A zero OpVersion or empty ObjectType on the op does NOT
+// also match anything (WRIT-275): the op-envelope schema requires
+// op_version >= 1 and a non-empty object_type on every op that reaches the
+// log, so that half of the wildcard was unreachable through the log and
+// existed only for a hand-built op fed straight to Fold.
 func opMatchesRule(op MergeOp, r FieldRule) bool {
 	if r.OpType != "" && r.OpType != op.OpType {
 		return false
 	}
-	if r.OpVersion != 0 && op.OpVersion != 0 && r.OpVersion != op.OpVersion {
+	if r.OpVersion != 0 && r.OpVersion != op.OpVersion {
 		return false
 	}
-	if r.ObjectType != "" && op.ObjectType != "" && r.ObjectType != op.ObjectType {
+	if r.ObjectType != "" && r.ObjectType != op.ObjectType {
 		return false
 	}
 	return true

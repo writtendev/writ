@@ -583,19 +583,22 @@ func toText(v any) any {
 }
 
 // opMatchesRuleLite mirrors engine/internal/fold's unexported opMatchesRule:
-// object_type, op_type and op_version filters, empty meaning "matches
-// anything" on either side. Position op-id derivation and unknown-field
-// detection both need this and neither can reach the internal fold package
-// (it is not on the projection's import allowlist), so it is reproduced
-// here rather than exported solely for this.
+// object_type, op_type and op_version filters, empty/zero meaning "matches
+// anything" on the rule side only (WRIT-275: the op-envelope schema
+// requires op_version >= 1 and a non-empty object_type on every op that
+// reaches the log, so an op-side zero/empty is unreachable here too).
+// Position op-id derivation and unknown-field detection both need this and
+// neither can reach the internal fold package (it is not on the
+// projection's import allowlist), so it is reproduced here rather than
+// exported solely for this.
 func opMatchesRuleLite(op codec.Op, r state.Rule) bool {
 	if r.OpType != "" && r.OpType != op.OpType {
 		return false
 	}
-	if r.OpVersion != 0 && op.OpVersion != 0 && r.OpVersion != op.OpVersion {
+	if r.OpVersion != 0 && r.OpVersion != op.OpVersion {
 		return false
 	}
-	if r.ObjectType != "" && op.ObjectType != "" && r.ObjectType != op.ObjectType {
+	if r.ObjectType != "" && r.ObjectType != op.ObjectType {
 		return false
 	}
 	return true

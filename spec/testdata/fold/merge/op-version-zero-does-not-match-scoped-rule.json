@@ -1,0 +1,24 @@
+{
+  "name": "op-version-zero-does-not-match-scoped-rule",
+  "description": "WRIT-275: opMatchesRule's op-side wildcard is dead through the log (the op-envelope schema requires op_version >= 1 and a non-empty object_type on every op that reaches it) and is removed here. This vector pins the removal directly: a rule scoped to op_version 1 and object_type 'acme.widget', against a single op that carries neither (a shape only a caller-built op fed straight to Fold, never the log, can produce). Before the fix, a zero op_version or empty object_type on the op side was itself treated as a wildcard, so this op would have matched the rule and folded 'title'. After the fix, the rule does not govern the op at all -- it matches no declared rule -- so the op contributes no field write and is quarantined into unknown_ops (spec/fold.md §7) rather than folding.",
+  "object_id": "obj-1",
+  "fields": {
+    "title": {
+      "strategy": "lww",
+      "value_type": "string",
+      "op_version": 1,
+      "object_type": "acme.widget"
+    }
+  },
+  "ops": [
+    {
+      "id": "op-1",
+      "parents": [],
+      "time": 100,
+      "object_id": "obj-1",
+      "body": { "title": "should not fold" }
+    }
+  ],
+  "expected_state": {},
+  "expected_unknown_ops": ["op-1"]
+}
