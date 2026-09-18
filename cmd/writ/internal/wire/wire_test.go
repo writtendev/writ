@@ -1,7 +1,9 @@
 package wire_test
 
 import (
+	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/writtendev/writ/cmd/writ/internal/wire"
 	"github.com/writtendev/writ/engine"
@@ -50,4 +52,92 @@ func TestWire_SyncConverters(t *testing.T) {
 	if resFail.Failure.Kind != "auth" || resFail.Failure.Message != "permission denied" || resFail.Failure.Advice != "check ssh key" || resFail.Failure.Retryable {
 		t.Errorf("resFail.Failure mismatch: %+v", resFail.Failure)
 	}
+}
+
+// TestWire_FromObjectResultSummary_ClampsOutOfRangeTimestamps is WRIT-280's
+// unit-level coverage: an out-of-range author timestamp reaching
+// created_at/updated_at must not make ObjectSummary fail to marshal
+// (time.Time.MarshalJSON refuses years outside [0,9999]) -- it must clamp
+// to the nearest RFC 3339-representable bound and carry the true value in
+// the sibling *_epoch field, while an in-range timestamp is left
+// byte-identical with no sibling field at all.
+func TestWire_FromObjectResultSummary_ClampsOutOfRangeTimestamps(t *testing.T) {
+	base := writ.ObjectResult{
+		ObjectID:     "0123456789abcdef0123456789abcdef",
+		ObjectType:   "acme.ticket",
+		Author:       writ.Author{Name: "Alice", Email: "alice@example.com"},
+		OpCount:      3,
+		Verification: "valid",
+	}
+
+	t.Run("in range", func(t *testing.T) {
+		r := base
+		r.CreatedAt = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+		r.UpdatedAt = time.Date(2026, 6, 1, 12, 30, 0, 0, time.UTC)
+
+		summary := wire.FromObjectResultSummary(r)
+		if summary.CreatedAtEpoch != nil {
+			t.Errorf("CreatedAtEpoch = %v, want nil for an in-range timestamp", *summary.CreatedAtEpoch)
+		}
+		if summary.UpdatedAtEpoch != nil {
+			t.Errorf("UpdatedAtEpoch = %v, want nil for an in-range timestamp", *summary.UpdatedAtEpoch)
+		}
+
+		got, err := json.Marshal(summary)
+		if err != nil {
+			t.Fatalf("json.Marshal: %v", err)
+		}
+		want := `{"object_id":"0123456789abcdef0123456789abcdef","object_type":"acme.ticket","author":{"name":"Alice","email":"alice@example.com"},"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-06-01T12:30:00Z","op_count":3,"verification":"valid"}`
+		if string(got) != want {
+			t.Errorf("json.Marshal(in-range) =\n%s\nwant\n%s", got, want)
+		}
+	})
+
+	t.Run("clamped upward", func(t *testing.T) {
+		r := base
+		hostile := time.Unix(300000000000, 0).UTC() // year 11476
+		r.CreatedAt = hostile
+		r.UpdatedAt = hostile
+
+		summary := wire.FromObjectResultSummary(r)
+		if summary.CreatedAtEpoch == nil || *summary.CreatedAtEpoch != 300000000000 {
+			t.Fatalf("CreatedAtEpoch = %v, want 300000000000", summary.CreatedAtEpoch)
+		}
+		if summary.UpdatedAtEpoch == nil || *summary.UpdatedAtEpoch != 300000000000 {
+			t.Fatalf("UpdatedAtEpoch = %v, want 300000000000", summary.UpdatedAtEpoch)
+		}
+
+		got, err := json.Marshal(summary)
+		if err != nil {
+			t.Fatalf("json.Marshal: %v", err)
+		}
+		want := `{"object_id":"0123456789abcdef0123456789abcdef","object_type":"acme.ticket","author":{"name":"Alice","email":"alice@example.com"},"created_at":"9999-12-31T23:59:59Z","created_at_epoch":300000000000,"updated_at":"9999-12-31T23:59:59Z","updated_at_epoch":300000000000,"op_count":3,"verification":"valid"}`
+		if string(got) != want {
+			t.Errorf("json.Marshal(clamped upward) =\n%s\nwant\n%s", got, want)
+		}
+	})
+
+	t.Run("clamped downward", func(t *testing.T) {
+		r := base
+		hostile := time.Unix(-70000000000, 0).UTC() // pre-year-0
+		r.CreatedAt = hostile
+		r.UpdatedAt = hostile
+
+		summary := wire.FromObjectResultSummary(r)
+		if summary.CreatedAtEpoch == nil || *summary.CreatedAtEpoch != -70000000000 {
+			t.Fatalf("CreatedAtEpoch = %v, want -70000000000", summary.CreatedAtEpoch)
+		}
+		if summary.UpdatedAtEpoch == nil || *summary.UpdatedAtEpoch != -70000000000 {
+			t.Fatalf("UpdatedAtEpoch = %v, want -70000000000", summary.UpdatedAtEpoch)
+		}
+
+		got, err := json.Marshal(summary)
+		if err != nil {
+			t.Fatalf("json.Marshal: %v", err)
+		}
+		want := `{"object_id":"0123456789abcdef0123456789abcdef","object_type":"acme.ticket","author":{"name":"Alice","email":"alice@example.com"},"created_at":"0000-01-01T00:00:00Z","created_at_epoch":-70000000000,"updated_at":"0000-01-01T00:00:00Z","updated_at_epoch":-70000000000,"op_count":3,"verification":"valid"}`
+		if string(got) != want {
+			t.Errorf("json.Marshal(clamped downward) =\n%s\nwant\n%s", got, want)
+		}
+	})
 }

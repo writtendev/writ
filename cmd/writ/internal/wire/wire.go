@@ -291,31 +291,85 @@ func FromObject(o writ.Object) Object {
 	}
 }
 
+// rfc3339Min and rfc3339Max are the earliest and latest instants Go's
+// strict RFC 3339 encoder (time.Time.MarshalJSON, appendStrictRFC3339)
+// will accept -- the boundaries of the four-digit year field RFC 3339
+// requires. Anything outside this range fails to marshal at all.
+var (
+	rfc3339Min = time.Date(0, 1, 1, 0, 0, 0, 0, time.UTC)
+	rfc3339Max = time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
+)
+
+// clampRFC3339 pins t into the RFC 3339-representable range [rfc3339Min,
+// rfc3339Max], returning the clamped time and, only when a clamp actually
+// fired, the true value's epoch seconds (nil otherwise).
+//
+// This exists because an object's created_at/updated_at ultimately derive
+// from a peer's commit author timestamp, which is unbounded by design:
+// git and go-git accept any signed 64-bit second count, and spec/fold.md
+// §3-4's causality-monotone total order sorts on that exact value via
+// engine/internal/fold/order.go's readyHeap.Less. Clamping anywhere at or
+// below the engine would change which value the fold and the projection
+// cache see, and therefore change fold output for the affected ops -- a
+// normative change to spec/fold.md, not a rendering concern. So the clamp
+// lives here, at the last renderer, and must never travel back up into
+// the engine: this package's job is exactly to keep engine-side facts
+// from breaking a scripted consumer's JSON decoder (see the package doc
+// comment above), and an unmarshalable timestamp is precisely that kind
+// of break.
+func clampRFC3339(t time.Time) (time.Time, *int64) {
+	switch {
+	case t.Before(rfc3339Min):
+		epoch := t.Unix()
+		return rfc3339Min, &epoch
+	case t.After(rfc3339Max):
+		epoch := t.Unix()
+		return rfc3339Max, &epoch
+	default:
+		return t, nil
+	}
+}
+
 // ObjectSummary is a single row in the `object list` cross-type output.
 // It carries no op id: ARCHITECTURE.md §Public API shape keeps the wire
 // layer schema-shaped, never git-shaped -- callers see no SHAs unless they
 // ask, and a list row is not asking. op_count is fine, since it is a count,
 // not an identifier.
+//
+// CreatedAt/UpdatedAt are clamped to the RFC 3339-representable range
+// (see clampRFC3339): a hostile or malformed peer's out-of-range author
+// timestamp must not take down --json's entire output document just
+// because time.Time.MarshalJSON refuses to encode it. CreatedAtEpoch/
+// UpdatedAtEpoch carry the true epoch seconds when (and only when) a
+// clamp fired, so the value is never silently fabricated -- their
+// presence is itself the out-of-range signal, deliberately with no
+// separate boolean flag.
 type ObjectSummary struct {
-	ObjectID     string    `json:"object_id"`
-	ObjectType   string    `json:"object_type"`
-	Author       Author    `json:"author"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-	OpCount      int       `json:"op_count"`
-	Verification string    `json:"verification"`
+	ObjectID       string    `json:"object_id"`
+	ObjectType     string    `json:"object_type"`
+	Author         Author    `json:"author"`
+	CreatedAt      time.Time `json:"created_at"`
+	CreatedAtEpoch *int64    `json:"created_at_epoch,omitempty"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	UpdatedAtEpoch *int64    `json:"updated_at_epoch,omitempty"`
+	OpCount        int       `json:"op_count"`
+	Verification   string    `json:"verification"`
 }
 
 // FromObjectResultSummary converts one cross-type object query row to wire form.
 func FromObjectResultSummary(r writ.ObjectResult) ObjectSummary {
+	createdAt, createdAtEpoch := clampRFC3339(r.CreatedAt)
+	updatedAt, updatedAtEpoch := clampRFC3339(r.UpdatedAt)
 	return ObjectSummary{
-		ObjectID:     r.ObjectID,
-		ObjectType:   r.ObjectType,
-		Author:       Author{Name: r.Author.Name, Email: r.Author.Email},
-		CreatedAt:    r.CreatedAt,
-		UpdatedAt:    r.UpdatedAt,
-		OpCount:      r.OpCount,
-		Verification: r.Verification,
+		ObjectID:       r.ObjectID,
+		ObjectType:     r.ObjectType,
+		Author:         Author{Name: r.Author.Name, Email: r.Author.Email},
+		CreatedAt:      createdAt,
+		CreatedAtEpoch: createdAtEpoch,
+		UpdatedAt:      updatedAt,
+		UpdatedAtEpoch: updatedAtEpoch,
+		OpCount:        r.OpCount,
+		Verification:   r.Verification,
 	}
 }
 

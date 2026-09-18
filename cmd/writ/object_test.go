@@ -8,9 +8,15 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/writtendev/writ/cmd/writ/internal/wire"
 	"github.com/writtendev/writ/engine"
+	"github.com/writtendev/writ/engine/codec"
+	"github.com/writtendev/writ/engine/codec/canonicaljson"
 )
 
 // ticketObjectTestSchema declares a type writ has never heard of, using the
@@ -1173,5 +1179,151 @@ func TestSchemaShowCLI_UnknownType(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "nosuchtype") {
 		t.Errorf("stderr does not name the unknown type: %q", stderr.String())
+	}
+}
+
+// writeHostileOp appends a raw op commit to refs/writ/<writerID>/<objectType>
+// in dir's repository whose author (and, per codec.DecodeCommit's
+// committer-equals-author rule, byte-identical committer) timestamp is
+// `when` -- bypassing engine/codec.BuildCommit entirely, exactly as a
+// foreign or non-conforming peer would. This is how WRIT-280's out-of-range
+// author time reaches the log at all: stock git accepts an absurd
+// GIT_AUTHOR_DATE like @300000000000 with no special tooling, and go-git's
+// commit decoder (engine/dag/objectunavailable_test.go already writes
+// commits this way for the same reason) has no bound on it either. The
+// forged commit is unsigned, which is an outcome (codec.OutcomeUnsigned),
+// not a rejection -- it still decodes, folds, and lists.
+func writeHostileOp(t *testing.T, dir, writerID, objectType, objectID, opType string, opVersion int64, body map[string]any, when time.Time) {
+	t.Helper()
+
+	repo, err := git.PlainOpen(dir)
+	if err != nil {
+		t.Fatalf("opening repo at %s: %v", dir, err)
+	}
+
+	raw, err := json.Marshal(map[string]any{
+		"object_id":   objectID,
+		"object_type": objectType,
+		"op_type":     opType,
+		"op_version":  opVersion,
+		"body":        body,
+	})
+	if err != nil {
+		t.Fatalf("marshal op payload: %v", err)
+	}
+	canon, err := canonicaljson.Marshal(raw)
+	if err != nil {
+		t.Fatalf("canonicalize op payload: %v", err)
+	}
+
+	who := codec.Identity{Name: "Foreign Client", Email: "foreign@example.com", When: when}
+	commit := &codec.Commit{
+		Author:    who,
+		Committer: who,
+		Message:   fmt.Sprintf("writ: %s %s/%s\n", opType, objectType, objectID),
+		Tree:      []codec.TreeEntry{{Name: "op.json", Mode: "100644", Data: canon}},
+	}
+
+	hash, err := codec.WriteCommit(context.Background(), repo.Storer, commit, nil)
+	if err != nil {
+		t.Fatalf("writing hostile commit: %v", err)
+	}
+
+	refName := plumbing.ReferenceName(fmt.Sprintf("refs/writ/%s/%s", writerID, objectType))
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(refName, hash)); err != nil {
+		t.Fatalf("setting ref %s: %v", refName, err)
+	}
+}
+
+// TestObjectListCLI_ClampsOutOfRangeAuthorTimestamp is WRIT-280's
+// acceptance test. A peer-controlled op commit's author timestamp is
+// unbounded (git and go-git both accept any signed 64-bit second count),
+// but time.Time.MarshalJSON refuses to encode a year outside [0, 9999] --
+// so before this fix, one such op made `object list --json` fail wholesale
+// for the entire repository, not just the hostile row (json.go's emitJSON
+// buffers the whole envelope before writing a byte). The fix clamps
+// created_at/updated_at at the wire boundary only (cmd/writ/internal/wire),
+// carrying the true value in a sibling *_epoch field so nothing is
+// silently fabricated.
+func TestObjectListCLI_ClampsOutOfRangeAuthorTimestamp(t *testing.T) {
+	env := initTestRepo(t)
+	applyTicketObjectSchema(t, env.repoDir)
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{
+		"object", "create", "-C", env.repoDir, "acme.ticket", "create",
+		"-field", "title=Healthy",
+		"--json",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("object create failed with %d; stderr: %s", code, stderr.String())
+	}
+	var healthy wire.ObjectCreated
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectCreate, &healthy)
+
+	const hostileID = "hostile-ticket-1"
+	const hostileEpoch = int64(300000000000) // year 11476; git var accepts this with no special tooling
+	hostileWhen := time.Unix(hostileEpoch, 0).UTC()
+	writeHostileOp(t, env.repoDir, "fedcba9876543210", "acme.ticket", hostileID, "create", 1,
+		map[string]any{"title": "Hostile"}, hostileWhen)
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run(context.Background(), []string{"object", "list", "-C", env.repoDir, "acme.ticket", "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("object list --json failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	var results []wire.ObjectSummary
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectList, &results)
+	if len(results) != 2 {
+		t.Fatalf("object list = %#v, want both the healthy and hostile objects", results)
+	}
+
+	var healthyRow, hostileRow *wire.ObjectSummary
+	for i := range results {
+		switch results[i].ObjectID {
+		case healthy.ObjectID:
+			healthyRow = &results[i]
+		case hostileID:
+			hostileRow = &results[i]
+		}
+	}
+	if healthyRow == nil {
+		t.Fatalf("healthy object %s missing from list: %#v", healthy.ObjectID, results)
+	}
+	if hostileRow == nil {
+		t.Fatalf("hostile object %s missing from list: %#v", hostileID, results)
+	}
+
+	if healthyRow.CreatedAtEpoch != nil || healthyRow.UpdatedAtEpoch != nil {
+		t.Errorf("healthy row carries an *_epoch key, want none: %#v", healthyRow)
+	}
+
+	if got := hostileRow.UpdatedAt.Format(time.RFC3339); got != "9999-12-31T23:59:59Z" {
+		t.Errorf("hostile row updated_at = %q, want the clamped upper bound", got)
+	}
+	if hostileRow.UpdatedAtEpoch == nil || *hostileRow.UpdatedAtEpoch != hostileEpoch {
+		t.Fatalf("hostile row updated_at_epoch = %v, want %d", hostileRow.UpdatedAtEpoch, hostileEpoch)
+	}
+
+	// Regression guard for the fold/cache invariant this fix must not
+	// break: the render-only clamp above must not have travelled inward.
+	// spec/fold.md §3-4 orders the ready set on the raw author timestamp
+	// as a signed int64 (engine/internal/fold/order.go's readyHeap.Less),
+	// and the projection is a droppable cache that must agree with it --
+	// so the engine's own query path must still see the exact epoch
+	// second the hostile commit carries, not the clamped rendering.
+	store, err := writ.Open(env.repoDir)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	result, err := store.Query.Object(hostileID)
+	if err != nil {
+		t.Fatalf("Query.Object(%s): %v", hostileID, err)
+	}
+	if result.UpdatedAt.Year() != 11476 {
+		t.Errorf("engine Query.Object UpdatedAt.Year() = %d, want 11476 -- the clamp must not travel into the engine/projection", result.UpdatedAt.Year())
 	}
 }
