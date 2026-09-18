@@ -352,6 +352,15 @@ func (s *Store) wrapSyncError(remote string, err error, unsynced int) error {
 // "writ sync --status" reporting the same contract instead of a clean
 // success for an argument the very next "writ sync" call would refuse
 // (round-1 review finding).
+//
+// The rejection still carries the true unsynced count, same as every
+// failure path of Sync itself: ComputeStatus is pure local work -- chain
+// refs and this remote's last-fetched tracking frontier, nothing that
+// needs the remote to be configured, reachable, or even a well-formed name
+// -- so there is no reason for this one path to report a fictional zero
+// while "writ sync" (also rejecting the same malformed name) reports the
+// real count for the identical repository (round-3 review finding: the two
+// used to disagree).
 func (s *Store) SyncStatus(ctx context.Context, remote string) (SyncStatus, error) {
 	if s == nil {
 		return SyncStatus{}, fmt.Errorf("writ: store is nil")
@@ -359,18 +368,24 @@ func (s *Store) SyncStatus(ctx context.Context, remote string) (SyncStatus, erro
 	if remote == "" {
 		return SyncStatus{}, fmt.Errorf("writ: remote cannot be empty")
 	}
-	if err := writsync.ValidateRemoteName(remote); err != nil {
-		return SyncStatus{}, &SyncError{
-			Remote:  remote,
-			Kind:    string(writsync.FailureKindInvalidName),
-			Message: err.Error(),
-			Err:     writsync.ErrInvalidRemoteName,
-		}
-	}
 
 	var writerID identity.WriterID
 	if s.hasIdentity {
 		writerID = s.identity.WriterID
+	}
+
+	if err := writsync.ValidateRemoteName(remote); err != nil {
+		unsynced := 0
+		if status, statusErr := writsync.ComputeStatus(s.storer, writerID, remote); statusErr == nil {
+			unsynced = status.Unsynced
+		}
+		return SyncStatus{}, &SyncError{
+			Remote:   remote,
+			Kind:     string(writsync.FailureKindInvalidName),
+			Message:  err.Error(),
+			Unsynced: unsynced,
+			Err:      writsync.ErrInvalidRemoteName,
+		}
 	}
 
 	status, err := writsync.ComputeStatus(s.storer, writerID, remote)

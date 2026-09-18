@@ -964,6 +964,110 @@ func TestInit_NoSuchRemoteWritesNoPhantomSection(t *testing.T) {
 	}
 }
 
+// TestInit_DiscoveredGhostRemoteDoesNotStrandGoodOnes is the round-3
+// regression pin (WRIT-283): "writ init" with no positional remotes
+// enumerates every remote `git remote` lists, and a url-less
+// "[remote \"ghost\"]" section -- exactly what a global
+// `remote.<name>.prune` setting leaves behind in every repository on the
+// machine -- used to make Ensure's existence gate reject it and abort the
+// *whole* run, leaving a perfectly good "origin" unconfigured too. writ
+// init must configure every discovered remote it can and only report the
+// one it could not, rather than stranding the others.
+func TestInit_DiscoveredGhostRemoteDoesNotStrandGoodOnes(t *testing.T) {
+	env := setupTestCLIEnv(t)
+
+	addRemote(t, env.repoDir, "origin", "https://example.com/origin.git")
+	// A url-less remote section: `git remote` lists it, RemoteConfigured
+	// (remote.<name>.url or .pushurl) does not.
+	setGitConfig(t, env.repoDir, "remote.ghost.prune", "true")
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("init exited with %d, want 1 (partial: one discovered remote skipped); stderr: %s", code, stderr.String())
+	}
+
+	originFetch := getGitConfigAll(t, env.repoDir, "remote.origin.fetch")
+	if len(originFetch) == 0 || originFetch[len(originFetch)-1] != "+refs/writ/*:refs/remotes/origin/writ/*" {
+		t.Errorf("origin fetch refspec = %v, want the canonical entry -- origin must not be stranded by ghost's failure", originFetch)
+	}
+	if entries := getGitConfigAll(t, env.repoDir, "remote.ghost.fetch"); len(entries) != 0 {
+		t.Errorf("remote.ghost.fetch = %v, want no such key -- ghost has no url, nothing should be written for it", entries)
+	}
+
+	report := stderr.String()
+	for _, want := range []string{"ghost", "origin"} {
+		if !strings.Contains(report, want) {
+			t.Errorf("stderr does not mention %q:\n%s", want, report)
+		}
+	}
+	if strings.Contains(report, "stopped part-way") {
+		t.Errorf("stderr says the run stopped part-way, but every remote it could configure, it did:\n%s", report)
+	}
+
+	// Identity was still minted despite the skipped remote: nothing else in
+	// the run was abandoned because of it.
+	if writerID := getGitConfigAll(t, env.repoDir, "writ.writerId"); len(writerID) != 1 {
+		t.Errorf("writ.writerId = %v, want exactly one -- identity setup must not be skipped either", writerID)
+	}
+}
+
+// TestInit_DiscoveredDashLeadingRemoteDoesNotStrandGoodOnes covers the
+// finding's second reproduction: a "-"-leading remote name is a
+// `git remote add --` invocation git itself accepts, so a repository can
+// legitimately contain one that `writ init`'s own enumeration then
+// discovers and Check's ValidateRemoteName rejects.
+func TestInit_DiscoveredDashLeadingRemoteDoesNotStrandGoodOnes(t *testing.T) {
+	env := setupTestCLIEnv(t)
+
+	addRemote(t, env.repoDir, "origin", "https://example.com/origin.git")
+	cmd := exec.Command("git", "remote", "add", "--", "-x", "https://example.com/dash.git")
+	cmd.Dir = env.repoDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git remote add -- -x failed: %v (%s)", err, string(out))
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("init exited with %d, want 1 (partial: one discovered remote skipped); stderr: %s", code, stderr.String())
+	}
+
+	originFetch := getGitConfigAll(t, env.repoDir, "remote.origin.fetch")
+	if len(originFetch) == 0 || originFetch[len(originFetch)-1] != "+refs/writ/*:refs/remotes/origin/writ/*" {
+		t.Errorf("origin fetch refspec = %v, want the canonical entry -- origin must not be stranded by -x's rejection", originFetch)
+	}
+	for _, entry := range getGitConfigAll(t, env.repoDir, "remote.-x.fetch") {
+		if strings.Contains(entry, "writ") {
+			t.Errorf("remote.-x.fetch = %q, want no writ refspec -- -x was rejected, nothing writ-specific should be written for it", entry)
+		}
+	}
+	if !strings.Contains(stderr.String(), "-x") {
+		t.Errorf("stderr does not mention the skipped remote -x:\n%s", stderr.String())
+	}
+}
+
+// TestInit_ExplicitBadRemoteStillAbortsAmongGoodOnes pins the other half of
+// the round-3 distinction this ticket draws: a remote named explicitly on
+// the command line keeps the pre-existing abort-on-first-error behaviour
+// even when a good remote was named alongside it, because it is the
+// caller's own argument, not something writ init merely discovered.
+func TestInit_ExplicitBadRemoteStillAbortsAmongGoodOnes(t *testing.T) {
+	env := setupTestCLIEnv(t)
+
+	addRemote(t, env.repoDir, "origin", "https://example.com/origin.git")
+	setGitConfig(t, env.repoDir, "remote.ghost.prune", "true")
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns", "origin", "ghost"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("init origin ghost exited with %d, want 1; stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "stopped part-way") {
+		t.Errorf("stderr = %q, want the explicit-remote abort report (\"stopped part-way\")", stderr.String())
+	}
+}
+
 func TestInit_BareRepository(t *testing.T) {
 	requireGit(t)
 	tempDir := t.TempDir()
