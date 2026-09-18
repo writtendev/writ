@@ -35,7 +35,9 @@ package projection
 // case-sensitive, changing what a cached verification value means for a
 // case-mismatched op without touching a column, so an existing checkout
 // must re-verify rather than keep serving the stale outcome.
-const schemaVersion = 17
+// 18: WRIT-275 dropped the objects table's last_op_id column
+// (ObjectResult.LastOpID leaked a raw commit SHA on the query surface).
+const schemaVersion = 18
 
 // substrateTables lists the type-agnostic tables created unconditionally at
 // Open, before any schema is ever applied: meta, chain_tips, code_tips, ops,
@@ -111,7 +113,6 @@ CREATE TABLE IF NOT EXISTS objects (
     object_id TEXT PRIMARY KEY,
     object_type TEXT NOT NULL,
     op_count INTEGER NOT NULL,
-    last_op_id TEXT NOT NULL,
     author_name TEXT NOT NULL,
     author_email TEXT NOT NULL,
     created_at INTEGER NOT NULL,

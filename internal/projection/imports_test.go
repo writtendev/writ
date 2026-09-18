@@ -63,9 +63,7 @@ func TestImportsAllowlist(t *testing.T) {
 // TestDomainShapedResultTypes performs a reflection walk across all exported query result types
 // to ensure no git SHAs, refnames, or refspecs leak to callers beyond the allowed domain content fields.
 func TestDomainShapedResultTypes(t *testing.T) {
-	allowedFields := map[string]bool{
-		"LastOpID": true, // object summary op id
-	}
+	allowedFields := map[string]bool{}
 
 	disallowedSubstrings := []string{
 		"sha", "refspec", "refname", "gitref", "branch",

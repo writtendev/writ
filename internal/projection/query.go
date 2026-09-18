@@ -27,7 +27,6 @@ type ObjectResult struct {
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 	OpCount    int       `json:"op_count"`
-	LastOpID   string    `json:"last_op_id"`
 	// Verification is the worst signature-verification outcome (WRIT-251
 	// ruling 3's ordering) among the object's contributing ops, cached in
 	// the objects table's own column by the materializer at Refresh/Rebuild
@@ -186,7 +185,7 @@ func (d *DB) Objects(f ObjectFilter) ([]ObjectResult, error) {
 	var sb strings.Builder
 	var args []any
 
-	sb.WriteString("SELECT o.object_id, o.object_type, o.op_count, o.last_op_id, ")
+	sb.WriteString("SELECT o.object_id, o.object_type, o.op_count, ")
 	sb.WriteString("o.author_name, o.author_email, o.created_at, o.updated_at, o.verification ")
 	sb.WriteString("FROM objects o WHERE 1=1")
 
@@ -255,7 +254,7 @@ func (d *DB) Objects(f ObjectFilter) ([]ObjectResult, error) {
 		var or ObjectResult
 		var createdAt, updatedAt int64
 		if err := rows.Scan(
-			&or.ObjectID, &or.ObjectType, &or.OpCount, &or.LastOpID,
+			&or.ObjectID, &or.ObjectType, &or.OpCount,
 			&or.Author.Name, &or.Author.Email, &createdAt, &updatedAt, &or.Verification,
 		); err != nil {
 			return nil, fmt.Errorf("projection: scan object: %w", err)
@@ -291,14 +290,13 @@ func (d *DB) Object(objectID string) (ObjectResult, error) {
 	)
 
 	err := d.db.QueryRow(`
-		SELECT object_id, object_type, op_count, last_op_id, author_name, author_email, created_at, updated_at, verification
+		SELECT object_id, object_type, op_count, author_name, author_email, created_at, updated_at, verification
 		FROM objects
 		WHERE object_id = ?
 	`, objectID).Scan(
 		&res.ObjectID,
 		&res.ObjectType,
 		&res.OpCount,
-		&res.LastOpID,
 		&res.Author.Name,
 		&res.Author.Email,
 		&createdAtSec,

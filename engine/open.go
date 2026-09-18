@@ -221,9 +221,6 @@ func Open(path string, opts ...Option) (*Store, error) {
 		return nil, fmt.Errorf("writ: open sync client: %w: %w", ErrStoreOpen, err)
 	}
 
-	// Load repo ID
-	localRepoID, _ := identity.LoadRepoID(context.Background(), repoDir)
-
 	s = &Store{
 		gitInfo:          gitInfo,
 		storer:           storer,
@@ -238,7 +235,6 @@ func Open(path string, opts ...Option) (*Store, error) {
 		signerErr:        signerErr,
 		autoRefresh:      cfg.autoRefresh,
 		targetRefs:       cfg.targetRefs,
-		localRepoID:      string(localRepoID),
 		trustSignersPath: trustSignersPath,
 	}
 
@@ -275,7 +271,6 @@ func Open(path string, opts ...Option) (*Store, error) {
 	}
 
 	s.Objects = &Objects{store: s}
-	s.ReadState = &ReadState{store: s}
 	s.Query = &Query{store: s}
 
 	return s, nil

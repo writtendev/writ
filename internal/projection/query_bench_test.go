@@ -45,7 +45,7 @@ func seedBenchDB(tb testing.TB, db *projection.DB) {
 	defer func() { _ = tx.Rollback() }()
 
 	// Bulk insert records and their object rows
-	objStmt, err := tx.Prepare("INSERT INTO objects (object_id, object_type, op_count, last_op_id, author_name, author_email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+	objStmt, err := tx.Prepare("INSERT INTO objects (object_id, object_type, op_count, author_name, author_email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		tb.Fatalf("prepare objects: %v", err)
 	}
@@ -77,7 +77,7 @@ func seedBenchDB(tb testing.TB, db *projection.DB) {
 		status := statuses[i%len(statuses)]
 		createdAt := int64(1700000000 + i*10)
 
-		if _, err := objStmt.Exec(recID, "record", 1, "op-"+recID, author.name, author.email, createdAt, createdAt); err != nil {
+		if _, err := objStmt.Exec(recID, "record", 1, author.name, author.email, createdAt, createdAt); err != nil {
 			tb.Fatalf("insert record object: %v", err)
 		}
 		if _, err := recStmt.Exec(recID, fmt.Sprintf("Record %d for feature", i), status); err != nil {

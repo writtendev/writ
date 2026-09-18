@@ -34,9 +34,10 @@ func TestOpenCloseMemory(t *testing.T) {
 	// and unknown_ops so ingest-time signature verification has somewhere
 	// to be cached. WRIT-278 took it to 17: sshsig principal/namespace
 	// matching became case-sensitive, changing what a cached verification
-	// value means without touching a column.
-	if v := projection.SchemaVersion(); v != 17 {
-		t.Fatalf("expected schema version 17, got %d", v)
+	// value means without touching a column. WRIT-275 took it to 18,
+	// dropping the objects table's last_op_id column.
+	if v := projection.SchemaVersion(); v != 18 {
+		t.Fatalf("expected schema version 18, got %d", v)
 	}
 
 	var version string
@@ -60,7 +61,7 @@ func TestSchemaVersionMismatchRecreates(t *testing.T) {
 	}
 
 	// Insert dummy object row
-	_, err = db.DB().Exec("INSERT INTO objects (object_id, object_type, op_count, last_op_id, author_name, author_email, created_at, updated_at) VALUES ('obj-1', 'widget', 1, 'sha-1', 'alice', 'alice@example.com', 100, 100)")
+	_, err = db.DB().Exec("INSERT INTO objects (object_id, object_type, op_count, author_name, author_email, created_at, updated_at) VALUES ('obj-1', 'widget', 1, 'alice', 'alice@example.com', 100, 100)")
 	if err != nil {
 		t.Fatalf("insert dummy object failed: %v", err)
 	}
@@ -107,7 +108,7 @@ func TestMemoryConnectionPooling(t *testing.T) {
 	defer db.Close()
 
 	// Insert an initial row into objects to ensure data is shared across all concurrent workers.
-	_, err = db.DB().Exec("INSERT INTO objects (object_id, object_type, op_count, last_op_id, author_name, author_email, created_at, updated_at) VALUES ('obj-pool-1', 'widget', 1, 'sha-1', 'alice', 'alice@example.com', 100, 100)")
+	_, err = db.DB().Exec("INSERT INTO objects (object_id, object_type, op_count, author_name, author_email, created_at, updated_at) VALUES ('obj-pool-1', 'widget', 1, 'alice', 'alice@example.com', 100, 100)")
 	if err != nil {
 		t.Fatalf("insert object failed: %v", err)
 	}
@@ -295,7 +296,7 @@ func TestFileStoreConcurrency(t *testing.T) {
 				}
 				objID := fmt.Sprintf("obj-w%d-%d", workerID, j)
 				_, err = tx.Exec(
-					"INSERT INTO objects (object_id, object_type, op_count, last_op_id, author_name, author_email, created_at, updated_at) VALUES (?, 'widget', 1, 'sha-1', 'alice', 'alice@example.com', 100, 100)",
+					"INSERT INTO objects (object_id, object_type, op_count, author_name, author_email, created_at, updated_at) VALUES (?, 'widget', 1, 'alice', 'alice@example.com', 100, 100)",
 					objID,
 				)
 				if err != nil {

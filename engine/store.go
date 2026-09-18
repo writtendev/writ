@@ -42,9 +42,6 @@ type Store struct {
 	// collaborative objects of any schema-declared type.
 	Objects *Objects
 
-	// ReadState provides local read/unread tracking across collaborative objects.
-	ReadState *ReadState
-
 	// Query provides read queries over collaborative objects.
 	Query *Query
 
@@ -61,7 +58,6 @@ type Store struct {
 	signerErr   error
 	autoRefresh bool
 	targetRefs  []string
-	localRepoID string
 	closed      bool
 	subscribers []*subscriber
 	mu          sync.Mutex
@@ -191,18 +187,6 @@ func (s *Store) Close() error {
 		}
 	}
 	return errors.Join(errs...)
-}
-
-// Ref returns the fully-qualified reference string (<local-repo-id>#<object-id>) for a local
-// object ID when a local repo-id is known, or the bare objectID otherwise.
-func (s *Store) Ref(objectID string) string {
-	if s == nil || objectID == "" {
-		return objectID
-	}
-	if s.localRepoID != "" {
-		return s.localRepoID + "#" + objectID
-	}
-	return objectID
 }
 
 // resolveRulesForProjection checks s.closed and, if the store is open,

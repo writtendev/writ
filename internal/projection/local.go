@@ -7,13 +7,6 @@ import (
 	"time"
 )
 
-// ReadMark represents a local read mark for an object.
-type ReadMark struct {
-	ObjectID     string    `json:"object_id"`
-	LastReadAt   time.Time `json:"last_read_at"`
-	LastReadOpID string    `json:"last_read_op_id,omitempty"`
-}
-
 // SyncCursor represents the recorded tip and timestamp of a synced remote chain ref.
 type SyncCursor struct {
 	Remote       string    `json:"remote"`
@@ -28,80 +21,6 @@ func (d *DB) LocalDB() *sql.DB {
 		return nil
 	}
 	return d.localDB
-}
-
-// MarkRead marks an object as read with the given timestamp and last-read op ID.
-func (d *DB) MarkRead(objectID, lastReadOpID string, readAt time.Time) error {
-	if d == nil || d.localDB == nil {
-		return fmt.Errorf("projection: local database is closed")
-	}
-
-	if readAt.IsZero() {
-		readAt = time.Now().UTC()
-	}
-
-	_, err := d.localDB.Exec(`
-		INSERT OR REPLACE INTO read_state (object_id, last_read_at, last_read_op_id)
-		VALUES (?, ?, ?)
-	`, objectID, readAt.Unix(), lastReadOpID)
-	if err != nil {
-		return fmt.Errorf("projection: mark read %s: %w", objectID, err)
-	}
-
-	return nil
-}
-
-// ClearRead removes the read mark for an object.
-func (d *DB) ClearRead(objectID string) error {
-	if d == nil || d.localDB == nil {
-		return fmt.Errorf("projection: local database is closed")
-	}
-
-	_, err := d.localDB.Exec("DELETE FROM read_state WHERE object_id = ?", objectID)
-	if err != nil {
-		return fmt.Errorf("projection: clear read %s: %w", objectID, err)
-	}
-
-	return nil
-}
-
-// ReadMarks returns a map of read marks for the given object IDs (or all read marks if no IDs are specified).
-func (d *DB) ReadMarks(objectIDs ...string) (map[string]ReadMark, error) {
-	if d == nil || d.localDB == nil {
-		return nil, fmt.Errorf("projection: local database is closed")
-	}
-
-	var sb strings.Builder
-	var args []any
-
-	sb.WriteString("SELECT object_id, last_read_at, last_read_op_id FROM read_state")
-	if len(objectIDs) > 0 {
-		sb.WriteString(" WHERE object_id IN (" + placeholders(len(objectIDs)) + ")")
-		for _, id := range objectIDs {
-			args = append(args, id)
-		}
-	}
-
-	rows, err := d.localDB.Query(sb.String(), args...)
-	if err != nil {
-		return nil, fmt.Errorf("projection: query read marks: %w", err)
-	}
-	defer rows.Close()
-
-	marks := make(map[string]ReadMark)
-	for rows.Next() {
-		var (
-			m           ReadMark
-			lastReadSec int64
-		)
-		if err := rows.Scan(&m.ObjectID, &lastReadSec, &m.LastReadOpID); err != nil {
-			return nil, fmt.Errorf("projection: scan read mark: %w", err)
-		}
-		m.LastReadAt = time.Unix(lastReadSec, 0).UTC()
-		marks[m.ObjectID] = m
-	}
-
-	return marks, rows.Err()
 }
 
 // SetSyncCursor records the sync cursor tip and timestamp for a remote and ref name.
