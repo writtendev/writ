@@ -1,9 +1,12 @@
 package writ_test
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/writtendev/writ/engine"
 )
@@ -31,17 +34,26 @@ func TestAPIShapeNoGitInternalsLeak(t *testing.T) {
 		writ.Writer{},
 	}
 
+	report := func(format string, args ...any) { t.Errorf(format, args...) }
+
 	for _, target := range targets {
 		typ := reflect.TypeOf(target)
-		checkType(t, typ, make(map[reflect.Type]bool))
+		checkType(report, typ, make(map[reflect.Type]bool))
 
 		// Check pointer methods
 		ptrTyp := reflect.PointerTo(typ)
-		checkType(t, ptrTyp, make(map[reflect.Type]bool))
+		checkType(report, ptrTyp, make(map[reflect.Type]bool))
 	}
 }
 
-func checkType(t *testing.T, typ reflect.Type, visited map[reflect.Type]bool) {
+// checkType walks typ's exported methods and, for a struct, its exported
+// fields — recursing through pointer, slice, array, and map key/value
+// element types so a composite field's own named type is reached before
+// it is tested — reporting any git-plumbing leak found along the way
+// through report. report is threaded through rather than a *testing.T
+// directly so a capturing caller (TestAPILeakGuardBites) can collect
+// findings instead of failing the test outright.
+func checkType(report func(format string, args ...any), typ reflect.Type, visited map[reflect.Type]bool) {
 	if typ == nil || visited[typ] {
 		return
 	}
@@ -58,50 +70,118 @@ func checkType(t *testing.T, typ reflect.Type, visited map[reflect.Type]bool) {
 		// Check parameter types
 		for p := 0; p < mType.NumIn(); p++ {
 			inType := mType.In(p)
-			assertNoGitLeak(t, typ.String()+"."+m.Name+" input", inType)
+			assertNoGitLeak(report, typ.String()+"."+m.Name+" input", inType)
 		}
 		// Check return types
 		for r := 0; r < mType.NumOut(); r++ {
 			outType := mType.Out(r)
-			assertNoGitLeak(t, typ.String()+"."+m.Name+" output", outType)
+			assertNoGitLeak(report, typ.String()+"."+m.Name+" output", outType)
 		}
 	}
 
-	// Check struct fields if struct
-	if typ.Kind() == reflect.Struct {
+	// Check struct fields if struct, or recurse into a composite's
+	// element type(s) otherwise.
+	switch typ.Kind() {
+	case reflect.Struct:
 		for i := 0; i < typ.NumField(); i++ {
 			f := typ.Field(i)
 			if !f.IsExported() {
 				continue
 			}
-			assertNoGitLeak(t, typ.String()+"."+f.Name+" field", f.Type)
-			checkType(t, f.Type, visited)
+			assertNoGitLeak(report, typ.String()+"."+f.Name+" field", f.Type)
+			checkType(report, f.Type, visited)
 		}
-	} else if typ.Kind() == reflect.Pointer || typ.Kind() == reflect.Slice || typ.Kind() == reflect.Array {
-		checkType(t, typ.Elem(), visited)
+	case reflect.Pointer, reflect.Slice, reflect.Array:
+		checkType(report, typ.Elem(), visited)
+	case reflect.Map:
+		checkType(report, typ.Key(), visited)
+		checkType(report, typ.Elem(), visited)
 	}
 }
 
-// internal/codec and internal/projection are deliberately absent here:
-// writ.Envelope, writ.Op, and writ.Vocabularies are type aliases for
-// codec types, and writ.ObjectFilter, writ.OrderBy, writ.ObjectResult,
-// writ.Author, writ.RefreshStats, and writ.ObjectChange are type aliases
-// for projection types — all reachable on the public surface by design
-// (see engine/fold.go and engine/query.go). Listing either prefix here
-// would false-positive on that intentional exposure; do not add them
-// back. internal/dag. is not clean either, though: writ.RefreshStats (the
-// projection.Stats alias above) has an exported Rejections []dag.Rejection
-// field that api/engine.txt's alias rendering doesn't expand, so whoever
-// repairs WRIT-298's trailing-dot matching must decide what to do about
-// that exposure rather than assume the retained entries are already safe.
+// forbiddenPackagePrefixes asserts writ's one narrow claim: go-git plumbing
+// must not reach a caller of the public API. Root-package aliases to
+// internal types are intentional (WRIT-287) — writ.Op, writ.Envelope,
+// writ.Rejection, writ.RejectReason, and the rest exist precisely so a
+// caller never has to name internal/codec, internal/dag, or internal/state
+// — so this list is necessarily package-granular, not type-granular:
+// banning an internal package wholesale would false-positive on exactly
+// the aliasing WRIT-287 designed (internal/codec and internal/projection
+// are deliberately absent for that reason, and internal/dag joined them in
+// WRIT-298 once writ.Rejection made its exposure through RefreshStats.Rejections
+// intentional too). It also cannot be worked around by aliasing instead of
+// omitting: reflection sees through a type alias, so writ.Rejection and
+// dag.Rejection are the same reflect.Type, indistinguishable to this test.
+// An intentional exposure is therefore expressed by leaving its package off
+// this list, never by wrapping or aliasing it.
 var forbiddenPackagePrefixes = []string{
 	"github.com/go-git/go-git",
-	"github.com/writtendev/writ/internal/dag.",
-	"github.com/writtendev/writ/internal/identity.",
-	"github.com/writtendev/writ/internal/sync.",
-	"plumbing.",
-	"object.",
-	"storer.",
+	"github.com/writtendev/writ/internal/identity",
+	"github.com/writtendev/writ/internal/sync",
+}
+
+// TestAPILeakGuardBites proves TestAPIShapeNoGitInternalsLeak's walk
+// actually fires rather than reporting green because it checks nothing
+// (WRIT-298) — a green run against a corrected forbiddenPackagePrefixes
+// proves nothing on its own; this test is what does the proving in CI.
+func TestAPILeakGuardBites(t *testing.T) {
+	t.Run("go-git type on an exported field", func(t *testing.T) {
+		type leaky struct {
+			Hash plumbing.Hash
+		}
+		var findings []string
+		report := func(format string, args ...any) { findings = append(findings, fmt.Sprintf(format, args...)) }
+
+		checkType(report, reflect.TypeOf(leaky{}), make(map[reflect.Type]bool))
+
+		if len(findings) == 0 {
+			t.Fatal("expected a finding for leaky.Hash (plumbing.Hash), got none — the guard is not firing")
+		}
+		if !containsSubstring(findings, "leaky.Hash field") {
+			t.Errorf("findings did not name leaky.Hash field: %v", findings)
+		}
+	})
+
+	t.Run("go-git type behind a map", func(t *testing.T) {
+		type leakyMap struct {
+			Hashes map[string]plumbing.Hash
+		}
+		var findings []string
+		report := func(format string, args ...any) { findings = append(findings, fmt.Sprintf(format, args...)) }
+
+		checkType(report, reflect.TypeOf(leakyMap{}), make(map[reflect.Type]bool))
+
+		if len(findings) == 0 {
+			t.Fatal("expected a finding for leakyMap.Hashes (map[string]plumbing.Hash), got none — a composite type behind a map has no PkgPath of its own, so the walk must recurse through map key/value element types to ever reach plumbing.Hash")
+		}
+	})
+
+	t.Run("intentional aliases stay clean", func(t *testing.T) {
+		// writ.RefreshStats carries dag.Rejection (via Rejections) and
+		// codec.RejectReason (via Rejection.Reason), plus the projection
+		// types it already aliases — every one of them intentional
+		// (WRIT-287, and WRIT-298's own ruling for the dag.Rejection
+		// case). A corrected matcher firing on any of them would be
+		// exactly the trap WRIT-287's round 1 fell into: a stricter
+		// check catching intentional API instead of a real leak.
+		var findings []string
+		report := func(format string, args ...any) { findings = append(findings, fmt.Sprintf(format, args...)) }
+
+		checkType(report, reflect.TypeOf(writ.RefreshStats{}), make(map[reflect.Type]bool))
+
+		if len(findings) != 0 {
+			t.Errorf("writ.RefreshStats produced findings, want none: %v", findings)
+		}
+	})
+}
+
+func containsSubstring(haystack []string, substr string) bool {
+	for _, s := range haystack {
+		if strings.Contains(s, substr) {
+			return true
+		}
+	}
+	return false
 }
 
 // TestObjectOmitsOpCommitSHAs pins the narrower of the two claims Object's
@@ -197,23 +277,53 @@ func reachesType(typ, target reflect.Type, visited map[reflect.Type]bool) bool {
 	return false
 }
 
-func assertNoGitLeak(t *testing.T, context string, typ reflect.Type) {
-	t.Helper()
+// assertNoGitLeak reports, through report, whether typ (or, for a
+// composite, the named type reachable from it) has a package path matching
+// one of forbiddenPackagePrefixes. Matching is on PkgPath alone, at package
+// granularity: pkgPath == forbidden (the package itself) or
+// strings.HasPrefix(pkgPath, forbidden+"/") (a subpackage of it) — never a
+// substring match, and never on typ.String(), so a short local name like
+// "plumbing" cannot accidentally shadow-match an unrelated identifier the
+// way a bare "plumbing." substring check once could. Every forbidden go-git
+// package sits under the github.com/go-git/go-git module prefix, so the
+// old short-name entries for plumbing/object/storer were redundant with it,
+// not a relaxation, once this walk also recurses through map keys and
+// values below.
+func assertNoGitLeak(report func(format string, args ...any), context string, typ reflect.Type) {
 	if typ == nil {
 		return
 	}
 
-	// Unwrap pointer / slice / array / map
-	for typ.Kind() == reflect.Pointer || typ.Kind() == reflect.Slice || typ.Kind() == reflect.Array {
+	// Unwrap an *unnamed* pointer/slice/array down to the type the walk
+	// actually tests, stopping the moment a named type is reached: a named
+	// type (plumbing.Hash, itself Kind Array) is the thing under test, not
+	// a wrapper around it, and unwrapping past it would throw away its
+	// identity and check its unnamed element type (byte) instead — never
+	// matching anything. A map's key and value are two independent
+	// branches a single unwrap can't express — without recursing into
+	// them, a composite type reachable only through a map (e.g.
+	// map[string]plumbing.Hash) has no PkgPath of its own and would be
+	// invisible to the check below.
+	for {
+		if typ.Kind() == reflect.Map {
+			assertNoGitLeak(report, context, typ.Key())
+			assertNoGitLeak(report, context, typ.Elem())
+			return
+		}
+		if typ.Name() != "" {
+			break
+		}
+		if typ.Kind() != reflect.Pointer && typ.Kind() != reflect.Slice && typ.Kind() != reflect.Array {
+			break
+		}
 		typ = typ.Elem()
 	}
 
-	typeName := typ.String()
 	pkgPath := typ.PkgPath()
 
 	for _, forbidden := range forbiddenPackagePrefixes {
-		if strings.Contains(typeName, forbidden) || strings.Contains(pkgPath, forbidden) {
-			t.Errorf("API boundary leak in %s: type %q (package %q) leaks internal git/engine type", context, typeName, pkgPath)
+		if pkgPath == forbidden || strings.HasPrefix(pkgPath, forbidden+"/") {
+			report("API boundary leak in %s: type %q (package %q) leaks internal git/engine type", context, typ.String(), pkgPath)
 		}
 	}
 }

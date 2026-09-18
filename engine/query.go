@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/writtendev/writ/internal/codec"
+	"github.com/writtendev/writ/internal/dag"
 	"github.com/writtendev/writ/internal/projection"
 )
 
@@ -26,6 +28,13 @@ type (
 
 	// ObjectChange describes the modifications made to a collaborative object in an incremental refresh batch.
 	ObjectChange = projection.ObjectChange
+
+	// Rejection records an op commit that failed reader validation, as
+	// reported by RefreshStats.Rejections.
+	Rejection = dag.Rejection
+
+	// RejectReason is the machine-readable reason a Rejection carries.
+	RejectReason = codec.RejectReason
 )
 
 const (
@@ -40,6 +49,12 @@ const (
 
 	// OrderByUpdatedAtDesc sorts results by updated_at descending.
 	OrderByUpdatedAtDesc = projection.OrderByUpdatedAtDesc
+
+	// RejectObjectUnavailable reports that a commit, tree, or op.json blob an
+	// op-commit chain references is not present in this clone — a partial
+	// clone missing an object, most commonly. It is engine-local, not part
+	// of spec/op-envelope.md's closed reader-validation rejection set.
+	RejectObjectUnavailable = dag.RejectObjectUnavailable
 )
 
 // Query provides read queries over collaborative objects, served from the projection SQLite cache.
