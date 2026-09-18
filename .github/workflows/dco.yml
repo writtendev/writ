@@ -25,15 +25,8 @@ jobs:
         run: |
           set -euo pipefail
           merge_base=$(git merge-base "$BASE_SHA" "$HEAD_SHA")
-          commits=$(git rev-list --no-merges "$merge_base..$HEAD_SHA")
-          missing=0
-          for sha in $commits; do
-            if ! git log -1 --format='%B' "$sha" | grep -E -qi '^Signed-off-by: .+ <.+>$'; then
-              echo "::error::commit $sha has no Signed-off-by trailer (see CONTRIBUTING.md)"
-              missing=1
-            fi
-          done
-          exit "$missing"
+          mapfile -t commits < <(git rev-list --no-merges "$merge_base..$HEAD_SHA")
+          .github/scripts/check-dco-trailer.sh "${commits[@]}"
 
   dco-landed:
     if: github.event_name == 'push'
@@ -56,15 +49,8 @@ jobs:
           set -euo pipefail
           zero_sha="0000000000000000000000000000000000000000"
           if [ "$BEFORE_SHA" = "$zero_sha" ]; then
-            commits="$AFTER_SHA"
+            commits=("$AFTER_SHA")
           else
-            commits=$(git rev-list --no-merges "$BEFORE_SHA..$AFTER_SHA")
+            mapfile -t commits < <(git rev-list --no-merges "$BEFORE_SHA..$AFTER_SHA")
           fi
-          missing=0
-          for sha in $commits; do
-            if ! git log -1 --format='%B' "$sha" | grep -E -qi '^Signed-off-by: .+ <.+>$'; then
-              echo "::error::commit $sha has no Signed-off-by trailer (see CONTRIBUTING.md)"
-              missing=1
-            fi
-          done
-          exit "$missing"
+          .github/scripts/check-dco-trailer.sh "${commits[@]}"

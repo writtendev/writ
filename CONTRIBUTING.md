@@ -109,15 +109,19 @@ trailer and the author legitimately differ on the commit that actually
 lands on `main` — the sign-off identifies your GitHub account, which is
 what the DCO's attributable assertion of right-to-contribute needs, not the
 per-commit author identity. If you forgot on your last commit,
-`git commit --amend -s` fixes it. The DCO check enforces this on every
-pull request and, separately, on the commit that lands on `main`.
+`git commit --amend -s` fixes it. The DCO check verifies a well-formed
+trailer on every pull request and, separately, on the commit that lands on
+`main`; that the email is yours is your assertion, not something the check
+can confirm — a repo-scoped token can't enumerate the addresses on your
+GitHub account.
 
 This rule applies to every commit that lands on `main` from the commit that
 introduced this paragraph forward; commits before it are not rewritten to
 match. At `144a3b7`, of 235 non-merge commits on `main`, 12 carried no
 `Signed-off-by` trailer at all and 85 carried one whose email did not equal
-the (pre-squash) commit author's email — the shape this section's earlier,
-stricter wording made unsatisfiable by a squash-merge workflow.
+the commit author's email as recorded on `main` — the squash-rewritten,
+post-merge address — the shape this section's earlier, stricter wording
+made unsatisfiable by a squash-merge workflow.
 
 ## Build and test
 
