@@ -158,21 +158,33 @@ func reportPartialInit(stderr io.Writer, writerID identity.WriterID, repoID iden
 // completion. This is what step 6 prints instead of aborting when Ensure's
 // existence/name gate rejects a *discovered* remote (a url-less section, or
 // a "-"-leading name) rather than one the caller asked for by name; see that
-// step's comment for why the two cases are treated differently.
+// step's comment for why the two cases are treated differently, and for why
+// this function does not print one remedy for both: "git remote remove
+// <name>" is right advice for a real, named remote (it has a url, so the
+// command works) but errors on a url-less phantom section -- exactly the
+// common case a global remote.<name>.prune leaves behind (WRIT-283). The
+// per-remote line printed at the point of each skip, in the loop below,
+// already carries the remedy that actually works for that remote's own
+// failure, so this summary only lists what happened instead of repeating --
+// or contradicting -- that advice.
 func reportSkippedRemotes(stderr io.Writer, configured, skippedReasons []string) {
 	fmt.Fprintf(stderr, "writ init: %d of %d discovered remote(s) could not be configured\n", len(skippedReasons), len(configured)+len(skippedReasons))
 	if len(configured) > 0 {
 		fmt.Fprintf(stderr, "  fetch refspec configured for: %s\n", strings.Join(configured, ", "))
 	}
 	fmt.Fprintf(stderr, "  fetch refspec NOT configured for: %s\n", strings.Join(skippedReasons, "; "))
-	fmt.Fprintf(stderr, "  fix or remove the remote(s) above, then re-run writ init: it reuses both IDs and writes only what is missing\n")
+	fmt.Fprintf(stderr, "  see the remedy printed above for each; re-run writ init afterward: it reuses both IDs and writes only what is missing\n")
 }
 
 func runInit(ctx context.Context, defaultDir string, args []string, stdin io.Reader, interactive bool, stdout, stderr io.Writer) int {
 	// exitCode stays 0 unless something below sets it. It is not returned
 	// immediately everywhere it changes: a discovered remote Ensure's gate
-	// rejects (step 6) sets it but keeps going -- identity, and the starter
-	// schema file, still get their chance to run.
+	// rejects as a genuine partial result (step 6, ErrInvalidRemoteName --
+	// see that step's comment) sets it but keeps going -- identity, and the
+	// starter schema file, still get their chance to run. A discovered
+	// remote Ensure rejects as a url-less phantom section
+	// (ErrUnknownRemote) does not set it at all: nothing was configured for
+	// that remote, so there is nothing to call "not fully done."
 	exitCode := 0
 
 	fs, opts := newInitFlagSet(defaultDir)
@@ -417,13 +429,29 @@ func runInit(ctx context.Context, defaultDir string, args []string, stdin io.Rea
 	// remote right alongside it (WRIT-283 round 3). So for this path, writ
 	// init configures every remote it can and reports the ones Ensure's
 	// gate rejected -- everything else in this function (identity,
-	// starter-schema) still runs, and the process exit code (1, not this
-	// function's usage-error 2) says "not fully done", distinct from a
-	// usage error, so a caller can tell "some of what I asked for didn't
-	// happen" apart from "you typed something wrong."
+	// starter-schema) still runs.
+	//
+	// The two ways Ensure's gate can reject a *discovered* remote are not
+	// the same finding, and get different treatment (round 4):
+	//
+	//   - ErrUnknownRemote: RemoteConfigured found neither
+	//     remote.<name>.url nor remote.<name>.pushurl -- a url-less
+	//     section, exactly what a global remote.<name>.prune leaves behind
+	//     in every repository on the machine. There was never anything for
+	//     writ to configure here, so nothing is stranded by skipping it;
+	//     the run is reported (this stays visible) but the process exit
+	//     code stays 0.
+	//   - ErrInvalidRemoteName: the remote is real (a url or pushurl is
+	//     set) but its name is not usable as the <name> component of a
+	//     fetch-refspec destination. Writ genuinely could not do what it
+	//     would otherwise have done for this one, so this is a real partial
+	//     result: the process exit code (1, not this function's
+	//     usage-error 2) says "not fully done", distinct from a usage
+	//     error, so a caller can tell "some of what I asked for didn't
+	//     happen" apart from "you typed something wrong."
 	//
 	// Any *other* error (e.g. a locked .git/config) still aborts the run
-	// immediately: it is not the gate this PR added, has nothing to do with
+	// immediately: it is not a gate this PR added, has nothing to do with
 	// which remote happened to be named, and is likely to recur on every
 	// remaining remote too.
 	if len(remotes) == 0 {
@@ -440,13 +468,34 @@ func runInit(ctx context.Context, defaultDir string, args []string, stdin io.Rea
 
 		var configured, skippedNames []string
 		var skippedReasons []string
+		var genuinePartial bool
 		for i, remote := range remotes {
 			status, err := client.Ensure(ctx, remote)
 			if err != nil {
-				if !explicitRemotes && (errors.Is(err, sync.ErrUnknownRemote) || errors.Is(err, sync.ErrInvalidRemoteName)) {
-					fmt.Fprintf(stderr, "writ init: remote %q: %v (skipped; not one you asked for -- fix or remove it, then re-run)\n", remote, err)
+				if !explicitRemotes && errors.Is(err, sync.ErrUnknownRemote) {
+					// A url-less section: nothing was ever configured here,
+					// so nothing is lost by skipping it. `git remote remove
+					// <name>` is the wrong remedy -- git does not treat a
+					// url-less section as a remote, so the command fails
+					// ("error: No such remote"); the section comes out with
+					// `git config --remove-section`, which needs no url to
+					// work.
+					fmt.Fprintf(stderr, "writ init: remote %q: %v (skipped; not one you asked for -- nothing was configured for it, so nothing is stranded; remove the phantom section with `git config --remove-section remote.%s` if you don't want it listed)\n", remote, err, remote)
 					skippedNames = append(skippedNames, remote)
 					skippedReasons = append(skippedReasons, fmt.Sprintf("%s (%v)", remote, err))
+					continue
+				}
+				if !explicitRemotes && errors.Is(err, sync.ErrInvalidRemoteName) {
+					// A real remote (it has a url) whose name writ cannot
+					// use as a fetch-refspec destination component: unlike
+					// the url-less case above, this one is a genuine
+					// partial result, so it sets exitCode via
+					// genuinePartial below. `git remote remove <name>`
+					// works here -- the remote is real.
+					fmt.Fprintf(stderr, "writ init: remote %q: %v (skipped; not one you asked for -- fix its name, or remove it with `git remote remove %s`, then re-run)\n", remote, err, remote)
+					skippedNames = append(skippedNames, remote)
+					skippedReasons = append(skippedReasons, fmt.Sprintf("%s (%v)", remote, err))
+					genuinePartial = true
 					continue
 				}
 				fmt.Fprintf(stderr, "writ init: remote %q: %v\n", remote, err)
@@ -463,7 +512,9 @@ func runInit(ctx context.Context, defaultDir string, args []string, stdin io.Rea
 		}
 		if len(skippedNames) > 0 {
 			reportSkippedRemotes(stderr, configured, skippedReasons)
-			exitCode = 1
+			if genuinePartial {
+				exitCode = 1
+			}
 		}
 	}
 

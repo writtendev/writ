@@ -63,7 +63,7 @@ Reports the count of unpushed local operations without performing network transp
 |---|---|---|
 | `remote` | string | Name of the git remote (e.g. `origin`). |
 | `unsynced` | integer | Number of local operations not yet pushed to the remote. |
-| `failure` | object (optional) | Structured failure object (`kind`, `message`, `advice`, `retryable`) when sync status query failed. `kind` is one of `auth`, `network`, `rejected`, `not-found` (well-formed but unconfigured remote), `invalid-name` (syntactically invalid remote name, exit `2`), `canceled`, `unknown`. |
+| `failure` | object (optional) | Structured failure object (`kind`, `message`, `advice`, `retryable`) when the status query itself failed. `--status` is offline (it never confirms the remote is actually configured, only that its name is syntactically valid -- see `SyncStatus` in `engine/sync.go`), so `kind` here is `invalid-name` (syntactically invalid remote name, exit `2`) or `unknown` (a local read failure); it is never `not-found` -- a well-formed but unconfigured remote returns `unsynced: 0` with no `failure` at all. `not-found` is reported by `writ sync --json` below, which performs network transport and so does check configuration. |
 
 #### Example Output
 
