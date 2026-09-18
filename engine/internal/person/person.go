@@ -498,10 +498,12 @@ const (
 	// EmptyValue means the value is empty.
 	EmptyValue
 	// ForbiddenCodePoint means the value contains a code point
-	// spec/identifiers.md §Value character repertoire forbids: a C0 or C1
-	// control character, DEL, a bidi control, isolate, embedding or
-	// override, or a zero-width or invisible character. FirstForbidden
-	// names the offending code point for a caller's error message.
+	// spec/identifiers.md §Value character repertoire forbids: General
+	// Category Cc or Cf (C0/C1 controls, DEL, bidi controls/isolates/
+	// embeddings/overrides, zero-width or invisible characters, other
+	// format characters, and the tag block), or one of four named
+	// Default_Ignorable code points that are not Cf. FirstForbidden names
+	// the offending code point for a caller's error message.
 	ForbiddenCodePoint
 	// ValueTooLong means the value exceeds MaxValueLen code points.
 	ValueTooLong
@@ -525,7 +527,7 @@ func (p Problem) String() string {
 	case EmptyValue:
 		return "value is empty"
 	case ForbiddenCodePoint:
-		return "value contains a forbidden code point (control character, bidi control/isolate/override, or zero-width/invisible character; spec/identifiers.md §Value character repertoire)"
+		return "value contains a forbidden code point (control character, bidi control/isolate/override, zero-width/invisible character, or other format character; spec/identifiers.md §Value character repertoire)"
 	case ValueTooLong:
 		return "value is longer than 320 characters"
 	case ValueNotStreamSafe:

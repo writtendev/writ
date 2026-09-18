@@ -204,7 +204,7 @@ func escapeErrReport(line string, keepLineBreaks bool) string {
 			b.WriteRune(r)
 			continue
 		}
-		fmt.Fprintf(&b, `\u%04x`, r)
+		textsafe.EscapeRune(&b, r)
 	}
 	return b.String()
 }

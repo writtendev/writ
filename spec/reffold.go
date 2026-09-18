@@ -9,6 +9,8 @@ import (
 
 	"golang.org/x/text/cases"
 	"golang.org/x/text/unicode/norm"
+
+	"github.com/writtendev/writ/internal/textsafe"
 )
 
 // personUnicodeVersion is the Unicode version spec/identifiers.md pins the
@@ -452,6 +454,37 @@ func PersonValueIsStreamSafe(id string) bool {
 		}
 	}
 	return true
+}
+
+// PersonValueRepertoireOK reports whether a person identifier's value
+// conforms to spec/identifiers.md §Value character repertoire: it carries
+// none of the code points internal/textsafe.Forbidden names.
+//
+// It exists for the same reason PersonValueIsStreamSafe does, and sits
+// beside it rather than in the source-for-source parity block above
+// (personSplitPerson through personCCC): this is producer-side hygiene, not
+// part of the fold, so there is no engine algorithm for
+// TestReffoldIsTheSameAlgorithmAsTheEngine to compare it against
+// line-for-line. TestInvalidPersonVectors uses it to check a
+// testdata/persons/invalid vector whose rejection is enforced only at the
+// producer, never by the person-id JSON Schema -- specifically the
+// supplementary-plane Forbidden ranges (the tag block and friends), which
+// an ECMA-262 character class cannot express without the u flag (see
+// spec/identifiers.md §Rendering a person identifier and the schema's own
+// pattern description).
+//
+// It delegates to internal/textsafe rather than mirroring the ranges a
+// fourth time (spec/identifiers.md's table, the schema pattern, and
+// internal/textsafe.Forbidden already carry the list) -- that import is
+// stdlib-only and creates no cycle: textsafe imports only "strings", and
+// spec imports nothing from engine.
+func PersonValueRepertoireOK(id string) bool {
+	_, value, ok := splitPerson(id)
+	if !ok {
+		value = id
+	}
+	_, bad := textsafe.First(value)
+	return !bad
 }
 
 // EffectiveTimes computes the causality-monotone effective timestamp

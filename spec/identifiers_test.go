@@ -351,9 +351,19 @@ func TestValidPersonVectors(t *testing.T) {
 // rejections are not expressible as a schema pattern — spec/identifiers.md
 // §Value shape: Stream-Safe Text's non-starter-run limit needs
 // Canonical_Combining_Class, which ECMA-262 has no property escape for, and
-// \p{Mn} is not the same set — so index.json marks such a vector
-// `"enforced_by": "producer"` and this test checks the producer-side rule
-// instead of the schema for exactly those.
+// \p{Mn} is not the same set, and a handful of the repertoire's
+// supplementary-plane code points (the tag block and its neighbours) cannot
+// be written as an ECMA-262 class without the u flag — so index.json marks
+// such a vector `"enforced_by": "producer"` and this test checks the
+// producer-side rules instead of the schema for exactly those.
+//
+// Both producer rules (PersonValueIsStreamSafe and
+// PersonValueRepertoireOK) must accept before a "producer" vector is
+// treated as passing: a vector marked "producer" is asserting that a
+// specific producer-side rule catches it, and checking only one of the two
+// rules would let a repertoire vector pass vacuously against the
+// stream-safe rule alone (or vice versa) without ever exercising the rule
+// the vector actually tests.
 func TestInvalidPersonVectors(t *testing.T) {
 	sch := compilePersonIDSchema(t)
 
@@ -402,8 +412,13 @@ func TestInvalidPersonVectors(t *testing.T) {
 					t.Errorf("schema accepted %q; expected rejection: %s", vec.Identifier, entry.Reason)
 				}
 			case "producer":
-				if spec.PersonValueIsStreamSafe(vec.Identifier) {
-					t.Errorf("producer check accepted %q; expected rejection: %s", vec.Identifier, entry.Reason)
+				// A "producer" vector must be rejected by the producer-side
+				// rule its reason names, not merely by some producer-side
+				// rule or other: checking only one of the two rules would
+				// let a vector that only the *other* rule rejects pass this
+				// test vacuously.
+				if spec.PersonValueIsStreamSafe(vec.Identifier) && spec.PersonValueRepertoireOK(vec.Identifier) {
+					t.Errorf("producer checks accepted %q; expected rejection by at least one producer-side rule: %s", vec.Identifier, entry.Reason)
 				}
 			default:
 				t.Fatalf("%s: index.json names unknown enforced_by %q", name, entry.EnforcedBy)

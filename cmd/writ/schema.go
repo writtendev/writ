@@ -1296,8 +1296,7 @@ func escapeRenderedSchemaSource(src []byte) string {
 			b.WriteRune(r)
 			continue
 		}
-		// exemption: internal formatting into strings.Builder
-		fmt.Fprintf(&b, `\u%04x`, r)
+		textsafe.EscapeRune(&b, r)
 	}
 	return b.String()
 }

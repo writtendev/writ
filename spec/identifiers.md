@@ -419,22 +419,75 @@ A person identifier's **value** MUST NOT contain any of the following code
 points. (The scheme's own charset, `[a-z][a-z0-9+.-]*`, already admits none of
 them, so this constrains the value only.)
 
+The rule is **General_Category `Cc` ∪ `Cf`, at Unicode 17.0.0, plus four named
+`Default_Ignorable_Code_Point` code points that are not `Cf`** (U+115F, U+1160,
+U+3164, U+FFA0 — see "Why these four exceptions" below). This table is the
+normative statement of the rule; the property names above describe how the
+table was built and how to regenerate it against a future Unicode version,
+but **the table is normative, not the property name** — a future Unicode
+version may reclassify a code point into or out of `Cc`/`Cf`, and this table
+does not silently move with it (the same discipline §[The value folding
+algorithm](#the-value-folding-algorithm) already applies by pinning 17.0.0).
+
 | Class | Code points |
 | --- | --- |
 | C0 controls | U+0000–U+001F |
-| DEL | U+007F |
-| C1 controls | U+0080–U+009F |
-| Bidi controls, embeddings, overrides, isolates | U+200E–U+200F, U+202A–U+202E, U+2066–U+2069 |
-| Zero-width / invisible characters | U+200B–U+200D, U+FEFF |
+| DEL, C1 controls | U+007F–U+009F |
+| Soft hyphen | U+00AD |
+| Arabic number signs | U+0600–U+0605 |
+| Arabic letter mark | U+061C |
+| Arabic end of ayah | U+06DD |
+| Syriac abbreviation mark | U+070F |
+| Arabic sign | U+0890–U+0891 |
+| Arabic disputed end of ayah | U+08E2 |
+| Hangul Choseong/Jungseong fillers *(exception: `Default_Ignorable`, not `Cf`)* | U+115F–U+1160 |
+| Mongolian vowel separator | U+180E |
+| Zero-width space, ZWNJ, ZWJ, bidi marks (LRM, RLM) | U+200B–U+200F |
+| Bidi embeddings and overrides | U+202A–U+202E |
+| Word joiner, invisible operators | U+2060–U+2064 |
+| Bidi isolates, reserved format characters | U+2066–U+206F |
+| Hangul filler *(exception: `Default_Ignorable`, not `Cf`)* | U+3164 |
+| Byte-order mark / zero-width no-break space | U+FEFF |
+| Halfwidth Hangul filler *(exception: `Default_Ignorable`, not `Cf`)* | U+FFA0 |
+| Interlinear annotation characters | U+FFF9–U+FFFB |
+| Kaithi number sign | U+110BD |
+| Kaithi number sign above | U+110CD |
+| Egyptian hieroglyph format controls | U+13430–U+1343F |
+| Shorthand format controls | U+1BCA0–U+1BCA3 |
+| Musical symbol format controls | U+1D173–U+1D17A |
+| Language tag | U+E0001 |
+| Tag characters | U+E0020–U+E007F |
 
 **Producers MUST reject** a value containing any of these code points, never
 truncate or repair it, and MUST name the offending code point in the
 rejection.
 
+**Why these four exceptions.** `Cc ∪ Cf` alone closes every point WRIT-276
+reported (U+00AD, U+061C, U+180E, U+2060–U+2064, and the tag block), but the
+value repertoire is a blocklist rather than an allowlist, so anything it does
+not name stays reachable — and the three Hangul filler characters above
+(U+115F, U+1160, U+3164, U+FFA0) are literally invisible and would stay
+reachable if the rule stopped at `Cc ∪ Cf`. They are `Default_Ignorable_Code_Point`
+but General_Category `Lo` (letter, other), not `Cf`, so they need to be
+named explicitly rather than falling out of the property union. The broader
+alternative, banning all of `Default_Ignorable_Code_Point` instead of
+enumerating these four, was considered and rejected: it additionally bans the
+emoji variation selectors (U+FE00–U+FE0F), which would invalidate identifiers
+in this document's own valid corpus (an emoji value is deliberately
+permitted — see below), and it is roughly 3,900 code points instead of
+roughly 240. Whether emoji belong in a person identifier is a separate
+decision worth making on its own terms, not as a side effect of a repertoire
+fix. Four enumerated exceptions on top of this table is close to free by
+comparison, and it keeps the rule stateable in one table rather than
+retreating to a hand-picked list.
+
 **Known limitation, accepted deliberately.** A blanket ban on U+200D (ZERO
 WIDTH JOINER) is cruder than correct: ZWJ is load-bearing for legitimate
 rendering in several Indic scripts and in Arabic, so this rule rejects some
-identifiers that ought to be valid. [PRECIS IdentifierClass](https://www.rfc-editor.org/rfc/rfc8264)
+identifiers that ought to be valid. The same trade extends to the rest of
+`Cf`: the Arabic, Syriac and Kaithi number and format signs above (U+0600–U+0605,
+U+06DD, U+070F, U+08E2, U+110BD, U+110CD) occur in ordinary running text,
+though not plausibly in an identity label. [PRECIS IdentifierClass](https://www.rfc-editor.org/rfc/rfc8264)
 (RFC 8264/8265) handles exactly this with contextual rules (ZWJ is
 `CONTEXTJ`, permitted in specific positions) rather than a flat prohibition.
 This is accepted knowingly as the pragmatic form for now. The planned v0.2.0
@@ -446,7 +499,9 @@ algorithm](#the-value-folding-algorithm) is what the fold actually runs),
 tightening it later refuses new writes and leaves every already-folded
 identifier unchanged: the only casualty is an identifier legal under this
 rule but not under PRECIS, which stops being writable while already-written
-instances keep working.
+instances keep working. This rule is explicitly **interim**, and this
+document's PRECIS follow-up above is the only planned widening — nothing in
+this ticket's change is a step toward PRECIS on its own.
 
 This is a **producer-side** rule. §[Rendering a person identifier](#rendering-a-person-identifier)
 explains why a producer-side rule alone does not close the attack it exists
@@ -685,23 +740,32 @@ the consequence of the one that does.
 
 **What the schema can and cannot say.** The `person-id` definition in
 [`schemas/identifiers.schema.json`](schemas/identifiers.schema.json) enforces
-the grammar, the bounds, and the value's character repertoire — the
+the grammar, the bounds, and most of the value's character repertoire — the
 scheme's charset and 32-character cap, a non-empty value, the forbidden code
-points named in §[Value character repertoire](#value-character-repertoire),
-and the derived 353 `maxLength`. It cannot enforce normalization of the
-*value*, because the value is opaque within its scheme and a
-whitespace-trimming rule is not expressible in a pattern that must also admit
-quoted local parts. `"email: alice@example.com"` is therefore a shape the schema
-accepts and a conforming producer never writes. Nor can it enforce
-§[Value shape: Stream-Safe Text](#value-shape-stream-safe-text)'s
+points named in §[Value character repertoire](#value-character-repertoire)
+that fit within the Basic Multilingual Plane, and the derived 353
+`maxLength`. It cannot enforce normalization of the *value*, because the
+value is opaque within its scheme and a whitespace-trimming rule is not
+expressible in a pattern that must also admit quoted local parts.
+`"email: alice@example.com"` is therefore a shape the schema accepts and a
+conforming producer never writes. Nor can it enforce every row of the
+repertoire table: the tag block (U+E0001, U+E0020–U+E007F) and a handful of
+other `Cf` ranges above U+FFFF (U+110BD, U+110CD, U+13430–U+1343F,
+U+1BCA0–U+1BCA3, U+1D173–U+1D17A) are outside the pattern entirely — without
+the ECMA-262 `u` flag, a character class range spanning a surrogate pair
+parses as a *reversed* range (its low-surrogate half sorts numerically above
+its high-surrogate half), which is a syntax error in a compliant engine, so
+these code points cannot be written into the pattern at all. Nor can it
+enforce §[Value shape: Stream-Safe Text](#value-shape-stream-safe-text)'s
 non-starter-run limit: ECMA-262 has no `Canonical_Combining_Class` property
 escape, and `\p{Mn}` is not the same set, so a value whose NFD carries more
 than 30 consecutive non-starters is a shape the schema accepts and a
-conforming producer refuses — `testdata/persons/invalid/index.json` marks
-such a vector `enforced_by: "producer"` rather than expecting the schema to
-catch it. Schema validation is a necessary check, not a sufficient one;
-§[Normalization rules](#normalization-rules) and §[Value shape: Stream-Safe
-Text](#value-shape-stream-safe-text) are the rest of the obligation.
+conforming producer refuses. `testdata/persons/invalid/index.json` marks a
+vector rejected only by one of these producer-side rules `enforced_by:
+"producer"` rather than expecting the schema to catch it. Schema validation
+is a necessary check, not a sufficient one; §[Normalization rules](#normalization-rules)
+and §[Value shape: Stream-Safe Text](#value-shape-stream-safe-text) are the
+rest of the obligation.
 
 ### Rendering a person identifier
 
@@ -718,9 +782,14 @@ Therefore:
   §[Value character repertoire](#value-character-repertoire) forbids,
   wherever a person identifier reaches a human: `--json` output, every CLI
   display path, and anything else that puts an identifier in front of a
-  reader. Escaping (rendering the code point as its `\uXXXX` form) is
-  preferred over stripping: escaping is lossless and visibly wrong, where
-  stripping silently changes what the log says.
+  reader. Escaping is preferred over stripping: escaping is lossless and
+  visibly wrong, where stripping silently changes what the log says. A code
+  point within the Basic Multilingual Plane escapes as `\uXXXX` (four
+  lowercase hex digits); a code point above it — the tag block is the
+  reachable case — escapes as its UTF-16 surrogate pair, `\uXXXX\uXXXX`, so
+  the escape text stays valid JSON and stays losslessly decodable, the
+  property this section already claims. (Go's own `\UXXXXXXXX` form is not
+  valid inside a JSON string and is never used here.)
 - **Third-party consumers SHOULD** do the same. This is a SHOULD, not a MUST,
   because Writ does not control what a third-party client does with the data
   it reads — but an implementer that skips this exposes the same spoofing
@@ -748,11 +817,16 @@ can make (not the JSON Schema), an `enforced_by: "producer"` marker. Between
 them they pin first-colon parsing with a quoted local part, cross-scheme
 non-equality, case and whitespace normalization, unknown-scheme preservation,
 a maximal-length value and one code point more, a value that crosses the
-bound only *before* normalization, an over-long scheme, one vector per
-forbidden repertoire class (an interior C0 control, DEL, an interior C1
-control, a bidi override, a bidi isolate, a zero-width character, and the
-BOM), what is deliberately still permitted despite the repertoire rule
-(an emoji value, an interior space, and unmarked right-to-left script),
+bound only *before* normalization, an over-long scheme, a representative
+sample of the repertoire (an interior C0 control, DEL, an interior C1
+control, a bidi override, a bidi isolate, a zero-width character, the BOM,
+soft hyphen, the Arabic letter mark, the Mongolian vowel separator, the word
+joiner, an invisible operator, the Hangul filler — the invisible-but-not-`Cf`
+class — and a tag character, the one vector this list marks `enforced_by:
+"producer"`, since the schema pattern cannot reach a code point above the
+Basic Multilingual Plane), what is deliberately still permitted despite the
+repertoire rule (an emoji value, an interior space, and unmarked
+right-to-left script),
 backward-combining starters composed in context under Unicode 17.0.0
 ([`normalization-unicode17-backward-combining-starter.json`](testdata/persons/valid/normalization-unicode17-backward-combining-starter.json)),
 and the Stream-Safe Text boundary: a value accepted at exactly 30 consecutive NFD

@@ -144,13 +144,32 @@ func TestCheckRejectsRatherThanTruncates(t *testing.T) {
 func TestCheckForbiddenCodePoints(t *testing.T) {
 	forbidden := []rune{
 		0x0000, 0x0001, 0x001F, // C0
-		0x007F,         // DEL
-		0x0080, 0x009F, // C1
+		0x007F, 0x009F, // DEL, C1
+		0x00AD,         // soft hyphen
+		0x0600, 0x0605, // Arabic number signs
+		0x061C,         // Arabic letter mark
+		0x06DD,         // Arabic end of ayah
+		0x070F,         // Syriac abbreviation mark
+		0x0890, 0x0891, // Arabic sign
+		0x08E2,         // Arabic disputed end of ayah
+		0x115F, 0x1160, // Hangul Choseong/Jungseong fillers (Default_Ignorable, not Cf)
+		0x180E,                 // Mongolian vowel separator
 		0x200B, 0x200C, 0x200D, // zero-width space, ZWNJ, ZWJ
 		0x200E, 0x200F, // LRM, RLM
 		0x202A, 0x202E, // bidi embeddings/overrides
-		0x2066, 0x2069, // bidi isolates
-		0xFEFF, // BOM
+		0x2060, 0x2064, // word joiner, invisible operators
+		0x2066, 0x2069, 0x206A, 0x206F, // bidi isolates, reserved format chars
+		0x3164,         // Hangul filler (Default_Ignorable, not Cf)
+		0xFEFF,         // BOM
+		0xFFA0,         // halfwidth Hangul filler (Default_Ignorable, not Cf)
+		0xFFF9, 0xFFFB, // interlinear annotation characters
+		0x110BD,          // Kaithi number sign
+		0x110CD,          // Kaithi number sign above
+		0x13430, 0x1343F, // Egyptian hieroglyph format controls
+		0x1BCA0, 0x1BCA3, // shorthand format controls
+		0x1D173, 0x1D17A, // musical symbol format controls
+		0xE0001,          // language tag
+		0xE0020, 0xE007F, // tag characters
 	}
 	for _, r := range forbidden {
 		id := "email:ali" + string(r) + "ce@example.com"
@@ -163,8 +182,37 @@ func TestCheckForbiddenCodePoints(t *testing.T) {
 		}
 	}
 
-	// The immediate neighbour of every forbidden range above is accepted.
-	neighbours := []rune{0x0020, 0x007E, 0x00A0, 0x200A, 0x2010, 0x2065, 0x206A, 0xFEFE, 0xFF00}
+	// The immediate neighbour on each side of every forbidden range above is
+	// accepted, so every range is pinned at both edges rather than just
+	// somewhere inside it. 0x206A moved into forbidden above: it sits inside
+	// the widened bidi-isolate/reserved range (U+2066-U+206F) and is no
+	// longer a safe neighbour.
+	neighbours := []rune{
+		0x0020, 0x007E, 0x00A0,
+		0x00AC, 0x00AE,
+		0x05FF, 0x0606,
+		0x061B, 0x061D,
+		0x06DC, 0x06DE,
+		0x070E, 0x0710,
+		0x088F, 0x0892,
+		0x08E1, 0x08E3,
+		0x115E, 0x1161,
+		0x180D, 0x180F,
+		0x200A, 0x2010,
+		0x2029, 0x202F,
+		0x205F, 0x2065, 0x2070,
+		0x3163, 0x3165,
+		0xFEFE, 0xFF00,
+		0xFF9F, 0xFFA1,
+		0xFFF8, 0xFFFC,
+		0x110BC, 0x110BE,
+		0x110CC, 0x110CE,
+		0x1342F, 0x13440,
+		0x1BC9F, 0x1BCA4,
+		0x1D172, 0x1D17B,
+		0xE0000, 0xE0002,
+		0xE001F, 0xE0080,
+	}
 	for _, r := range neighbours {
 		id := "email:ali" + string(r) + "ce@example.com"
 		if got := person.Check(id); got != person.Valid {
