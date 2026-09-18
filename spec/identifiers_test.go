@@ -357,13 +357,13 @@ func TestValidPersonVectors(t *testing.T) {
 // such a vector `"enforced_by": "producer"` and this test checks the
 // producer-side rules instead of the schema for exactly those.
 //
-// Both producer rules (PersonValueIsStreamSafe and
-// PersonValueRepertoireOK) must accept before a "producer" vector is
-// treated as passing: a vector marked "producer" is asserting that a
-// specific producer-side rule catches it, and checking only one of the two
-// rules would let a repertoire vector pass vacuously against the
-// stream-safe rule alone (or vice versa) without ever exercising the rule
-// the vector actually tests.
+// The arm below fails only when both producer rules (PersonValueIsStreamSafe
+// and PersonValueRepertoireOK) accept, so a "producer" vector is required to
+// be rejected by at least one of the two — not necessarily the one its
+// "reason" names. A vector may legitimately trip either rule, and
+// index.json has no field today saying which one a given vector means to
+// pin, so the conjunction is the strongest check available; WRIT-292 is
+// filed to add that binding via a structured field on the vector index.
 func TestInvalidPersonVectors(t *testing.T) {
 	sch := compilePersonIDSchema(t)
 
