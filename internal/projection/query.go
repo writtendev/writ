@@ -55,6 +55,24 @@ func objectTextColumns(shape objectQueryShape) (table string, columns []string) 
 	return shape.Table, columns
 }
 
+// joinBalanced joins parts with op as a balanced binary tree rather than a
+// flat left-deep chain, so the generated expression's height is O(log n) in
+// the number of parts instead of O(n). SQLite's SQLITE_MAX_EXPR_DEPTH
+// (1000 by default) counts every term of a flat OR/AND chain as one level
+// of depth, so objectsTextClause and objectsNotDeletedClause's one-term-
+// per-column chains used to breach it well short of 1000 columns on a wide
+// schema; a balanced tree of the same terms is height O(log n) instead
+// (WRIT-285). One part is returned as-is; otherwise this recurses on each
+// half and parenthesizes the combination. Both callers already return early
+// on len(parts) == 0, so this need not handle it.
+func joinBalanced(parts []string, op string) string {
+	if len(parts) == 1 {
+		return parts[0]
+	}
+	mid := len(parts) / 2
+	return "(" + joinBalanced(parts[:mid], op) + " " + op + " " + joinBalanced(parts[mid:], op) + ")"
+}
+
 // objectsTextClause builds Objects' f.Text filter directly from the
 // installed schema descriptor: one EXISTS per declared type (restricted to
 // restrictTypes when non-empty, the types f.Type itself already narrows the
@@ -66,6 +84,20 @@ func objectTextColumns(shape objectQueryShape) (table string, columns []string) 
 // keyed-lww-valued — contributes no clause; Objects falls through to
 // "found nothing" for f.Text rather than referencing a table it has no
 // column to search.
+//
+// Each type's own column terms are joined with joinBalanced rather than a
+// flat OR chain (WRIT-285: a type with ~1000+ string columns breached
+// SQLite's default expression-depth limit), and the LIKE pattern is bound
+// once per type rather than once per column: a one-row derived table
+// ("SELECT ? AS p") is cross-joined into the EXISTS subquery and every
+// column term reads writ_text.p, so params below now counts contributing
+// types rather than columns — with a wide-enough schema, one term per
+// column also approached SQLite's bind-variable limit summed across types.
+// Binding the pattern this way, instead of a numbered placeholder like ?1,
+// keeps it positional: SQLite numbers a bare "?" one above the highest
+// index already assigned, and this clause sits between the f.Type/f.Author
+// args and the not-deleted/limit args at the Objects call site, so a
+// numbered form would silently renumber those.
 //
 // Reads desc.queryShapes/queryOrder, not desc.types/order: those two stay
 // nil on a name-only reopen (requireMaterializationPlan's guard depends on
@@ -99,15 +131,15 @@ func objectsTextClause(desc *schemaDescriptor, restrictTypes []string) (clause s
 
 		var colParts []string
 		for _, col := range columns {
-			colParts = append(colParts, "x."+col+" LIKE ? ESCAPE '\\'")
+			colParts = append(colParts, "x."+col+" LIKE writ_text.p ESCAPE '\\'")
 		}
-		parts = append(parts, "EXISTS (SELECT 1 FROM "+quoteIdent(table)+" x WHERE x.object_id = o.object_id AND ("+strings.Join(colParts, " OR ")+"))")
-		params += len(columns)
+		parts = append(parts, "EXISTS (SELECT 1 FROM "+quoteIdent(table)+" x, (SELECT ? AS p) writ_text WHERE x.object_id = o.object_id AND ("+joinBalanced(colParts, "OR")+"))")
+		params++
 	}
 	if len(parts) == 0 {
 		return "", 0
 	}
-	return "(" + strings.Join(parts, " OR ") + ")", params
+	return "(" + joinBalanced(parts, "OR") + ")", params
 }
 
 // objectsNotDeletedClause builds Objects' default !IncludeDeleted filter
@@ -165,13 +197,13 @@ func objectsNotDeletedClause(desc *schemaDescriptor, restrictTypes []string) (cl
 		for _, col := range cols {
 			notDeleted = append(notDeleted, "(x."+col+" = 0 OR x."+col+" IS NULL)")
 		}
-		parts = append(parts, "(o.object_type != ? OR EXISTS (SELECT 1 FROM "+quoteIdent(shape.Table)+" x WHERE x.object_id = o.object_id AND "+strings.Join(notDeleted, " AND ")+"))")
+		parts = append(parts, "(o.object_type != ? OR EXISTS (SELECT 1 FROM "+quoteIdent(shape.Table)+" x WHERE x.object_id = o.object_id AND "+joinBalanced(notDeleted, "AND")+"))")
 		params = append(params, objectType)
 	}
 	if len(parts) == 0 {
 		return "", nil
 	}
-	return strings.Join(parts, " AND "), params
+	return joinBalanced(parts, "AND"), params
 }
 
 // Objects executes a cross-type summary query over collaborative objects.
