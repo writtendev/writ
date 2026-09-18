@@ -51,9 +51,19 @@ func TestAPIShapeNoGitInternalsLeak(t *testing.T) {
 // fields — recursing through pointer, slice, array, chan, and map
 // key/value element types so a composite field's own named type is
 // reached before it is tested — reporting any git-plumbing leak found
-// along the way through report. report is threaded through rather than a
-// *testing.T directly so a capturing caller (TestAPILeakGuardBites) can
-// collect findings instead of failing the test outright.
+// along the way through report. A method's parameter and result types get
+// exactly the same treatment a field does: assertNoGitLeak catches an
+// immediate leak (the parameter or result itself, or one hiding behind an
+// unnamed wrapper or a named container's key/value), and the checkType
+// recursion alongside it walks into a named-struct parameter or result's
+// own fields the same way it walks a field's type. Without that second
+// call, a go-git type sitting inside a plain struct passed to or returned
+// from a method was never inspected at all — assertNoGitLeak has no case
+// for reflect.Struct, so it stops at the parameter's own (unforbidden)
+// PkgPath and never looks at what the struct holds (WRIT-298). report is
+// threaded through rather than a *testing.T directly so a capturing
+// caller (TestAPILeakGuardBites) can collect findings instead of failing
+// the test outright.
 func checkType(report func(format string, args ...any), typ reflect.Type, visited map[reflect.Type]bool) {
 	if typ == nil || visited[typ] {
 		return
@@ -72,11 +82,13 @@ func checkType(report func(format string, args ...any), typ reflect.Type, visite
 		for p := 0; p < mType.NumIn(); p++ {
 			inType := mType.In(p)
 			assertNoGitLeak(report, typ.String()+"."+m.Name+" input", inType, make(map[reflect.Type]bool))
+			checkType(report, inType, visited)
 		}
 		// Check return types
 		for r := 0; r < mType.NumOut(); r++ {
 			outType := mType.Out(r)
 			assertNoGitLeak(report, typ.String()+"."+m.Name+" output", outType, make(map[reflect.Type]bool))
+			checkType(report, outType, visited)
 		}
 	}
 
@@ -334,7 +346,83 @@ func TestAPILeakGuardBites(t *testing.T) {
 			t.Errorf("writ.RefreshStats produced findings, want none: %v", findings)
 		}
 	})
+
+	t.Run("go-git type inside a named-struct method parameter", func(t *testing.T) {
+		// assertNoGitLeak has no case for reflect.Struct: on a struct
+		// parameter it checks only that struct type's own (unforbidden)
+		// PkgPath and stops, never looking at what the struct holds.
+		// Round 4 review found this a real coverage hole, not a false
+		// sentence to soften — a go-git type sitting inside a
+		// named-struct method parameter reached zero findings before
+		// this test, and before checkType's method loop (above) also
+		// recursed structurally into the parameter/result type the same
+		// way it already does for a field. methodParamHolder.Take's
+		// carrier parameter (methodParamLeak, declared at package scope
+		// below since Go methods cannot be declared inside a test
+		// function body) exercises exactly that path: reverting the
+		// `checkType(report, inType, visited)` / `checkType(report,
+		// outType, visited)` calls added alongside checkType's
+		// assertNoGitLeak calls on a method's parameter and result types
+		// makes this subtest fail again.
+		var findings []string
+		report := func(format string, args ...any) { findings = append(findings, fmt.Sprintf(format, args...)) }
+
+		checkType(report, reflect.TypeOf(methodParamHolder{}), make(map[reflect.Type]bool))
+
+		if len(findings) == 0 {
+			t.Fatal("expected a finding for methodParamLeak.Hash (plumbing.Hash), reached only through methodParamHolder.Take's parameter type, got none — checkType must recurse structurally into a method's parameter and result types, the same way it recurses into a field's type, to ever reach a struct hiding behind a method signature")
+		}
+		if !containsSubstring(findings, "methodParamLeak.Hash field") {
+			t.Errorf("findings did not name methodParamLeak.Hash field: %v", findings)
+		}
+	})
+
+	t.Run("writ.Envelope and writ.Schema, newly reached by the method-signature walk, stay clean", func(t *testing.T) {
+		// Before this walk covered method parameter and result types
+		// structurally, writ.Envelope (Store.ApplySchema's and
+		// Store.SchemaAfterApply's parameter, []codec.Envelope) and
+		// writ.Schema (Store.Schema's and Store.SchemaAfterApply's
+		// result) were parameter/result-only types: unreachable from any
+		// walked target's own field graph, so their fields were never
+		// inspected by TestAPIShapeNoGitInternalsLeak at all. Now that
+		// checkType reaches them, both stay clean — codec.Envelope's
+		// fields are string, int64, []byte, json.RawMessage, and
+		// map[string]json.RawMessage; state.Schema's are string, []
+		// SchemaType, and []state.UnknownOp, and state.UnknownOp's own
+		// fields (reached transitively through Schema.UnknownOps) are
+		// all string/int64 too — none of it go-git. Pinned here so a
+		// regression introducing a go-git-typed field into either one is
+		// caught by this test rather than discovered only once someone
+		// notices the shipped API.
+		var findings []string
+		report := func(format string, args ...any) { findings = append(findings, fmt.Sprintf(format, args...)) }
+
+		checkType(report, reflect.TypeOf(writ.Envelope{}), make(map[reflect.Type]bool))
+		checkType(report, reflect.TypeOf(writ.Schema{}), make(map[reflect.Type]bool))
+
+		if len(findings) != 0 {
+			t.Errorf("writ.Envelope / writ.Schema produced findings, want none: %v", findings)
+		}
+	})
 }
+
+// methodParamLeak and methodParamHolder exist solely so
+// TestAPILeakGuardBites' "go-git type inside a named-struct method
+// parameter" subtest can exercise a go-git type sitting inside a struct
+// passed as a method parameter — Go methods cannot be declared inside a
+// test function body, so both are declared here at package scope instead.
+// methodParamLeak itself has no go-git methods of its own and is never a
+// field of any walked target; only methodParamHolder.Take's parameter
+// ever reaches it.
+type methodParamLeak struct {
+	Hash plumbing.Hash
+}
+
+type methodParamHolder struct{}
+
+// Take's sole purpose is to put methodParamLeak behind a method
+// signature for the subtest above.
+func (methodParamHolder) Take(c methodParamLeak) {}
 
 func containsSubstring(haystack []string, substr string) bool {
 	for _, s := range haystack {
@@ -456,10 +544,14 @@ func reachesType(typ, target reflect.Type, visited map[reflect.Type]bool) bool {
 // loop, above, is what reaches a method's parameter and result types
 // before calling into this function — and it does the same for an
 // interface's method set, since reflect.Type.NumMethod and Method work
-// the same way whether typ is concrete or an interface. Between the two
-// functions, a forbidden type reached through a struct field, a
-// container element, a method signature, or an interface's method set is
-// found.
+// the same way whether typ is concrete or an interface. checkType then
+// recurses into that same parameter or result type itself, exactly as it
+// does for a field, so a named-struct parameter or result's own fields
+// are walked too — assertNoGitLeak alone never would, since it has no
+// case for reflect.Struct. Between the two functions, a forbidden type
+// reached through a struct field, a container element, a method
+// signature, a named-struct parameter or result's own fields, or an
+// interface's method set is found.
 //
 // visited guards against a self-referential named composite (`type L
 // []L`, `type P *P`, `type M map[string]M`) recursing forever — the same
