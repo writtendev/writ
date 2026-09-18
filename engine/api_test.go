@@ -71,12 +71,12 @@ func checkType(report func(format string, args ...any), typ reflect.Type, visite
 		// Check parameter types
 		for p := 0; p < mType.NumIn(); p++ {
 			inType := mType.In(p)
-			assertNoGitLeak(report, typ.String()+"."+m.Name+" input", inType)
+			assertNoGitLeak(report, typ.String()+"."+m.Name+" input", inType, make(map[reflect.Type]bool))
 		}
 		// Check return types
 		for r := 0; r < mType.NumOut(); r++ {
 			outType := mType.Out(r)
-			assertNoGitLeak(report, typ.String()+"."+m.Name+" output", outType)
+			assertNoGitLeak(report, typ.String()+"."+m.Name+" output", outType, make(map[reflect.Type]bool))
 		}
 	}
 
@@ -89,7 +89,7 @@ func checkType(report func(format string, args ...any), typ reflect.Type, visite
 			if !f.IsExported() {
 				continue
 			}
-			assertNoGitLeak(report, typ.String()+"."+f.Name+" field", f.Type)
+			assertNoGitLeak(report, typ.String()+"."+f.Name+" field", f.Type, make(map[reflect.Type]bool))
 			checkType(report, f.Type, visited)
 		}
 	case reflect.Pointer, reflect.Slice, reflect.Array:
@@ -226,6 +226,70 @@ func TestAPILeakGuardBites(t *testing.T) {
 		}
 	})
 
+	t.Run("self-referential named composite does not crash the walk", func(t *testing.T) {
+		// A named type whose own element is itself (type L []L, type P
+		// *P, type M map[string]M) is a legal Go type. Round 2 review
+		// found assertNoGitLeak's element recursion carried no visited
+		// guard, unlike checkType and reachesType above, so reaching any
+		// of these three shapes didn't report zero findings — it sent
+		// the process into "fatal error: stack overflow" and took the
+		// whole engine test binary down with it. Each shape below sits
+		// next to a plumbing.Hash field so this test proves both halves
+		// at once: the self-reference no longer crashes the walk, and
+		// the walk still finds the real leak sitting beside it.
+		type selfSlice []selfSlice
+		type selfPtr *selfPtr
+		type selfMap map[string]selfMap
+
+		type recursive struct {
+			Slice selfSlice
+			Ptr   selfPtr
+			Map   selfMap
+			Hash  plumbing.Hash
+		}
+		var findings []string
+		report := func(format string, args ...any) { findings = append(findings, fmt.Sprintf(format, args...)) }
+
+		checkType(report, reflect.TypeOf(recursive{}), make(map[reflect.Type]bool))
+
+		if !containsSubstring(findings, "recursive.Hash field") {
+			t.Fatalf("expected a finding for recursive.Hash (plumbing.Hash) despite the self-referential sibling fields, got: %v", findings)
+		}
+	})
+
+	t.Run("named map type's own package is tested, not just its key/value", func(t *testing.T) {
+		// The map branch used to return before the typ.Name() != ""
+		// check ran, so a *named* map type's own PkgPath was never
+		// tested — only its key and value were. forbiddenNamedMap is
+		// declared right here, so this test registers this file's own
+		// package as forbidden for its duration (restored on cleanup)
+		// rather than adding a fixture type to a real internal package
+		// just to prove the point; the ordering bug being pinned does
+		// not care which package is on the list.
+		type forbiddenNamedMap map[string]string
+		type wrapper struct {
+			M forbiddenNamedMap
+		}
+
+		forbidden := reflect.TypeOf(forbiddenNamedMap{}).PkgPath()
+		forbiddenPackagePrefixes = append(forbiddenPackagePrefixes, forbidden)
+		t.Cleanup(func() {
+			forbiddenPackagePrefixes = forbiddenPackagePrefixes[:len(forbiddenPackagePrefixes)-1]
+		})
+
+		var findings []string
+		report := func(format string, args ...any) { findings = append(findings, fmt.Sprintf(format, args...)) }
+
+		checkType(report, reflect.TypeOf(wrapper{}), make(map[reflect.Type]bool))
+
+		if len(findings) == 0 {
+			t.Fatal("expected a finding for wrapper.M (forbiddenNamedMap, whose own declaring package now matches forbiddenPackagePrefixes), got none — the map branch must test the named map type's own PkgPath before recursing into its key/value")
+		}
+		if !containsSubstring(findings, "wrapper.M field") {
+			t.Errorf("findings did not name wrapper.M field: %v", findings)
+		}
+	})
+
 	t.Run("intentional aliases stay clean", func(t *testing.T) {
 		// writ.RefreshStats carries dag.Rejection (via Rejections) and
 		// codec.RejectReason (via Rejection.Reason), plus the projection
@@ -357,43 +421,59 @@ func reachesType(typ, target reflect.Type, visited map[reflect.Type]bool) bool {
 // way a bare "plumbing." substring check once could.
 //
 // Reaching a named type does not stop the walk: after checking a named
-// pointer, slice, array, or chan's own PkgPath, the walk continues into its
-// element too (map key/value are handled the same way, unconditionally,
-// below) — so a writ-named container over a forbidden type, such as
-// `type Sigs []object.Signature` or `type P *object.Signature`, is still
-// caught even though the container's own PkgPath is this package, not
-// go-git's. This is what makes the PkgPath-only rule above no narrower
-// than the substring match over typ.String() it replaced, which used to
-// catch these cases by rendering the whole composite, named element
-// included.
-func assertNoGitLeak(report func(format string, args ...any), context string, typ reflect.Type) {
-	if typ == nil {
+// pointer, slice, array, chan, or map's own PkgPath, the walk continues
+// into its element (map key and value both) — so a writ-named container
+// over a forbidden type, such as `type Sigs []object.Signature` or
+// `type P *object.Signature`, is still caught even though the container's
+// own PkgPath is this package, not go-git's. Func-kinded and
+// interface-kinded types stay out of scope: a static reflect.Type carries
+// no way to reach a func's parameter/result types or an interface's
+// method set the way it reaches a struct's fields, so this walk cannot see
+// through either — a forbidden type appearing only as a func parameter, a
+// func result, or behind an unnamed interface value is not found by this
+// check. The substring match over typ.String() this replaced did see
+// through both (it matched the rendered type expression, func and
+// interface signatures included), so this is narrower than the old check
+// in exactly those two cases. That narrowing is deliberate and out of
+// scope for this ticket, not a claimed equivalence.
+//
+// visited guards against a self-referential named composite (`type L
+// []L`, `type P *P`, `type M map[string]M`) recursing forever — the same
+// convention checkType and reachesType above use, and for the same
+// reason: without it, a type like this doesn't report a finding, it
+// crashes the test binary with a stack overflow.
+func assertNoGitLeak(report func(format string, args ...any), context string, typ reflect.Type, visited map[reflect.Type]bool) {
+	if typ == nil || visited[typ] {
 		return
 	}
+	visited[typ] = true
 
 	// Unwrap an *unnamed* pointer/slice/array/chan down to the type the
 	// walk actually tests, stopping the moment a named type is reached: a
 	// named type (plumbing.Hash, itself Kind Array) is the thing under
 	// test, not a wrapper around it, and unwrapping past it would throw
 	// away its identity and check its unnamed element type (byte) instead
-	// — never matching anything. A map's key and value are two
-	// independent branches a single unwrap can't express — without
-	// recursing into them, a composite type reachable only through a map
-	// (e.g. map[string]plumbing.Hash) has no PkgPath of its own and would
-	// be invisible to the check below.
+	// — never matching anything. A map (named or not) isn't unwrapped
+	// here — its key and value are two independent branches a single
+	// reassignment can't express — so it falls straight through to the
+	// pkgPath check below (a no-op for an unnamed map, whose PkgPath is
+	// always "") and is recursed into from the trailing switch, the same
+	// as every other kind this walk continues past a named type for.
+	// Checking Kind() == reflect.Map here and returning early, the way an
+	// earlier version of this loop did, would test the map's key and
+	// value but never the map type's own PkgPath, missing exactly the
+	// named-map-in-a-forbidden-package case a plain named struct already
+	// catches.
 	for {
-		if typ.Kind() == reflect.Map {
-			assertNoGitLeak(report, context, typ.Key())
-			assertNoGitLeak(report, context, typ.Elem())
-			return
-		}
 		if typ.Name() != "" {
 			break
 		}
-		if typ.Kind() != reflect.Pointer && typ.Kind() != reflect.Slice && typ.Kind() != reflect.Array && typ.Kind() != reflect.Chan {
-			break
+		switch typ.Kind() {
+		case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Chan:
+			typ = typ.Elem()
+			continue
 		}
-		typ = typ.Elem()
+		break
 	}
 
 	pkgPath := typ.PkgPath()
@@ -404,15 +484,20 @@ func assertNoGitLeak(report func(format string, args ...any), context string, ty
 		}
 	}
 
-	// A *named* pointer, slice, array, or chan (e.g. `type Sigs
-	// []object.Signature`) had its own PkgPath checked just above like any
-	// other named type — but that check alone would miss a forbidden
-	// element type hiding behind a writ-named container, since the
-	// container's own package is this one, never go-git's. Recurse into
-	// its element the same way a map's key and value are walked
-	// independently of the map type itself, above.
+	// A *named* pointer, slice, array, chan, or map (e.g. `type Sigs
+	// []object.Signature` or `type M map[string]object.Signature`) had
+	// its own PkgPath checked just above like any other named type — but
+	// that check alone would miss a forbidden type hiding behind a
+	// writ-named container, since the container's own package is this
+	// one, never go-git's. Recurse into its element (map key and value
+	// both, unconditionally — an unnamed map reaches here too, having
+	// skipped the pkgPath check above only in the sense that it was
+	// always a no-op for it) the same way a named container's does.
 	switch typ.Kind() {
 	case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Chan:
-		assertNoGitLeak(report, context, typ.Elem())
+		assertNoGitLeak(report, context, typ.Elem(), visited)
+	case reflect.Map:
+		assertNoGitLeak(report, context, typ.Key(), visited)
+		assertNoGitLeak(report, context, typ.Elem(), visited)
 	}
 }
