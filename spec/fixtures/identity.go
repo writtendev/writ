@@ -17,6 +17,14 @@ type identity struct {
 var identities = map[string]identity{
 	"alice": {Name: "Alice Example", Email: "alice@example.test", KeyFile: "alice_ed25519"},
 	"bob":   {Name: "Bob Example", Email: "bob@example.test", KeyFile: "bob_ed25519"},
+
+	// alice_upper reuses alice's key rather than growing the keyring
+	// (WRIT-278): AllowedSignersContent derives its principal lines from
+	// keys/*.pub filenames, not from this map, so the generated trust
+	// store still contains only the lowercase alice@example.test line —
+	// this identity exists purely to author a commit whose author email
+	// case-mismatches that line while still signing with alice's key.
+	"alice_upper": {Name: "Alice Example", Email: "Alice@Example.TEST", KeyFile: "alice_ed25519"},
 }
 
 func lookupIdentity(name string) (identity, error) {

@@ -93,6 +93,120 @@ untrusted@example.com cert-authority ` + pubLine1 + `
 	}
 }
 
+func TestAllowedSigners_CaseSensitiveMatching(t *testing.T) {
+	// OpenSSH's match_pattern_list runs with dolower=0 for both the
+	// principal and the namespaces= option (sshsig.c
+	// check_allowed_keys_line), so matching here must be case-sensitive.
+	// No existing test asserted the old (wrong) case-insensitive behaviour;
+	// these are pure additions pinning the corrected comparisons in
+	// matchPattern and matchNamespace. Each case below parses its own
+	// TrustStore so one rule's match can't be masked by another.
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	newKey := func(t *testing.T) (ssh.PublicKey, string) {
+		t.Helper()
+		pub, _, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sshPub, err := ssh.NewPublicKey(pub)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return sshPub, strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPub)))
+	}
+
+	// Exact-case principal still authorized.
+	t.Run("exact case still authorized", func(t *testing.T) {
+		sshPub, pubLine := newKey(t)
+		ts, err := sshsig.ParseAllowedSigners(strings.NewReader("alice@example.com " + pubLine + "\n"))
+		if err != nil {
+			t.Fatalf("ParseAllowedSigners failed: %v", err)
+		}
+		if !ts.IsAuthorized(sshPub, "alice@example.com", "git", now) {
+			t.Error("expected exact-case alice@example.com to remain authorized")
+		}
+	})
+
+	// Alice@Example.COM vs an alice@example.com line is now unauthorized.
+	t.Run("mixed case principal no longer authorized", func(t *testing.T) {
+		sshPub, pubLine := newKey(t)
+		ts, err := sshsig.ParseAllowedSigners(strings.NewReader("alice@example.com " + pubLine + "\n"))
+		if err != nil {
+			t.Fatalf("ParseAllowedSigners failed: %v", err)
+		}
+		if ts.IsAuthorized(sshPub, "Alice@Example.COM", "git", now) {
+			t.Error("Alice@Example.COM should not be authorized against an alice@example.com line")
+		}
+	})
+
+	// Glob *@Example.com no longer matches bob@example.com.
+	t.Run("glob pattern case no longer folds", func(t *testing.T) {
+		sshPub, pubLine := newKey(t)
+		ts, err := sshsig.ParseAllowedSigners(strings.NewReader(`*@Example.com ` + pubLine + "\n"))
+		if err != nil {
+			t.Fatalf("ParseAllowedSigners failed: %v", err)
+		}
+		if ts.IsAuthorized(sshPub, "bob@example.com", "git", now) {
+			t.Error("bob@example.com should not match pattern *@Example.com")
+		}
+		if !ts.IsAuthorized(sshPub, "bob@Example.com", "git", now) {
+			t.Error("bob@Example.com should still match pattern *@Example.com")
+		}
+	})
+
+	// !Blocked@example.com no longer negates blocked@example.com.
+	t.Run("negation case no longer folds", func(t *testing.T) {
+		sshPub, pubLine := newKey(t)
+		ts, err := sshsig.ParseAllowedSigners(strings.NewReader(`!Blocked@example.com,*@example.com ` + pubLine + "\n"))
+		if err != nil {
+			t.Fatalf("ParseAllowedSigners failed: %v", err)
+		}
+		if !ts.IsAuthorized(sshPub, "blocked@example.com", "git", now) {
+			t.Error("blocked@example.com should no longer be negated by !Blocked@example.com (case differs)")
+		}
+		if ts.IsAuthorized(sshPub, "Blocked@example.com", "git", now) {
+			t.Error("Blocked@example.com should still be negated by exact-case !Blocked@example.com")
+		}
+	})
+
+	// Bare "*" still matches everything, regardless of case.
+	t.Run("bare wildcard still matches everything", func(t *testing.T) {
+		sshPub, pubLine := newKey(t)
+		ts, err := sshsig.ParseAllowedSigners(strings.NewReader(`* ` + pubLine + "\n"))
+		if err != nil {
+			t.Fatalf("ParseAllowedSigners failed: %v", err)
+		}
+		if !ts.IsAuthorized(sshPub, "Anyone@Example.COM", "git", now) {
+			t.Error("bare * should authorize any principal regardless of case")
+		}
+	})
+}
+
+func TestAllowedSigners_NamespaceCaseSensitive(t *testing.T) {
+	pub1, _, _ := ed25519.GenerateKey(rand.Reader)
+	sshPub1, _ := ssh.NewPublicKey(pub1)
+	pubLine1 := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPub1)))
+
+	allowedSignersContent := `alice@example.com namespaces="Git" ` + pubLine1 + `
+`
+	ts, err := sshsig.ParseAllowedSigners(strings.NewReader(allowedSignersContent))
+	if err != nil {
+		t.Fatalf("ParseAllowedSigners failed: %v", err)
+	}
+
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	// namespaces="Git" no longer matches the lowercase "git" namespace.
+	if ts.IsAuthorized(sshPub1, "alice@example.com", "git", now) {
+		t.Error("namespaces=\"Git\" should not match namespace \"git\"")
+	}
+	// It still matches its own exact case.
+	if !ts.IsAuthorized(sshPub1, "alice@example.com", "Git", now) {
+		t.Error("namespaces=\"Git\" should match namespace \"Git\"")
+	}
+}
+
 func TestAllowedSigners_MalformedLines(t *testing.T) {
 	malformedInputs := []string{
 		"alice@example.com ssh-ed25519",                    // 2 fields, no options, missing key

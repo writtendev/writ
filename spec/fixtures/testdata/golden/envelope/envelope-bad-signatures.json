@@ -111,6 +111,35 @@
       "observed": {
         "disposition": "accept"
       }
+    },
+    {
+      "ref": "refs/writ/alice/widget",
+      "commit": "35363078d2ecc8a771d2d402abb310c81f330c01",
+      "parents": [
+        "be0e602d33ec8c27b234b1432fe5bc4e53e5c07f"
+      ],
+      "author": "Alice Example \u003cAlice@Example.TEST\u003e",
+      "committer": "Alice Example \u003cAlice@Example.TEST\u003e",
+      "timestamp": "2026-01-01T00:04:00Z",
+      "tree_entries": [
+        {
+          "name": "op.json",
+          "mode": "0100644",
+          "sha": "010cef344b8d16980d4f21b1da96bf082446c0e9"
+        }
+      ],
+      "payload": "{\"body\":{\"title\":\"Author email case-mismatches the trust store principal\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"title\":\"Author email case-mismatches the trust store principal\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "signed": true,
+      "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
+      "verification_outcome": "wrong-key",
+      "expected_verification": "wrong-key",
+      "expected": {
+        "disposition": "accept"
+      },
+      "observed": {
+        "disposition": "accept"
+      }
     }
   ]
 }

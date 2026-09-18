@@ -2,7 +2,7 @@
   "refs": [
     {
       "name": "refs/writ/alice/widget",
-      "commit": "be0e602d33ec8c27b234b1432fe5bc4e53e5c07f"
+      "commit": "35363078d2ecc8a771d2d402abb310c81f330c01"
     }
   ],
   "generations": [
@@ -51,6 +51,17 @@
           "timestamp": "2026-01-01T00:03:00Z",
           "message": "writ: update acme.widget/widget-01\n",
           "signed": false
+        },
+        {
+          "sha": "35363078d2ecc8a771d2d402abb310c81f330c01",
+          "tree": "1cf05d7203ff85b61a57228ad7034c40a0dbdf8d",
+          "parents": [
+            "be0e602d33ec8c27b234b1432fe5bc4e53e5c07f"
+          ],
+          "author": "Alice Example \u003cAlice@Example.TEST\u003e",
+          "timestamp": "2026-01-01T00:04:00Z",
+          "message": "writ: update acme.widget/widget-01\n",
+          "signed": true
         }
       ]
     }

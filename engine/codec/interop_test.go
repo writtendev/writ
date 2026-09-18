@@ -235,6 +235,150 @@ func TestInterop_SystemGitToEngine(t *testing.T) {
 	}
 }
 
+// TestInterop_PrincipalCaseMismatch pins WRIT-278: sshsig principal matching
+// must be case-sensitive, like OpenSSH's match_pattern_list(x, list, 0)
+// (dolower=0), not the case-folded comparison writ used before this fix.
+//
+// The oracle here is deliberately ssh-keygen -Y verify, not git verify-commit.
+// git derives the checked principal from the signing key itself via
+// ssh-keygen -Y find-principals and never compares it against the commit
+// author's email at all, so git verify-commit accepts this commit either
+// way and would make this test pass vacuously in both directions, proving
+// nothing about the principal comparison. ssh-keygen -Y verify -I <email> -n
+// git is the actual per-principal check codec.Verify models (spec/signing.md
+// "Principal": the commit author's email against the trust store), so it is
+// the only oracle that can tell a correct case-sensitive comparison apart
+// from the bug this ticket fixes.
+func TestInterop_PrincipalCaseMismatch(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found on PATH")
+	}
+	if _, err := exec.LookPath("ssh-keygen"); err != nil {
+		t.Skip("ssh-keygen not found on PATH")
+	}
+
+	tmp := t.TempDir()
+	keyDir := filepath.Join(tmp, "keys")
+	if err := os.MkdirAll(keyDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	privPath := filepath.Join(keyDir, "id_signer")
+	pubPath := privPath + ".pub"
+
+	genCmd := exec.Command("ssh-keygen", "-t", "ed25519", "-N", "", "-f", privPath)
+	if out, err := genCmd.CombinedOutput(); err != nil {
+		t.Skipf("ssh-keygen unavailable: %v\n%s", err, out)
+	}
+
+	pubBytes, err := os.ReadFile(pubPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pubLine := strings.TrimSpace(string(pubBytes))
+
+	// Trust store contains only the lowercase principal, mirroring an
+	// allowed_signers line an operator actually writes.
+	lowerPrincipal := "alice@example.com"
+	allowedSignersPath := filepath.Join(tmp, "allowed_signers")
+	if err := os.WriteFile(allowedSignersPath, []byte(lowerPrincipal+" "+pubLine+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ts, err := sshsig.ParseAllowedSigners(strings.NewReader(lowerPrincipal + " " + pubLine + "\n"))
+	if err != nil {
+		t.Fatalf("ParseAllowedSigners: %v", err)
+	}
+
+	signer, err := codec.NewSigner(identity.SigningKey{
+		Format: "ssh",
+		Value:  privPath,
+	})
+	if err != nil {
+		t.Fatalf("NewSigner: %v", err)
+	}
+
+	fixedTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	env := codec.Envelope{
+		ObjectID:   "w-01",
+		ObjectType: "widget",
+		OpType:     "create",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"title":"Initial"}`),
+	}
+
+	// buildAndSign builds and signs a commit authored under authorEmail,
+	// writes its payload and signature to temp files, and returns their
+	// paths alongside the built commit.
+	buildAndSign := func(t *testing.T, authorEmail string) (commit *codec.Commit, payloadPath, sigPath string) {
+		t.Helper()
+		author := codec.Identity{
+			Name:  "Alice Example",
+			Email: authorEmail,
+			When:  fixedTime,
+		}
+		c, err := codec.BuildCommit(env, author, nil, widgetVocabulary())
+		if err != nil {
+			t.Fatalf("BuildCommit: %v", err)
+		}
+		if err := codec.SignCommit(context.Background(), signer, c); err != nil {
+			t.Fatalf("SignCommit: %v", err)
+		}
+
+		payloadPath = filepath.Join(t.TempDir(), "payload")
+		if err := os.WriteFile(payloadPath, c.Payload, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		sigPath = filepath.Join(t.TempDir(), "sig")
+		if err := os.WriteFile(sigPath, []byte(c.Signature), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return c, payloadPath, sigPath
+	}
+
+	sshKeygenVerify := func(t *testing.T, identityStr, payloadPath, sigPath string) bool {
+		t.Helper()
+		cmd := exec.Command("ssh-keygen", "-Y", "verify",
+			"-f", allowedSignersPath,
+			"-I", identityStr,
+			"-n", "git",
+			"-s", sigPath,
+		)
+		f, err := os.Open(payloadPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		cmd.Stdin = f
+		err = cmd.Run()
+		return err == nil
+	}
+
+	// Mismatched case: author email differs from the trust store's
+	// principal only in case. OpenSSH rejects it; codec.Verify must too.
+	mixedCasePrincipal := "Alice@Example.COM"
+	mixedCommit, mixedPayload, mixedSig := buildAndSign(t, mixedCasePrincipal)
+
+	if sshKeygenVerify(t, mixedCasePrincipal, mixedPayload, mixedSig) {
+		t.Fatalf("ssh-keygen -Y verify unexpectedly accepted principal %q against a %q allowed_signers line", mixedCasePrincipal, lowerPrincipal)
+	}
+	verMixed := codec.Verify(*mixedCommit, ts)
+	if verMixed.Outcome != codec.OutcomeWrongKey {
+		t.Fatalf("codec.Verify(%q) = %+v, want outcome %q", mixedCasePrincipal, verMixed, codec.OutcomeWrongKey)
+	}
+
+	// Control: exact-case principal. Both ssh-keygen and codec.Verify
+	// must accept it, confirming the mismatch above is about case and
+	// nothing else (key, namespace, payload all held constant).
+	exactCommit, exactPayload, exactSig := buildAndSign(t, lowerPrincipal)
+
+	if !sshKeygenVerify(t, lowerPrincipal, exactPayload, exactSig) {
+		t.Fatalf("ssh-keygen -Y verify unexpectedly rejected exact-case principal %q", lowerPrincipal)
+	}
+	verExact := codec.Verify(*exactCommit, ts)
+	if verExact.Outcome != codec.OutcomeValid || !verExact.Valid {
+		t.Fatalf("codec.Verify(%q) = %+v, want outcome %q", lowerPrincipal, verExact, codec.OutcomeValid)
+	}
+}
+
 // TestDeterminism ensures that signing the same op commit twice with the same ed25519 key
 // produces the exact same commit SHA and payload.
 func TestDeterminism(t *testing.T) {

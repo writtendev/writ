@@ -2,10 +2,12 @@ name: envelope-bad-signatures
 description: >
   Signature verification outcome cases: op signed by the wrong identity
   key, op payload mutated after signing, corrupted armored signature
-  header, and unsigned commit. Every one of these still folds (WRIT-251
-  ruling 1: verification never gates fold), so each commit is accepted
-  and pins the verification outcome codec.Verify must observe rather than
-  a reject reason.
+  header, unsigned commit, and an author email that case-mismatches the
+  trust store's principal line (WRIT-278: principal matching is
+  case-sensitive, like OpenSSH's match_pattern_list, not case-folded).
+  Every one of these still folds (WRIT-251 ruling 1: verification never
+  gates fold), so each commit is accepted and pins the verification
+  outcome codec.Verify must observe rather than a reject reason.
 
 refs:
   - name: refs/writ/alice/widget
@@ -67,3 +69,16 @@ refs:
             expect:
               accept: true
               verification: unsigned
+          - id: bad-sig-principal-case
+            author: alice_upper
+            timestamp: 2026-01-01T00:04:00Z
+            op:
+              object_id: widget-01
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "Author email case-mismatches the trust store principal"
+            expect:
+              accept: true
+              verification: wrong-key
