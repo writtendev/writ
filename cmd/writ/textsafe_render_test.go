@@ -793,8 +793,23 @@ func TestSchemaApply_HostileFetchedNamespaceRendersEscaped(t *testing.T) {
 	hostile := "ev" + string(rune(0x202E)) + "il"
 
 	// A foreign writer's own schema object, on its own writer ref -- what
-	// fetching a hostile peer's schema chain leaves behind.
-	writeForeignOp(t, env.repoDir, "fedcba9876543210", "schema", "schema:evil", "create", 1, map[string]any{
+	// fetching a hostile peer's schema chain leaves behind. The object id
+	// deliberately does NOT carry the "schema:" prefix (it is not, and
+	// cannot be, derived from hostile): spec/op-envelope.md's object_id
+	// grammar (^[\x21-\x7e]+$, printable ASCII only) already refuses
+	// hostile's raw U+202E bytes outright, so no derived id for this
+	// namespace is even constructible -- "schema:" + hostile is not a
+	// legal object_id at all, let alone the one this create's body would
+	// need to agree with under WRIT-254 change 1 (engine/state/schema.go's
+	// FoldSchema quarantines a create on a "schema:"-prefixed id whose
+	// body namespace disagrees with the id's own suffix). A non-derived id
+	// is exactly what a hostile or non-conforming foreign peer plausibly
+	// leaves behind anyway, and change 1 does not gate it at all --
+	// scoped to the derived-id form only, per the ruling -- so the create
+	// folds exactly as it did before this ticket, and the hostile
+	// namespace still reaches schemaNamespaces and the mint summary this
+	// test exists to check.
+	writeForeignOp(t, env.repoDir, "fedcba9876543210", "schema", "foreign-evil-schema", "create", 1, map[string]any{
 		"namespace": hostile,
 	})
 

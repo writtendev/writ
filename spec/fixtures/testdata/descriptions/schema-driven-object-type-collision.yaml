@@ -2,15 +2,26 @@ name: schema-driven-object-type-collision
 description: >
   Two schema objects, authored by two different writers but sharing one
   namespace ("shared-vocab"), both bind the same qualified object_type
-  "shared-vocab.gadget" (spec/schema-ops.md §2, §6; WRIT-217). This is the
-  load-bearing collision that survives namespace qualification: no winner
-  is picked, no rules install for "shared-vocab.gadget" at all, and its
-  ops fall through the absent-schema path to UnknownOp exactly as if no
-  schema had ever declared it — even though two schemas nominally
-  describe it. Two DIFFERENT namespaces declaring the same bare type name
-  no longer collide at all post-WRIT-217; this fixture pins the collision
-  that remains, not the one the ticket closed. RulesFromSchemas reports
-  the conflict. (pins: reader)
+  "shared-vocab.gadget" (spec/schema-ops.md §2, §6; WRIT-217). Before
+  WRIT-254 this was the load-bearing object_type collision that survives
+  namespace qualification: no winner picked, no rules installed, ops
+  falling through to UnknownOp -- with RulesFromSchemas reporting an
+  "object_type ... is bound by more than one schema object" conflict.
+  WRIT-254 change 2 closes it a layer earlier and changes which conflict
+  fires: neither "sch-alice" nor "sch-bob" is the derived id
+  "schema:shared-vocab" their shared namespace requires
+  (spec/identifiers.md's schema carve-out), so resolveSchemaTypes drops
+  both objects wholesale -- before their types are ever compared against
+  each other -- and reports one id-mismatch conflict per object instead
+  of the old single object_type-collision conflict naming both. The
+  observable end state most callers care about is unchanged (no rules
+  for "shared-vocab.gadget", gadget's ops still fall through to
+  UnknownOp exactly as if no schema had ever declared it), but the old
+  object_type-collision code path this fixture used to exercise is now
+  unreachable for a namespace-qualified type -- see engine/schema.go's
+  own comment on that branch and the PR description's open question for
+  Matt. This fixture now asserts the drop, not the collision. (pins:
+  reader)
 
 refs:
   - name: refs/writ/0123456789abcdef/schema

@@ -527,16 +527,28 @@ func schemaNamespaces(schemas []state.Schema, extra string) []string {
 // flag would serve is a repository already in the state this function
 // exists to describe.
 //
-// Namespace match count is the only signal available: zero means a fresh
-// object (case 0), exactly one means reuse (case 1), and more than one is
-// itself a pre-existing collision in the log this function refuses to add
-// to (default). An earlier revision also refused case 0 and case 1 when
-// f's own declared types collided with some *other* schema object's
-// already-bound object_type — sensible while object_type was bare, when
-// that really was one wire type bound twice, but WRIT-217 namespace-
-// qualifies object_type precisely so two schema objects *can* bind the
-// identical bare type name under different namespaces with zero collision
-// (spec/schema-ops.md §2,
+// A match requires both the namespace and the derived-id agreement WRIT-254
+// change 2 requires of every schema object the read-side resolver
+// (engine/schema.go's resolveSchemaTypes) installs: s.ObjectID ==
+// deriveSchemaObjectID(s.Namespace). Filtering on namespace alone, as an
+// earlier revision did, let a hijacked or hand-crafted sibling under the
+// target namespace — one the engine already drops and installs nothing
+// for — still count as a match here, which could make this function
+// refuse a legitimate reuse or apply, invisibly, onto an object the rest
+// of the system does not treat as that namespace's schema object. Once
+// every match is required to carry the derived id, at most one can ever
+// exist per namespace: two schema objects can never both equal
+// "schema:" + the same namespace (schemaObjectIDMatchesNamespace's own
+// doc comment in engine/schema.go makes the identical argument for the
+// resolver). So the multi-match refusal an earlier revision needed here
+// is gone, not weakened: it is unreachable now, not merely rarer.
+//
+// An earlier revision also refused case 0 and case 1 when f's own
+// declared types collided with some *other* schema object's already-bound
+// object_type — sensible while object_type was bare, when that really was
+// one wire type bound twice, but WRIT-217 namespace-qualifies object_type
+// precisely so two schema objects *can* bind the identical bare type name
+// under different namespaces with zero collision (spec/schema-ops.md §2,
 // TestSchemaCLI_DifferentNamespacesSameBareTypeBothInstall). Once that
 // guarantee holds, "f's bare type overlaps some other object's bare type"
 // can no longer tell a genuine collision apart from that exact, sanctioned
@@ -552,29 +564,17 @@ func schemaNamespaces(schemas []state.Schema, extra string) []string {
 // writes to an existing object's namespace field — and the new one is no
 // more or less legitimate than an unrelated namespace declaring the same
 // bare type for the first time.
+//
+// resolveSchemaTarget always succeeds now (error stays in the signature
+// rather than being dropped, to keep every call site's shape stable) —
+// there is no remaining case that refuses.
 func resolveSchemaTarget(schemas []state.Schema, f *schemasrc.File) (string, error) {
-	var matches []state.Schema
 	for _, s := range schemas {
-		if s.Namespace == f.Namespace {
-			matches = append(matches, s)
+		if s.Namespace == f.Namespace && s.ObjectID == deriveSchemaObjectID(s.Namespace) {
+			return s.ObjectID, nil
 		}
 	}
-
-	switch len(matches) {
-	case 1:
-		return matches[0].ObjectID, nil
-	case 0:
-		return deriveSchemaObjectID(f.Namespace), nil
-	default:
-		ids := make([]string, 0, len(matches))
-		for _, s := range matches {
-			ids = append(ids, s.ObjectID)
-		}
-		sort.Strings(ids)
-		return "", fmt.Errorf(
-			"writ schema: namespace %q is declared by more than one schema object (%s); resolve the collision in the log before running `writ schema apply`",
-			f.Namespace, strings.Join(ids, ", "))
-	}
+	return deriveSchemaObjectID(f.Namespace), nil
 }
 
 // deriveSchemaObjectID returns the schema object id for namespace:

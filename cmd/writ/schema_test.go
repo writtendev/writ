@@ -1079,29 +1079,56 @@ func TestResolveSchemaTarget_SquattedForeignTypeDoesNotBlockFreshMint(t *testing
 	}
 }
 
-// TestResolveSchemaTarget_MultipleObjectsSameNamespaceRefuses pins
-// resolveSchemaTarget's default case, left uncovered before this round:
-// two schema objects with distinct, independently-chosen ObjectIDs (not
-// every writer goes through this CLI's deriveSchemaObjectID) can share a
-// namespace in the log, most plausibly two offline writers racing to
-// bootstrap the same namespace with hand-crafted object_ids, or any
-// producer that doesn't derive its object_id from the namespace at all.
-// resolveSchemaTarget cannot pick a target between them, so it refuses
-// rather than guessing.
-func TestResolveSchemaTarget_MultipleObjectsSameNamespaceRefuses(t *testing.T) {
+// TestResolveSchemaTarget_NonDerivedIDObjectsIgnoredFreshMint replaces the
+// old TestResolveSchemaTarget_MultipleObjectsSameNamespaceRefuses, which
+// pinned resolveSchemaTarget's now-deleted default case: two schema
+// objects sharing a namespace under distinct, independently-chosen
+// ObjectIDs (not every writer goes through this CLI's
+// deriveSchemaObjectID) used to make resolveSchemaTarget refuse rather
+// than guess. WRIT-254 change 2 makes that scenario inexpressible as a
+// live collision: engine/schema.go's resolveSchemaTypes now drops any
+// schema object whose id disagrees with its own namespace's derived
+// form, so neither a nor b below is ever installed by the read path
+// regardless of what resolveSchemaTarget does with them — there is
+// nothing left to refuse over. resolveSchemaTarget must ignore both,
+// exactly as the engine does, and mint the one legitimate object neither
+// of them is: this is the write-side twin of that read-side drop, not a
+// weakening of the old refusal.
+func TestResolveSchemaTarget_NonDerivedIDObjectsIgnoredFreshMint(t *testing.T) {
 	a := state.Schema{ObjectID: "schema:acme-a", Namespace: "acme"}
 	b := state.Schema{ObjectID: "schema:acme-b", Namespace: "acme"}
 	f := &schemasrc.File{Namespace: "acme", Types: []*schemasrc.Type{{Name: "standup"}}}
 
-	_, err := resolveSchemaTarget([]state.Schema{a, b}, f)
-	if err == nil {
-		t.Fatal("expected an error when two schema objects share a namespace, got nil")
+	got, err := resolveSchemaTarget([]state.Schema{a, b}, f)
+	if err != nil {
+		t.Fatalf("expected both non-derived-id siblings ignored and a fresh mint to succeed, got error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "declared by more than one schema object") {
-		t.Fatalf("error does not name the namespace collision: %v", err)
+	if want := deriveSchemaObjectID("acme"); got != want {
+		t.Fatalf("resolveSchemaTarget = %q, want a fresh derived id %q (a and b are both dropped siblings, neither a live match)", got, want)
 	}
-	if !strings.Contains(err.Error(), "schema:acme-a") || !strings.Contains(err.Error(), "schema:acme-b") {
-		t.Fatalf("error does not name both contending schema objects: %v", err)
+}
+
+// TestResolveSchemaTarget_DerivedIDMatchResolvesWithDroppedSiblingPresent
+// is the mirror case the plan calls for: a properly-derived schema object
+// coexists with a dropped, non-derived-id sibling under the same
+// namespace. resolveSchemaTarget must resolve to the live object and
+// ignore the sibling — not count it as a second match, which would wrongly
+// reintroduce the refusal WRIT-254 change 2 makes unreachable.
+func TestResolveSchemaTarget_DerivedIDMatchResolvesWithDroppedSiblingPresent(t *testing.T) {
+	target := state.Schema{
+		ObjectID:  "schema:acme",
+		Namespace: "acme",
+		Types:     []state.SchemaType{{Name: "acme.standup"}},
+	}
+	dropped := state.Schema{ObjectID: "schema:acme-rogue", Namespace: "acme"}
+	f := &schemasrc.File{Namespace: "acme", Types: []*schemasrc.Type{{Name: "standup"}}}
+
+	got, err := resolveSchemaTarget([]state.Schema{target, dropped}, f)
+	if err != nil {
+		t.Fatalf("expected the dropped sibling ignored and reuse to succeed, got error: %v", err)
+	}
+	if got != target.ObjectID {
+		t.Fatalf("resolveSchemaTarget = %q, want the properly-derived target %q", got, target.ObjectID)
 	}
 }
 

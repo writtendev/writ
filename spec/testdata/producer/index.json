@@ -32,9 +32,9 @@
     "reason": "tier 4: an object_type no schema in the log declares is refused at the producer; a reader falls through the absent-schema path to UnknownOp (FC-1, spec/schema-ops.md 7.1)"
   },
   "contested-object-type.json": {
-    "producer_verdict": "accept",
+    "producer_verdict": "reject",
     "reader_disposition": "unknown-op",
-    "reason": "tier 3 (the ruling's carve-out): two schema objects binding the same qualified object_type install no rules (spec/schema-ops.md 6), so the write is permitted unvalidated while the reader still reports UnknownOp -- the write/read asymmetry is the point"
+    "reason": "WRIT-254 change 2: neither sch-a nor sch-b carries the derived id \"schema:alpha\" their shared namespace requires (spec/identifiers.md's schema carve-out), so resolveSchemaTypes drops both wholesale before alpha.standup is ever contested between them -- it never reaches declared or contested at all. Before WRIT-254 this fixture pinned tier 3 (the ruling's carve-out): two schema objects genuinely binding the same qualified object_type installed no rules, and the producer permitted the write unvalidated. That route to tier 3 is now closed: an object_type no schema in the log successfully binds falls to tier 4 (refuse) like any other undeclared type. codec.Vocabulary.Contested and tier 3 itself are unaffected by this fixture's change -- see the WRIT-254 PR description for the open question about whether the engine resolver can still reach tier 3 by any path."
   },
   "declared-type-with-no-fields.json": {
     "producer_verdict": "accept",

@@ -1,9 +1,9 @@
 {
   "schemas": [
     {
-      "object_id": "sch-acme",
+      "object_id": "schema:acme",
       "schema": {
-        "object_id": "sch-acme",
+        "object_id": "schema:acme",
         "namespace": "acme",
         "types": [
           {
@@ -104,28 +104,28 @@
     {
       "object_type": "acme.gadget",
       "object_ids": [
-        "sch-acme"
+        "schema:acme"
       ],
       "reason": "field rule (set-beta, 1, beta) is invalid and was not installed: rule for (set-beta, beta) declares key column \"Bad Col2\", which is not a valid identifier (must match ^[a-z][a-z0-9_]*$, max 64 chars)"
     },
     {
       "object_type": "acme.gadget",
       "object_ids": [
-        "sch-acme"
+        "schema:acme"
       ],
       "reason": "field rule (set-owner, 1, owner) is invalid and was not installed: rule for (set-owner, owner) declares target \"bad-target\", which is not a valid identifier (must match ^[a-z][a-z0-9_]*$, max 64 chars)"
     },
     {
       "object_type": "acme.gadget",
       "object_ids": [
-        "sch-acme"
+        "schema:acme"
       ],
       "reason": "field rule (set-subject, 1, delta) is invalid and was not installed: rule for (set-subject, delta) declares target \"bad-target2\", which is not a valid identifier (must match ^[a-z][a-z0-9_]*$, max 64 chars)"
     },
     {
       "object_type": "acme.gadget",
       "object_ids": [
-        "sch-acme"
+        "schema:acme"
       ],
       "reason": "field rule (set-tags, 1, tags) is invalid and was not installed: rule for (set-tags, tags) declares key column \"Bad Col\", which is not a valid identifier (must match ^[a-z][a-z0-9_]*$, max 64 chars)"
     }

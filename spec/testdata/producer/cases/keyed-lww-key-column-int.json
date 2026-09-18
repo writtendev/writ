@@ -1,7 +1,7 @@
 {
   "schemas": [
     {
-      "object_id": "sch-widget",
+      "object_id": "schema:acme",
       "ops": [
         { "op_type": "create", "body": { "namespace": "acme" } },
         { "op_type": "define-type", "body": { "type": "acme.widget" } },

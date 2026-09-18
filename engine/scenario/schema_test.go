@@ -10,7 +10,7 @@ import (
 
 // schemaObjectID is the object every declaration op below lands on: one
 // schema object, authored once, fetched by the other devices.
-const schemaObjectID = "sch-acme"
+const schemaObjectID = "schema:acme"
 
 // acmeSchema is the vocabulary these scenarios write against. Writ
 // hard-codes one object type, `schema`, so a scenario declares its own types

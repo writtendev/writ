@@ -1,0 +1,138 @@
+name: schema-driven-non-derived-id-dropped
+description: >
+  WRIT-254 change 2 (spec/schema-ops.md §6 kind 2): a schema object whose
+  object_id disagrees with "schema:" + its own folded namespace is
+  dropped wholesale by the resolver -- none of its declarations install,
+  and this is checked before any of its types are even looked at, unlike
+  the narrower per-type checks WRIT-253 added. Two unrelated schema
+  objects: "schema:acme" (properly derived, namespace "acme") declares
+  acme.widget and installs normally; "rogue-object" (an arbitrary,
+  non-derived id, namespace "bigco") declares bigco.gadget and is dropped
+  entirely, reported as a single id-mismatch conflict naming the whole
+  object rather than one per type. Neither object's presence affects the
+  other: acme.widget's ops fold normally, and bigco.gadget's ops fall
+  through the absent-schema path to UnknownOp exactly as if no schema had
+  ever declared it. (pins: reader)
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: acme-create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: acme-define-type
+            parents: [acme-create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "acme.widget"
+            expect: accept
+
+          - id: acme-define-field
+            parents: [acme-define-type]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+  - name: refs/writ/fedcba9876543210/schema
+    history:
+      - commits:
+          - id: rogue-create
+            author: bob
+            timestamp: 2026-01-01T00:00:30Z
+            op:
+              object_id: rogue-object
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "bigco"
+            expect: accept
+
+          - id: rogue-define-type
+            parents: [rogue-create]
+            author: bob
+            timestamp: 2026-01-01T00:01:30Z
+            op:
+              object_id: rogue-object
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "bigco.gadget"
+            expect: accept
+
+          - id: rogue-define-field
+            parents: [rogue-define-type]
+            author: bob
+            timestamp: 2026-01-01T00:02:30Z
+            op:
+              object_id: rogue-object
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "bigco.gadget"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/widget
+    history:
+      - commits:
+          - id: widget-create
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: widget-1
+              object_type: acme.widget
+              op_type: create
+              op_version: 1
+              body:
+                title: "Widget"
+            expect: accept
+
+  - name: refs/writ/fedcba9876543210/gadget
+    history:
+      - commits:
+          - id: gadget-create
+            author: bob
+            timestamp: 2026-01-01T00:03:30Z
+            op:
+              object_id: gadget-1
+              object_type: bigco.gadget
+              op_type: create
+              op_version: 1
+              body:
+                title: "Gadget"
+            expect: accept

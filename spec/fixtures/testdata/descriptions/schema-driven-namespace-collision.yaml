@@ -1,11 +1,22 @@
 name: schema-driven-namespace-collision
 description: >
-  Two schema objects declare the same namespace but bind two DIFFERENT
-  object_types. A weaker, mostly cosmetic case (spec/schema-ops.md §6):
-  reported alongside an object_type collision when both occur, but on its
-  own it withholds nothing. Both widget-a and widget-b get their rules
-  installed and fold normally despite the namespace collision being
-  reported. (pins: reader)
+  WRIT-254 change 2: neither alice's nor bob's schema object carries the
+  derived id "schema:shared-namespace" their shared namespace requires
+  (spec/identifiers.md's schema carve-out) -- both are independently
+  minted, "sch-alice" and "sch-bob". A conforming write path never
+  produces this: it is what a non-conforming producer, or a hand-crafted
+  commit, can still put in the log. Before WRIT-254 this was the
+  "mostly cosmetic" namespace collision (spec/schema-ops.md's old §6 kind
+  2): both objects installed and neither type was withheld. That
+  conflict kind is gone now, not weakened -- resolveSchemaTypes drops a
+  schema object whose own object_id disagrees with "schema:" + its
+  namespace before any of its types are even looked at, so BOTH objects
+  here are dropped wholesale: two conflicts, one per object, neither
+  naming widget-a or widget-b specifically. Nothing installs for either
+  type, and both widget-a's and widget-b's ops fall through the
+  absent-schema path to UnknownOp, exactly as if no schema had ever
+  declared them -- the inverse of this fixture's pre-WRIT-254 point.
+  (pins: reader)
 
 refs:
   - name: refs/writ/0123456789abcdef/schema

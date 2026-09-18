@@ -67,7 +67,7 @@ func TestLinkTargetLengthBoundIsEnforcedOnTheProducerPath(t *testing.T) {
 	defer s.Close()
 
 	ctx := context.Background()
-	envs := compileTestSchema(t, "sch-refbound", referenceBoundSchemaSrc)
+	envs := compileTestSchema(t, "schema:acme", referenceBoundSchemaSrc)
 	if err := s.ApplySchema(ctx, envs); err != nil {
 		t.Fatalf("ApplySchema failed: %v", err)
 	}

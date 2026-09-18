@@ -3,87 +3,87 @@
   "ops": [
     {
       "ref": "refs/writ/0123456789abcdef/schema",
-      "commit": "7e7b98e49daea722263a972a87eb6425554eec85",
+      "commit": "6878f32e6ceba5d25b58018d4349cddbfb8921eb",
       "parents": [],
-      "blob_sha": "81b9c3ec973cb4bc15875a3c04ef000cd6437f83",
-      "canonical_payload": "{\"body\":{\"namespace\":\"acme\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"create\",\"op_version\":1}",
+      "blob_sha": "1a44f955f1da02c7e96e27e24a524e12a0f57d7b",
+      "canonical_payload": "{\"body\":{\"namespace\":\"acme\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"create\",\"op_version\":1}",
       "declared_disposition": "opaque",
       "observed_disposition": "opaque"
     },
     {
       "ref": "refs/writ/0123456789abcdef/schema",
-      "commit": "d2d4bf47dccd80491cdecacab391d6840646c5a2",
+      "commit": "bc8e7c1f1c78f9de75b6fad53a582223bf0c66e7",
       "parents": [
-        "7e7b98e49daea722263a972a87eb6425554eec85"
+        "6878f32e6ceba5d25b58018d4349cddbfb8921eb"
       ],
-      "blob_sha": "6957ee331e0bc97497b48fb6d13cc9560fce8075",
-      "canonical_payload": "{\"body\":{\"type\":\"acme.widget\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-type\",\"op_version\":1}",
+      "blob_sha": "32b3ef318b1c47b79bf87da2452a0501aee27c58",
+      "canonical_payload": "{\"body\":{\"type\":\"acme.widget\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"define-type\",\"op_version\":1}",
       "declared_disposition": "opaque",
       "observed_disposition": "opaque"
     },
     {
       "ref": "refs/writ/0123456789abcdef/schema",
-      "commit": "b418d747e52331c52e28b53fb37e39d16f9748ab",
+      "commit": "27382775734ac958e763d554093467861828431e",
       "parents": [
-        "d2d4bf47dccd80491cdecacab391d6840646c5a2"
+        "bc8e7c1f1c78f9de75b6fad53a582223bf0c66e7"
       ],
-      "blob_sha": "c5318ad411a51eec6a0b5c7c32feaf2dcd3b5c2d",
-      "canonical_payload": "{\"body\":{\"type\":\"acme.gadget\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-type\",\"op_version\":1}",
+      "blob_sha": "f5ef6a6bd428327b6fb4c75d93c5620619aed5fd",
+      "canonical_payload": "{\"body\":{\"type\":\"acme.gadget\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"define-type\",\"op_version\":1}",
       "declared_disposition": "opaque",
       "observed_disposition": "opaque"
     },
     {
       "ref": "refs/writ/0123456789abcdef/schema",
-      "commit": "44b0282ab8f68b2158df49e0e84f670bd2f925fe",
+      "commit": "48c204f4cba9c214de249f181eeebd04d24f5f62",
       "parents": [
-        "b418d747e52331c52e28b53fb37e39d16f9748ab"
+        "27382775734ac958e763d554093467861828431e"
       ],
-      "blob_sha": "49876d050b80e49d1671654983ad6d529c2a6341",
-      "canonical_payload": "{\"body\":{\"field\":\"title\",\"op_type\":\"create\",\"op_version\":\"1\",\"strategy\":\"lww\",\"type\":\"acme.widget\",\"value_type\":\"string\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
+      "blob_sha": "fc73c838d3786a34fce95d270003e3c58cde1680",
+      "canonical_payload": "{\"body\":{\"field\":\"title\",\"op_type\":\"create\",\"op_version\":\"1\",\"strategy\":\"lww\",\"type\":\"acme.widget\",\"value_type\":\"string\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
       "declared_disposition": "opaque",
       "observed_disposition": "opaque"
     },
     {
       "ref": "refs/writ/0123456789abcdef/schema",
-      "commit": "90591742bcc4e3f4567c1b79261d332c4e5bdac8",
+      "commit": "8095d64b6a5b1b61800317a7b5af604a9b1822ae",
       "parents": [
-        "44b0282ab8f68b2158df49e0e84f670bd2f925fe"
+        "48c204f4cba9c214de249f181eeebd04d24f5f62"
       ],
-      "blob_sha": "a05c72edfa358bec4d03c8efab168fb8f03276b6",
-      "canonical_payload": "{\"body\":{\"field\":\"description\",\"op_type\":\"create\",\"op_version\":\"1\",\"strategy\":\"lww\",\"type\":\"acme.widget\",\"value_type\":\"string\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
+      "blob_sha": "d3eb606b8b9b9dfbd16ea4efcc2ef020e5f2793d",
+      "canonical_payload": "{\"body\":{\"field\":\"description\",\"op_type\":\"create\",\"op_version\":\"1\",\"strategy\":\"lww\",\"type\":\"acme.widget\",\"value_type\":\"string\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
       "declared_disposition": "opaque",
       "observed_disposition": "opaque"
     },
     {
       "ref": "refs/writ/0123456789abcdef/schema",
-      "commit": "c1d89ac0da2eb5376d795276df6f616b90d70743",
+      "commit": "6b9581c06f41e425290b0d4133dc9282797731fc",
       "parents": [
-        "90591742bcc4e3f4567c1b79261d332c4e5bdac8"
+        "8095d64b6a5b1b61800317a7b5af604a9b1822ae"
       ],
-      "blob_sha": "6feed886e7cffbbd6c75d2f066156417d6946056",
-      "canonical_payload": "{\"body\":{\"op_type\":\"close\",\"op_version\":\"1\",\"type\":\"acme.widget\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-op\",\"op_version\":1}",
+      "blob_sha": "d9d63108992ae1a9766e40f331612500e194cfde",
+      "canonical_payload": "{\"body\":{\"op_type\":\"close\",\"op_version\":\"1\",\"type\":\"acme.widget\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"define-op\",\"op_version\":1}",
       "declared_disposition": "opaque",
       "observed_disposition": "opaque"
     },
     {
       "ref": "refs/writ/0123456789abcdef/schema",
-      "commit": "ac4dc2685a1a8ad4643d58b9055a08af4e31ef12",
+      "commit": "39e8778903466799dfe165a36bd0cb216885d919",
       "parents": [
-        "c1d89ac0da2eb5376d795276df6f616b90d70743"
+        "6b9581c06f41e425290b0d4133dc9282797731fc"
       ],
-      "blob_sha": "24443e68e77a9769089265de984e2736a3a0bd27",
-      "canonical_payload": "{\"body\":{\"op_type\":\"post\",\"op_version\":\"1\",\"type\":\"acme.gadget\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-op\",\"op_version\":1}",
+      "blob_sha": "d46689fa141d079ca44f66990f01d47cd057e8a3",
+      "canonical_payload": "{\"body\":{\"op_type\":\"post\",\"op_version\":\"1\",\"type\":\"acme.gadget\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"define-op\",\"op_version\":1}",
       "declared_disposition": "opaque",
       "observed_disposition": "opaque"
     },
     {
       "ref": "refs/writ/0123456789abcdef/schema",
-      "commit": "e4a55ef14791e8864f301037002b708fd19bc48f",
+      "commit": "611660e4cfddbe0c0d3f7e90904732d2150fe5b2",
       "parents": [
-        "ac4dc2685a1a8ad4643d58b9055a08af4e31ef12"
+        "39e8778903466799dfe165a36bd0cb216885d919"
       ],
-      "blob_sha": "d4876c2219a2eaf28271a258f86d95e493384491",
-      "canonical_payload": "{\"body\":{\"op_type\":\"post\",\"op_version\":\"2\",\"type\":\"acme.gadget\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-op\",\"op_version\":1}",
+      "blob_sha": "c1a44f24315b7e83e1d352680df3ba5ed9f47b40",
+      "canonical_payload": "{\"body\":{\"op_type\":\"post\",\"op_version\":\"2\",\"type\":\"acme.gadget\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"define-op\",\"op_version\":1}",
       "declared_disposition": "opaque",
       "observed_disposition": "opaque"
     },
@@ -131,49 +131,49 @@
   ],
   "opaque_records": [
     {
-      "op_id": "7e7b98e49daea722263a972a87eb6425554eec85",
+      "op_id": "6878f32e6ceba5d25b58018d4349cddbfb8921eb",
       "object_type": "schema",
       "op_type": "create",
       "op_version": 1
     },
     {
-      "op_id": "d2d4bf47dccd80491cdecacab391d6840646c5a2",
+      "op_id": "bc8e7c1f1c78f9de75b6fad53a582223bf0c66e7",
       "object_type": "schema",
       "op_type": "define-type",
       "op_version": 1
     },
     {
-      "op_id": "b418d747e52331c52e28b53fb37e39d16f9748ab",
+      "op_id": "27382775734ac958e763d554093467861828431e",
       "object_type": "schema",
       "op_type": "define-type",
       "op_version": 1
     },
     {
-      "op_id": "44b0282ab8f68b2158df49e0e84f670bd2f925fe",
+      "op_id": "48c204f4cba9c214de249f181eeebd04d24f5f62",
       "object_type": "schema",
       "op_type": "define-field",
       "op_version": 1
     },
     {
-      "op_id": "90591742bcc4e3f4567c1b79261d332c4e5bdac8",
+      "op_id": "8095d64b6a5b1b61800317a7b5af604a9b1822ae",
       "object_type": "schema",
       "op_type": "define-field",
       "op_version": 1
     },
     {
-      "op_id": "c1d89ac0da2eb5376d795276df6f616b90d70743",
+      "op_id": "6b9581c06f41e425290b0d4133dc9282797731fc",
       "object_type": "schema",
       "op_type": "define-op",
       "op_version": 1
     },
     {
-      "op_id": "ac4dc2685a1a8ad4643d58b9055a08af4e31ef12",
+      "op_id": "39e8778903466799dfe165a36bd0cb216885d919",
       "object_type": "schema",
       "op_type": "define-op",
       "op_version": 1
     },
     {
-      "op_id": "e4a55ef14791e8864f301037002b708fd19bc48f",
+      "op_id": "611660e4cfddbe0c0d3f7e90904732d2150fe5b2",
       "object_type": "schema",
       "op_type": "define-op",
       "op_version": 1

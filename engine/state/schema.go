@@ -13,10 +13,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/writtendev/writ/engine/codec"
 	"github.com/writtendev/writ/engine/internal/fold"
 )
+
+// schemaObjectIDPrefix is the derived-id form's literal prefix
+// (spec/identifiers.md's schema carve-out): a schema object's id is
+// "schema:" + namespace, never minted. Kept as its own constant so the
+// namespace-implied-by-id quarantine below reads the same literal
+// cmd/writ/schema.go's deriveSchemaObjectID and engine/schema.go's
+// resolver gate use.
+const schemaObjectIDPrefix = "schema:"
 
 // SchemaField represents one field declaration within a schema-declared
 // type's op vocabulary (v1), keyed by (op_type, op_version, field) — the
@@ -208,6 +217,42 @@ func FoldSchema(ops []codec.Op) (Schema, error) {
 		if op.OpType == "define-field" {
 			if raw, present := body["max_length"]; present {
 				if _, ok := decodeMaxLength(raw); !ok {
+					unknownOps = append(unknownOps, UnknownOp{
+						Commit:       op.ID,
+						ObjectType:   op.ObjectType,
+						OpType:       op.OpType,
+						OpVersion:    op.OpVersion,
+						Verification: string(op.Verification.Outcome),
+					})
+					continue
+				}
+			}
+		}
+
+		// Namespace implied by object id (WRIT-254, closes failure mode A:
+		// a namespace hijack via create-once plus an attacker-chosen
+		// author.When). A schema object's derived-id form binds its
+		// identity to its namespace (spec/identifiers.md's schema
+		// carve-out: object_id == "schema:" + namespace); create-once
+		// namespace assignment below has no notion of that binding and
+		// would otherwise let any parentless `create` — including one
+		// with a fabricated, unbounded author.When that wins t* ordering
+		// outright — silently rewrite sch.Namespace to whatever it
+		// pleases, on a derived-id object it never legitimately created.
+		// Scoped to the derived-id form only, exactly as the ruling
+		// states: a `create` on a non-"schema:"-prefixed id is untouched
+		// here (change 2, engine/schema.go's resolveSchemaTypes, drops
+		// the whole object at the resolver instead). A `create` on a
+		// derived id whose body carries no `namespace` at all, or one
+		// that disagrees with the id's own suffix, is uninterpretable on
+		// the same terms as the op_version and max_length quarantines
+		// above: it never reaches the create-once assignment, so an
+		// honest `schema:acme` object's namespace can never be hijacked
+		// by a forged root op on its ref.
+		if op.OpType == "create" {
+			if suffix, ok := strings.CutPrefix(op.ObjectID, schemaObjectIDPrefix); ok {
+				bodyNamespace, _ := body["namespace"].(string)
+				if bodyNamespace != suffix {
 					unknownOps = append(unknownOps, UnknownOp{
 						Commit:       op.ID,
 						ObjectType:   op.ObjectType,

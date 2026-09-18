@@ -48,6 +48,19 @@ producer bootstrapping a namespace it has not seen before converges on the
 same object as any other producer doing the same, with no coordination
 (`spec/identifiers.md`'s schema carve-out).
 
+**"One namespace names exactly one schema object" is enforced, not merely
+asserted (WRIT-254).** A conforming producer already derives `object_id`
+from the namespace it creates, but nothing before this ticket stopped a
+non-conforming producer, or a hand-crafted commit, from targeting a
+derived-id object with a `create` whose own `namespace` disagrees with
+that id, or from minting an unrelated object whose folded namespace
+happens to coincide with another object's. Both are now closed on the
+read path: §3's `create`-namespace-vs-id check (a fold-time quarantine)
+closes the first, and §6's schema-object-id conflict (a resolver-time
+drop) closes the second. Together they mean a namespace's *installed*
+vocabulary — the rules a reader actually applies — can only ever come
+from the one schema object whose id is properly derived from it.
+
 ### 1.2. Scope boundaries
 
 - **No DSL, no plan/apply, no CLI.** This document specifies the op
@@ -144,10 +157,15 @@ conforms to `spec/schemas/op-envelope.schema.json` and
   `schema:<namespace>` (`spec/identifiers.md`'s schema carve-out). This
   binds creation only — a producer appending to an *existing* schema
   object MUST target whatever `object_id` that object already holds,
-  derived or not, the same way any other object type is targeted. Readers
-  still accept any envelope-legal `object_id` as opaque, unchanged — this
-  binds producers, not what a reader may fold (forward compatibility,
-  §10).
+  derived or not, the same way any other object type is targeted.
+  Readers accept any envelope-legal `object_id` as opaque at the wire
+  level — this rule is unchanged, and is why a `schema:<namespace>`
+  form and a 128-bit minted form are both legal envelopes — but readers
+  no longer trust the derivation blindly at fold time: §3.4 quarantines
+  a `create` that disagrees with the derived-id form it targets, and §6
+  drops a schema object whose id disagrees with its own folded
+  namespace, so an opaque-at-the-envelope-level id can still end up
+  contributing nothing once folded (WRIT-254).
 - `op_type` MUST be one of the operation types defined below (§4), or an
   unknown string tolerated under forward-compatibility rules.
 - `body` MUST be a JSON object conforming to the schema for the declared
@@ -265,6 +283,36 @@ open question this document does not settle.
 case: a genuine `max_length` declaration survives, and siblings carrying
 an out-of-range, fractional, or non-numeric `max_length` are quarantined
 into `unknown_ops`.
+
+### 3.4. Namespace implied by object id (WRIT-254)
+
+For the derived-id form (`schema:<namespace>`, §3, `spec/identifiers.md`'s
+schema carve-out), a `create` op whose body `namespace` disagrees with
+the `<namespace>` in the `object_id` it targets is uninterpretable, and a
+conforming fold MUST report it through `UnknownOps` rather than fold it
+in — the same shape §3.1's `op_version` canonicalization check and §3.3's
+`max_length` bound already use. A `create` on a derived-id object whose
+body carries no `namespace` at all is uninterpretable on the same terms:
+there is nothing to agree with the id's own suffix.
+
+This is scoped to the derived-id form only. A `create` targeting an
+`object_id` that does not carry the `schema:` prefix is untouched by this
+rule: its `namespace` folds exactly as §4.1 already describes, whatever
+value it carries. Closing the non-derived-id case is §6's job, at the
+resolver, not this one's — a mismatched, non-derived id is not itself
+uninterpretable (nothing about it disagrees with anything), so there is
+no fold-time quarantine to apply; §6 drops the whole object instead, once
+its folded namespace is known.
+
+The reason this belongs at fold time, not only at the resolver (§6): a
+reader has no producer step to lean on, and the create-once namespace
+register (§4.1) is otherwise wide open to whichever `create` reaches it
+first in total order — including a parentless root op carrying an
+attacker-chosen `author.When` that sorts before every honest write to the
+same derived-id object. Without this check, that op would win create-once
+and silently rewrite the namespace of an object it never legitimately
+created; this quarantine is what stops it, by refusing any `create`
+whose `namespace` disagrees with the derived-id object it targets.
 
 ---
 
@@ -533,9 +581,7 @@ a repository and resolving them into per-`object_type` rule sets. Five
 kinds of conflict can arise, and none is picked a winner:
 
 1. **`object_type` collision** (§2): two schema objects both bind the
-   same (namespace-qualified) `object_type` — which, post-WRIT-217,
-   requires them to share a namespace; two different namespaces can never
-   produce the same qualified `object_type`. Withholding rules for the
+   same (namespace-qualified) `object_type`. Withholding rules for the
    contested type is the whole remedy — no new fold rule, no new
    mechanism. The ops of that `object_type` fall through the
    absent-schema path (§7.1) to `UnknownOp`, exactly as if no schema had
@@ -545,11 +591,35 @@ kinds of conflict can arise, and none is picked a winner:
    hard-coded exception (§1) — and, unlike every other declared type,
    this check ranges over the bare name, since `schema` is the one type
    the qualification in §2 never applies to.
-2. **Namespace collision**: two schema objects declare the same namespace.
-   A weaker, mostly cosmetic case — reported alongside an `object_type`
-   collision when both occur (as it now always is, whenever two schema
-   objects collide on a qualified type), but on its own it withholds
-   nothing.
+
+   **Narrowed scope (WRIT-254).** Post-WRIT-217, this required two
+   colliding objects to share a namespace; post-WRIT-254 (kind 2 below),
+   two schema objects can no longer share a namespace and both survive
+   resolution, because at most one object id can equal `schema:` + any
+   given namespace. A real, namespace-qualified `object_type` therefore
+   cannot reach this kind of conflict any more: it is unreachable for
+   every type except the bare `schema` special case above, which this
+   kind still catches on any single qualifying declaration, with no
+   owner comparison needed. The mechanism — the withholding itself, and
+   the underlying `Contested` state it drives at the producer boundary
+   (`spec/op-envelope.md`'s tier 3) — is retained rather than removed:
+   see that document's tier 3 for what remains contestable and why.
+2. **Schema object id disagrees with namespace (WRIT-254).** A schema
+   object whose `object_id` is not exactly `schema:` + its own folded
+   `namespace` is dropped wholesale: none of its declarations —
+   `define-type`, `define-field`, `define-op`, descriptions,
+   deprecations — contribute anything to resolution, and this is checked
+   before any of the object's types are even looked at, so one conflict
+   names the whole object rather than repeating per type. This is what
+   makes kind 1 unreachable for a namespace-qualified type (above): two
+   schema objects surviving this gate can never share a namespace, since
+   `schema:<namespace>` is a function of the namespace alone and each
+   object is checked against its own. It supersedes the older, weaker
+   "namespace collision" conflict this document used to report here (two
+   schema objects declaring the same namespace, withholding nothing on
+   its own) — that conflict is deleted, not bridged to: it described a
+   case this gate now makes structurally unreachable, since two schema
+   objects can no longer both survive sharing a namespace at all.
 3. **Ungrammatical declaration** (§2): a `define-type` `type` failing
    §4.2's own requirement of it — the `object_type` pattern, the
    129-character bound, or the `.lock` exclusion — or a schema object
@@ -984,6 +1054,14 @@ than restating the precedence itself (WRIT-188).
   recoverable the moment the contest itself is. The asymmetry is the
   point, not an oversight: a producer can retract nothing it has already
   signed, so the fence is on the side where a mistake is undoable.
+  WRIT-254 narrows how often this bullet's premise can arise (§6 kind 1's
+  note): a real, namespace-qualified `object_type` can no longer be
+  contested at all, so tier 3's write-side permission and this bullet's
+  reasoning apply, in practice, only to the bare `schema` type's own
+  redefinition case. The mechanism is unchanged and stays specified for
+  whatever else might reach it; see `spec/op-envelope.md`'s tier 3 for
+  the fuller statement of what it now guarantees and what remains
+  contestable.
 - **`field`, `target`, and `key` are grammar-gated inside
   `spec.ValidateFieldRule`; `op_type` is gated outside it.** §9's rule
   validation gate — every candidate rule passed through

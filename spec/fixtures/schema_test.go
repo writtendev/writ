@@ -212,21 +212,27 @@ func runSchemaFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 }
 
 // assertSchemaFoldSuperset is the asymmetric cross-check spec/schema-ops.md
-// §3.1 and §3.3 require. Do not copy assertSettingsFoldAgreement
+// §3.1, §3.3, and §3.4 require. Do not copy assertSettingsFoldAgreement
 // (settings_test.go) as a symmetric equality: writ.Fold(ops,
 // writ.SchemaRules()) does NOT quarantine a non-canonical op_version body
 // field, because ruleAccepts treats "01" as an ordinary keyed-lww
 // key-component string, nor an unrepresentable max_length, because
 // ruleAccepts' keyed-lww case (max_length's own meta-rule) only asks
-// v != nil — both checks live one layer up, in the typed writ.FoldSchema
-// reducer (state.FoldSchema's canonicalOpVersion and decodeMaxLength
-// gates). A symmetric assertion fails on this family by construction, and
-// weakening the golden to make it pass would delete the rule this stage
-// exists to pin. The correct assertion is that FoldSchema's UnknownOps is
-// a superset of Fold's, with the difference being exactly: (a)
+// v != nil, nor a create whose body namespace disagrees with its
+// target's derived-id suffix, because that check is a comparison between
+// the op's own ObjectID and a body field — nothing a generic Rule can
+// express at all — both checks live one layer up, in the typed
+// writ.FoldSchema reducer (state.FoldSchema's canonicalOpVersion,
+// decodeMaxLength, and namespace-implied-by-id gates). A symmetric
+// assertion fails on this family by construction, and weakening the
+// golden to make it pass would delete the rule this stage exists to
+// pin. The correct assertion is that FoldSchema's UnknownOps is a
+// superset of Fold's, with the difference being exactly: (a)
 // define-op/define-field/deprecate-field ops whose op_version body field
-// is not canonical, and (b) define-field ops whose max_length body field
-// is present and not a JSON integer representable in int64 (WRIT-269).
+// is not canonical, (b) define-field ops whose max_length body field is
+// present and not a JSON integer representable in int64 (WRIT-269), and
+// (c) create ops on a "schema:"-prefixed ObjectID whose body namespace
+// disagrees with the id's own suffix, or omits it entirely (WRIT-254).
 func assertSchemaFoldSuperset(t *testing.T, sch writ.Schema, state writ.ObjectState, fixtureName, objectID string, opByID map[string]codec.Op) {
 	t.Helper()
 
@@ -255,11 +261,6 @@ func assertSchemaFoldSuperset(t *testing.T, sch writ.Schema, state writ.ObjectSt
 			t.Errorf("[%s/%s] schema-unknown op %s has no corresponding op in this fixture", fixtureName, objectID, id)
 			continue
 		}
-		if op.OpType != "define-op" && op.OpType != "define-field" && op.OpType != "deprecate-field" {
-			t.Errorf("[%s/%s] op %s (op_type=%s) is schema-unknown but not generic-unknown; the only permitted asymmetries are the non-canonical op_version and unrepresentable max_length quarantines, and neither applies outside define-op/define-field/deprecate-field",
-				fixtureName, objectID, id, op.OpType)
-			continue
-		}
 		var body map[string]any
 		if len(op.Body) > 0 {
 			// UseNumber, matching state.FoldSchema's own body decode: a
@@ -271,6 +272,19 @@ func assertSchemaFoldSuperset(t *testing.T, sch writ.Schema, state writ.ObjectSt
 				t.Errorf("[%s/%s] unmarshaling op %s body: %v", fixtureName, objectID, id, err)
 				continue
 			}
+		}
+		if op.OpType == "create" {
+			if suffix, ok := strings.CutPrefix(op.ObjectID, "schema:"); ok {
+				bodyNamespace, _ := body["namespace"].(string)
+				if bodyNamespace != suffix {
+					continue // permitted: namespace-implied-by-id quarantine (§3.4, WRIT-254)
+				}
+			}
+		}
+		if op.OpType != "define-op" && op.OpType != "define-field" && op.OpType != "deprecate-field" {
+			t.Errorf("[%s/%s] op %s (op_type=%s) is schema-unknown but not generic-unknown; the only permitted asymmetries are the non-canonical op_version quarantine, the unrepresentable max_length quarantine, and the namespace-implied-by-id quarantine on a create, and none of those apply here",
+				fixtureName, objectID, id, op.OpType)
+			continue
 		}
 		opVersion, _ := body["op_version"].(string)
 		if !canonicalOpVersionPattern.MatchString(opVersion) {

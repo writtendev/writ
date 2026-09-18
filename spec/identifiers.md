@@ -169,7 +169,25 @@ default.
   non-conforming or foreign IDs as opaque identifiers. This forward-compatibility
   rule ensures older readers do not discard objects created by newer or
   third-party producers — it already covers a derived `schema` id with no
-  change of its own.
+  change of its own. This is a rule about the *envelope*, not about
+  whether a `schema` object's derivation is trusted at fold time: a
+  `schema` object id remains an opaque, envelope-legal string to every
+  reader at this layer, exactly as any other object's does.
+- **Readers MUST enforce the `schema:<namespace>` derivation itself**
+  (WRIT-254; `spec/schema-ops.md` §3.4, §6): a `create` op targeting a
+  derived-id object whose body `namespace` disagrees with the id's own
+  suffix is uninterpretable and quarantines to `UnknownOps`, and a
+  schema object whose folded `namespace` disagrees with its own
+  `object_id` contributes nothing to resolution. This is stronger than,
+  and does not relax, the opaque-identifier rule above — a mismatched id
+  is still accepted as a well-formed *identifier* (readers still hold
+  every other object type's id fully opaque; nothing here generalizes
+  beyond `schema`) — it is simply excluded from what a `schema` object's
+  own declarations may install. The derivation was previously a producer
+  promise only ("a producer creating one MUST derive its id..." above);
+  it is now also checked on the read path, closing the gap where a
+  non-conforming producer's broken promise would otherwise go unnoticed
+  and silently corrupt namespace identity for every reader.
 
 ## Person identifiers (`person-id`)
 

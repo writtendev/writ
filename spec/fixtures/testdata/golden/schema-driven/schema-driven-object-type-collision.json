@@ -47,18 +47,16 @@
     {
       "namespace": "shared-vocab",
       "object_ids": [
-        "sch-alice",
-        "sch-bob"
+        "sch-alice"
       ],
-      "reason": "namespace \"shared-vocab\" is declared by more than one schema object"
+      "reason": "schema object id \"sch-alice\" does not match the derived form \"schema:shared-vocab\" for namespace \"shared-vocab\" and none of its types were installed"
     },
     {
-      "object_type": "shared-vocab.gadget",
+      "namespace": "shared-vocab",
       "object_ids": [
-        "sch-alice",
         "sch-bob"
       ],
-      "reason": "object_type \"shared-vocab.gadget\" is bound by more than one schema object"
+      "reason": "schema object id \"sch-bob\" does not match the derived form \"schema:shared-vocab\" for namespace \"shared-vocab\" and none of its types were installed"
     }
   ],
   "objects": [

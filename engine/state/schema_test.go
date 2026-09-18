@@ -34,7 +34,7 @@ func TestFoldSchemaBootstrapWholeObject(t *testing.T) {
 
 	opCreate := codec.Op{
 		Envelope: codec.Envelope{
-			ObjectID:   "sch-acme",
+			ObjectID:   "schema:acme",
 			ObjectType: "schema",
 			OpType:     "create",
 			OpVersion:  1,
@@ -45,7 +45,7 @@ func TestFoldSchemaBootstrapWholeObject(t *testing.T) {
 	}
 	opDefineType := codec.Op{
 		Envelope: codec.Envelope{
-			ObjectID:   "sch-acme",
+			ObjectID:   "schema:acme",
 			ObjectType: "schema",
 			OpType:     "define-type",
 			OpVersion:  1,
@@ -57,7 +57,7 @@ func TestFoldSchemaBootstrapWholeObject(t *testing.T) {
 	}
 	opDefineField := codec.Op{
 		Envelope: codec.Envelope{
-			ObjectID:   "sch-acme",
+			ObjectID:   "schema:acme",
 			ObjectType: "schema",
 			OpType:     "define-field",
 			OpVersion:  1,
@@ -72,7 +72,7 @@ func TestFoldSchemaBootstrapWholeObject(t *testing.T) {
 	}
 	opDefineOp := codec.Op{
 		Envelope: codec.Envelope{
-			ObjectID:   "sch-acme",
+			ObjectID:   "schema:acme",
 			ObjectType: "schema",
 			OpType:     "define-op",
 			OpVersion:  1,
@@ -91,8 +91,8 @@ func TestFoldSchemaBootstrapWholeObject(t *testing.T) {
 		t.Fatalf("FoldSchema failed: %v", err)
 	}
 
-	if sch.ObjectID != "sch-acme" {
-		t.Errorf("ObjectID = %q, want sch-acme", sch.ObjectID)
+	if sch.ObjectID != "schema:acme" {
+		t.Errorf("ObjectID = %q, want schema:acme", sch.ObjectID)
 	}
 	if sch.Namespace != "acme" {
 		t.Errorf("Namespace = %q, want acme", sch.Namespace)
@@ -131,7 +131,7 @@ func TestFoldSchemaDeprecateFieldTombstoneStyle(t *testing.T) {
 
 	define := codec.Op{
 		Envelope: codec.Envelope{
-			ObjectID: "sch-1", ObjectType: "schema", OpType: "define-field", OpVersion: 1,
+			ObjectID: "schema:test", ObjectType: "schema", OpType: "define-field", OpVersion: 1,
 			Body: mustSchemaBody(t, map[string]any{
 				"type": "t", "op_type": "create", "op_version": "1",
 				"field": "f", "strategy": "lww",
@@ -142,7 +142,7 @@ func TestFoldSchemaDeprecateFieldTombstoneStyle(t *testing.T) {
 	}
 	deprecate := codec.Op{
 		Envelope: codec.Envelope{
-			ObjectID: "sch-1", ObjectType: "schema", OpType: "deprecate-field", OpVersion: 1,
+			ObjectID: "schema:test", ObjectType: "schema", OpType: "deprecate-field", OpVersion: 1,
 			Body: mustSchemaBody(t, map[string]any{
 				"type": "t", "op_type": "create", "op_version": "1",
 				"field": "f", "deprecated": true,
@@ -174,7 +174,7 @@ func TestFoldSchemaUnknownOpsPreserved(t *testing.T) {
 
 	create := codec.Op{
 		Envelope: codec.Envelope{
-			ObjectID: "sch-1", ObjectType: "schema", OpType: "create", OpVersion: 1,
+			ObjectID: "schema:acme", ObjectType: "schema", OpType: "create", OpVersion: 1,
 			Body: mustSchemaBody(t, map[string]any{"namespace": "acme"}),
 		},
 		ID:     "op-create",
@@ -182,7 +182,7 @@ func TestFoldSchemaUnknownOpsPreserved(t *testing.T) {
 	}
 	future := codec.Op{
 		Envelope: codec.Envelope{
-			ObjectID: "sch-1", ObjectType: "schema", OpType: "future-op", OpVersion: 2,
+			ObjectID: "schema:acme", ObjectType: "schema", OpType: "future-op", OpVersion: 2,
 			Body: mustSchemaBody(t, map[string]any{"whatever": true}),
 		},
 		ID:      "op-future",
@@ -202,6 +202,120 @@ func TestFoldSchemaUnknownOpsPreserved(t *testing.T) {
 	}
 }
 
+// TestFoldSchemaNamespaceHijackQuarantined reproduces WRIT-254 failure mode
+// A and pins its fix (change 1): a parentless `create` targeting a
+// derived-id object (`schema:acme`) whose own `namespace` body field
+// disagrees with the id's suffix is uninterpretable and must never reach
+// the create-once namespace assignment, however early its t* orders it —
+// an attacker-controlled author.When is exactly what used to let this op
+// win create-once and rewrite Namespace out from under the honest object.
+// The honest `create` here carries the later, ordinary timestamp; the
+// hijack op carries an artificially early one (1970) purely to confirm
+// t*-order alone is not what saves the object — the quarantine keys off
+// the id/namespace disagreement, not arrival order.
+func TestFoldSchemaNamespaceHijackQuarantined(t *testing.T) {
+	honestCreate := codec.Op{
+		Envelope: codec.Envelope{
+			ObjectID: "schema:acme", ObjectType: "schema", OpType: "create", OpVersion: 1,
+			Body: mustSchemaBody(t, map[string]any{"namespace": "acme"}),
+		},
+		ID:     "op-honest-create",
+		Author: codec.Identity{When: time.Unix(1000, 0).UTC()},
+	}
+	hijack := codec.Op{
+		Envelope: codec.Envelope{
+			ObjectID: "schema:acme", ObjectType: "schema", OpType: "create", OpVersion: 1,
+			Body: mustSchemaBody(t, map[string]any{"namespace": "evil"}),
+		},
+		ID:     "op-hijack",
+		Author: codec.Identity{When: time.Unix(0, 0).UTC()}, // 1970: wins t* if the quarantine did not fire
+	}
+	defineType := codec.Op{
+		Envelope: codec.Envelope{
+			ObjectID: "schema:acme", ObjectType: "schema", OpType: "define-type", OpVersion: 1,
+			Body: mustSchemaBody(t, map[string]any{"type": "widget"}),
+		},
+		ID:      "op-define-type",
+		Parents: []string{"op-honest-create"},
+		Author:  codec.Identity{When: time.Unix(1001, 0).UTC()},
+	}
+
+	sch, err := state.FoldSchema([]codec.Op{honestCreate, hijack, defineType})
+	if err != nil {
+		t.Fatalf("FoldSchema failed: %v", err)
+	}
+	if sch.Namespace != "acme" {
+		t.Fatalf("Namespace = %q, want acme (hijack must not win create-once despite an earlier t*)", sch.Namespace)
+	}
+	if len(sch.Types) != 1 || sch.Types[0].Name != "widget" {
+		t.Fatalf("expected the widget declaration to survive, got %+v", sch.Types)
+	}
+	var sawHijackQuarantined bool
+	for _, uo := range sch.UnknownOps {
+		if uo.Commit == "op-hijack" {
+			sawHijackQuarantined = true
+		}
+	}
+	if !sawHijackQuarantined {
+		t.Fatalf("expected op-hijack quarantined as unknown, got unknown_ops=%+v", sch.UnknownOps)
+	}
+}
+
+// TestFoldSchemaCreateMissingNamespaceOnDerivedIDQuarantined covers the
+// same change-1 gate for a `create` on a derived-id object whose body
+// carries no `namespace` at all — uninterpretable on the same terms as
+// one that disagrees outright (engine/state/schema.go's FoldSchema doc
+// comment on the check).
+func TestFoldSchemaCreateMissingNamespaceOnDerivedIDQuarantined(t *testing.T) {
+	op := codec.Op{
+		Envelope: codec.Envelope{
+			ObjectID: "schema:acme", ObjectType: "schema", OpType: "create", OpVersion: 1,
+			Body: mustSchemaBody(t, map[string]any{"description": "no namespace here"}),
+		},
+		ID:     "op-no-namespace",
+		Author: codec.Identity{When: time.Unix(100, 0).UTC()},
+	}
+
+	sch, err := state.FoldSchema([]codec.Op{op})
+	if err != nil {
+		t.Fatalf("FoldSchema failed: %v", err)
+	}
+	if sch.Namespace != "" {
+		t.Fatalf("Namespace = %q, want empty (the create must not have folded)", sch.Namespace)
+	}
+	if len(sch.UnknownOps) != 1 || sch.UnknownOps[0].Commit != "op-no-namespace" {
+		t.Fatalf("expected op-no-namespace quarantined as unknown, got %+v", sch.UnknownOps)
+	}
+}
+
+// TestFoldSchemaCreateNamespaceMismatchOnNonDerivedIDNotQuarantined pins
+// the scope the ruling states explicitly: change 1 gates the derived-id
+// form only. A `create` on an object id that does not carry the
+// "schema:" prefix at all is untouched here — change 2
+// (engine/schema.go's resolveSchemaTypes) drops the whole object at the
+// resolver instead, not FoldSchema.
+func TestFoldSchemaCreateNamespaceMismatchOnNonDerivedIDNotQuarantined(t *testing.T) {
+	op := codec.Op{
+		Envelope: codec.Envelope{
+			ObjectID: "not-a-derived-id", ObjectType: "schema", OpType: "create", OpVersion: 1,
+			Body: mustSchemaBody(t, map[string]any{"namespace": "whatever"}),
+		},
+		ID:     "op-create",
+		Author: codec.Identity{When: time.Unix(100, 0).UTC()},
+	}
+
+	sch, err := state.FoldSchema([]codec.Op{op})
+	if err != nil {
+		t.Fatalf("FoldSchema failed: %v", err)
+	}
+	if sch.Namespace != "whatever" {
+		t.Fatalf("Namespace = %q, want whatever (change 1 must not touch a non-derived id)", sch.Namespace)
+	}
+	if len(sch.UnknownOps) != 0 {
+		t.Fatalf("expected no unknown ops, got %+v", sch.UnknownOps)
+	}
+}
+
 func TestFoldSchemaBogusStrategyDoesNotErrorTheFold(t *testing.T) {
 	// A define-field carrying strategy:"" folds cleanly into schema state
 	// (spec/schema-ops.md §9): the fold path performs no value-type
@@ -210,7 +324,7 @@ func TestFoldSchemaBogusStrategyDoesNotErrorTheFold(t *testing.T) {
 	now := time.Unix(100, 0).UTC()
 	op := codec.Op{
 		Envelope: codec.Envelope{
-			ObjectID: "sch-1", ObjectType: "schema", OpType: "define-field", OpVersion: 1,
+			ObjectID: "schema:test", ObjectType: "schema", OpType: "define-field", OpVersion: 1,
 			Body: mustSchemaBody(t, map[string]any{
 				"type": "t", "op_type": "create", "op_version": "1",
 				"field": "f", "strategy": "",
@@ -243,7 +357,7 @@ func TestFoldSchemaNonCanonicalOpVersionQuarantined(t *testing.T) {
 	now := time.Unix(100, 0).UTC()
 	op := codec.Op{
 		Envelope: codec.Envelope{
-			ObjectID: "sch-1", ObjectType: "schema", OpType: "define-field", OpVersion: 1,
+			ObjectID: "schema:test", ObjectType: "schema", OpType: "define-field", OpVersion: 1,
 			Body: mustSchemaBody(t, map[string]any{
 				"type": "widget", "op_type": "wop", "op_version": "01",
 				"field": "value", "strategy": "set-union",
@@ -278,7 +392,7 @@ func TestFoldSchemaOpVersionOverflowQuarantined(t *testing.T) {
 	now := time.Unix(100, 0).UTC()
 	op := codec.Op{
 		Envelope: codec.Envelope{
-			ObjectID: "sch-1", ObjectType: "schema", OpType: "define-field", OpVersion: 1,
+			ObjectID: "schema:test", ObjectType: "schema", OpType: "define-field", OpVersion: 1,
 			Body: mustSchemaBody(t, map[string]any{
 				"type": "widget", "op_type": "wop", "op_version": "18446744073709551617",
 				"field": "value", "strategy": "lww",
@@ -339,7 +453,7 @@ func TestFoldSchemaMaxLengthQuarantine(t *testing.T) {
 
 			op := codec.Op{
 				Envelope: codec.Envelope{
-					ObjectID: "sch-1", ObjectType: "schema", OpType: "define-field", OpVersion: 1,
+					ObjectID: "schema:test", ObjectType: "schema", OpType: "define-field", OpVersion: 1,
 					Body: body,
 				},
 				ID:     "op-max-length",
@@ -386,7 +500,7 @@ func TestFoldSchemaDeterministicAcrossManyRuns(t *testing.T) {
 	mk := func(id, opType, opVersion, field, strategy string) codec.Op {
 		return codec.Op{
 			Envelope: codec.Envelope{
-				ObjectID: "sch-1", ObjectType: "schema", OpType: "define-field", OpVersion: 1,
+				ObjectID: "schema:test", ObjectType: "schema", OpType: "define-field", OpVersion: 1,
 				Body: mustSchemaBody(t, map[string]any{
 					"type": "widget", "op_type": opType, "op_version": opVersion,
 					"field": field, "strategy": strategy,
