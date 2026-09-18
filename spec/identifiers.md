@@ -465,16 +465,18 @@ rejection.
 **Why these four exceptions.** `Cc ∪ Cf` alone closes every point WRIT-276
 reported (U+00AD, U+061C, U+180E, U+2060–U+2064, and the tag block), but the
 value repertoire is a blocklist rather than an allowlist, so anything it does
-not name stays reachable — and the three Hangul filler characters above
+not name stays reachable — and the four Hangul filler characters above
 (U+115F, U+1160, U+3164, U+FFA0) are literally invisible and would stay
 reachable if the rule stopped at `Cc ∪ Cf`. They are `Default_Ignorable_Code_Point`
 but General_Category `Lo` (letter, other), not `Cf`, so they need to be
 named explicitly rather than falling out of the property union. The broader
 alternative, banning all of `Default_Ignorable_Code_Point` instead of
 enumerating these four, was considered and rejected: it additionally bans the
-emoji variation selectors (U+FE00–U+FE0F), which would invalidate identifiers
-in this document's own valid corpus (an emoji value is deliberately
-permitted — see below), and it is roughly 3,900 code points instead of
+emoji variation selectors (U+FE00–U+FE0F), which would forbid emoji
+presentation sequences — a plausible and legitimate use in an identity
+label — as a side effect of a repertoire fix rather than as a decision made
+on its own terms (an emoji value is deliberately permitted — see below), and
+it is roughly 3,900 code points instead of
 roughly 240. Whether emoji belong in a person identifier is a separate
 decision worth making on its own terms, not as a side effect of a repertoire
 fix. Four enumerated exceptions on top of this table is close to free by
