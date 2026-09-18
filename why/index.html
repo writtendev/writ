@@ -86,13 +86,19 @@ deterministically folding an object&rsquo;s operations in causal order.</p>
 </span></span><span class="line"><span class="cl"><span class="gp">$</span> writ sync                        <span class="c1"># git push, to your own ref namespace</span>
 </span></span></code></pre></div><p>That is the whole deployment story. No server, no database, no webhook, no
 account. <code>writ init</code> adds one line to <code>.git/config</code>
-(<code>remote.origin.fetch = refs/writ/*:refs/remotes/origin/writ/*</code>) and from then
+(<code>remote.origin.fetch = +refs/writ/*:refs/remotes/origin/writ/*</code>) and from then
 on an ordinary <code>git fetch</code> carries review history along with the code.</p>
 <p>Four design choices carry most of the weight:</p>
-<p><strong>Per-writer namespaces.</strong> You only ever push to <code>refs/writ/&lt;your-writer-id&gt;/*</code>.
-Nobody else writes there, so your push can never non-fast-forward against a
-colleague&rsquo;s. The entire class of push conflicts disappears — which is what
-lets the sync layer stay thin enough to be boring.</p>
+<p><strong>Per-writer namespaces.</strong> You only ever push to <code>refs/writ/&lt;your-writer-id&gt;/*</code>,
+so no one else&rsquo;s push ever races yours there — the ordinary class of push
+conflicts disappears between cooperating writers, which is what lets the
+sync layer stay thin enough to be boring. (Your own push can still land
+non-fast-forward against your own prior push — after a backup restore or a
+rebase of unpushed-but-shared history, say — but that&rsquo;s a conflict with
+your own past self, never with a teammate.) No git host authenticates
+per-ref ownership, though: this is a convention everyone with
+push access is trusted to follow, not an access-control guarantee, and a
+forged or overwritten op stays detectable after the fact via its signature.</p>
 <p><strong>Fold, not state.</strong> Concurrent edits don&rsquo;t conflict; they coexist as sibling
 operations and reconcile at read time under rules the spec defines
 (last-writer-wins with an op-id tiebreak by default, per-field rules where it
