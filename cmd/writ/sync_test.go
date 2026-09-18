@@ -683,6 +683,43 @@ func TestSync_RemoteResolution(t *testing.T) {
 	})
 }
 
+// TestFormatSyncResult_RejectedClause pins WRIT-271's porcelain surface: a
+// rejected count of zero must not disturb the pre-existing "up to date"
+// short-circuit (the golden `sync_result.json` case has none, and
+// `rejected` is `omitempty` on the wire), and a non-zero count appends its
+// own clause rather than replacing one of the existing ones.
+func TestFormatSyncResult_RejectedClause(t *testing.T) {
+	cases := []struct {
+		name string
+		res  writ.SyncResult
+		want string
+	}{
+		{
+			name: "all zero including rejected",
+			res:  writ.SyncResult{},
+			want: "origin: up to date",
+		},
+		{
+			name: "rejected alone",
+			res:  writ.SyncResult{Rejected: 1},
+			want: "origin: 1 op not applied",
+		},
+		{
+			name: "rejected alongside other activity",
+			res:  writ.SyncResult{OpsFetched: 2, Rejected: 3},
+			want: "origin: fetched 2 ops, 3 ops not applied",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := formatSyncResult("origin", tc.res)
+			if got != tc.want {
+				t.Errorf("formatSyncResult() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestSync_Help(t *testing.T) {
 	for _, flag := range []string{"-h", "--help"} {
 		var stdout, stderr bytes.Buffer

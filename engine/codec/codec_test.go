@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/storage/memory"
 	"github.com/writtendev/writ/engine/codec"
@@ -443,5 +445,65 @@ func TestWriteCommitRoundTrip(t *testing.T) {
 	}
 	if gitCommit.Author.Name != "Alice" || gitCommit.PGPSignature == "" {
 		t.Errorf("unexpected git commit: %+v", gitCommit)
+	}
+}
+
+// TestFromGitCommitMissingOpJSONBlob pins WRIT-271's absent-vs-malformed
+// split at the source: a commit whose tree names an op.json blob that was
+// never written to the storer (a partial or shallow clone's shape — the
+// commit and tree are present, the blob is not) must surface as an error
+// dag.EnumerateSince can classify as object-unavailable, not as a
+// malformed op. Before this fix, readOpJSONBlob's open()/Reader()/ReadAll
+// failures were swallowed to nil, nil, handing DecodeCommit an empty
+// payload it went on to report as non-canonical-payload — an absent
+// object silently wearing a malformed-payload's name.
+func TestFromGitCommitMissingOpJSONBlob(t *testing.T) {
+	s := memory.NewStorage()
+
+	// A well-formed hash that names no object this storer has ever stored.
+	missingBlob := plumbing.NewHash("0123456789abcdef0123456789abcdef01234567")
+
+	tree := &object.Tree{Entries: []object.TreeEntry{
+		{Name: "op.json", Mode: filemode.Regular, Hash: missingBlob},
+	}}
+	treeObj := s.NewEncodedObject()
+	treeObj.SetType(plumbing.TreeObject)
+	if err := tree.Encode(treeObj); err != nil {
+		t.Fatalf("encode tree: %v", err)
+	}
+	treeHash, err := s.SetEncodedObject(treeObj)
+	if err != nil {
+		t.Fatalf("store tree: %v", err)
+	}
+
+	when := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	sig := object.Signature{Name: "Alice", Email: "alice@example.com", When: when}
+	commit := &object.Commit{
+		Author:    sig,
+		Committer: sig,
+		Message:   "writ: create widget/w-1\n",
+		TreeHash:  treeHash,
+	}
+	commitObj := s.NewEncodedObject()
+	commitObj.SetType(plumbing.CommitObject)
+	if err := commit.Encode(commitObj); err != nil {
+		t.Fatalf("encode commit: %v", err)
+	}
+	commitHash, err := s.SetEncodedObject(commitObj)
+	if err != nil {
+		t.Fatalf("store commit: %v", err)
+	}
+
+	gitCommit, err := object.GetCommit(s, commitHash)
+	if err != nil {
+		t.Fatalf("GetCommit: %v", err)
+	}
+
+	_, err = codec.FromGitCommit(s, gitCommit)
+	if err == nil {
+		t.Fatal("FromGitCommit succeeded, want an error for the missing op.json blob")
+	}
+	if !errors.Is(err, plumbing.ErrObjectNotFound) {
+		t.Errorf("FromGitCommit error = %v, want errors.Is(err, plumbing.ErrObjectNotFound)", err)
 	}
 }

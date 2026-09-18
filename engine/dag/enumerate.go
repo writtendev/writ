@@ -19,6 +19,19 @@ type Rejection struct {
 	Err      string             `json:"error,omitempty"`
 }
 
+// RejectObjectUnavailable reports that a commit, tree, or op.json blob an
+// op-commit chain references is not present in this clone — a partial or
+// shallow clone missing an object, most commonly. It is engine-local, not
+// part of spec/op-envelope.md's closed reader-validation rejection set: a
+// reader working from a complete clone never produces it, and whether an
+// engine-local reason like this belongs in the spec instead is a
+// normative question this ticket (WRIT-271) deliberately leaves open for
+// Matt rather than deciding here. Before this reason existed, an absent
+// object was misreported as a malformed op (missing-op-json or
+// non-canonical-payload) — the same category error, for a different
+// commit, that WRIT-255 round 2 review found in packedObjectSize.
+const RejectObjectUnavailable codec.RejectReason = "object-unavailable"
+
 // EnumerateResult is the output of an enumeration pass across all writers' chains.
 type EnumerateResult struct {
 	// Ops groups valid ops by envelope ObjectID.
@@ -221,9 +234,13 @@ func (s *Store) EnumerateSince(cursors CursorSet, opts ...EnumerateOption) (*Enu
 
 		commitObj, err := object.GetCommit(s.storer, currHash)
 		if err != nil {
+			reason := codec.RejectMissingOpJSON
+			if errors.Is(err, plumbing.ErrObjectNotFound) && objectAbsent(s.storer, currHash) {
+				reason = RejectObjectUnavailable
+			}
 			result.Rejections = append(result.Rejections, Rejection{
 				CommitID: currHash.String(),
-				Reason:   codec.RejectMissingOpJSON,
+				Reason:   reason,
 				Err:      err.Error(),
 			})
 			continue
@@ -303,9 +320,13 @@ func (s *Store) EnumerateSince(cursors CursorSet, opts ...EnumerateOption) (*Enu
 		// reachable from this path.
 		pureCommit, err := codec.FromGitCommit(cachedStorer, commitObj)
 		if err != nil {
+			reason := codec.RejectMissingOpJSON
+			if errors.Is(err, plumbing.ErrObjectNotFound) {
+				reason = RejectObjectUnavailable
+			}
 			result.Rejections = append(result.Rejections, Rejection{
 				CommitID: commitObj.Hash.String(),
-				Reason:   codec.RejectMissingOpJSON,
+				Reason:   reason,
 				Err:      err.Error(),
 			})
 			continue
@@ -403,6 +424,23 @@ func verifyCommitByID(s storage.Storer, id string, ts codec.TrustStore) codec.Ve
 		return codec.Verification{}
 	}
 	return codec.Verify(pureCommit, ts)
+}
+
+// objectAbsent reports whether hash names no object at all in s — as
+// opposed to naming an object of the wrong type. go-git's typed lookups
+// (object.GetCommit, object.GetTree, object.GetBlob, all reached from
+// this package and from codec.FromGitCommit) report
+// plumbing.ErrObjectNotFound for both cases: filesystem.ObjectStorage's
+// EncodedObject returns that same sentinel when it finds the object but
+// its type doesn't match the one requested (WRIT-271 round 1 review — a
+// present-but-malformed op.json entry, e.g. mode 040000 naming a tree
+// that is in the store, was misclassified as RejectObjectUnavailable
+// because of this). A caller deciding between "genuinely absent from
+// this clone" and "present but the wrong object type" probes with
+// plumbing.AnyObject, which skips the type check entirely.
+func objectAbsent(s storage.Storer, hash plumbing.Hash) bool {
+	_, err := s.EncodedObject(plumbing.AnyObject, hash)
+	return errors.Is(err, plumbing.ErrObjectNotFound)
 }
 
 // isAncestor reports whether candidate is reachable from tip.

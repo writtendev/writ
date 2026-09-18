@@ -267,7 +267,7 @@ func plural(n int, singular, pluralStr string) string {
 }
 
 func formatSyncResult(remote string, res writ.SyncResult) string {
-	if res.OpsFetched == 0 && res.OpsPushed == 0 && res.ObjectsTouched == 0 && res.Unsynced == 0 {
+	if res.OpsFetched == 0 && res.OpsPushed == 0 && res.ObjectsTouched == 0 && res.Unsynced == 0 && res.Rejected == 0 {
 		return fmt.Sprintf("%s: up to date", remote)
 	}
 
@@ -283,6 +283,13 @@ func formatSyncResult(remote string, res writ.SyncResult) string {
 	}
 	if res.Unsynced > 0 {
 		parts = append(parts, fmt.Sprintf("%d %s unsynced", res.Unsynced, plural(res.Unsynced, "op", "ops")))
+	}
+	if res.Rejected > 0 {
+		// "not applied" rather than "rejected": Rejected also counts op
+		// commits naming an object absent from this clone (e.g. a
+		// partial or shallow clone's fetch filter), which is not a
+		// reader-validation rejection (WRIT-271 round 1 review).
+		parts = append(parts, fmt.Sprintf("%d %s not applied", res.Rejected, plural(res.Rejected, "op", "ops")))
 	}
 
 	if len(parts) == 0 {

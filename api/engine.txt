@@ -175,6 +175,7 @@ type SyncResult struct {
 	OpsPushed int `json:"ops_pushed"`
 	ObjectsTouched int `json:"objects_touched"`
 	Unsynced int `json:"unsynced"`
+	Rejected int `json:"rejected,omitempty"`
 }
 
 type SyncStatus struct {
@@ -395,6 +396,8 @@ func (*TrustStore) AddRule(rule SignerRule)
 func (*TrustStore) IsAuthorized(pubKey ssh.PublicKey, principal, namespace string, when time.Time) bool
 
 package dag // github.com/writtendev/writ/engine/dag
+
+const RejectObjectUnavailable codec.RejectReason = "object-unavailable"
 
 var ErrCASExhausted = errors.New("dag: CAS ref update retry limit exceeded")
 var ErrCycle = fold.ErrCycle
@@ -629,6 +632,7 @@ type Stats struct {
 	AnchorsResolved int `json:"anchors_resolved"`
 	Rebuilt bool `json:"rebuilt"`
 	Changed []ObjectChange `json:"changed,omitempty"`
+	Rejections []dag.Rejection `json:"rejections,omitempty"`
 }
 
 type SyncCursor struct {

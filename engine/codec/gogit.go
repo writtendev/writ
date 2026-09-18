@@ -32,7 +32,17 @@ func fromGitCommit(s storage.Storer, commit *object.Commit) (Commit, error) {
 
 	tree, err := commit.Tree()
 	if err != nil {
-		return Commit{}, fmt.Errorf("codec: commit tree: %w", err)
+		if s == nil || !errors.Is(err, plumbing.ErrObjectNotFound) || !objectPresentButWrongType(s, commit.TreeHash) {
+			return Commit{}, fmt.Errorf("codec: commit tree: %w", err)
+		}
+		// commit.TreeHash names a present object, just not a tree: there
+		// are no tree entries to report, which DecodeCommit's rule 1 turns
+		// into missing-op-json — the same reason this shape reported
+		// before this typed lookup's failure was ever probed (WRIT-271
+		// round 2 review: commit.Tree() was one of two typed lookups still
+		// misreporting a present-but-wrong-type object as
+		// object-unavailable).
+		tree = &object.Tree{}
 	}
 
 	var treeEntries []TreeEntry
@@ -53,24 +63,33 @@ func fromGitCommit(s storage.Storer, commit *object.Commit) (Commit, error) {
 		}
 		if entry.Mode == filemode.Dir && s != nil {
 			subTree, err := object.GetTree(s, entry.Hash)
-			if err == nil {
-				for _, subEntry := range subTree.Entries {
-					subTe := TreeEntry{
-						Name: subEntry.Name,
-						Mode: subEntry.Mode.String(),
-						Hash: subEntry.Hash.String(),
-					}
-					if subEntry.Name == "op.json" {
-						data, err := readOpJSONBlob(s, subEntry.Hash, func() (*object.File, error) {
-							return subTree.TreeEntryFile(&subEntry)
-						})
-						if err != nil {
-							return Commit{}, fmt.Errorf("codec: read op.json blob: %w", err)
-						}
-						subTe.Data = data
-					}
-					te.Entries = append(te.Entries, subTe)
+			if err != nil {
+				if !errors.Is(err, plumbing.ErrObjectNotFound) || !objectPresentButWrongType(s, entry.Hash) {
+					return Commit{}, fmt.Errorf("codec: subtree %s: %w", entry.Name, err)
 				}
+				// entry.Hash names a present object, just not a tree: no
+				// subentries to report for it — the same outcome this
+				// branch had before it started propagating this typed
+				// lookup's error at all (WRIT-271 round 2 review: the
+				// other of the two unprobed typed lookups).
+				subTree = &object.Tree{}
+			}
+			for _, subEntry := range subTree.Entries {
+				subTe := TreeEntry{
+					Name: subEntry.Name,
+					Mode: subEntry.Mode.String(),
+					Hash: subEntry.Hash.String(),
+				}
+				if subEntry.Name == "op.json" {
+					data, err := readOpJSONBlob(s, subEntry.Hash, func() (*object.File, error) {
+						return subTree.TreeEntryFile(&subEntry)
+					})
+					if err != nil {
+						return Commit{}, fmt.Errorf("codec: read op.json blob: %w", err)
+					}
+					subTe.Data = data
+				}
+				te.Entries = append(te.Entries, subTe)
 			}
 		}
 		treeEntries = append(treeEntries, te)
@@ -136,6 +155,31 @@ func fromGitCommit(s storage.Storer, commit *object.Commit) (Commit, error) {
 // content — DecodeCommit rejects on its length alone — so its bytes
 // don't matter, only that there are exactly MaxPayloadBytes+1 of them,
 // the same length a real oversized blob would be capped to below.
+//
+// open, file.Reader, and io.ReadAll failures below are returned, not
+// swallowed: the object.Tree.TreeEntryFile call open closes over reaches
+// s.EncodedObject, which surfaces plumbing.ErrObjectNotFound verbatim
+// when the op.json blob is genuinely absent from this clone (a partial
+// or shallow clone, most commonly). Wrapping with %w lets
+// dag.EnumerateSince (WRIT-271) distinguish that case — reason
+// object-unavailable, engine-local, not a reader-validation rejection —
+// from a malformed op. Before WRIT-271 these three failures returned
+// nil, nil, which handed DecodeCommit an empty payload it reported as
+// non-canonical-payload: an absent-object error wearing a
+// malformed-payload's name.
+//
+// open's underlying EncodedObject lookup is typed (it wants a blob), and
+// go-git reports plumbing.ErrObjectNotFound for a type mismatch on a
+// present object the same way it reports genuine absence (WRIT-271 round
+// 1 review: an op.json entry naming a present tree — wrong mode, or a
+// mode-100644 entry whose hash happens to name a tree — hit this and was
+// misreported object-unavailable instead of its pre-existing malformed-op
+// reason). When s is available, an open failure is checked against a
+// plumbing.AnyObject probe before being propagated: genuinely absent
+// still returns the error for dag to classify object-unavailable;
+// present-but-wrong-type falls back to the pre-WRIT-271 nil, nil so
+// DecodeCommit's own tree-shape and payload rules apply exactly as they
+// did before this ticket.
 func readOpJSONBlob(s storage.Storer, hash plumbing.Hash, open func() (*object.File, error)) ([]byte, error) {
 	if s != nil {
 		size, found, err := packfileObjectSize(s, hash)
@@ -153,19 +197,46 @@ func readOpJSONBlob(s storage.Storer, hash plumbing.Hash, open func() (*object.F
 
 	file, err := open()
 	if err != nil {
-		return nil, nil
+		if s != nil && errors.Is(err, plumbing.ErrObjectNotFound) && objectPresentButWrongType(s, hash) {
+			// hash names an object, just not a blob: a malformed op,
+			// not an object missing from this clone.
+			return nil, nil
+		}
+		return nil, fmt.Errorf("codec: open op.json blob: %w", err)
 	}
 	r, err := file.Reader()
 	if err != nil {
-		return nil, nil
+		return nil, fmt.Errorf("codec: read op.json blob: %w", err)
 	}
 	defer r.Close()
 
 	data, err := io.ReadAll(io.LimitReader(r, MaxPayloadBytes+1))
 	if err != nil {
-		return nil, nil
+		return nil, fmt.Errorf("codec: read op.json blob: %w", err)
 	}
 	return data, nil
+}
+
+// objectPresentButWrongType reports whether hash names some object in s
+// that just isn't the type a typed lookup wanted — go-git's typed lookups
+// (object.GetCommit, object.GetTree, object.GetBlob, and the commit.Tree()
+// and Tree.TreeEntryFile methods built on them) report
+// plumbing.ErrObjectNotFound for that case the same way they do for
+// genuine absence, because filesystem.ObjectStorage's EncodedObject
+// returns that same sentinel when it finds the object but its type
+// doesn't match the one requested. Every typed lookup fromGitCommit makes
+// — commit.Tree(), the op.json blob open in readOpJSONBlob, and the
+// filemode.Dir subtree fetch — is expected to call this on an
+// ErrObjectNotFound before deciding the referenced object is missing from
+// this clone (dag.RejectObjectUnavailable, WRIT-271): a caller that
+// skips the probe misclassifies a present-but-wrong-type object the same
+// way round 1 and round 2 of WRIT-271's review each found one call site
+// doing. The probe itself asks with plumbing.AnyObject, which skips the
+// type check entirely, so it succeeds on any object present under hash
+// regardless of its actual type.
+func objectPresentButWrongType(s storage.Storer, hash plumbing.Hash) bool {
+	_, err := s.EncodedObject(plumbing.AnyObject, hash)
+	return !errors.Is(err, plumbing.ErrObjectNotFound)
 }
 
 // ToGitCommit converts a pure, repository-independent Commit into a go-git object.Commit,

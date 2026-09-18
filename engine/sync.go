@@ -25,6 +25,16 @@ type SyncResult struct {
 
 	// Unsynced is the remaining number of unpushed local ops for the remote.
 	Unsynced int `json:"unsynced"`
+
+	// Rejected is the number of op commits this sync's projection refresh
+	// could not accept: a malformed peer op rejected on reader
+	// validation, or an op commit naming an object absent from this
+	// clone (dag.RejectObjectUnavailable — e.g. excluded by a partial or
+	// shallow clone's fetch filter, engine-local and not itself a
+	// reader-validation reason). See RefreshStats.Rejections for each
+	// one's specific reason — a quarantined peer op is no longer
+	// silently discarded (WRIT-271).
+	Rejected int `json:"rejected,omitempty"`
 }
 
 // TypeUnsynced reports the unsynced operations count for a specific collaborative object type.
@@ -172,8 +182,10 @@ func (s *Store) Sync(ctx context.Context, remote string) (SyncResult, error) {
 	unsynced, _ := s.countUnsynced(ctx, remote)
 
 	objectsTouched := 0
+	rejected := 0
 	if refreshErr == nil {
 		objectsTouched = refreshStats.ObjectsTouched
+		rejected = len(refreshStats.Rejections)
 	}
 
 	result := SyncResult{
@@ -181,6 +193,7 @@ func (s *Store) Sync(ctx context.Context, remote string) (SyncResult, error) {
 		OpsPushed:      opsPushed,
 		ObjectsTouched: objectsTouched,
 		Unsynced:       unsynced,
+		Rejected:       rejected,
 	}
 
 	if syncErr != nil {

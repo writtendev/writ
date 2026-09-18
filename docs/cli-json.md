@@ -96,6 +96,7 @@ Synchronizes operations with remote git repositories (fetches, pushes, and refre
 | `ops_pushed` | integer | Number of local operations pushed to the remote. |
 | `objects_touched` | integer | Number of collaborative objects updated in the projection cache. |
 | `unsynced` | integer | Remaining unsynced operations count for the remote. |
+| `rejected` | integer (optional) | Number of op commits this sync's projection refresh could not accept — malformed ops rejected on reader validation, or op commits naming an object absent from this clone (e.g. excluded by a partial or shallow clone's fetch filter). Omitted when zero. |
 | `failure` | object (optional) | Structured failure object (`kind`, `message`, `advice`, `retryable`) when transport failed. |
 
 #### Example Output
