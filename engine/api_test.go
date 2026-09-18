@@ -83,13 +83,19 @@ func checkType(t *testing.T, typ reflect.Type, visited map[reflect.Type]bool) {
 	}
 }
 
+// internal/codec and internal/projection are deliberately absent here:
+// writ.Envelope, writ.Op, and writ.Vocabularies are type aliases for
+// codec types, and writ.ObjectFilter, writ.OrderBy, writ.ObjectResult,
+// writ.Author, writ.RefreshStats, and writ.ObjectChange are type aliases
+// for projection types — all reachable on the public surface by design
+// (see engine/fold.go and engine/query.go). Listing either prefix here
+// would false-positive on that intentional exposure; do not add them
+// back.
 var forbiddenPackagePrefixes = []string{
 	"github.com/go-git/go-git",
 	"github.com/writtendev/writ/internal/dag.",
 	"github.com/writtendev/writ/internal/identity.",
-	"github.com/writtendev/writ/internal/codec.",
 	"github.com/writtendev/writ/internal/sync.",
-	"github.com/writtendev/writ/internal/projection.",
 	"plumbing.",
 	"object.",
 	"storer.",

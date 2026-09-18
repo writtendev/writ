@@ -76,7 +76,7 @@ this project credits in ARCHITECTURE.md.
 ```jsonc
 {
   "commit": "2ae787a3e353251a99120a6935bfd6b807e60d5a",
-  "path": "internal/fold/fold.go",
+  "path": "engine/fold/fold.go",
   "blob": "b7e23ec29af22b0b4e41da31e868d57226121c84",
   "range": { "start": 41, "end": 43 },
   "context": {
