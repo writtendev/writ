@@ -83,9 +83,9 @@ func WithTargetRefs(refs ...string) Option {
 	}
 }
 
-// WithSchema supplies the rule index (RulesFromSchemas' shape: the built-in
-// vocabulary overlaid by whatever the log declares, log wins per type) a
-// Refresh or Rebuild pass applies before folding anything. The projection
+// WithSchema supplies the rule index (RulesFromSchemas' shape: whatever the
+// log declares, per object_type, and nothing else) a Refresh or Rebuild
+// pass applies before folding anything. The projection
 // cannot resolve schemas itself — package writ resolves once and passes the
 // result in, here and in Store.ApplySchema. Omitting it (or passing nil) is
 // only for a caller that has already applied a schema on this *DB directly

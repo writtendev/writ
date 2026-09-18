@@ -231,10 +231,10 @@ var schemaShowCmd = &command{
 	Name:      "show",
 	Short:     "Show the vocabulary actually installed and folding now",
 	UsageLine: "Usage: writ schema show [-C <dir>] [<type>] [--json]",
-	Long: "Report the vocabulary Store.Types resolves right now -- built-in types overlaid by\n" +
-		"whatever the log declares -- which is not the same question `writ schema plan`/`apply`\n" +
-		"answer (the working-tree writ.schema file's own view). With no <type>, print one bare\n" +
-		"type name per line. With <type>, print that type's declared ops and fields.",
+	Long: "Report the vocabulary Store.Types resolves right now -- exactly what the log's schema\n" +
+		"objects declare -- which is not the same question `writ schema plan`/`apply` answer (the\n" +
+		"working-tree writ.schema file's own view). With no <type>, print one bare type name per\n" +
+		"line. With <type>, print that type's declared ops and fields.",
 	Flags: []flagSpec{
 		{Name: "C"},
 		{Name: "json"},

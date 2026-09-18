@@ -22,20 +22,9 @@ func TestOpenCloseMemory(t *testing.T) {
 
 	// The literal is deliberate: bumping the projection schema has to be a
 	// conscious edit, because it is what makes an existing checkout rebuild
-	// its cache. WRIT-104 took it to 9 for workflow_states table. WRIT-109
-	// took it to 10 for labels table. WRIT-105 took it to 11 for document
-	// and section tables. WRIT-106 took it to 12 for issue priority,
-	// estimate, and position columns. WRIT-110 took it to 13 for settings
-	// table. WRIT-182 took it to 14, dropping the repos/repo_remotes tables.
-	// WRIT-189 took it to 15: every per-type table is now generated from the
-	// schema in the log instead of hand-written, invalidated by a separate
-	// digest key rather than this one. WRIT-251 took it to 16, adding
-	// verification (and, on ops, key_fingerprint) columns to ops, objects,
-	// and unknown_ops so ingest-time signature verification has somewhere
-	// to be cached. WRIT-278 took it to 17: sshsig principal/namespace
-	// matching became case-sensitive, changing what a cached verification
-	// value means without touching a column. WRIT-275 took it to 18,
-	// dropping the objects table's last_op_id column.
+	// its cache. The per-bump history that used to be spelled out here is
+	// not kept before v0.1.0 (AGENTS.md; see schema.go's own doc comment) —
+	// this literal is the current value, not a changelog.
 	if v := projection.SchemaVersion(); v != 18 {
 		t.Fatalf("expected schema version 18, got %d", v)
 	}

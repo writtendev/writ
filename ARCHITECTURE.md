@@ -109,7 +109,7 @@ store.Objects.Apply(ctx, objectID, op)         // append a further op against an
 store.Objects.Get(ctx, objectID)               // folded state as an Object, per the schema
 store.Query.Objects(filter)                    // query across types, served from the projection
 store.Schema(ctx)                              // the `schema` objects present in the log
-store.Types(ctx)                               // the vocabulary actually in effect: built-ins overlaid by the log
+store.Types(ctx)                               // the vocabulary actually in effect: resolved from the log's schema objects
 store.Sync(ctx, remote)                    // ensures refspecs, fetches, pushes, refreshes
 store.SyncStatus(ctx, remote)              // per-remote unsynced op count
 store.Refresh(ctx)                         // explicit projection refresh

@@ -16,27 +16,10 @@ package projection
 // two jobs — schemaVersion for substrate shape, the digest for generated
 // shape — and projection_test.go's literal keeps its meaning for the first.
 //
-// 7: WRIT-117 pinned the person-identifier folding algorithm to NFC, Unicode
-// default case folding, NFC (spec/identifiers.md). Also covers WRIT-102, which
-// 8: WRIT-155 added object_type column to unknown_ops table (spec FC-5).
-// 9: WRIT-104 added workflow_states table.
-// 10: WRIT-109 added labels table.
-// 11: WRIT-105 added documents, document_links, document_labels, sections tables.
-// 12: WRIT-106 added priority, estimate, position, position_op_id to issues table.
-// 13: WRIT-110 added settings table.
-// 14: WRIT-182 removed the repos and repo_remotes tables (repo registry object type deleted).
-// 15: WRIT-189 replaced every per-type table with ones generated from the
-// schema in the log; anchor_resolutions is generalized and its columns
-// unchanged, so it stays here rather than moving with the generated tables.
-// 16: WRIT-251 added verification and key_fingerprint columns to ops, and
-// a verification column to objects and unknown_ops, so ingest-time
-// signature verification outcomes have somewhere to be cached.
-// 17: WRIT-278 fixed sshsig principal/namespace matching to be
-// case-sensitive, changing what a cached verification value means for a
-// case-mismatched op without touching a column, so an existing checkout
-// must re-verify rather than keep serving the stale outcome.
-// 18: WRIT-275 dropped the objects table's last_op_id column
-// (ObjectResult.LastOpID leaked a raw commit SHA on the query surface).
+// The per-bump history that used to be enumerated here is not kept before
+// v0.1.0 (AGENTS.md): nothing has shipped, so there are no external readers
+// for a changelog of internal cache-invalidation bumps to serve, and several
+// of the entries it once carried named tables no release ever produced.
 const schemaVersion = 18
 
 // substrateTables lists the type-agnostic tables created unconditionally at

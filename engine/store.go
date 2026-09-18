@@ -123,9 +123,10 @@ type Store struct {
 	// is one fixed, documented constant, not something a caller configures.
 	now func() time.Time
 
-	// ruleCache is the fold-rule counterpart to vocabCache: the built-in
-	// vocabulary overlaid by whatever the log declares (RulesFromSchemas),
-	// log wins per type. It is recomputed in the same cache-miss branch as
+	// ruleCache is the fold-rule counterpart to vocabCache: whatever the log
+	// declares, per object_type, and nothing else (RulesFromSchemas) --
+	// writ ships no vocabulary of its own to overlay it on (see Store.rules's
+	// own doc comment). It is recomputed in the same cache-miss branch as
 	// vocabCache and typesCache (Store.vocabularies), behind the same
 	// dag.Chains fingerprint, so none of the three ever costs a second
 	// Schema()/Enumerate fold — that part is genuinely shared. What is not
