@@ -24,7 +24,7 @@ pins what a producer MUST NOT emit (payload instances checked against JSON
 Schema, no fold runs); **reader** pins what a reader MUST do when folding
 or resolving an already-written log, including tolerating input a
 producer would have refused. A blank cell means the split does not apply
-(prose, schema files, informative bridge vectors, and Go tooling).
+(prose, schema files, informative GitHub-interop vectors, and Go tooling).
 
 | File | Force | Pins | Contents |
 | --- | --- | --- | --- |
@@ -55,7 +55,7 @@ producer would have refused. A blank cell means the split does not apply
 | `testdata/envelopes/` | Normative | producer | Envelope payload instances, valid and invalid; `invalid/index.json` records each expected rejection |
 | `testdata/forward-compat/` | Normative | reader | Forward-compatibility instances (unknown types, future versions, unknown fields) and synthetic reader profile (+ index.json) |
 | `testdata/anchors/valid/`, `testdata/anchors/invalid/` | Normative | producer | Anchor instances; `invalid/index.json` records each expected rejection and whether the schema or an invariant catches it |
-| `testdata/anchors/github/` | Informative | | GitHub-position conversion vectors, illustrating a mapping whose enforcement lives in the bridge rather than here |
+| `testdata/anchors/github/` | Informative | | GitHub-position conversion vectors, illustrating a mapping whose enforcement lives in whatever imports these comments, not here |
 | `testdata/fold/order/`, `testdata/fold/merge/` | Normative | reader | Fold test vectors: deterministic total order test vectors and merge strategy vectors |
 | `testdata/value-types/valid/`, `testdata/value-types/invalid/` | Normative | producer | A valid and invalid instance per catalogue value type; `invalid/index.json` records each expected rejection |
 | `testdata/references/valid/`, `testdata/references/invalid/` | Normative | producer | Reference instances; `invalid/index.json` records each expected rejection |

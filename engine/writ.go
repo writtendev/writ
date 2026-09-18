@@ -6,8 +6,8 @@
 // writ ships, and callers see no SHAs or refspecs unless they explicitly
 // ask for one.
 //
-// All client layers — CLI, downstream TUIs/viewers, GitHub bridges, and hosted services — build
-// on this single interface.
+// All client layers — the CLI, downstream TUIs/viewers, and services built on
+// top — consume this single interface.
 //
 // Trust model: verification is reported, never enforced. Every op folds
 // into an object's state regardless of its signature outcome — an op
@@ -32,10 +32,10 @@
 //
 //	// Create an object of a schema-declared type. objectType and the op's
 //	// Type both come from the schema in the log (writ.schema) — writ itself
-//	// has no built-in notion of "ticket" beyond what a schema declares.
-//	objectID, err := store.Objects.Create(ctx, "ticket", writ.NewOp{
+//	// has no built-in notion of "widget" beyond what a schema declares.
+//	objectID, err := store.Objects.Create(ctx, "widget", writ.NewOp{
 //	    Type:   "create",
-//	    Fields: map[string]any{"title": "Add OAuth2 authentication provider"},
+//	    Fields: map[string]any{"title": "First widget"},
 //	})
 //
 //	// Fold and read an object's current state, keyed by the schema's own
@@ -44,7 +44,7 @@
 //
 //	// Query across every declared type
 //	objects, err := store.Query.Objects(writ.ObjectFilter{
-//	    Type: []string{"ticket"},
+//	    Type: []string{"widget"},
 //	})
 //
 //	// Synchronize with git remote
