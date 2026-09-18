@@ -29,8 +29,12 @@ type (
 	// ObjectChange describes the modifications made to a collaborative object in an incremental refresh batch.
 	ObjectChange = projection.ObjectChange
 
-	// Rejection records an op commit that failed reader validation, as
-	// reported by RefreshStats.Rejections.
+	// Rejection records an op commit that Refresh or Rebuild could not
+	// accept, as reported by RefreshStats.Rejections — either because it
+	// failed reader validation, or because an object it references (a
+	// commit, tree, or op.json blob) was not present in this clone, most
+	// commonly a partial clone missing an object; see
+	// RejectObjectUnavailable. Reason distinguishes which.
 	Rejection = dag.Rejection
 
 	// RejectReason is the machine-readable reason a Rejection carries.

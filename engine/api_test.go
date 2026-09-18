@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/writtendev/writ/engine"
 )
@@ -142,9 +143,27 @@ func TestAPILeakGuardBites(t *testing.T) {
 		}
 	})
 
-	t.Run("go-git type behind a map", func(t *testing.T) {
+	// The two subtests below each pin one of checkType's and
+	// assertNoGitLeak's own map-recursion branches independently: a single
+	// map[string]plumbing.Hash fixture cannot do this, because
+	// plumbing.Hash has exported value-receiver methods (IsZero, String),
+	// so checkType's map branch reaching plumbing.Hash directly rediscovers
+	// the leak through the method-input path even with assertNoGitLeak's
+	// own map branch deleted, and vice versa — either branch alone still
+	// finds it, so deleting either one leaves such a fixture green. See
+	// WRIT-298 round 1 review for the mutation table.
+	t.Run("go-git type behind a map, reached by checkType's own recursion", func(t *testing.T) {
+		// carrier itself is an ordinary local struct with no go-git
+		// methods of its own — only checkType recursing into the map's
+		// element type ever reaches carrier's field, so this fixture is
+		// blind to assertNoGitLeak's map branch (deleting it changes
+		// nothing here) and pins checkType's `case reflect.Map` alone:
+		// delete that, and checkType never walks into carrier at all.
+		type carrier struct {
+			Hash plumbing.Hash
+		}
 		type leakyMap struct {
-			Hashes map[string]plumbing.Hash
+			Carriers map[string]carrier
 		}
 		var findings []string
 		report := func(format string, args ...any) { findings = append(findings, fmt.Sprintf(format, args...)) }
@@ -152,7 +171,58 @@ func TestAPILeakGuardBites(t *testing.T) {
 		checkType(report, reflect.TypeOf(leakyMap{}), make(map[reflect.Type]bool))
 
 		if len(findings) == 0 {
-			t.Fatal("expected a finding for leakyMap.Hashes (map[string]plumbing.Hash), got none — a composite type behind a map has no PkgPath of its own, so the walk must recurse through map key/value element types to ever reach plumbing.Hash")
+			t.Fatal("expected a finding for leakyMap.Carriers (map[string]carrier, carrier.Hash is plumbing.Hash), got none — checkType must recurse into a map's element type to ever reach carrier's own fields")
+		}
+		if !containsSubstring(findings, "carrier.Hash field") {
+			t.Errorf("findings did not name carrier.Hash field: %v", findings)
+		}
+	})
+
+	t.Run("go-git type behind a map, reached by assertNoGitLeak's own recursion", func(t *testing.T) {
+		// object.Signature has no value-receiver methods and no
+		// go-git-typed fields of its own (Name, Email are string; When is
+		// time.Time), so checkType's own recursion into it, once reached,
+		// finds nothing — only assertNoGitLeak's map branch asserting
+		// directly on the map's value type ever catches this fixture,
+		// pinning that branch alone: delete it, and this goes to zero
+		// findings regardless of checkType's own map recursion.
+		type leakyMap struct {
+			Sigs map[string]object.Signature
+		}
+		var findings []string
+		report := func(format string, args ...any) { findings = append(findings, fmt.Sprintf(format, args...)) }
+
+		checkType(report, reflect.TypeOf(leakyMap{}), make(map[reflect.Type]bool))
+
+		if len(findings) == 0 {
+			t.Fatal("expected a finding for leakyMap.Sigs (map[string]object.Signature), got none — object.Signature has no value-receiver methods and no go-git-typed fields of its own, so only assertNoGitLeak's own map key/value recursion can ever assert on it directly")
+		}
+		if !containsSubstring(findings, "leakyMap.Sigs field") {
+			t.Errorf("findings did not name leakyMap.Sigs field: %v", findings)
+		}
+	})
+
+	t.Run("go-git type behind a writ-named container", func(t *testing.T) {
+		// Sigs is a named slice, not a map: reaching it stops the old
+		// break-at-first-named-type read at Sigs's own (local, not
+		// forbidden) PkgPath, unless assertNoGitLeak also recurses into a
+		// named pointer/slice/array/chan's element the same way it does
+		// for a map's key and value. Round 1 review found this coverage
+		// missing; this pins it against a regression.
+		type Sigs []object.Signature
+		type namedContainer struct {
+			S Sigs
+		}
+		var findings []string
+		report := func(format string, args ...any) { findings = append(findings, fmt.Sprintf(format, args...)) }
+
+		checkType(report, reflect.TypeOf(namedContainer{}), make(map[reflect.Type]bool))
+
+		if len(findings) == 0 {
+			t.Fatal("expected a finding for namedContainer.S (Sigs, a named []object.Signature), got none — a named pointer/slice/array/chan's own PkgPath is never forbidden, so assertNoGitLeak must also recurse into its element to ever reach object.Signature")
+		}
+		if !containsSubstring(findings, "namedContainer.S field") {
+			t.Errorf("findings did not name namedContainer.S field: %v", findings)
 		}
 	})
 
@@ -278,32 +348,39 @@ func reachesType(typ, target reflect.Type, visited map[reflect.Type]bool) bool {
 }
 
 // assertNoGitLeak reports, through report, whether typ (or, for a
-// composite, the named type reachable from it) has a package path matching
+// composite, a named type reachable from it) has a package path matching
 // one of forbiddenPackagePrefixes. Matching is on PkgPath alone, at package
 // granularity: pkgPath == forbidden (the package itself) or
 // strings.HasPrefix(pkgPath, forbidden+"/") (a subpackage of it) — never a
 // substring match, and never on typ.String(), so a short local name like
 // "plumbing" cannot accidentally shadow-match an unrelated identifier the
-// way a bare "plumbing." substring check once could. Every forbidden go-git
-// package sits under the github.com/go-git/go-git module prefix, so the
-// old short-name entries for plumbing/object/storer were redundant with it,
-// not a relaxation, once this walk also recurses through map keys and
-// values below.
+// way a bare "plumbing." substring check once could.
+//
+// Reaching a named type does not stop the walk: after checking a named
+// pointer, slice, array, or chan's own PkgPath, the walk continues into its
+// element too (map key/value are handled the same way, unconditionally,
+// below) — so a writ-named container over a forbidden type, such as
+// `type Sigs []object.Signature` or `type P *object.Signature`, is still
+// caught even though the container's own PkgPath is this package, not
+// go-git's. This is what makes the PkgPath-only rule above no narrower
+// than the substring match over typ.String() it replaced, which used to
+// catch these cases by rendering the whole composite, named element
+// included.
 func assertNoGitLeak(report func(format string, args ...any), context string, typ reflect.Type) {
 	if typ == nil {
 		return
 	}
 
-	// Unwrap an *unnamed* pointer/slice/array down to the type the walk
-	// actually tests, stopping the moment a named type is reached: a named
-	// type (plumbing.Hash, itself Kind Array) is the thing under test, not
-	// a wrapper around it, and unwrapping past it would throw away its
-	// identity and check its unnamed element type (byte) instead — never
-	// matching anything. A map's key and value are two independent
-	// branches a single unwrap can't express — without recursing into
-	// them, a composite type reachable only through a map (e.g.
-	// map[string]plumbing.Hash) has no PkgPath of its own and would be
-	// invisible to the check below.
+	// Unwrap an *unnamed* pointer/slice/array/chan down to the type the
+	// walk actually tests, stopping the moment a named type is reached: a
+	// named type (plumbing.Hash, itself Kind Array) is the thing under
+	// test, not a wrapper around it, and unwrapping past it would throw
+	// away its identity and check its unnamed element type (byte) instead
+	// — never matching anything. A map's key and value are two
+	// independent branches a single unwrap can't express — without
+	// recursing into them, a composite type reachable only through a map
+	// (e.g. map[string]plumbing.Hash) has no PkgPath of its own and would
+	// be invisible to the check below.
 	for {
 		if typ.Kind() == reflect.Map {
 			assertNoGitLeak(report, context, typ.Key())
@@ -313,7 +390,7 @@ func assertNoGitLeak(report func(format string, args ...any), context string, ty
 		if typ.Name() != "" {
 			break
 		}
-		if typ.Kind() != reflect.Pointer && typ.Kind() != reflect.Slice && typ.Kind() != reflect.Array {
+		if typ.Kind() != reflect.Pointer && typ.Kind() != reflect.Slice && typ.Kind() != reflect.Array && typ.Kind() != reflect.Chan {
 			break
 		}
 		typ = typ.Elem()
@@ -325,5 +402,17 @@ func assertNoGitLeak(report func(format string, args ...any), context string, ty
 		if pkgPath == forbidden || strings.HasPrefix(pkgPath, forbidden+"/") {
 			report("API boundary leak in %s: type %q (package %q) leaks internal git/engine type", context, typ.String(), pkgPath)
 		}
+	}
+
+	// A *named* pointer, slice, array, or chan (e.g. `type Sigs
+	// []object.Signature`) had its own PkgPath checked just above like any
+	// other named type — but that check alone would miss a forbidden
+	// element type hiding behind a writ-named container, since the
+	// container's own package is this one, never go-git's. Recurse into
+	// its element the same way a map's key and value are walked
+	// independently of the map type itself, above.
+	switch typ.Kind() {
+	case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Chan:
+		assertNoGitLeak(report, context, typ.Elem())
 	}
 }
