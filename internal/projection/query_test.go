@@ -2,6 +2,7 @@ package projection_test
 
 import (
 	"database/sql"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -415,5 +416,105 @@ func TestObjectsHostileTypeNameNotDeletedAndLimit(t *testing.T) {
 	}
 	if len(all) != 3 {
 		t.Fatalf("expected all 3 objects with IncludeDeleted=true, got %d (%+v)", len(all), all)
+	}
+}
+
+// wideLWWStringRules builds n distinct lww string-valued targets on
+// objectType, zero-padded ("f0000", "f0001", ...) so column order is
+// deterministic. This duplicates ddl_internal_test.go's makeLWWFieldRules:
+// that helper lives in the internal (white-box) package projection, which
+// this external projection_test package cannot reach (WRIT-285).
+func wideLWWStringRules(objectType string, n int) []state.Rule {
+	rules := make([]state.Rule, n)
+	for i := range rules {
+		field := fmt.Sprintf("f%04d", i)
+		rules[i] = state.Rule{OpType: "create", Field: field, Strategy: "lww", ValueType: "string", ObjectType: objectType}
+	}
+	return rules
+}
+
+// wideTombstoneBoolRules builds n distinct tombstone-strategy bool targets
+// on objectType, zero-padded the same way.
+func wideTombstoneBoolRules(objectType string, n int) []state.Rule {
+	rules := make([]state.Rule, n)
+	for i := range rules {
+		field := fmt.Sprintf("t%04d", i)
+		rules[i] = state.Rule{OpType: "archive", Field: field, Strategy: "tombstone", ValueType: "bool", ObjectType: objectType}
+	}
+	return rules
+}
+
+// TestObjectsTextSearchWideSchemaDoesNotExceedExpressionDepth is WRIT-285's
+// own reproduction: objectsTextClause used to join one LIKE term per
+// string/text column as a flat left-deep OR chain, which breaches SQLite's
+// default SQLITE_MAX_EXPR_DEPTH (1000) well before a schema hits any other
+// limit. "widget" here declares maxTableColumns-2 (1998) lww/string
+// targets — the widest a single type can declare before the column budget
+// (WRIT-256, TestColumnBudgetFitsUnderLimit) starts withholding one — so
+// this is a legal schema, not a synthetic corner case. Before WRIT-285's
+// balanced-tree join this failed at Objects() time with SQLite's
+// "SQL logic error: Expression tree is too large (maximum depth 1000)".
+func TestObjectsTextSearchWideSchemaDoesNotExceedExpressionDepth(t *testing.T) {
+	db, err := projection.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:): %v", err)
+	}
+	defer db.Close()
+
+	const n = 1998
+	rules := map[string][]state.Rule{"widget": wideLWWStringRules("widget", n)}
+	if err := db.ApplySchema(rules); err != nil {
+		t.Fatalf("ApplySchema: %v", err)
+	}
+
+	rawDB := db.DB()
+	lastCol := fmt.Sprintf("f_f%04d", n-1)
+	insertObject(t, rawDB, "match-1", "widget", 1, "Alice Smith", "alice@example.com", 1000, 1000)
+	execSQL(t, rawDB, "INSERT INTO o_widget (object_id, "+lastCol+") VALUES (?, ?)", "match-1", "a needle in a wide haystack")
+	insertObject(t, rawDB, "nomatch-1", "widget", 1, "Bob Jones", "bob@example.com", 1100, 1100)
+	execSQL(t, rawDB, "INSERT INTO o_widget (object_id, "+lastCol+") VALUES (?, ?)", "nomatch-1", "nothing to see here")
+
+	results, err := db.Objects(projection.ObjectFilter{Text: "needle"})
+	if err != nil {
+		t.Fatalf("Objects(Text=needle) on a %d-column type: %v", n, err)
+	}
+	if len(results) != 1 || results[0].ObjectID != "match-1" {
+		t.Fatalf("expected only match-1, got %+v", results)
+	}
+}
+
+// TestObjectsDefaultFilterWideTombstoneSchemaDoesNotExceedExpressionDepth is
+// WRIT-285's third reproduction, for objectsNotDeletedClause rather than
+// objectsTextClause: that clause ANDs "(x.col = 0 OR x.col IS NULL)" per
+// tombstone-strategy target, and each such term is itself two levels deep,
+// so its depth budget is half objectsTextClause's — it breaches SQLite's
+// default expression-depth limit at ~495 targets on one type rather than
+// ~1000, and needs no f.Text filter at all: it sits on every Objects()
+// call that does not set IncludeDeleted. Before WRIT-285's balanced-tree
+// join this failed with "SQL logic error: Expression tree is too large
+// (maximum depth 1000)" even for a plain Objects{} call.
+func TestObjectsDefaultFilterWideTombstoneSchemaDoesNotExceedExpressionDepth(t *testing.T) {
+	db, err := projection.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:): %v", err)
+	}
+	defer db.Close()
+
+	const n = 495
+	rules := map[string][]state.Rule{"widget": wideTombstoneBoolRules("widget", n)}
+	if err := db.ApplySchema(rules); err != nil {
+		t.Fatalf("ApplySchema: %v", err)
+	}
+
+	rawDB := db.DB()
+	insertObject(t, rawDB, "live-1", "widget", 1, "Alice Smith", "alice@example.com", 1000, 1000)
+	execSQL(t, rawDB, "INSERT INTO o_widget (object_id) VALUES (?)", "live-1")
+
+	results, err := db.Objects(projection.ObjectFilter{})
+	if err != nil {
+		t.Fatalf("Objects() with %d tombstone-strategy targets on one type, no Text filter: %v", n, err)
+	}
+	if len(results) != 1 || results[0].ObjectID != "live-1" {
+		t.Fatalf("expected only live-1 to survive the default !IncludeDeleted filter, got %+v", results)
 	}
 }

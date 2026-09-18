@@ -55,6 +55,51 @@ func objectTextColumns(shape objectQueryShape) (table string, columns []string) 
 	return shape.Table, columns
 }
 
+// joinBalanced joins parts with op as a balanced binary tree rather than a
+// flat left-deep chain, so the generated expression's height is O(log n) in
+// the number of parts instead of O(n). SQLite's SQLITE_MAX_EXPR_DEPTH
+// (1000 by default) counts every term of a flat OR/AND chain as one level
+// of depth, so objectsTextClause and objectsNotDeletedClause's one-term-
+// per-column chains used to breach it well short of 1000 columns on a wide
+// schema; a balanced tree of the same terms is height O(log n) instead
+// (WRIT-285). One part is returned as-is; otherwise this recurses on each
+// half and parenthesizes the combination. Both callers already return early
+// on len(parts) == 0, so this need not handle it.
+func joinBalanced(parts []string, op string) string {
+	if len(parts) == 1 {
+		return parts[0]
+	}
+	mid := len(parts) / 2
+	return "(" + joinBalanced(parts[:mid], op) + " " + op + " " + joinBalanced(parts[mid:], op) + ")"
+}
+
+// sqliteMaxVariableNumber mirrors SQLite's default SQLITE_MAX_VARIABLE_NUMBER
+// (modernc.org/sqlite, the driver this package runs on, does not raise it).
+// wideTextSearchBindThreshold is half of that: objectsTextClause's own LIKE
+// binds are only one contributor to a query's total bind count, which also
+// includes f.Type, f.Author, and the limit param — all fixed-size, one or
+// two binds regardless of schema shape — sharing the same connection-wide
+// counter, and the threshold leaves that much headroom for those rather
+// than cutting it as close as correctness alone would allow.
+//
+// It does NOT leave headroom for objectsNotDeletedClause's per-type
+// object_type binds: those scale with the same quantity this threshold
+// bounds (a schema of many narrow types has a type count roughly equal to
+// its contributing text-column count), so at the threshold both clauses'
+// binds can sum past sqliteMaxVariableNumber regardless of which branch
+// objectsTextClause takes — the wide branch binds one param per
+// contributing type too, so switching to it does not help. This is not a
+// regression: main dies on the same schema too, with a different error.
+// joinBalanced removes the expression-depth ceiling these clauses used to
+// hit, so depth is no longer what fails first on a many-narrow-types
+// schema — the bind ceiling above is, at roughly 16,400 declared types, and
+// no divisor changes that. The /2 buys headroom against the fixed-size
+// contributors above; it was never sized to cover objectsNotDeletedClause's
+// per-type cost, and cannot, since that cost is a distinct bind ceiling
+// this constant does not address.
+const sqliteMaxVariableNumber = 32766
+const wideTextSearchBindThreshold = sqliteMaxVariableNumber / 2
+
 // objectsTextClause builds Objects' f.Text filter directly from the
 // installed schema descriptor: one EXISTS per declared type (restricted to
 // restrictTypes when non-empty, the types f.Type itself already narrows the
@@ -66,6 +111,33 @@ func objectTextColumns(shape objectQueryShape) (table string, columns []string) 
 // keyed-lww-valued — contributes no clause; Objects falls through to
 // "found nothing" for f.Text rather than referencing a table it has no
 // column to search.
+//
+// Each type's own column terms are joined with joinBalanced rather than a
+// flat OR chain (WRIT-285: a type with ~1000+ string columns breached
+// SQLite's default expression-depth limit) — unconditionally, in both
+// branches below, since the depth limit does not care how the LIKE pattern
+// is bound.
+//
+// The LIKE pattern's binding style is conditional, though. Binding it once
+// per column (a literal "?" in every column term) keeps the correlated
+// EXISTS index-searchable ("SEARCH x EXISTS USING INDEX" in
+// EXPLAIN QUERY PLAN) and is what this clause always did before WRIT-285.
+// But summed across enough contributing types and columns, one bind per
+// column approaches SQLITE_MAX_VARIABLE_NUMBER independently of the depth
+// limit above, so past wideTextSearchBindThreshold contributing columns
+// this instead binds the pattern once per type: a one-row derived table
+// ("SELECT ? AS p") is cross-joined into the EXISTS subquery and every
+// column term reads writ_text.p, so params below counts contributing types
+// rather than columns in that case. That derived table is not free —
+// EXPLAIN QUERY PLAN shows the planner losing the index search for a
+// per-outer-row co-routine, a measured ~45% regression on the ordinary
+// narrow-schema path (WRIT-285 round 1 finding 2, BenchmarkObjectsListWithFilter) — so it
+// is worth paying only once the alternative is a hard SQL error, not on
+// every call. Binding the derived table's pattern with a bare "?" rather
+// than a numbered placeholder like ?1 keeps it positional: SQLite numbers a
+// bare "?" one above the highest index already assigned, and this clause
+// sits between the f.Type/f.Author args and the not-deleted/limit args at
+// the Objects call site, so a numbered form would silently renumber those.
 //
 // Reads desc.queryShapes/queryOrder, not desc.types/order: those two stay
 // nil on a name-only reopen (requireMaterializationPlan's guard depends on
@@ -87,7 +159,12 @@ func objectsTextClause(desc *schemaDescriptor, restrictTypes []string) (clause s
 		}
 	}
 
-	var parts []string
+	type textContributor struct {
+		table   string
+		columns []string
+	}
+	var contributors []textContributor
+	totalColumns := 0
 	for _, objectType := range desc.queryOrder {
 		if allow != nil && !allow[objectType] {
 			continue
@@ -96,18 +173,33 @@ func objectsTextClause(desc *schemaDescriptor, restrictTypes []string) (clause s
 		if len(columns) == 0 {
 			continue
 		}
-
-		var colParts []string
-		for _, col := range columns {
-			colParts = append(colParts, "x."+col+" LIKE ? ESCAPE '\\'")
-		}
-		parts = append(parts, "EXISTS (SELECT 1 FROM "+quoteIdent(table)+" x WHERE x.object_id = o.object_id AND ("+strings.Join(colParts, " OR ")+"))")
-		params += len(columns)
+		contributors = append(contributors, textContributor{table: table, columns: columns})
+		totalColumns += len(columns)
 	}
-	if len(parts) == 0 {
+	if len(contributors) == 0 {
 		return "", 0
 	}
-	return "(" + strings.Join(parts, " OR ") + ")", params
+
+	wide := totalColumns > wideTextSearchBindThreshold
+
+	var parts []string
+	for _, c := range contributors {
+		var colParts []string
+		if wide {
+			for _, col := range c.columns {
+				colParts = append(colParts, "x."+col+" LIKE writ_text.p ESCAPE '\\'")
+			}
+			parts = append(parts, "EXISTS (SELECT 1 FROM "+quoteIdent(c.table)+" x, (SELECT ? AS p) writ_text WHERE x.object_id = o.object_id AND ("+joinBalanced(colParts, "OR")+"))")
+			params++
+		} else {
+			for _, col := range c.columns {
+				colParts = append(colParts, "x."+col+" LIKE ? ESCAPE '\\'")
+			}
+			parts = append(parts, "EXISTS (SELECT 1 FROM "+quoteIdent(c.table)+" x WHERE x.object_id = o.object_id AND ("+joinBalanced(colParts, "OR")+"))")
+			params += len(c.columns)
+		}
+	}
+	return "(" + joinBalanced(parts, "OR") + ")", params
 }
 
 // objectsNotDeletedClause builds Objects' default !IncludeDeleted filter
@@ -165,13 +257,13 @@ func objectsNotDeletedClause(desc *schemaDescriptor, restrictTypes []string) (cl
 		for _, col := range cols {
 			notDeleted = append(notDeleted, "(x."+col+" = 0 OR x."+col+" IS NULL)")
 		}
-		parts = append(parts, "(o.object_type != ? OR EXISTS (SELECT 1 FROM "+quoteIdent(shape.Table)+" x WHERE x.object_id = o.object_id AND "+strings.Join(notDeleted, " AND ")+"))")
+		parts = append(parts, "(o.object_type != ? OR EXISTS (SELECT 1 FROM "+quoteIdent(shape.Table)+" x WHERE x.object_id = o.object_id AND "+joinBalanced(notDeleted, "AND")+"))")
 		params = append(params, objectType)
 	}
 	if len(parts) == 0 {
 		return "", nil
 	}
-	return strings.Join(parts, " AND "), params
+	return joinBalanced(parts, "AND"), params
 }
 
 // Objects executes a cross-type summary query over collaborative objects.
