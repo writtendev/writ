@@ -1,0 +1,162 @@
+name: envelope-signer-patterns
+description: >
+  WRIT-302: the six allowed_signers matching divergences between writ's
+  pre-fix path.Match-based matcher and OpenSSH's actual match_pattern /
+  match_pattern_list, now that spec/signing.md states the matching rule
+  normatively. A trust_store: override replaces the generated default
+  (literal `<email> <pubkey>` lines only, no patterns) with the six rules
+  below, so each commit's verification outcome is decided by exactly one
+  rule: a wildcard crossing '/', a bracket class matched literally instead
+  of as a character class, a backslash matched literally instead of as an
+  escape, an unbalanced '[' matched literally instead of erroring, a
+  globbed namespaces= option, and a negated namespaces= option. Every
+  commit still folds (WRIT-251 ruling 1: verification never gates fold),
+  so each is accepted and pins the verification outcome codec.Verify must
+  observe rather than a reject reason.
+
+  Rule/commit pairing is chosen so no rule can authorize a commit other
+  than its own intended target: cases 2, 3, 5, and 6 all involve the
+  already-existing alice or bob identities, so each is placed on whichever
+  physical key (via sign_as where the rule's key must differ from the
+  commit's own author identity) and principal/namespace combination keeps
+  every other rule in this trust_store from also matching it -- see the
+  per-commit comments below.
+
+trust_store:
+  - principals: ["*@example.test"]
+    key: alice
+  - principals: ["ali[cd]e@*.test"]
+    key: bob
+  - principals: ['alice\@*.test']
+    key: bob
+  - principals: ["ali[ce*@example.net"]
+    key: alice
+  - principals: ["bob@example.test"]
+    key: bob
+    namespaces: ["g*"]
+  - principals: ["Alice@Example.TEST"]
+    key: alice
+    namespaces: ["!git", "*"]
+
+refs:
+  - name: refs/writ/alice/widget
+    history:
+      - commits:
+          # Case 1: '*' crosses '/'. path.Match's '*' will not cross a
+          # path separator; OpenSSH's match_pattern has no such notion,
+          # so *@example.test matches alice/laptop@example.test. Alone
+          # on alice's key with no namespace restriction, so nothing else
+          # in this trust_store can affect it.
+          - id: signer-pattern-wildcard-crosses-slash
+            author: alice_slash
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: widget-01
+              object_type: acme.widget
+              op_type: create
+              op_version: 1
+              body:
+                title: "Wildcard crosses a slash"
+            expect:
+              accept: true
+              verification: valid
+          # Case 2: a bracket class is literal, not a character class.
+          # ali[cd]e@*.test must NOT match alice@example.test (path.Match
+          # parses [cd] as a class and matches; OpenSSH does not). Signed
+          # with bob's key (sign_as) so alice's broad *@example.test rule
+          # (a different key) can't authorize it, and no bob-keyed rule
+          # here matches alice@example.test either.
+          - id: signer-pattern-bracket-class-literal
+            author: alice
+            sign_as: bob
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: widget-01
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "Bracket class matched literally"
+            expect:
+              accept: true
+              verification: wrong-key
+          # Case 3: a backslash is literal, not an escape. alice\@*.test
+          # must NOT match alice@example.test (path.Match's '\' escapes
+          # the '@'; OpenSSH's match_pattern has no escaping). Same
+          # sign_as: bob isolation as case 2.
+          - id: signer-pattern-backslash-literal
+            author: alice
+            sign_as: bob
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: widget-01
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "Backslash matched literally"
+            expect:
+              accept: true
+              verification: wrong-key
+          # Case 4: an unbalanced '[' is a literal byte, not a parse
+          # error. ali[ce*@example.net must match ali[cex@example.net
+          # (path.Match returns ErrBadPattern for the unclosed class,
+          # silently treated as no-match by the pre-fix code; OpenSSH has
+          # no classes to unbalance). The value uses .net rather than
+          # ticket's original .test domain so this rule's own match is
+          # what decides the outcome, not case 1's broad *@example.test
+          # (which requires the .test suffix and would otherwise also
+          # authorize this alice-keyed commit).
+          - id: signer-pattern-unbalanced-bracket
+            author: alice_bracket
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: widget-01
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "Unbalanced bracket matched literally"
+            expect:
+              accept: true
+              verification: valid
+          # Case 5: namespaces= gains globbing. namespaces="g*" must
+          # match the signed namespace "git" (the old matchNamespace knew
+          # only exact equality and a bare "*"). Signed as bob (natural
+          # key) under an exact bob@example.test principal so it's
+          # unaffected by the bracket/backslash rules above, which never
+          # match bob@example.test.
+          - id: signer-pattern-namespace-glob
+            author: bob
+            timestamp: 2026-01-01T00:04:00Z
+            op:
+              object_id: widget-01
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "Globbed namespace"
+            expect:
+              accept: true
+              verification: valid
+          # Case 6: namespaces= gains negation. namespaces="!git,*" must
+          # reject the signed namespace "git" outright (the old
+          # matchNamespace never looked for a leading '!', so the
+          # trailing "*" matched with the negation silently ignored).
+          # Signed as alice_upper (natural key = alice's) under its own
+          # exact-case principal: case 1's *@example.test does not match
+          # it (case-sensitive: "Example.TEST" != "example.test"), and
+          # case 4's rule requires a completely different literal prefix.
+          - id: signer-pattern-namespace-negation
+            author: alice_upper
+            timestamp: 2026-01-01T00:05:00Z
+            op:
+              object_id: widget-01
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "Negated namespace"
+            expect:
+              accept: true
+              verification: wrong-key

@@ -58,6 +58,20 @@ state out, no I/O") and WRIT-3:
   read repository git config or invoke external subprocesses.
 - **Principal:** The principal verified against the trust store MUST be the
   commit author's email address (`author.email`).
+- **Pattern Matching:** Principal and `namespaces=` matching MUST follow
+  OpenSSH's `match_pattern_list` semantics (`match.c`), as used by
+  `sshsig.c`'s `check_allowed_keys_line` with case folding disabled for both
+  lists: each is a comma-separated list of subpatterns, compared
+  case-sensitively over bytes (not runes, so a multi-byte character is
+  several match units, not one), where `*` matches any sequence of bytes
+  including none, `?` matches exactly one byte, every other byte -- `[`,
+  `]`, and `\` included -- is compared literally, a leading `!` negates a
+  subpattern, and a negated match rejects the rule outright regardless of
+  any other subpattern's outcome. An empty subpattern (as from a doubled
+  comma) matches only the empty string. OpenSSH's `match_pattern_list` caps
+  each subpattern at 1024 bytes; that cap is `match.c`'s own buffer size,
+  not part of the matching semantics, and conforming verifiers are not
+  required to replicate it.
 - **Author Timestamp:** When an `allowed_signers` rule specifies validity
   windows (`valid-after` and `valid-before`), the timestamp checked against
   the window MUST be the commit author's timestamp (`author.when`).

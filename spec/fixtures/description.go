@@ -16,10 +16,40 @@ import (
 // generation but the last represents history that was once at the ref's
 // tip and later got pushed over.
 type Description struct {
-	Name        string           `yaml:"name"`
-	Description string           `yaml:"description"`
-	Refs        []RefDesc        `yaml:"refs"`
-	Resolutions []ResolutionDesc `yaml:"resolutions,omitempty"`
+	Name        string               `yaml:"name"`
+	Description string               `yaml:"description"`
+	Refs        []RefDesc            `yaml:"refs"`
+	Resolutions []ResolutionDesc     `yaml:"resolutions,omitempty"`
+	TrustStore  []TrustStoreRuleDesc `yaml:"trust_store,omitempty"`
+}
+
+// TrustStoreRuleDesc describes one allowed_signers rule for a
+// description's trust_store: override (WRIT-302). Present on a
+// description, TrustStoreFor builds the fixture's trust store solely from
+// these rules in place of AllowedSignersContent's generated default of one
+// literal `<identity email> <pubkey>` line per keyring identity — the
+// knob a description needs to exercise allowed_signers patterns
+// (globbing, negation, options) that the generated default can't express,
+// since it never emits anything but a bare literal principal.
+type TrustStoreRuleDesc struct {
+	// Principals is the allowed_signers principal field: one or more
+	// patterns (OpenSSH match_pattern_list syntax, spec/signing.md
+	// "Pattern Matching"), joined with commas in the generated line.
+	Principals []string `yaml:"principals"`
+
+	// Key names the keyring identity (see identity.go) whose public key
+	// this rule embeds. It only supplies the key material; it does not
+	// constrain which Principals patterns the rule may declare, so a
+	// rule's principal pattern and its embedded key can vary
+	// independently, matching a real allowed_signers file where any
+	// principal pattern can be paired with any key.
+	Key string `yaml:"key"`
+
+	// Namespaces is the rule's optional namespaces= option: one or more
+	// patterns, joined with commas, quoted in the generated line. Absent
+	// or empty means the rule matches any namespace, as with a bare
+	// allowed_signers line with no namespaces= option.
+	Namespaces []string `yaml:"namespaces,omitempty"`
 }
 
 // RefDesc describes one ref and everything ever pushed to it, oldest
@@ -319,6 +349,23 @@ func Load(data []byte) (*Description, error) {
 					}
 				}
 			}
+		}
+	}
+
+	for ti, tr := range d.TrustStore {
+		if len(tr.Principals) == 0 {
+			return nil, fmt.Errorf("fixtures: description %q trust_store entry %d has no principals", d.Name, ti)
+		}
+		for _, p := range tr.Principals {
+			if p == "" {
+				return nil, fmt.Errorf("fixtures: description %q trust_store entry %d has an empty principal", d.Name, ti)
+			}
+		}
+		if tr.Key == "" {
+			return nil, fmt.Errorf("fixtures: description %q trust_store entry %d has no key", d.Name, ti)
+		}
+		if _, err := lookupIdentity(tr.Key); err != nil {
+			return nil, fmt.Errorf("fixtures: description %q trust_store entry %d invalid key: %w", d.Name, ti, err)
 		}
 	}
 
