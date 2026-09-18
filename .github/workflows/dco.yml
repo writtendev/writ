@@ -3,9 +3,15 @@ name: DCO
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
 
 jobs:
   dco:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -19,16 +25,32 @@ jobs:
         run: |
           set -euo pipefail
           merge_base=$(git merge-base "$BASE_SHA" "$HEAD_SHA")
-          commits=$(git rev-list --no-merges "$merge_base..$HEAD_SHA")
-          missing=0
-          for sha in $commits; do
-            author_email=$(git log -1 --format='%ae' "$sha")
-            if ! git log -1 --format='%B' "$sha" | grep -E -qi '^Signed-off-by: .+ <.+>$'; then
-              echo "::error::commit $sha has no Signed-off-by trailer (see CONTRIBUTING.md)"
-              missing=1
-            elif ! git log -1 --format='%B' "$sha" | grep -i '^Signed-off-by:' | grep -i -q -F "<$author_email>"; then
-              echo "::error::commit $sha Signed-off-by trailer does not match author email <$author_email> (see CONTRIBUTING.md)"
-              missing=1
-            fi
-          done
-          exit "$missing"
+          mapfile -t commits < <(git rev-list --no-merges "$merge_base..$HEAD_SHA")
+          .github/scripts/check-dco-trailer.sh "${commits[@]}"
+
+  dco-landed:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # Checks the commit that actually lands on main, after GitHub's squash
+      # has rewritten the author email to the account's primary — the check
+      # the pull_request job above cannot make, since it only ever sees
+      # branch commits. A detector, not a preventer: it runs after the
+      # merge, so its job is to fail loudly if main ever drifts again.
+      - name: Check for Signed-off-by on landed commits
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.event.after }}
+        run: |
+          set -euo pipefail
+          zero_sha="0000000000000000000000000000000000000000"
+          if [ "$BEFORE_SHA" = "$zero_sha" ]; then
+            commits=("$AFTER_SHA")
+          else
+            mapfile -t commits < <(git rev-list --no-merges "$BEFORE_SHA..$AFTER_SHA")
+          fi
+          .github/scripts/check-dco-trailer.sh "${commits[@]}"
