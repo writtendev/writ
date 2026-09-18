@@ -29,8 +29,8 @@ var (
 	ErrUnknownRemote = writsync.ErrUnknownRemote
 
 	// ErrInvalidRemoteName indicates that a remote name is syntactically
-	// unusable (empty, "-"-leading, containing "/", or otherwise not a
-	// valid fetch-refspec destination component) rather than merely
+	// unusable (empty, "-"-leading, or otherwise not a valid
+	// fetch-refspec destination component) rather than merely
 	// unconfigured.
 	ErrInvalidRemoteName = writsync.ErrInvalidRemoteName
 

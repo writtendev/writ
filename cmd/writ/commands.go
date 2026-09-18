@@ -20,7 +20,7 @@ type command struct {
 	UsageLine   string // first line, verbatim
 	Long        string
 	Examples    []string // at least one per verb (DoD)
-	ExitCodes   []string // only sync populates this today
+	ExitCodes   []string // sync and init populate this
 	Flags       []flagSpec
 	Subs        []*command
 }
@@ -57,10 +57,24 @@ var initCmd = &command{
 		"On a work tree with no writ.schema yet, also writes a starter one: --namespace names\n" +
 		"it explicitly, an interactive terminal is prompted for it, and a non-interactive run\n" +
 		"with neither refuses rather than choosing one for you — the namespace becomes part of\n" +
-		"every wire type the schema declares, so it is never derived from a directory name.",
+		"every wire type the schema declares, so it is never derived from a directory name.\n\n" +
+		"With no remote given, every remote `git remote` lists is configured. One that Ensure's\n" +
+		"existence/name gate rejects (a url-less remote section, or a \"-\"-leading name -- both\n" +
+		"configurations git itself accepts) is skipped and reported rather than stopping the run:\n" +
+		"every other discovered remote still gets its fetch refspec. A remote named explicitly on\n" +
+		"the command line does not get this treatment -- a bad name the caller typed stops the run,\n" +
+		"same as before.",
 	Flags: []flagSpec{
 		{Name: "C"},
 		{Name: "namespace"},
+	},
+	ExitCodes: []string{
+		"0  Success: every remote (explicit, or discovered with none given) was configured",
+		"1  Runtime failure: either the run stopped part-way (an explicit remote's name was\n" +
+			"   rejected, or a write failed), or it finished but skipped one or more discovered\n" +
+			"   remotes Ensure's existence/name gate would not configure (see stderr for which,\n" +
+			"   and why) -- distinct from a usage error, since nothing the caller typed was wrong",
+		"2  Usage error (bad flag)",
 	},
 	Examples: []string{
 		"writ init",

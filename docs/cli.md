@@ -43,10 +43,26 @@ it explicitly, an interactive terminal is prompted for it, and a non-interactive
 with neither refuses rather than choosing one for you — the namespace becomes part of
 every wire type the schema declares, so it is never derived from a directory name.
 
+With no remote given, every remote `git remote` lists is configured. One that Ensure's
+existence/name gate rejects (a url-less remote section, or a "-"-leading name -- both
+configurations git itself accepts) is skipped and reported rather than stopping the run:
+every other discovered remote still gets its fetch refspec. A remote named explicitly on
+the command line does not get this treatment -- a bad name the caller typed stops the run,
+same as before.
+
 #### Flags
 
 - `-C <dir>`: Run as if writ was started in <dir>
 - `-namespace <name>`: Namespace <name> for a starter writ.schema (required the first time one is written)
+
+#### Exit Codes
+
+- `0`: Success: every remote (explicit, or discovered with none given) was configured
+- `1`: Runtime failure: either the run stopped part-way (an explicit remote's name was
+   rejected, or a write failed), or it finished but skipped one or more discovered
+   remotes Ensure's existence/name gate would not configure (see stderr for which,
+   and why) -- distinct from a usage error, since nothing the caller typed was wrong
+- `2`: Usage error (bad flag)
 
 #### Examples
 

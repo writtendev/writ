@@ -151,7 +151,30 @@ func reportPartialInit(stderr io.Writer, writerID identity.WriterID, repoID iden
 	fmt.Fprintf(stderr, "  re-run writ init after fixing the error above: it reuses both IDs and writes only what is missing\n")
 }
 
+// reportSkippedRemotes names the discovered remotes writ init could not
+// configure, at the end of a run that otherwise finished: unlike
+// reportPartialInit, nothing here stopped -- every other remote got its
+// fetch refspec, and identity and the starter schema file (if due) ran to
+// completion. This is what step 6 prints instead of aborting when Ensure's
+// existence/name gate rejects a *discovered* remote (a url-less section, or
+// a "-"-leading name) rather than one the caller asked for by name; see that
+// step's comment for why the two cases are treated differently.
+func reportSkippedRemotes(stderr io.Writer, configured, skippedReasons []string) {
+	fmt.Fprintf(stderr, "writ init: %d of %d discovered remote(s) could not be configured\n", len(skippedReasons), len(configured)+len(skippedReasons))
+	if len(configured) > 0 {
+		fmt.Fprintf(stderr, "  fetch refspec configured for: %s\n", strings.Join(configured, ", "))
+	}
+	fmt.Fprintf(stderr, "  fetch refspec NOT configured for: %s\n", strings.Join(skippedReasons, "; "))
+	fmt.Fprintf(stderr, "  fix or remove the remote(s) above, then re-run writ init: it reuses both IDs and writes only what is missing\n")
+}
+
 func runInit(ctx context.Context, defaultDir string, args []string, stdin io.Reader, interactive bool, stdout, stderr io.Writer) int {
+	// exitCode stays 0 unless something below sets it. It is not returned
+	// immediately everywhere it changes: a discovered remote Ensure's gate
+	// rejects (step 6) sets it but keeps going -- identity, and the starter
+	// schema file, still get their chance to run.
+	exitCode := 0
+
 	fs, opts := newInitFlagSet(defaultDir)
 	fs.SetOutput(stderr)
 
@@ -244,6 +267,14 @@ func runInit(ctx context.Context, defaultDir string, args []string, stdin io.Rea
 		}
 		starterNamespace = ns
 	}
+
+	// explicitRemotes distinguishes a name the caller typed from one writ
+	// init discovered on its own via `git remote` below: a bad *explicit*
+	// name is the caller's mistake to fix, and the existing abort-on-first-
+	// error behaviour stays exactly as it is for that case (see
+	// TestInit_NoSuchRemoteWritesNoPhantomSection). A bad *discovered* name
+	// is not something the caller asked writ to touch -- see step 6.
+	explicitRemotes := len(fs.Args()) > 0
 
 	remotes := fs.Args()
 	if len(remotes) == 0 {
@@ -367,6 +398,34 @@ func runInit(ctx context.Context, defaultDir string, args []string, stdin io.Rea
 	// repository is already open, so the client is built from that storer
 	// rather than opening it a second time — the second open is where a
 	// failure used to arrive too late to matter.
+	//
+	// Explicit remotes (the caller typed a name) keep the original
+	// abort-on-first-error behaviour: Ensure's existence/name gate rejecting
+	// a name the caller chose is the caller's problem to fix before the run
+	// can mean anything (TestInit_NoSuchRemoteWritesNoPhantomSection pins
+	// this).
+	//
+	// Discovered remotes (no positional args -- `git remote` supplied the
+	// list) do not get that treatment: `git remote` lists a url-less
+	// "[remote "x"]" section (e.g. a global remote.<name>.prune creates one
+	// in every repository on the machine) and a "-"-leading name
+	// ("git remote add -- -x <url>" succeeds) exactly as happily as it
+	// lists a good remote, and neither is a name the user passed to writ --
+	// init merely found it. Letting either one abort the whole run turns an
+	// unrelated config key into a repository writ refuses to initialize at
+	// all, stranding the fetch refspec of every OTHER, perfectly good
+	// remote right alongside it (WRIT-283 round 3). So for this path, writ
+	// init configures every remote it can and reports the ones Ensure's
+	// gate rejected -- everything else in this function (identity,
+	// starter-schema) still runs, and the process exit code (1, not this
+	// function's usage-error 2) says "not fully done", distinct from a
+	// usage error, so a caller can tell "some of what I asked for didn't
+	// happen" apart from "you typed something wrong."
+	//
+	// Any *other* error (e.g. a locked .git/config) still aborts the run
+	// immediately: it is not the gate this PR added, has nothing to do with
+	// which remote happened to be named, and is likely to recur on every
+	// remaining remote too.
 	if len(remotes) == 0 {
 		fmt.Fprintln(stdout, "No git remotes configured; fetch refspec will be added when a remote is configured.")
 	} else {
@@ -379,18 +438,32 @@ func runInit(ctx context.Context, defaultDir string, args []string, stdin io.Rea
 			return 1
 		}
 
+		var configured, skippedNames []string
+		var skippedReasons []string
 		for i, remote := range remotes {
 			status, err := client.Ensure(ctx, remote)
 			if err != nil {
+				if !explicitRemotes && (errors.Is(err, sync.ErrUnknownRemote) || errors.Is(err, sync.ErrInvalidRemoteName)) {
+					fmt.Fprintf(stderr, "writ init: remote %q: %v (skipped; not one you asked for -- fix or remove it, then re-run)\n", remote, err)
+					skippedNames = append(skippedNames, remote)
+					skippedReasons = append(skippedReasons, fmt.Sprintf("%s (%v)", remote, err))
+					continue
+				}
 				fmt.Fprintf(stderr, "writ init: remote %q: %v\n", remote, err)
-				reportPartialInit(stderr, writerID, repoID, remotes[:i], remotes[i:])
+				pending := append(append([]string{}, skippedNames...), remotes[i:]...)
+				reportPartialInit(stderr, writerID, repoID, configured, pending)
 				return 1
 			}
+			configured = append(configured, remote)
 			if status.Repaired {
 				fmt.Fprintf(stdout, "Configured fetch refspec for remote %q (%s)\n", remote, status.Expected)
 			} else {
 				fmt.Fprintf(stdout, "Fetch refspec for remote %q is already configured (%s)\n", remote, status.Expected)
 			}
+		}
+		if len(skippedNames) > 0 {
+			reportSkippedRemotes(stderr, configured, skippedReasons)
+			exitCode = 1
 		}
 	}
 
@@ -408,7 +481,7 @@ func runInit(ctx context.Context, defaultDir string, args []string, stdin io.Rea
 		}
 	}
 
-	return 0
+	return exitCode
 }
 
 // writeStarterSchemaFile writes a namespace-only writ.schema at the work

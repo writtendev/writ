@@ -920,6 +920,94 @@ func TestSync_JSONInvalidRemoteNameReportsDistinctKind(t *testing.T) {
 	}
 }
 
+// TestSync_StatusJSONInvalidRemoteNameReportsTrueUnsyncedCount is the
+// regression pin for round 3's third finding (WRIT-283): "sync --status
+// --json -- \"a b\"" reported unsynced: 0 for a syntactically invalid
+// remote name, while plain "sync --json -- \"a b\"" (fixed for the
+// analogous unconfigured-remote case back in round 1) reported the true
+// count for the same repository. SyncStatus's ValidateRemoteName gate
+// returned early with a zero-value SyncStatus and a SyncError whose
+// Unsynced field was left unset; ComputeStatus is pure local work -- chain
+// refs and this remote's last-fetched tracking frontier -- so it needs
+// nothing from the (invalid) remote name to compute the real count, the
+// same property Sync's own invalid-name path already relies on.
+func TestSync_StatusJSONInvalidRemoteNameReportsTrueUnsyncedCount(t *testing.T) {
+	_, aliceDir, _ := setupSyncTestHarness(t)
+	ctx := context.Background()
+
+	sA, err := writ.Open(aliceDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Open Alice failed: %v", err)
+	}
+	applyTicketSchemaViaStore(t, ctx, sA, aliceDir)
+	_, err = sA.Objects.Create(ctx, "acme.ticket", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Invalid Remote Name Ticket"},
+	})
+	if err != nil {
+		sA.Close()
+		t.Fatalf("Alice create object: %v", err)
+	}
+
+	// Ground truth: the unsynced count against a syntactically valid,
+	// never-fetched remote name. Neither "a b" below nor this name has
+	// ever been fetched, so both walks stop at the same (empty) remote
+	// tracking frontier and must agree on the count.
+	wantStatus, err := sA.SyncStatus(ctx, "ground-truth-remote")
+	if err != nil {
+		sA.Close()
+		t.Fatalf("Alice SyncStatus(ground-truth-remote): %v", err)
+	}
+	if wantStatus.Unsynced == 0 {
+		sA.Close()
+		t.Fatalf("test setup produced 0 unsynced ops; need at least 1 to pin this regression")
+	}
+	sA.Close()
+
+	var stdout, stderr bytes.Buffer
+	code := run(ctx, []string{"-C", aliceDir, "sync", "--status", "--json", "--", "a b"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("sync --status --json -- \"a b\" exited with %d (want 2); stderr: %s", code, stderr.String())
+	}
+
+	type syncEnvelope struct {
+		Data []struct {
+			Remote   string `json:"remote"`
+			Unsynced int    `json:"unsynced"`
+			Failure  *struct {
+				Kind string `json:"kind"`
+			} `json:"failure,omitempty"`
+		} `json:"data"`
+	}
+	var env syncEnvelope
+	if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
+		t.Fatalf("unmarshal sync --status --json -- \"a b\": %v (raw: %s)", err, stdout.String())
+	}
+	if len(env.Data) != 1 || env.Data[0].Failure == nil {
+		t.Fatalf("sync --status --json -- \"a b\" data = %+v, want 1 entry with a failure", env.Data)
+	}
+	got := env.Data[0]
+	if got.Failure.Kind != "invalid-name" {
+		t.Errorf("sync --status --json -- \"a b\" failure.kind = %q, want \"invalid-name\"", got.Failure.Kind)
+	}
+	if got.Unsynced != wantStatus.Unsynced {
+		t.Errorf("sync --status --json -- \"a b\" unsynced = %d, want the true count %d (matching plain \"sync --json\"'s own invalid-name path)", got.Unsynced, wantStatus.Unsynced)
+	}
+
+	// Porcelain mode carries the same count on the same path
+	// (printSyncError already reads SyncError.Unsynced; this pins that the
+	// value it reads is no longer always zero here).
+	var pStdout, pStderr bytes.Buffer
+	pCode := run(ctx, []string{"-C", aliceDir, "sync", "--status", "--", "a b"}, &pStdout, &pStderr)
+	if pCode != 2 {
+		t.Fatalf("sync --status -- \"a b\" exited with %d (want 2); stderr: %s", pCode, pStderr.String())
+	}
+	wantLine := fmt.Sprintf("%d %s unsynced", wantStatus.Unsynced, plural(wantStatus.Unsynced, "op", "ops"))
+	if !strings.Contains(pStderr.String(), wantLine) {
+		t.Errorf("sync --status -- \"a b\" stderr = %q, want it to contain %q", pStderr.String(), wantLine)
+	}
+}
+
 func TestSync_UnconfiguredWriterWarning(t *testing.T) {
 	bareDir, _, _ := setupSyncTestHarness(t)
 	ctx := context.Background()
