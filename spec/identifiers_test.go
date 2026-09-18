@@ -413,13 +413,14 @@ func TestInvalidPersonVectors(t *testing.T) {
 				}
 			case "producer":
 				// A "producer" vector must be rejected by at least one of
-				// the two producer-side rules, not accepted by both:
-				// checking only one rule would let a vector that only the
-				// *other* rule rejects pass this test vacuously. This does
+				// the two producer-side rules, not accepted by both.
+				// Checking only one rule would spuriously fail a vector the
+				// *other* rule legitimately rejects -- every producer vector
+				// today trips exactly one of the two. The conjunction does
 				// not bind a vector to the specific rule its "reason"
-				// names -- a vector can pass this check on either rule
-				// alone, without ever exercising the one its reason
-				// describes.
+				// names -- a vector passes on either rule alone, without
+				// ever exercising the one its reason describes. WRIT-292
+				// adds that binding.
 				if spec.PersonValueIsStreamSafe(vec.Identifier) && spec.PersonValueRepertoireOK(vec.Identifier) {
 					t.Errorf("producer checks accepted %q; expected rejection by at least one producer-side rule: %s", vec.Identifier, entry.Reason)
 				}
