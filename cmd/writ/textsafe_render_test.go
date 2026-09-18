@@ -78,6 +78,102 @@ func TestFieldDisplay_EscapesForbiddenCodePoints(t *testing.T) {
 	}
 }
 
+// wantEscapeSeqs returns the literal escape text emitJSON/fieldDisplay is
+// expected to produce for cp: one "\uXXXX" for a Basic-Multilingual-Plane
+// code point, or its two-element UTF-16 surrogate pair for a code point
+// above it. Built purely from cp's own numeric value via fmt.Sprintf,
+// exactly as escapeLiteralText above does for the single-\uXXXX case --
+// this file's source must never itself spell out a Forbidden code point's
+// escape text by typing a literal \uXXXX sequence (see escapeLiteralText's
+// own doc comment for why).
+func wantEscapeSeqs(cp rune) []string {
+	if cp <= 0xFFFF {
+		return []string{escapeLiteralText(cp)}
+	}
+	v := cp - 0x10000
+	hi := 0xD800 + (v >> 10)
+	lo := 0xDC00 + (v & 0x3FF)
+	return []string{escapeLiteralText(hi), escapeLiteralText(lo)}
+}
+
+// TestEmitJSON_EscapesSupplementaryPlaneCodePoints is WRIT-276's own
+// half-2 acceptance test: the repertoire widened past the Basic
+// Multilingual Plane (the tag block, and BMP additions like the word
+// joiner), so emitJSON's escape must still neutralise both -- as a UTF-16
+// surrogate pair for the tag character, since a raw \uXXXX cannot express a
+// code point above U+FFFF at all -- and the escape must still be valid,
+// losslessly decodable JSON (cmd/writ's emitJSON escapes the already-encoded
+// document; a Go \UXXXXXXXX escape there would not parse).
+func TestEmitJSON_EscapesSupplementaryPlaneCodePoints(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cp   rune
+	}{
+		{name: "word joiner", cp: 0x2060},
+		{name: "tag character", cp: 0xE0020},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hostile := "email:alice" + string(tc.cp) + "@evil.com"
+
+			var buf bytes.Buffer
+			if err := emitJSON(&buf, "test.kind", map[string]string{"subject": hostile}); err != nil {
+				t.Fatalf("emitJSON: %v", err)
+			}
+			out := buf.String()
+
+			for _, r := range out {
+				if r == tc.cp {
+					t.Fatalf("emitJSON output contains a raw %U byte sequence: %q", tc.cp, out)
+				}
+			}
+			for _, seq := range wantEscapeSeqs(tc.cp) {
+				if !strings.Contains(out, seq) {
+					t.Errorf("emitJSON output = %q, want it to contain the %s escape", out, seq)
+				}
+			}
+
+			var env wire.Envelope
+			if err := json.Unmarshal(buf.Bytes(), &env); err != nil {
+				t.Fatalf("decoding emitJSON's own output: %v", err)
+			}
+			data, ok := env.Data.(map[string]any)
+			if !ok {
+				t.Fatalf("envelope data = %T, want map[string]any", env.Data)
+			}
+			if data["subject"] != hostile {
+				t.Errorf("decoded subject = %q, want the original hostile value %q (lossless round trip)", data["subject"], hostile)
+			}
+		})
+	}
+}
+
+// TestFieldDisplay_EscapesSupplementaryPlaneCodePoints is the fieldDisplay
+// counterpart of TestEmitJSON_EscapesSupplementaryPlaneCodePoints, covering
+// the other rendering chokepoint for the same two code points.
+func TestFieldDisplay_EscapesSupplementaryPlaneCodePoints(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cp   rune
+	}{
+		{name: "word joiner", cp: 0x2060},
+		{name: "tag character", cp: 0xE0020},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hostile := "email:alice" + string(tc.cp) + "@evil.com"
+
+			got := fieldDisplay(hostile)
+			if strings.ContainsRune(got, tc.cp) {
+				t.Errorf("fieldDisplay(string) = %q, still contains the raw %U", got, tc.cp)
+			}
+			for _, seq := range wantEscapeSeqs(tc.cp) {
+				if !strings.Contains(got, seq) {
+					t.Errorf("fieldDisplay(string) = %q, want the %s escape", got, seq)
+				}
+			}
+		})
+	}
+}
+
 // TestAuthorDisplay_EscapesForbiddenCodePoints pins that authorDisplay
 // escapes both name and email, for consistency with the same command's
 // --json half (json.go's authorDisplay doc comment).

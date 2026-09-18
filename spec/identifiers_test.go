@@ -351,9 +351,19 @@ func TestValidPersonVectors(t *testing.T) {
 // rejections are not expressible as a schema pattern — spec/identifiers.md
 // §Value shape: Stream-Safe Text's non-starter-run limit needs
 // Canonical_Combining_Class, which ECMA-262 has no property escape for, and
-// \p{Mn} is not the same set — so index.json marks such a vector
-// `"enforced_by": "producer"` and this test checks the producer-side rule
-// instead of the schema for exactly those.
+// \p{Mn} is not the same set, and a handful of the repertoire's
+// supplementary-plane code points (the tag block and its neighbours) cannot
+// be written as an ECMA-262 class without the u flag — so index.json marks
+// such a vector `"enforced_by": "producer"` and this test checks the
+// producer-side rules instead of the schema for exactly those.
+//
+// The arm below fails only when both producer rules (PersonValueIsStreamSafe
+// and PersonValueRepertoireOK) accept, so a "producer" vector is required to
+// be rejected by at least one of the two — not necessarily the one its
+// "reason" names. A vector may legitimately trip either rule, and
+// index.json has no field today saying which one a given vector means to
+// pin, so the conjunction is the strongest check available; WRIT-292 is
+// filed to add that binding via a structured field on the vector index.
 func TestInvalidPersonVectors(t *testing.T) {
 	sch := compilePersonIDSchema(t)
 
@@ -402,8 +412,17 @@ func TestInvalidPersonVectors(t *testing.T) {
 					t.Errorf("schema accepted %q; expected rejection: %s", vec.Identifier, entry.Reason)
 				}
 			case "producer":
-				if spec.PersonValueIsStreamSafe(vec.Identifier) {
-					t.Errorf("producer check accepted %q; expected rejection: %s", vec.Identifier, entry.Reason)
+				// A "producer" vector must be rejected by at least one of
+				// the two producer-side rules, not accepted by both.
+				// Checking only one rule would spuriously fail a vector the
+				// *other* rule legitimately rejects -- every producer vector
+				// today trips exactly one of the two. The conjunction does
+				// not bind a vector to the specific rule its "reason"
+				// names -- a vector passes on either rule alone, without
+				// ever exercising the one its reason describes. WRIT-292
+				// adds that binding.
+				if spec.PersonValueIsStreamSafe(vec.Identifier) && spec.PersonValueRepertoireOK(vec.Identifier) {
+					t.Errorf("producer checks accepted %q; expected rejection by at least one producer-side rule: %s", vec.Identifier, entry.Reason)
 				}
 			default:
 				t.Fatalf("%s: index.json names unknown enforced_by %q", name, entry.EnforcedBy)
