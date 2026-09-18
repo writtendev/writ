@@ -505,7 +505,14 @@ func buildSchemaPlan(ctx context.Context, store *writ.Store, dir string) (*schem
 func schemaNamespaces(schemas []state.Schema, extra string) []string {
 	set := make(map[string]bool, len(schemas)+1)
 	for _, s := range schemas {
-		if s.Namespace != "" {
+		// Same gate as resolveSchemaTarget: a schema object whose id
+		// disagrees with "schema:" + its own namespace is dropped
+		// wholesale by the read path (engine/schema.go's
+		// resolveSchemaTypes) and installs nothing, so it must not be
+		// counted as declaring its namespace here either — otherwise
+		// this report, and the --json namespaces field it feeds, names
+		// a namespace nothing actually installed for.
+		if s.Namespace != "" && s.ObjectID == deriveSchemaObjectID(s.Namespace) {
 			set[s.Namespace] = true
 		}
 	}

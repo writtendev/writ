@@ -773,42 +773,44 @@ func TestSchemaPlanJSON_SourceFieldsStayRawAcrossHostileDescription(t *testing.T
 	}
 }
 
-// TestSchemaApply_HostileFetchedNamespaceRendersEscaped is round 1's
-// finding 1 on PR #195: a schema object's `namespace` is folded from a
-// `create` op's *body* (engine/state/schema.go, `case "create"`), the same
-// ungated slot as define-type's body `type` -- op-envelope.schema.json
-// leaves `body` a bare {"type": "object"}, and typeIsQualifiedForNamespace
-// compares a type's prefix against the namespace without ever validating
-// the namespace itself. schemaNamespaces takes s.Namespace straight out of
-// every folded schema object, and `schema apply`'s mint summary joined
-// them with %s, so a fetched hostile namespace printed raw in a human view.
+// TestSchemaApply_HostileFetchedNamespaceNotCountedOrRendered is round 1's
+// finding 1 on PR #195, revisited after WRIT-254 round-1 finding 3 changed
+// what actually reaches the render call this test pins: a schema object's
+// `namespace` is folded from a `create` op's *body*
+// (engine/state/schema.go, `case "create"`), the same ungated slot as
+// define-type's body `type`, so a fetched peer's hostile namespace text
+// carries no repertoire gate of its own at fold time.
 //
-// The ordinary reachable order is the one exercised here: a hostile peer's
-// schema chain is already present when the local repository runs its own
-// first `schema apply` (the `created` arm -- the `Updated` arm is safe
-// only because it uses %q).
-func TestSchemaApply_HostileFetchedNamespaceRendersEscaped(t *testing.T) {
+// Before round-1 finding 3, schemaNamespaces counted every folded schema
+// object's namespace unconditionally, so a hostile one reached `schema
+// apply`'s mint summary and needed escaping at render
+// (cmd/writ/schema.go's textsafe.EscapeForbidden call). Finding 3 gave
+// schemaNamespaces the same derived-id gate resolveSchemaTypes and
+// resolveSchemaTarget already have: a schema object whose id disagrees
+// with "schema:" + its own namespace is dropped, not counted. The
+// hostile object below is exactly that shape (namespace disagrees with
+// its non-derived id "foreign-evil-schema"), so it is now excluded
+// before the render call this test used to exercise ever sees it -- this
+// pins the drop, not an escape.
+//
+// A hostile-Unicode namespace has no other way to reach here: the
+// derived form for one ("schema:" + hostile) is not even a legal
+// object_id -- op-envelope.schema.json's object_id pattern
+// (^[\x21-\x7e]+$) admits no U+202E, and engine/codec/decode.go enforces
+// that schema against every op unconditionally, rejecting a
+// non-conforming one outright (RejectSchemaViolation) before it ever
+// reaches FoldSchema. So a hostile namespace can only ever ride in on a
+// non-derived id, which is exactly the shape schemaNamespaces' new gate
+// (and resolveSchemaTypes' matching one) drops.
+func TestSchemaApply_HostileFetchedNamespaceNotCountedOrRendered(t *testing.T) {
 	env := initTestRepo(t)
 
 	hostile := "ev" + string(rune(0x202E)) + "il"
 
 	// A foreign writer's own schema object, on its own writer ref -- what
 	// fetching a hostile peer's schema chain leaves behind. The object id
-	// deliberately does NOT carry the "schema:" prefix (it is not, and
-	// cannot be, derived from hostile): spec/op-envelope.md's object_id
-	// grammar (^[\x21-\x7e]+$, printable ASCII only) already refuses
-	// hostile's raw U+202E bytes outright, so no derived id for this
-	// namespace is even constructible -- "schema:" + hostile is not a
-	// legal object_id at all, let alone the one this create's body would
-	// need to agree with under WRIT-254 change 1 (engine/state/schema.go's
-	// FoldSchema quarantines a create on a "schema:"-prefixed id whose
-	// body namespace disagrees with the id's own suffix). A non-derived id
-	// is exactly what a hostile or non-conforming foreign peer plausibly
-	// leaves behind anyway, and change 1 does not gate it at all --
-	// scoped to the derived-id form only, per the ruling -- so the create
-	// folds exactly as it did before this ticket, and the hostile
-	// namespace still reaches schemaNamespaces and the mint summary this
-	// test exists to check.
+	// deliberately does NOT carry the "schema:" prefix: see the doc
+	// comment above for why that is the only reachable shape.
 	writeForeignOp(t, env.repoDir, "fedcba9876543210", "schema", "foreign-evil-schema", "create", 1, map[string]any{
 		"namespace": hostile,
 	})
@@ -821,15 +823,20 @@ func TestSchemaApply_HostileFetchedNamespaceRendersEscaped(t *testing.T) {
 	}
 
 	out := stdout.Bytes()
-	if !bytes.Contains(out, []byte("namespaces:")) {
-		t.Fatalf("schema apply output = %s, want the mint summary's namespace list", out)
+	// The dropped foreign object must not inflate the count: only the
+	// local "acme" mint counts, so the singular "namespace:" form -- not
+	// "namespaces:" -- is what a correct apply prints.
+	if !bytes.Contains(out, []byte("1 namespace: acme")) {
+		t.Errorf("schema apply output = %s, want exactly \"1 namespace: acme\" -- the dropped foreign object must not be counted", out)
+	}
+	if bytes.Contains(out, []byte("namespaces:")) {
+		t.Errorf("schema apply output = %s, want the singular \"namespace:\" form; \"namespaces:\" would mean the dropped foreign object was still counted", out)
 	}
 	if bytes.ContainsRune(out, 0x202E) {
 		t.Errorf("schema apply contains a raw U+202E byte sequence: %s", out)
 	}
-	escapeSeq := []byte(fmt.Sprintf("\\u%04x", 0x202E))
-	if !bytes.Contains(out, escapeSeq) {
-		t.Errorf("schema apply = %s, want it to contain the %s escape", out, escapeSeq)
+	if bytes.Contains(out, []byte(hostile)) {
+		t.Errorf("schema apply output = %s, want no trace of the dropped foreign object's hostile namespace at all", out)
 	}
 }
 

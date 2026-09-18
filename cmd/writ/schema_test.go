@@ -1114,16 +1114,28 @@ func TestResolveSchemaTarget_NonDerivedIDObjectsIgnoredFreshMint(t *testing.T) {
 // namespace. resolveSchemaTarget must resolve to the live object and
 // ignore the sibling — not count it as a second match, which would wrongly
 // reintroduce the refusal WRIT-254 change 2 makes unreachable.
+//
+// The sibling is deliberately named "acme-rogue", with no "schema:"
+// prefix, and placed first in the slice. "schema:acme" is a strict
+// prefix of any "schema:acme<suffix>" id, so a same-prefixed sibling can
+// never sort or appear before the live object here, and the gate this
+// test claims to pin would never actually be exercised (round-1 review,
+// verified by mutation: with the old sibling name/order, reverting
+// resolveSchemaTarget's gate to plain namespace equality left this test
+// green). "acme-rogue" sorts before "schema:acme" — the same relative
+// order store.Schema's real, ObjectID-sorted result would produce for a
+// hijacked sibling like this — so with it first, reverting the gate
+// must turn this test red.
 func TestResolveSchemaTarget_DerivedIDMatchResolvesWithDroppedSiblingPresent(t *testing.T) {
+	dropped := state.Schema{ObjectID: "acme-rogue", Namespace: "acme"}
 	target := state.Schema{
 		ObjectID:  "schema:acme",
 		Namespace: "acme",
 		Types:     []state.SchemaType{{Name: "acme.standup"}},
 	}
-	dropped := state.Schema{ObjectID: "schema:acme-rogue", Namespace: "acme"}
 	f := &schemasrc.File{Namespace: "acme", Types: []*schemasrc.Type{{Name: "standup"}}}
 
-	got, err := resolveSchemaTarget([]state.Schema{target, dropped}, f)
+	got, err := resolveSchemaTarget([]state.Schema{dropped, target}, f)
 	if err != nil {
 		t.Fatalf("expected the dropped sibling ignored and reuse to succeed, got error: %v", err)
 	}
