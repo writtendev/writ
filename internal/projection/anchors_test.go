@@ -493,3 +493,165 @@ func TestAnchorResolutionMalformedAnchorsDoNotBrickRefresh(t *testing.T) {
 		}
 	}
 }
+
+// TestAnchorResolutionSidelessAnchorProducesNoRows pins WRIT-288's first
+// documented edge (spec/resolution.md's Structural Pre-Check): an anchor
+// value that is not a JSON object at all, or is a JSON object carrying
+// neither "old" nor "new", has no side present to check or orphan. Unlike
+// TestAnchorResolutionMalformedAnchorsDoNotBrickRefresh's repros, this is not
+// an orphan at all — the resolver produces no side result and no error, so
+// this test must fail against a resolver that inserted a synthetic
+// anchor_resolutions row for either shape, and pass as written: Refresh #1
+// and #2 and Rebuild all succeed, AnchorsResolved stays 0, no
+// anchor_resolutions row exists for either object, and the object's other
+// fields — including the raw anchor value itself in f_anchor — materialize
+// untouched (§Orphan Semantics, Preservation).
+//
+// value.Validate rejects both shapes at write time ("anchor value must be a
+// JSON object" / "at least one of old or new is required"), so, exactly as
+// the malformed-anchor test above, both ops land via writeForeignCommit
+// under a peer chain ref rather than through dag.Store.Append's producer
+// validation — the only way to get either shape onto the log now.
+func TestAnchorResolutionSidelessAnchorProducesNoRows(t *testing.T) {
+	repo, err := git.Init(memory.NewStorage(), nil)
+	if err != nil {
+		t.Fatalf("git.Init: %v", err)
+	}
+
+	fileV1 := "package main\n"
+	c1Hash := createCommitWithFiles(t, repo, nil, map[string]string{"main.go": fileV1}, "initial code")
+	mainRef := plumbing.ReferenceName("refs/heads/main")
+	_ = repo.Storer.SetReference(plumbing.NewReferenceFromStrings(mainRef.String(), c1Hash.String()))
+	headRef := plumbing.ReferenceName("HEAD")
+	_ = repo.Storer.SetReference(plumbing.NewSymbolicReference(headRef, mainRef))
+
+	store, err := dag.OpenRepo(repo, identity.Identity{
+		WriterID: identity.WriterID("0123456789abcdef"),
+		Author: identity.Author{
+			Name:  "Note Writer",
+			Email: "note-writer@example.com",
+		},
+	}, withVocabularies(noteRules()))
+	if err != nil {
+		t.Fatalf("dag.OpenRepo: %v", err)
+	}
+
+	db, err := projection.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open projection failed: %v", err)
+	}
+	defer db.Close()
+
+	base := time.Unix(1700000000, 0).UTC()
+
+	// Not a JSON object at all.
+	var notObjectAnchor any = 42
+
+	// A JSON object carrying neither "old" nor "new".
+	noSideAnchor := map[string]any{"version": 1}
+
+	bodyFor := func(anchor any) []byte {
+		body := map[string]any{
+			"subject": map[string]any{
+				"object_type": "widget",
+				"object_id":   "w-1",
+			},
+			"text":   "sideless anchor",
+			"anchor": anchor,
+		}
+		raw, err := json.Marshal(body)
+		if err != nil {
+			t.Fatalf("marshal body: %v", err)
+		}
+		return raw
+	}
+
+	envFor := func(objID string, bodyRaw []byte) codec.Envelope {
+		env := codec.Envelope{
+			ObjectID:   objID,
+			ObjectType: "note",
+			OpType:     "create",
+			OpVersion:  1,
+			Body:       bodyRaw,
+		}
+		raw, err := codec.EncodePayload(env)
+		if err != nil {
+			t.Fatalf("EncodePayload: %v", err)
+		}
+		env.Raw = raw
+		return env
+	}
+
+	peerRef := plumbing.ReferenceName("refs/writ/fedcba9876543210/note")
+	c1 := writeForeignCommit(t, repo, peerRef, plumbing.ZeroHash, envFor("n-not-object", bodyFor(notObjectAnchor)), base)
+	writeForeignCommit(t, repo, peerRef, c1, envFor("n-no-side", bodyFor(noSideAnchor)), base.Add(time.Second))
+
+	// Refresh #1: no side to resolve means no resolution work at all.
+	stats1, err := db.Refresh(store, projection.WithSchema(noteRules()))
+	if err != nil {
+		t.Fatalf("Refresh 1 failed: %v", err)
+	}
+	if stats1.AnchorsResolved != 0 {
+		t.Fatalf("expected 0 anchors resolved, got %d", stats1.AnchorsResolved)
+	}
+
+	// Refresh #2: re-resolving on a no-op delta must also stay silent.
+	if _, err := db.Refresh(store, projection.WithSchema(noteRules())); err != nil {
+		t.Fatalf("Refresh 2 failed: %v", err)
+	}
+
+	// Rebuild: same requirement, via the cold-rebuild path instead of the
+	// incremental one.
+	if _, err := db.Rebuild(store, projection.WithSchema(noteRules())); err != nil {
+		t.Fatalf("Rebuild failed: %v", err)
+	}
+
+	for _, objID := range []string{"n-not-object", "n-no-side"} {
+		var gotText string
+		if err := db.DB().QueryRow("SELECT f_text FROM o_note WHERE object_id = ?", objID).Scan(&gotText); err != nil {
+			t.Fatalf("query note %s: %v", objID, err)
+		}
+		if gotText != "sideless anchor" {
+			t.Errorf("note %s: f_text = %q, want %q", objID, gotText, "sideless anchor")
+		}
+
+		var count int
+		if err := db.DB().QueryRow("SELECT COUNT(*) FROM anchor_resolutions WHERE object_id = ?", objID).Scan(&count); err != nil {
+			t.Fatalf("query anchor_resolutions count for %s: %v", objID, err)
+		}
+		if count != 0 {
+			t.Errorf("object %s: anchor_resolutions count = %d, want 0", objID, count)
+		}
+	}
+
+	// f_anchor still holds each raw value, byte-for-byte modulo JSON
+	// canonicalization: the field survives while the resolver stays silent.
+	for _, tc := range []struct {
+		objID string
+		want  any
+	}{
+		{"n-not-object", notObjectAnchor},
+		{"n-no-side", noSideAnchor},
+	} {
+		var storedAnchor string
+		if err := db.DB().QueryRow("SELECT f_anchor FROM o_note WHERE object_id = ?", tc.objID).Scan(&storedAnchor); err != nil {
+			t.Fatalf("query f_anchor for %s: %v", tc.objID, err)
+		}
+
+		wantJSON, err := json.Marshal(tc.want)
+		if err != nil {
+			t.Fatalf("marshal expected anchor for %s: %v", tc.objID, err)
+		}
+		canonStored, err := canonicaljson.Marshal([]byte(storedAnchor))
+		if err != nil {
+			t.Fatalf("canonicalize stored anchor for %s: %v", tc.objID, err)
+		}
+		canonExpected, err := canonicaljson.Marshal(wantJSON)
+		if err != nil {
+			t.Fatalf("canonicalize expected anchor for %s: %v", tc.objID, err)
+		}
+		if !bytes.Equal(canonStored, canonExpected) {
+			t.Errorf("f_anchor for %s: got %s, want %s", tc.objID, string(canonStored), string(canonExpected))
+		}
+	}
+}

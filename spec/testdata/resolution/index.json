@@ -317,6 +317,11 @@
     "outcome": "orphaned",
     "reason": "unsupported-version"
   },
+  "version-integral-float.json": {
+    "description": "Anchor version is the JSON number 1.0, an integral float rather than a lexical integer; spec/resolution.md's Version Pre-Check treats it as version 1 because canonical JSON has no integer/float distinction (WRIT-288)",
+    "match": "exact-path-blob",
+    "outcome": "resolved"
+  },
   "version-not-1-undecodable-side.json": {
     "description": "Integer version != 1 alongside a side that would itself fail the v1 side decode; the Version Pre-Check wins over side decode failure",
     "outcome": "orphaned",

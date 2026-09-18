@@ -1,0 +1,58 @@
+{
+  "name": "version-integral-float",
+  "description": "Anchor version is the JSON number 1.0, an integral float rather than a lexical integer; spec/resolution.md's Version Pre-Check treats it as version 1 because canonical JSON has no integer/float distinction (WRIT-288)",
+  "anchor": {
+    "version": 1.0,
+    "new": {
+      "commit": "1111111111111111111111111111111111111111",
+      "path": "main.go",
+      "blob": "06ab7d0f9a35a7d1070711496d6ca1cb892a258f",
+      "range": {
+        "start": 1,
+        "end": 1
+      },
+      "context": {
+        "before": [],
+        "lines": [
+          "package main"
+        ],
+        "after": []
+      }
+    }
+  },
+  "target": {
+    "files": {
+      "main.go": "package main\n"
+    }
+  },
+  "expect": {
+    "anchor": {
+      "version": 1.0,
+      "new": {
+        "commit": "1111111111111111111111111111111111111111",
+        "path": "main.go",
+        "blob": "06ab7d0f9a35a7d1070711496d6ca1cb892a258f",
+        "range": {
+          "start": 1,
+          "end": 1
+        },
+        "context": {
+          "before": [],
+          "lines": [
+            "package main"
+          ],
+          "after": []
+        }
+      }
+    },
+    "new": {
+      "outcome": "resolved",
+      "match": "exact-path-blob",
+      "path": "main.go",
+      "range": {
+        "start": 1,
+        "end": 1
+      }
+    }
+  }
+}
