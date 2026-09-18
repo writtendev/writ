@@ -83,7 +83,7 @@ func isWritRefspec(refspec string) bool {
 }
 
 // ValidateRemoteName reports whether name is syntactically usable as a git
-// remote name. It runs four boring checks, in order:
+// remote name. It runs three boring checks, in order:
 //
 //  1. empty -- rejected outright.
 //  2. "-"-leading -- rejected because a git subcommand parses a leading "-"
@@ -92,16 +92,25 @@ func isWritRefspec(refspec string) bool {
 //     opened (a "-"-leading remote name reaching git fetch/push verified to
 //     execute an attacker-controlled --upload-pack); passing
 //     "--end-of-options" on every fetch/push/config call closes it as a
-//     second, independent layer at the transport calls themselves.
-//  3. containing "/" -- git's own valid_remote_nick rule, and it keeps this
-//     remote's fetch-refspec destination (refs/remotes/<name>/writ/*)
-//     unambiguous.
-//  4. unusable as a fetch-refspec destination component -- checked via
-//     go-git's own reference-name validation, which already implements
-//     refname rules 1 and 3-10 (space, tab, newline, "~ ^ : ? * [ \",
-//     "..", "@{", "@", ".lock", leading ".", trailing ".") per
-//     "/"-separated path component. go-git is already a dependency (local
-//     object I/O), so this adds none.
+//     second, independent layer at the transport calls themselves. This
+//     check is about argv parsing, not git's own name rules -- git accepts
+//     a "-"-leading remote name just fine when it is not misparsed as a
+//     flag (verified: "git remote add -- -a <url>" succeeds) -- so it stays
+//     even though check 3 below would otherwise let such a name through.
+//  3. unusable as a fetch-refspec destination component -- checked via
+//     validateRefspecDestination, a thin wrapper around go-git's own
+//     reference-name validation (see its doc comment for the one rule it
+//     overrides).
+//
+// A "/"-containing name is deliberately *not* rejected: git itself accepts
+// remote names like "team/fork" ("git remote add" is the oracle -- verified
+// against git 2.50.1), and round 1's ban on the rationale of git's
+// valid_remote_nick rule turned out not to be the rule git 2.50.1 applies --
+// it rejected a class of remotes git itself supports, stranding a writer's
+// ops exactly like the round-1 pushurl finding. refs/remotes/<name>/writ/*
+// stays a well-formed, unambiguous fetch-refspec destination for such names
+// because validateRefspecDestination validates the whole constructed
+// destination, "/"-components and all.
 func ValidateRemoteName(name string) error {
 	if name == "" {
 		return fmt.Errorf("sync: %w: empty remote name", ErrInvalidRemoteName)
@@ -109,13 +118,43 @@ func ValidateRemoteName(name string) error {
 	if strings.HasPrefix(name, "-") {
 		return fmt.Errorf("sync: %w %q: must not start with \"-\"", ErrInvalidRemoteName, name)
 	}
-	if strings.Contains(name, "/") {
-		return fmt.Errorf("sync: %w %q: must not contain \"/\"", ErrInvalidRemoteName, name)
-	}
-	if err := plumbing.ReferenceName("refs/remotes/" + name + "/writ/x").Validate(); err != nil {
+	if err := validateRefspecDestination(name); err != nil {
 		return fmt.Errorf("sync: %w %q: %v", ErrInvalidRemoteName, name, err)
 	}
 	return nil
+}
+
+// validateRefspecDestination reports whether name is usable as the <name>
+// path component of the fetch-refspec destination
+// refs/remotes/<name>/writ/*, via go-git's reference-name validation --
+// which already implements git's refname rules for embedded control
+// characters, "..", "@{", ".lock", leading/trailing "." per path component,
+// empty path components, and the rest, checked over the whole constructed
+// destination so a "/"-containing name is validated component by component.
+// go-git is already a dependency (local object I/O), so this adds none.
+//
+// One rule is overridden: go-git additionally rejects any "/"-separated
+// component that is exactly "@", which git itself does not -- "git remote
+// add" accepts "@", "a/@", and "@/a" (verified against git 2.50.1), and a
+// push/fetch against such a remote round-trips through
+// refs/remotes/<name>/writ/* without ambiguity (verified end-to-end). Real
+// git only treats a bare "@" specially as rev-parse shorthand for HEAD, a
+// parsing convenience with nothing to do with refname validity --
+// "refs/heads/@" is itself a valid refname per "git check-ref-format". A
+// lone "@" component is swapped for a plain alphanumeric placeholder before
+// validating, purely to route around that one go-git overreach; the
+// substitution cannot change the outcome of any other rule, and the
+// original name (never the placeholder) is what is actually used to build
+// the refspec and passed to git.
+func validateRefspecDestination(name string) error {
+	parts := strings.Split(name, "/")
+	for i, part := range parts {
+		if part == "@" {
+			parts[i] = "at"
+		}
+	}
+	probe := strings.Join(parts, "/")
+	return plumbing.ReferenceName("refs/remotes/" + probe + "/writ/x").Validate()
 }
 
 // RemoteConfigured reports whether remote is configured at all in

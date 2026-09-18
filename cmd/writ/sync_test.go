@@ -192,6 +192,68 @@ func TestSync_RoundTripAndRefold(t *testing.T) {
 	}
 }
 
+// TestSync_SlashContainingRemoteName is the regression pin for round 2's
+// first finding (WRIT-283): ValidateRemoteName's blanket "/" ban rejected
+// remote names git itself accepts and writ previously synced fine on --
+// "git remote add team/fork <url>; writ sync team/fork" pushed ops before
+// this fix and, with the ban in place, exited 2 with nothing pushed. Git
+// 2.50.1's "git remote add" is the oracle here (verified out-of-band): it
+// accepts "team/fork" as a remote name, and a push/fetch against it
+// round-trips through refs/remotes/team/fork/writ/* without ambiguity, so
+// writ must accept it too rather than stranding a writer's ops.
+func TestSync_SlashContainingRemoteName(t *testing.T) {
+	bareDir, aliceDir, _ := setupSyncTestHarness(t)
+	ctx := context.Background()
+
+	addRemote(t, aliceDir, "team/fork", bareDir)
+
+	sA, err := writ.Open(aliceDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Open Alice failed: %v", err)
+	}
+	applyTicketSchemaViaStore(t, ctx, sA, aliceDir)
+	if _, err := sA.Objects.Create(ctx, "acme.ticket", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Slash Remote Ticket"},
+	}); err != nil {
+		sA.Close()
+		t.Fatalf("Alice create object: %v", err)
+	}
+	sA.Close()
+
+	var stdout, stderr bytes.Buffer
+	code := run(ctx, []string{"-C", aliceDir, "sync", "team/fork"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf(`sync "team/fork" exited with %d (want 0, nothing should strand); stderr: %s`, code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "pushed") {
+		t.Errorf(`sync "team/fork" stdout does not mention pushed ops: %s`, stdout.String())
+	}
+
+	// Confirm the ops actually landed in the bare repo, not just that the
+	// CLI reported success.
+	cmd := exec.Command("git", "for-each-ref", "refs/writ/0123456789abcdef")
+	cmd.Dir = bareDir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git for-each-ref in bare repo: %v", err)
+	}
+	if strings.TrimSpace(string(out)) == "" {
+		t.Errorf(`sync "team/fork" reported success but the bare repo has no refs/writ/* ref for Alice's writer ID`)
+	}
+
+	// Same again for a remote whose name is exactly "@" -- go-git's own
+	// reference-name validator wrongly rejects a lone "@" path component
+	// where git does not; ValidateRemoteName is expected to route around
+	// that divergence the same way it does for "/".
+	addRemote(t, aliceDir, "@", bareDir)
+	var stdoutAt, stderrAt bytes.Buffer
+	codeAt := run(ctx, []string{"-C", aliceDir, "sync", "@"}, &stdoutAt, &stderrAt)
+	if codeAt != 0 {
+		t.Fatalf(`sync "@" exited with %d (want 0); stderr: %s`, codeAt, stderrAt.String())
+	}
+}
+
 func TestSync_Idempotent(t *testing.T) {
 	_, aliceDir, _ := setupSyncTestHarness(t)
 	ctx := context.Background()
@@ -525,6 +587,15 @@ func TestSync_ExitCodeClassification(t *testing.T) {
 		if len(env.Data) != 1 || env.Data[0].Failure == nil {
 			t.Fatalf("sync --status --json invalid remote data = %+v, want 1 entry with a failure", env.Data)
 		}
+		// Round-2 review finding (WRIT-283): a syntactically invalid name
+		// must not report the same "not-found" kind as a well-formed but
+		// unconfigured remote -- the usage-error/unknown-remote distinction
+		// the plan-gate ruling insisted on has to live in the JSON payload,
+		// not only in the exit code, or a --json caller cannot tell the two
+		// apart from the data alone.
+		if got := env.Data[0].Failure.Kind; got != "invalid-name" {
+			t.Errorf("sync --status --json invalid remote failure.kind = %q, want \"invalid-name\"", got)
+		}
 	})
 
 	t.Run("e2e_upload_pack_injection_never_executes", func(t *testing.T) {
@@ -808,6 +879,44 @@ func TestSync_JSONUnconfiguredRemoteReportsTrueUnsyncedCount(t *testing.T) {
 	}
 	if got.Failure == nil || got.Failure.Kind != "not-found" {
 		t.Errorf("sync --json nosuchremote failure = %+v, want kind \"not-found\"", got.Failure)
+	}
+}
+
+// TestSync_JSONInvalidRemoteNameReportsDistinctKind is the regression pin
+// for round 2's third finding (WRIT-283): "--json" reported
+// failure.kind: "not-found" for a syntactically invalid remote name, the
+// same kind as a well-formed but unconfigured remote, so the usage-error
+// vs. unknown-remote distinction the plan-gate ruling insisted on lived
+// only in the exit code. "sync --json" (not just "--status --json") must
+// report a distinct kind so a --json caller can tell the two apart from
+// the payload alone, without inspecting the process exit code.
+func TestSync_JSONInvalidRemoteNameReportsDistinctKind(t *testing.T) {
+	_, aliceDir, _ := setupSyncTestHarness(t)
+	ctx := context.Background()
+
+	var stdout, stderr bytes.Buffer
+	code := run(ctx, []string{"-C", aliceDir, "sync", "--json", "--", "a b"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("sync --json -- \"a b\" exited with %d (want 2); stderr: %s", code, stderr.String())
+	}
+
+	type syncEnvelope struct {
+		Data []struct {
+			Remote  string `json:"remote"`
+			Failure *struct {
+				Kind string `json:"kind"`
+			} `json:"failure,omitempty"`
+		} `json:"data"`
+	}
+	var env syncEnvelope
+	if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
+		t.Fatalf("unmarshal sync --json -- \"a b\": %v (raw: %s)", err, stdout.String())
+	}
+	if len(env.Data) != 1 || env.Data[0].Failure == nil {
+		t.Fatalf("sync --json -- \"a b\" data = %+v, want 1 entry with a failure", env.Data)
+	}
+	if got := env.Data[0].Failure.Kind; got != "invalid-name" {
+		t.Errorf("sync --json -- \"a b\" failure.kind = %q, want \"invalid-name\" (distinct from an unconfigured remote's \"not-found\")", got)
 	}
 }
 

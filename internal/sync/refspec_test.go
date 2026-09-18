@@ -221,13 +221,24 @@ func TestRefspec_EnsureIdempotentRepair(t *testing.T) {
 	}
 }
 
-// TestValidateRemoteName pins the four boring checks ValidateRemoteName runs,
-// in the order it runs them: empty, "-"-leading (the primary defense
-// against the argument-injection hole "writ sync -- --upload-pack=<script>"
-// verified to execute, WRIT-283), containing "/", and go-git's own
-// reference-name validation as the catch-all.
+// TestValidateRemoteName pins the boring checks ValidateRemoteName runs, in
+// the order it runs them: empty, "-"-leading (the primary defense against
+// the argument-injection hole "writ sync -- --upload-pack=<script>" verified
+// to execute, WRIT-283), and go-git's own reference-name validation (with
+// the lone-"@"-component override) as the catch-all.
+//
+// "/"-containing names ("team/fork", "a/@", "@/a") are pinned valid --
+// round-2 review finding: git itself accepts them ("git remote add" is the
+// oracle, verified against git 2.50.1) and a round-1 ban on the rationale
+// of git's valid_remote_nick rule rejected a class of remotes git supports,
+// stranding a writer's ops. "@" alone is pinned valid for the same reason:
+// go-git's reference-name validator rejects a lone "@" component where git
+// does not, and ValidateRemoteName routes around that one divergence.
 func TestValidateRemoteName(t *testing.T) {
-	valid := []string{"origin", "up-stream", "a.b"}
+	valid := []string{
+		"origin", "up-stream", "a.b",
+		"team/fork", "@", "a/@", "@/a", "a/b/c", "üñîçødé",
+	}
 	for _, name := range valid {
 		t.Run(fmt.Sprintf("valid_%q", name), func(t *testing.T) {
 			if err := writsync.ValidateRemoteName(name); err != nil {
@@ -237,8 +248,9 @@ func TestValidateRemoteName(t *testing.T) {
 	}
 
 	invalid := []string{
-		"", "-x", "--upload-pack=/bin/sh", "a b", "a/b",
+		"", "-x", "--upload-pack=/bin/sh", "a b",
 		".", "..", "a..b", "x.lock", "he^ad", "q?", "a@{0}",
+		"a//b", "/a", "a/", "a/.lock", "@{",
 	}
 	for _, name := range invalid {
 		t.Run(fmt.Sprintf("invalid_%q", name), func(t *testing.T) {
