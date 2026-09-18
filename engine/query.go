@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/writtendev/writ/engine/projection"
+	"github.com/writtendev/writ/internal/projection"
 )
 
 // Re-exported filter, ordering, and grouping types.

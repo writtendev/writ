@@ -101,7 +101,7 @@ An anchor's overall resolution status is derived from its side results:
 {
   "outcome": "resolved",
   "match": "exact-path-blob",
-  "path": "engine/fold/fold.go",
+  "path": "internal/fold/fold.go",
   "range": { "start": 41, "end": 43 }
 }
 ```

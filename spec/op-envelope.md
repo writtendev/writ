@@ -301,7 +301,7 @@ inside it: a `null` appearing *inside* a structured value the field's
 `-field-json`, or an `anchor`'s own interior collar — is that value
 type's own business ([`spec/value-types.md`](value-types.md)), not this
 rule's. An `anchor` whose `context` collar is `null` is well-formed
-(`engine/internal/fold/reject.go`'s own doc comment; [`spec/fold.md`](fold.md)
+(`internal/fold/reject.go`'s own doc comment; [`spec/fold.md`](fold.md)
 §6 treats a structured payload as opaque data once its own shape is
 satisfied, never recursing into it), and rule 6 does not reach it.
 

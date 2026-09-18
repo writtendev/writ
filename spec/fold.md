@@ -321,7 +321,7 @@ such tie-break to get wrong: it has none to make.
 `spec/testdata/fold/merge/append-two-fields-shared-target.json` pins this
 for the reachable case — two body fields sharing one `append` target within
 one envelope, both written by one operation — and both the reference fold
-(`spec/reffold.go`) and the engine reducer (`engine/internal/fold`) apply
+(`spec/reffold.go`) and the engine reducer (`internal/fold`) apply
 every match identically (WRIT-201).
 
 **Canonical rule order.** Where more than one rule bound to one target

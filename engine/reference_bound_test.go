@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	writ "github.com/writtendev/writ/engine"
-	"github.com/writtendev/writ/engine/codec"
+	"github.com/writtendev/writ/internal/codec"
 )
 
 // referenceBoundSchemaSrc declares a "ticket" type with one

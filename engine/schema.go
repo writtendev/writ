@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/writtendev/writ/engine/codec"
-	"github.com/writtendev/writ/engine/dag"
-	"github.com/writtendev/writ/engine/state"
+	"github.com/writtendev/writ/internal/codec"
+	"github.com/writtendev/writ/internal/dag"
+	"github.com/writtendev/writ/internal/state"
 	"github.com/writtendev/writ/spec"
 )
 
@@ -55,7 +55,7 @@ type SchemaConflict struct {
 // projection is a droppable cache (ARCHITECTURE.md §The six machines #5),
 // and nothing about resolving field rules from the log may depend on it
 // having been built or refreshed.
-func (s *Store) Schema(ctx context.Context) ([]state.Schema, error) {
+func (s *Store) Schema(ctx context.Context) ([]Schema, error) {
 	if s == nil {
 		return nil, fmt.Errorf("writ: store is nil")
 	}
@@ -1549,7 +1549,7 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 // define-op op_type (spec/schema-ops.md §11) drops a rule RulesFromSchemas
 // used to install and reports a SchemaConflict it used to stay silent on,
 // for any op_type that fails ^[a-z][a-z0-9-]*$ or exceeds opTypeMaxLength.
-func RulesFromSchemas(schemas []state.Schema) (map[string][]Rule, []SchemaConflict) {
+func RulesFromSchemas(schemas []Schema) (map[string][]Rule, []SchemaConflict) {
 	res := resolveSchemaTypes(schemas)
 
 	rules := make(map[string][]Rule)
@@ -1601,7 +1601,7 @@ func RulesFromSchemas(schemas []state.Schema) (map[string][]Rule, []SchemaConfli
 // consulting this map for it — resolveSchemaTypes already refuses to treat
 // a log schema's attempt to redefine "schema" as anything but a conflict,
 // so it never reaches res.declared with fields or ops installed either.
-func VocabulariesFromSchemas(schemas []state.Schema) (codec.Vocabularies, []SchemaConflict) {
+func VocabulariesFromSchemas(schemas []Schema) (codec.Vocabularies, []SchemaConflict) {
 	res := resolveSchemaTypes(schemas)
 
 	vocabularies := make(codec.Vocabularies, len(res.declared))

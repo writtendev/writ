@@ -9,7 +9,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/writtendev/writ/engine"
-	"github.com/writtendev/writ/engine/codec"
+	"github.com/writtendev/writ/internal/codec"
 )
 
 // waypointSchemaSrc declares "waypoint": an object type writ.Open's engine

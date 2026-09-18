@@ -7,9 +7,9 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/go-git/go-git/v5/storage"
-	"github.com/writtendev/writ/engine/codec"
-	"github.com/writtendev/writ/engine/dag"
-	"github.com/writtendev/writ/engine/projection"
+	"github.com/writtendev/writ/internal/codec"
+	"github.com/writtendev/writ/internal/dag"
+	"github.com/writtendev/writ/internal/projection"
 )
 
 // StoreDAGStore returns the underlying dag.Store for testing.

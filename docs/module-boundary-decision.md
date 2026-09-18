@@ -32,7 +32,9 @@ house rule that "no SHAs or refspecs leak to callers unless they ask" is a
 package-visibility problem, not a module-boundary problem — `engine/internal/`
 keeps codec/dag/fold plumbing unreachable from outside whether `engine` sits
 in its own `go.mod` or as a subtree of one. A second module buys no
-additional enforcement here.
+additional enforcement here. *(Superseded in part by WRIT-287 — see
+"Amendment" below: `internal/` moved from under `engine/` to the module
+root, so the "as a subtree of one" half of this claim no longer holds.)*
 
 **A split module is a real, ongoing cost with no current need to justify it.**
 Two `go.mod`/`go.sum` pairs to keep in sync, a `go.work` file to maintain, and
@@ -51,7 +53,10 @@ independent tag/versioning discipline for the engine subtree afterward is a
 real, separate cost, not something the file split buys on its own.
 Committing to two modules today, before any code exists, is exactly the
 "speculative abstraction" the house rules
-flag as scope growth to avoid without a concrete reason.
+flag as scope growth to avoid without a concrete reason. *(No longer true
+after WRIT-287 — see "Amendment" below: extracting `engine/go.mod` today
+would first require moving the module-root `internal/` tree back underneath
+`engine/`, which does touch import paths for every in-repo caller.)*
 
 ## Consequence: module path
 
@@ -87,3 +92,26 @@ Revisit rule and deadline: The module path decision is closed and should only
 be revisited before the first release tag (WRIT-58). Changing a module path
 after public release tags exist is a v2-shaped break across the ecosystem.
 
+
+## Amendment: engine's own module option foreclosed (WRIT-287)
+
+WRIT-287 (2026-09-18, Matt's ruling on WRIT-248 option C) moved every
+`engine/*` subpackage — codec, dag, identity, order, projection, resolve,
+scenario, schemasrc, state, sync, plus the packages already under
+`engine/internal/` — to one module-root `/internal/` tree, so that no
+exported root-package signature named a package a caller couldn't import.
+That was a package-visibility fix, not a module-boundary decision, but it
+has a module-boundary consequence this document priced wrong: with
+`internal/` sitting above `engine/` instead of inside it, `engine/internal/`
+no longer exists to carry over if `engine` is later split into its own
+module. Extracting `engine/go.mod` today would need `internal/` moved back
+underneath `engine/` first — a real rename touching every in-repo import of
+every package that moved, not the "mechanical file split that doesn't touch
+import paths for in-repo callers" this document originally described.
+
+The decision itself — single module, no `go.work`, until a real external
+consumer needs independent engine versioning — stands. What changed is the
+cost estimate for ever reversing it: it is now closer to "undo WRIT-287"
+than to "add a second `go.mod`." That cost is accepted here, not revisited;
+the single-module decision carries no revisit deadline of its own (unlike
+the module path decision above, which is pinned to WRIT-58).

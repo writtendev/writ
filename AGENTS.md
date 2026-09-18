@@ -83,7 +83,9 @@ Planned monorepo layout (see `ARCHITECTURE.md` for the rationale):
 
 ```
 /spec          — convention doc, JSON schemas, conformance fixtures
-/engine        — codec, dag, fold, resolve, projection, sync (public Go API)
+/engine        — the public Go API (root package only, no subpackages)
+/internal      — codec, dag, fold, resolve, projection, sync, and the rest,
+                 unimportable outside this module (WRIT-287)
 /cmd/writ      — CLI: porcelain for humans, --json for scripts/agents
 /docs
 ```

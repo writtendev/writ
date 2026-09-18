@@ -43,11 +43,11 @@ FUZZTIME ?= 30s
 
 fuzz: ## Run Go fuzz targets for a bounded duration (FUZZTIME, default 30s each)
 	go test -fuzz=^FuzzReffoldNormalizePersonMatchesEngine$$ -fuzztime=$(FUZZTIME) ./spec
-	go test -fuzz=^FuzzPayloadRoundTrip$$ -fuzztime=$(FUZZTIME) ./engine/codec
-	go test -fuzz=^FuzzResolve$$ -fuzztime=$(FUZZTIME) ./engine/resolve
+	go test -fuzz=^FuzzPayloadRoundTrip$$ -fuzztime=$(FUZZTIME) ./internal/codec
+	go test -fuzz=^FuzzResolve$$ -fuzztime=$(FUZZTIME) ./internal/resolve
 	go test -fuzz=^FuzzFoldThreeWay$$ -fuzztime=$(FUZZTIME) ./engine
-	go test -fuzz=^FuzzParse$$ -fuzztime=$(FUZZTIME) ./engine/schemasrc
-	go test -fuzz=^FuzzReffoldPersonValueIsStreamSafeMatchesEngine$$ -fuzztime=$(FUZZTIME) ./engine/internal/person
+	go test -fuzz=^FuzzParse$$ -fuzztime=$(FUZZTIME) ./internal/schemasrc
+	go test -fuzz=^FuzzReffoldPersonValueIsStreamSafeMatchesEngine$$ -fuzztime=$(FUZZTIME) ./internal/person
 
 install: ## Build and install writ into Go's bin dir
 	go install -ldflags "$(LDFLAGS)" ./cmd/writ

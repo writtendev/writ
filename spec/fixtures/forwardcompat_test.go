@@ -14,8 +14,8 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 
-	"github.com/writtendev/writ/engine/codec"
-	"github.com/writtendev/writ/engine/codec/canonicaljson"
+	"github.com/writtendev/writ/internal/codec"
+	"github.com/writtendev/writ/internal/codec/canonicaljson"
 	"github.com/writtendev/writ/spec"
 	"github.com/writtendev/writ/spec/fixtures"
 )

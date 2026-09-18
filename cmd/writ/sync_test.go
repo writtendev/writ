@@ -13,8 +13,8 @@ import (
 	"testing"
 
 	"github.com/writtendev/writ/engine"
-	"github.com/writtendev/writ/engine/codec"
-	"github.com/writtendev/writ/engine/sync"
+	"github.com/writtendev/writ/internal/codec"
+	"github.com/writtendev/writ/internal/sync"
 )
 
 func dummySigner() writ.Signer {

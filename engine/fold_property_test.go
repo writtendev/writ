@@ -12,8 +12,8 @@ import (
 	"time"
 
 	writ "github.com/writtendev/writ/engine"
-	"github.com/writtendev/writ/engine/codec"
-	"github.com/writtendev/writ/engine/codec/canonicaljson"
+	"github.com/writtendev/writ/internal/codec"
+	"github.com/writtendev/writ/internal/codec/canonicaljson"
 	"github.com/writtendev/writ/spec"
 )
 

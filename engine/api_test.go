@@ -85,8 +85,11 @@ func checkType(t *testing.T, typ reflect.Type, visited map[reflect.Type]bool) {
 
 var forbiddenPackagePrefixes = []string{
 	"github.com/go-git/go-git",
-	"github.com/writtendev/writ/engine/dag.",
-	"github.com/writtendev/writ/engine/identity.",
+	"github.com/writtendev/writ/internal/dag.",
+	"github.com/writtendev/writ/internal/identity.",
+	"github.com/writtendev/writ/internal/codec.",
+	"github.com/writtendev/writ/internal/sync.",
+	"github.com/writtendev/writ/internal/projection.",
 	"plumbing.",
 	"object.",
 	"storer.",

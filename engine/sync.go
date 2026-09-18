@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/writtendev/writ/engine/dag"
-	"github.com/writtendev/writ/engine/identity"
-	writsync "github.com/writtendev/writ/engine/sync"
+	"github.com/writtendev/writ/internal/dag"
+	"github.com/writtendev/writ/internal/identity"
+	writsync "github.com/writtendev/writ/internal/sync"
 )
 
 // SyncResult reports aggregate statistics from a sync operation.

@@ -200,7 +200,7 @@ Key properties:
   remote either, recoverable only by raw `git fetch`/`update-ref` plumbing.
   The forced refspec instead lets the rewind land: the local remote-tracking
   ref for that peer moves back silently, `dag.EnumerateSince` reports the
-  chain as `Rewound`, and `engine/projection/refresh.go` falls through to a
+  chain as `Rewound`, and `internal/projection/refresh.go` falls through to a
   full projection rebuild — the safety a non-forced refspec would have
   bought is safety the projection layer already provides on every fetch.
   The accepted cost: this clone's local view of the rewound peer can lose

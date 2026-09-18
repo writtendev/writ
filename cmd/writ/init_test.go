@@ -16,11 +16,11 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/writtendev/writ/engine/codec"
-	"github.com/writtendev/writ/engine/dag"
-	"github.com/writtendev/writ/engine/identity"
-	"github.com/writtendev/writ/engine/schemasrc"
-	"github.com/writtendev/writ/engine/sync"
+	"github.com/writtendev/writ/internal/codec"
+	"github.com/writtendev/writ/internal/dag"
+	"github.com/writtendev/writ/internal/identity"
+	"github.com/writtendev/writ/internal/schemasrc"
+	"github.com/writtendev/writ/internal/sync"
 	"github.com/writtendev/writ/spec"
 )
 

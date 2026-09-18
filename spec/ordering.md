@@ -2,7 +2,7 @@
 
 Status: **normative**. Schema: [`schemas/ordering.schema.json`](schemas/ordering.schema.json).
 Vectors: [`testdata/ordering/vectors.json`](testdata/ordering/vectors.json).
-Reference engine implementation: `engine/order`.
+Reference engine implementation: `internal/order`.
 
 This specification defines the shared ordering primitive for user-controlled
 sequences that survive concurrent edits in Writ. It establishes a single,

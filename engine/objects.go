@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/writtendev/writ/engine/codec"
-	"github.com/writtendev/writ/engine/dag"
-	"github.com/writtendev/writ/engine/internal/fold"
-	"github.com/writtendev/writ/engine/state"
+	"github.com/writtendev/writ/internal/codec"
+	"github.com/writtendev/writ/internal/dag"
+	"github.com/writtendev/writ/internal/fold"
+	"github.com/writtendev/writ/internal/state"
 )
 
 // NewOp specifies one operation to append against a schema-declared object

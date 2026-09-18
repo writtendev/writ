@@ -11,7 +11,7 @@ import (
 
 	"github.com/writtendev/writ/cmd/writ/internal/wire"
 	"github.com/writtendev/writ/engine"
-	"github.com/writtendev/writ/engine/sync"
+	"github.com/writtendev/writ/internal/sync"
 )
 
 type syncOpts struct {

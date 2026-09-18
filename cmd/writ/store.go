@@ -10,8 +10,8 @@ import (
 	"strings"
 
 	"github.com/writtendev/writ/engine"
-	"github.com/writtendev/writ/engine/codec"
-	"github.com/writtendev/writ/engine/identity"
+	"github.com/writtendev/writ/internal/codec"
+	"github.com/writtendev/writ/internal/identity"
 	"github.com/writtendev/writ/internal/textsafe"
 )
 

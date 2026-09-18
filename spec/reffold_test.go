@@ -7,7 +7,7 @@ import (
 	"golang.org/x/text/cases"
 	"golang.org/x/text/unicode/norm"
 
-	"github.com/writtendev/writ/engine/state"
+	"github.com/writtendev/writ/internal/state"
 	"github.com/writtendev/writ/spec"
 )
 

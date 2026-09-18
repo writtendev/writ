@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/writtendev/writ/engine/projection"
+	"github.com/writtendev/writ/internal/projection"
 )
 
 // EventKind represents the nature of an event emitted by the store.

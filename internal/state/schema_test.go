@@ -1,0 +1,581 @@
+package state_test
+
+import (
+	"encoding/json"
+	"reflect"
+	"testing"
+	"time"
+
+	"github.com/writtendev/writ/internal/codec"
+	"github.com/writtendev/writ/internal/state"
+)
+
+func mustSchemaBody(t *testing.T, v any) json.RawMessage {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	return b
+}
+
+func TestFoldSchemaEmpty(t *testing.T) {
+	sch, err := state.FoldSchema(nil)
+	if err != nil {
+		t.Fatalf("FoldSchema(nil) error: %v", err)
+	}
+	if !reflect.DeepEqual(sch, state.Schema{}) {
+		t.Fatalf("expected empty Schema, got %+v", sch)
+	}
+}
+
+func TestFoldSchemaBootstrapWholeObject(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+
+	opCreate := codec.Op{
+		Envelope: codec.Envelope{
+			ObjectID:   "schema:acme",
+			ObjectType: "schema",
+			OpType:     "create",
+			OpVersion:  1,
+			Body:       mustSchemaBody(t, map[string]any{"namespace": "acme", "description": "Acme schema"}),
+		},
+		ID:     "op-create",
+		Author: codec.Identity{When: now},
+	}
+	opDefineType := codec.Op{
+		Envelope: codec.Envelope{
+			ObjectID:   "schema:acme",
+			ObjectType: "schema",
+			OpType:     "define-type",
+			OpVersion:  1,
+			Body:       mustSchemaBody(t, map[string]any{"type": "standup", "description": "Daily standup"}),
+		},
+		ID:      "op-define-type",
+		Parents: []string{"op-create"},
+		Author:  codec.Identity{When: now.Add(time.Minute)},
+	}
+	opDefineField := codec.Op{
+		Envelope: codec.Envelope{
+			ObjectID:   "schema:acme",
+			ObjectType: "schema",
+			OpType:     "define-field",
+			OpVersion:  1,
+			Body: mustSchemaBody(t, map[string]any{
+				"type": "standup", "op_type": "create", "op_version": "1",
+				"field": "summary", "value_type": "string", "strategy": "lww",
+			}),
+		},
+		ID:      "op-define-field",
+		Parents: []string{"op-define-type"},
+		Author:  codec.Identity{When: now.Add(2 * time.Minute)},
+	}
+	opDefineOp := codec.Op{
+		Envelope: codec.Envelope{
+			ObjectID:   "schema:acme",
+			ObjectType: "schema",
+			OpType:     "define-op",
+			OpVersion:  1,
+			Body: mustSchemaBody(t, map[string]any{
+				"type": "standup", "op_type": "create", "op_version": "1",
+				"description": "Create a standup",
+			}),
+		},
+		ID:      "op-define-op",
+		Parents: []string{"op-define-field"},
+		Author:  codec.Identity{When: now.Add(3 * time.Minute)},
+	}
+
+	sch, err := state.FoldSchema([]codec.Op{opCreate, opDefineType, opDefineField, opDefineOp})
+	if err != nil {
+		t.Fatalf("FoldSchema failed: %v", err)
+	}
+
+	if sch.ObjectID != "schema:acme" {
+		t.Errorf("ObjectID = %q, want schema:acme", sch.ObjectID)
+	}
+	if sch.Namespace != "acme" {
+		t.Errorf("Namespace = %q, want acme", sch.Namespace)
+	}
+	if sch.Description != "Acme schema" {
+		t.Errorf("Description = %q, want %q", sch.Description, "Acme schema")
+	}
+	if len(sch.UnknownOps) != 0 {
+		t.Fatalf("expected no unknown ops, got %+v", sch.UnknownOps)
+	}
+	if len(sch.Types) != 1 {
+		t.Fatalf("expected 1 type, got %d: %+v", len(sch.Types), sch.Types)
+	}
+	typ := sch.Types[0]
+	if typ.Name != "standup" || typ.Description != "Daily standup" || typ.Deprecated {
+		t.Errorf("unexpected type: %+v", typ)
+	}
+	if len(typ.Fields) != 1 {
+		t.Fatalf("expected 1 field, got %d: %+v", len(typ.Fields), typ.Fields)
+	}
+	f := typ.Fields[0]
+	if f.Name != "summary" || f.OpType != "create" || f.OpVersion != 1 || f.ValueType != "string" || f.Strategy != "lww" || f.Deprecated {
+		t.Errorf("unexpected field: %+v", f)
+	}
+	if len(typ.Ops) != 1 {
+		t.Fatalf("expected 1 op, got %d: %+v", len(typ.Ops), typ.Ops)
+	}
+	o := typ.Ops[0]
+	if o.OpType != "create" || o.OpVersion != 1 || o.Description != "Create a standup" {
+		t.Errorf("unexpected op: %+v", o)
+	}
+}
+
+func TestFoldSchemaDeprecateFieldTombstoneStyle(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+
+	define := codec.Op{
+		Envelope: codec.Envelope{
+			ObjectID: "schema:test", ObjectType: "schema", OpType: "define-field", OpVersion: 1,
+			Body: mustSchemaBody(t, map[string]any{
+				"type": "t", "op_type": "create", "op_version": "1",
+				"field": "f", "strategy": "lww",
+			}),
+		},
+		ID:     "op-a",
+		Author: codec.Identity{When: now},
+	}
+	deprecate := codec.Op{
+		Envelope: codec.Envelope{
+			ObjectID: "schema:test", ObjectType: "schema", OpType: "deprecate-field", OpVersion: 1,
+			Body: mustSchemaBody(t, map[string]any{
+				"type": "t", "op_type": "create", "op_version": "1",
+				"field": "f", "deprecated": true,
+			}),
+		},
+		ID:      "op-b",
+		Parents: []string{"op-a"},
+		Author:  codec.Identity{When: now.Add(time.Minute)},
+	}
+
+	sch, err := state.FoldSchema([]codec.Op{define, deprecate})
+	if err != nil {
+		t.Fatalf("FoldSchema failed: %v", err)
+	}
+	if len(sch.Types) != 1 || len(sch.Types[0].Fields) != 1 {
+		t.Fatalf("unexpected shape: %+v", sch.Types)
+	}
+	f := sch.Types[0].Fields[0]
+	if !f.Deprecated {
+		t.Errorf("expected field to be deprecated, got %+v", f)
+	}
+	if f.Strategy != "lww" {
+		t.Errorf("deprecate-field must not clobber sibling registers; strategy = %q", f.Strategy)
+	}
+}
+
+func TestFoldSchemaUnknownOpsPreserved(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+
+	create := codec.Op{
+		Envelope: codec.Envelope{
+			ObjectID: "schema:acme", ObjectType: "schema", OpType: "create", OpVersion: 1,
+			Body: mustSchemaBody(t, map[string]any{"namespace": "acme"}),
+		},
+		ID:     "op-create",
+		Author: codec.Identity{When: now},
+	}
+	future := codec.Op{
+		Envelope: codec.Envelope{
+			ObjectID: "schema:acme", ObjectType: "schema", OpType: "future-op", OpVersion: 2,
+			Body: mustSchemaBody(t, map[string]any{"whatever": true}),
+		},
+		ID:      "op-future",
+		Parents: []string{"op-create"},
+		Author:  codec.Identity{When: now.Add(time.Minute)},
+	}
+
+	sch, err := state.FoldSchema([]codec.Op{create, future})
+	if err != nil {
+		t.Fatalf("FoldSchema failed: %v", err)
+	}
+	if sch.Namespace != "acme" {
+		t.Errorf("Namespace = %q, want acme", sch.Namespace)
+	}
+	if len(sch.UnknownOps) != 1 || sch.UnknownOps[0].Commit != "op-future" {
+		t.Fatalf("expected op-future quarantined as unknown, got %+v", sch.UnknownOps)
+	}
+}
+
+// TestFoldSchemaNamespaceHijackQuarantined reproduces WRIT-254 failure mode
+// A and pins its fix (change 1): a parentless `create` targeting a
+// derived-id object (`schema:acme`) whose own `namespace` body field
+// disagrees with the id's suffix is uninterpretable and must never reach
+// the create-once namespace assignment, however early its t* orders it —
+// an attacker-controlled author.When is exactly what used to let this op
+// win create-once and rewrite Namespace out from under the honest object.
+// The honest `create` here carries the later, ordinary timestamp; the
+// hijack op carries an artificially early one (1970) purely to confirm
+// t*-order alone is not what saves the object — the quarantine keys off
+// the id/namespace disagreement, not arrival order.
+func TestFoldSchemaNamespaceHijackQuarantined(t *testing.T) {
+	honestCreate := codec.Op{
+		Envelope: codec.Envelope{
+			ObjectID: "schema:acme", ObjectType: "schema", OpType: "create", OpVersion: 1,
+			Body: mustSchemaBody(t, map[string]any{"namespace": "acme"}),
+		},
+		ID:     "op-honest-create",
+		Author: codec.Identity{When: time.Unix(1000, 0).UTC()},
+	}
+	hijack := codec.Op{
+		Envelope: codec.Envelope{
+			ObjectID: "schema:acme", ObjectType: "schema", OpType: "create", OpVersion: 1,
+			Body: mustSchemaBody(t, map[string]any{"namespace": "evil"}),
+		},
+		ID:     "op-hijack",
+		Author: codec.Identity{When: time.Unix(0, 0).UTC()}, // 1970: wins t* if the quarantine did not fire
+	}
+	defineType := codec.Op{
+		Envelope: codec.Envelope{
+			ObjectID: "schema:acme", ObjectType: "schema", OpType: "define-type", OpVersion: 1,
+			Body: mustSchemaBody(t, map[string]any{"type": "widget"}),
+		},
+		ID:      "op-define-type",
+		Parents: []string{"op-honest-create"},
+		Author:  codec.Identity{When: time.Unix(1001, 0).UTC()},
+	}
+
+	sch, err := state.FoldSchema([]codec.Op{honestCreate, hijack, defineType})
+	if err != nil {
+		t.Fatalf("FoldSchema failed: %v", err)
+	}
+	if sch.Namespace != "acme" {
+		t.Fatalf("Namespace = %q, want acme (hijack must not win create-once despite an earlier t*)", sch.Namespace)
+	}
+	if len(sch.Types) != 1 || sch.Types[0].Name != "widget" {
+		t.Fatalf("expected the widget declaration to survive, got %+v", sch.Types)
+	}
+	var sawHijackQuarantined bool
+	for _, uo := range sch.UnknownOps {
+		if uo.Commit == "op-hijack" {
+			sawHijackQuarantined = true
+		}
+	}
+	if !sawHijackQuarantined {
+		t.Fatalf("expected op-hijack quarantined as unknown, got unknown_ops=%+v", sch.UnknownOps)
+	}
+}
+
+// TestFoldSchemaCreateMissingNamespaceOnDerivedIDQuarantined covers the
+// same change-1 gate for a `create` on a derived-id object whose body
+// carries no `namespace` at all — uninterpretable on the same terms as
+// one that disagrees outright (engine/state/schema.go's FoldSchema doc
+// comment on the check).
+func TestFoldSchemaCreateMissingNamespaceOnDerivedIDQuarantined(t *testing.T) {
+	op := codec.Op{
+		Envelope: codec.Envelope{
+			ObjectID: "schema:acme", ObjectType: "schema", OpType: "create", OpVersion: 1,
+			Body: mustSchemaBody(t, map[string]any{"description": "no namespace here"}),
+		},
+		ID:     "op-no-namespace",
+		Author: codec.Identity{When: time.Unix(100, 0).UTC()},
+	}
+
+	sch, err := state.FoldSchema([]codec.Op{op})
+	if err != nil {
+		t.Fatalf("FoldSchema failed: %v", err)
+	}
+	if sch.Namespace != "" {
+		t.Fatalf("Namespace = %q, want empty (the create must not have folded)", sch.Namespace)
+	}
+	if len(sch.UnknownOps) != 1 || sch.UnknownOps[0].Commit != "op-no-namespace" {
+		t.Fatalf("expected op-no-namespace quarantined as unknown, got %+v", sch.UnknownOps)
+	}
+}
+
+// TestFoldSchemaCreateNamespaceMismatchOnNonDerivedIDNotQuarantined pins
+// the scope the ruling states explicitly: change 1 gates the derived-id
+// form only. A `create` on an object id that does not carry the
+// "schema:" prefix at all is untouched here — change 2
+// (engine/schema.go's resolveSchemaTypes) drops the whole object at the
+// resolver instead, not FoldSchema.
+func TestFoldSchemaCreateNamespaceMismatchOnNonDerivedIDNotQuarantined(t *testing.T) {
+	op := codec.Op{
+		Envelope: codec.Envelope{
+			ObjectID: "not-a-derived-id", ObjectType: "schema", OpType: "create", OpVersion: 1,
+			Body: mustSchemaBody(t, map[string]any{"namespace": "whatever"}),
+		},
+		ID:     "op-create",
+		Author: codec.Identity{When: time.Unix(100, 0).UTC()},
+	}
+
+	sch, err := state.FoldSchema([]codec.Op{op})
+	if err != nil {
+		t.Fatalf("FoldSchema failed: %v", err)
+	}
+	if sch.Namespace != "whatever" {
+		t.Fatalf("Namespace = %q, want whatever (change 1 must not touch a non-derived id)", sch.Namespace)
+	}
+	if len(sch.UnknownOps) != 0 {
+		t.Fatalf("expected no unknown ops, got %+v", sch.UnknownOps)
+	}
+}
+
+func TestFoldSchemaBogusStrategyDoesNotErrorTheFold(t *testing.T) {
+	// A define-field carrying strategy:"" folds cleanly into schema state
+	// (spec/schema-ops.md §9): the fold path performs no value-type
+	// checking, and it is engine/schema.go's resolver — not FoldSchema —
+	// that gates this before the rule can reach NewAccumulator.
+	now := time.Unix(100, 0).UTC()
+	op := codec.Op{
+		Envelope: codec.Envelope{
+			ObjectID: "schema:test", ObjectType: "schema", OpType: "define-field", OpVersion: 1,
+			Body: mustSchemaBody(t, map[string]any{
+				"type": "t", "op_type": "create", "op_version": "1",
+				"field": "f", "strategy": "",
+			}),
+		},
+		ID:     "op-a",
+		Author: codec.Identity{When: now},
+	}
+
+	sch, err := state.FoldSchema([]codec.Op{op})
+	if err != nil {
+		t.Fatalf("FoldSchema must not error on a bogus strategy value: %v", err)
+	}
+	if len(sch.Types) != 1 || len(sch.Types[0].Fields) != 1 {
+		t.Fatalf("unexpected shape: %+v", sch.Types)
+	}
+	if sch.Types[0].Fields[0].Strategy != "" {
+		t.Errorf("expected the raw (invalid) strategy value preserved, got %q", sch.Types[0].Fields[0].Strategy)
+	}
+}
+
+func TestFoldSchemaNonCanonicalOpVersionQuarantined(t *testing.T) {
+	// op_version "01" has a leading zero: not the canonical decimal string
+	// spec/schemas/schema-ops.schema.json's op_version_string pattern
+	// requires. The fold path does not consult that JSON schema (it is
+	// producer-side), so a non-conforming peer's ref can still carry it;
+	// FoldSchema must quarantine the op rather than fold it in under a key
+	// that toInt64 would collapse onto a conforming "1" (WRIT-186 round-1
+	// finding 1).
+	now := time.Unix(100, 0).UTC()
+	op := codec.Op{
+		Envelope: codec.Envelope{
+			ObjectID: "schema:test", ObjectType: "schema", OpType: "define-field", OpVersion: 1,
+			Body: mustSchemaBody(t, map[string]any{
+				"type": "widget", "op_type": "wop", "op_version": "01",
+				"field": "value", "strategy": "set-union",
+			}),
+		},
+		ID:     "op-a",
+		Author: codec.Identity{When: now},
+	}
+
+	sch, err := state.FoldSchema([]codec.Op{op})
+	if err != nil {
+		t.Fatalf("FoldSchema failed: %v", err)
+	}
+	if len(sch.Types) != 0 {
+		t.Fatalf("expected no type installed from a non-canonical op_version, got %+v", sch.Types)
+	}
+	if len(sch.UnknownOps) != 1 || sch.UnknownOps[0].Commit != "op-a" {
+		t.Fatalf("expected op-a quarantined as unknown, got %+v", sch.UnknownOps)
+	}
+}
+
+// TestFoldSchemaOpVersionOverflowQuarantined reproduces WRIT-269 defect 1:
+// an op_version digit string longer than op_version_string's maxLength: 16
+// (spec/schemas/schema-ops.schema.json) overflows toInt64's int64
+// conversion. "18446744073709551617" is 2^64+1, which wraps to the int64
+// value 1 — exactly the key a genuine op_version "1" declaration uses.
+// Before the maxOpVersionDigits bound, this collided the two declarations
+// into one keyed-lww register and CheckTargetAgreement reported a strategy
+// disagreement, withholding the real rule entirely. FoldSchema must
+// quarantine the oversized op instead.
+func TestFoldSchemaOpVersionOverflowQuarantined(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	op := codec.Op{
+		Envelope: codec.Envelope{
+			ObjectID: "schema:test", ObjectType: "schema", OpType: "define-field", OpVersion: 1,
+			Body: mustSchemaBody(t, map[string]any{
+				"type": "widget", "op_type": "wop", "op_version": "18446744073709551617",
+				"field": "value", "strategy": "lww",
+			}),
+		},
+		ID:     "op-overflow",
+		Author: codec.Identity{When: now},
+	}
+
+	sch, err := state.FoldSchema([]codec.Op{op})
+	if err != nil {
+		t.Fatalf("FoldSchema failed: %v", err)
+	}
+	if len(sch.Types) != 0 {
+		t.Fatalf("expected no type installed from an oversized op_version, got %+v", sch.Types)
+	}
+	if len(sch.UnknownOps) != 1 || sch.UnknownOps[0].Commit != "op-overflow" {
+		t.Fatalf("expected op-overflow quarantined as unknown, got %+v", sch.UnknownOps)
+	}
+}
+
+// TestFoldSchemaMaxLengthQuarantine covers WRIT-269 defect 2: max_length
+// decoded via float64 converts implementation-definedly above 2^63
+// (max_length: 1e300 folds to a different int64 on amd64 than on arm64).
+// Per the ticket's orchestrator ruling, the quarantine is narrow: only a
+// max_length that is not a JSON integer representable in int64 —
+// out-of-range, fractional, or non-numeric — is rejected. Zero and
+// negative values are representable and fold exactly as they do today;
+// widening the quarantine to also reject those is a normative question
+// left for its own ticket, not this one.
+func TestFoldSchemaMaxLengthQuarantine(t *testing.T) {
+	tests := []struct {
+		name string
+		// rawMaxLength is the literal JSON token spliced in for
+		// max_length's value: a bare number or a quoted string. Some of
+		// these (1e300, "50") are not values json.Marshal(map[string]any)
+		// could ever be made to emit for this field, since a Go float64
+		// round-trips through Go's own float formatting rather than
+		// surviving as an out-of-int64-range or exponent literal verbatim.
+		rawMaxLength string
+		quarantined  bool
+		want         int64
+	}{
+		{name: "out of int64 range", rawMaxLength: `1e300`, quarantined: true},
+		{name: "fractional", rawMaxLength: `1.5`, quarantined: true},
+		{name: "string", rawMaxLength: `"50"`, quarantined: true},
+		{name: "valid positive integer", rawMaxLength: `50`, want: 50},
+		{name: "zero left as-is", rawMaxLength: `0`, want: 0},
+		{name: "negative left as-is", rawMaxLength: `-5`, want: -5},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			now := time.Unix(100, 0).UTC()
+			body := json.RawMessage(`{"type":"widget","op_type":"wop","op_version":"1",` +
+				`"field":"value","strategy":"lww","value_type":"string",` +
+				`"max_length":` + tt.rawMaxLength + `}`)
+
+			op := codec.Op{
+				Envelope: codec.Envelope{
+					ObjectID: "schema:test", ObjectType: "schema", OpType: "define-field", OpVersion: 1,
+					Body: body,
+				},
+				ID:     "op-max-length",
+				Author: codec.Identity{When: now},
+			}
+
+			sch, err := state.FoldSchema([]codec.Op{op})
+			if err != nil {
+				t.Fatalf("FoldSchema failed: %v", err)
+			}
+			if tt.quarantined {
+				if len(sch.Types) != 0 {
+					t.Fatalf("expected no type installed, got %+v", sch.Types)
+				}
+				if len(sch.UnknownOps) != 1 || sch.UnknownOps[0].Commit != "op-max-length" {
+					t.Fatalf("expected op-max-length quarantined as unknown, got %+v", sch.UnknownOps)
+				}
+				return
+			}
+			if len(sch.UnknownOps) != 0 {
+				t.Fatalf("expected no unknown ops, got %+v", sch.UnknownOps)
+			}
+			if len(sch.Types) != 1 || len(sch.Types[0].Fields) != 1 {
+				t.Fatalf("unexpected shape: %+v", sch.Types)
+			}
+			if got := sch.Types[0].Fields[0].MaxLength; got != tt.want {
+				t.Errorf("expected MaxLength %d, got %d", tt.want, got)
+			}
+		})
+	}
+}
+
+// TestFoldSchemaDeterministicAcrossManyRuns reproduces the round-1 review's
+// own check: two define-field declarations for one (type, op_type) that
+// differ only in op_version ("1" vs "01") must never both survive into
+// Schema.Types, and folding the same op set many times must always produce
+// byte-identical output — Go map iteration order must never leak into the
+// result. Distinct from TestFoldSchemaNonCanonicalOpVersionQuarantined,
+// this vector also carries several conforming, canonical declarations so
+// the sort itself — not just the quarantine — is exercised under repeated
+// runs.
+func TestFoldSchemaDeterministicAcrossManyRuns(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	mk := func(id, opType, opVersion, field, strategy string) codec.Op {
+		return codec.Op{
+			Envelope: codec.Envelope{
+				ObjectID: "schema:test", ObjectType: "schema", OpType: "define-field", OpVersion: 1,
+				Body: mustSchemaBody(t, map[string]any{
+					"type": "widget", "op_type": opType, "op_version": opVersion,
+					"field": field, "strategy": strategy,
+				}),
+			},
+			ID:     id,
+			Author: codec.Identity{When: now},
+		}
+	}
+
+	ops := []codec.Op{
+		mk("op-lww", "wop", "1", "value", "lww"),
+		mk("op-non-canonical", "wop", "01", "value", "set-union"),
+		mk("op-b", "wop", "1", "alpha", "lww"),
+		mk("op-c", "wop", "2", "value", "lww"),
+		mk("op-d", "zop", "1", "value", "lww"),
+	}
+
+	first, err := state.FoldSchema(ops)
+	if err != nil {
+		t.Fatalf("FoldSchema failed: %v", err)
+	}
+	firstJSON, err := json.Marshal(first)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	distinct := map[string]int{}
+	for i := 0; i < 500; i++ {
+		got, err := state.FoldSchema(ops)
+		if err != nil {
+			t.Fatalf("run %d: FoldSchema failed: %v", i, err)
+		}
+		gotJSON, err := json.Marshal(got)
+		if err != nil {
+			t.Fatalf("run %d: marshal: %v", i, err)
+		}
+		distinct[string(gotJSON)]++
+	}
+	if len(distinct) != 1 {
+		t.Fatalf("expected exactly 1 distinct fold output over 500 runs, got %d: %v", len(distinct), distinct)
+	}
+	if _, ok := distinct[string(firstJSON)]; !ok {
+		t.Fatalf("the 500-run outputs disagree with the first run")
+	}
+
+	// The non-canonical declaration must never have survived into state:
+	// only wop/1/value (lww), wop/1/alpha (lww), wop/2/value (lww), and
+	// zop/1/value (lww) do.
+	if len(first.Types) != 1 {
+		t.Fatalf("expected 1 type, got %+v", first.Types)
+	}
+	typ := first.Types[0]
+	if len(typ.Fields) != 4 {
+		t.Fatalf("expected 4 surviving fields, got %+v", typ.Fields)
+	}
+	for _, f := range typ.Fields {
+		if f.OpType == "wop" && f.OpVersion == 1 && f.Name == "value" && f.Strategy != "lww" {
+			t.Fatalf("non-canonical op_version %q leaked a set-union rule into state: %+v", "01", f)
+		}
+	}
+	var sawUnknown bool
+	for _, uo := range first.UnknownOps {
+		if uo.Commit == "op-non-canonical" {
+			sawUnknown = true
+		}
+	}
+	if !sawUnknown {
+		t.Fatalf("expected op-non-canonical quarantined, got unknown_ops=%+v", first.UnknownOps)
+	}
+}
+
+func TestSchemaRulesValid(t *testing.T) {
+	rules := state.SchemaRules()
+	if len(rules) == 0 {
+		t.Fatal("SchemaRules() returned no rules")
+	}
+}

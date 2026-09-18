@@ -8,11 +8,11 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v5/storage"
-	"github.com/writtendev/writ/engine/codec"
-	"github.com/writtendev/writ/engine/dag"
-	"github.com/writtendev/writ/engine/identity"
-	"github.com/writtendev/writ/engine/projection"
-	writsync "github.com/writtendev/writ/engine/sync"
+	"github.com/writtendev/writ/internal/codec"
+	"github.com/writtendev/writ/internal/dag"
+	"github.com/writtendev/writ/internal/identity"
+	"github.com/writtendev/writ/internal/projection"
+	writsync "github.com/writtendev/writ/internal/sync"
 )
 
 // Writer represents the active writer identity.

@@ -9,7 +9,7 @@ import (
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
-	"github.com/writtendev/writ/engine/codec/canonicaljson"
+	"github.com/writtendev/writ/internal/codec/canonicaljson"
 	"github.com/writtendev/writ/spec"
 )
 

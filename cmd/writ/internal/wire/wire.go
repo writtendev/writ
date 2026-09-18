@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/writtendev/writ/engine"
-	"github.com/writtendev/writ/engine/codec"
 )
 
 // CurrentSchemaVersion is the version of the JSON plumbing envelope schema.
@@ -170,7 +169,7 @@ type SchemaOpEntry struct {
 
 // FromSchemaEnvelopes converts a compiled op sequence into wire entries,
 // preserving order. Collections are always non-nil so they serialize as `[]`.
-func FromSchemaEnvelopes(envs []codec.Envelope) []SchemaOpEntry {
+func FromSchemaEnvelopes(envs []writ.Envelope) []SchemaOpEntry {
 	out := make([]SchemaOpEntry, len(envs))
 	for i, e := range envs {
 		out[i] = SchemaOpEntry{OpType: e.OpType, Body: json.RawMessage(e.Body)}

@@ -67,7 +67,7 @@ from the one schema object whose id is properly derived from it.
   vocabulary and its fold; `writ.schema` (the working-tree source form) and
   its parser, `writ schema plan`/`writ schema apply`, and any CLI surface
   are separate work. Tests and fixtures construct `codec.Op` values
-  directly, exactly as `engine/state`'s own tests do.
+  directly, exactly as `internal/state`'s own tests do.
 - **No projection tables.** Schema ops land in the projection's existing
   `unknown_ops` bucket, exactly like any object type the resolved rule
   index does not declare a table for. `Store.Schema` (below) folds from
@@ -176,7 +176,7 @@ conforms to `spec/schemas/op-envelope.schema.json` and
 Several body fields below are **key components** of a `keyed-lww` register:
 `type`, `op_type`, `op_version`, and `field`. Writing `op_version` as a
 JSON integer works nowhere it is a key component, because
-`ruleAccepts` (`engine/internal/fold/reject.go`) makes an operation
+`ruleAccepts` (`internal/fold/reject.go`) makes an operation
 uninterpretable if any declared `keyed-lww` key column holds a non-string
 value. This is a deliberate encoding, not an oversight:
 `define-field` and `define-op` bodies carry `op_version` — the version of
@@ -784,7 +784,7 @@ or how many classes, share the target):
     the lower `op_version`'s rule — neither rule's declared behavior;
     reusing one across a change to the key tuple or a key column's type
     collapses what the log meant as two distinct register identities onto
-    the one target `Fold` groups by. `engine/schemasrc`'s compiler refuses
+    the one target `Fold` groups by. `internal/schemasrc`'s compiler refuses
     a `writ.schema` source file that does this before it ever reaches the
     log (`spec/schema-source.md` §5, §7); a schema resolved from the log
     withholds the whole target the same way the resolver already withholds
@@ -830,7 +830,7 @@ table that lets them collide on an undeclared shared target is
 non-conforming and MUST target each one explicitly instead (an
 `assignees`/`tags` split is the worked example, `spec/fold.md` §5).
 The resolver enforces this alongside the within-class case above, and so
-does `engine/schemasrc`'s compiler for a `writ.schema` source file before it
+does `internal/schemasrc`'s compiler for a `writ.schema` source file before it
 ever reaches the log.
 
 A `keyed-lww` key column carries a narrower version of the same hazard,
@@ -878,7 +878,7 @@ survives it.
 hand-written bootstrap tables, so a future `schema`-vocabulary rule cannot
 reintroduce either hazard in writ's own tables unnoticed. Unlike the
 shared-`target` case, there is no compile-time twin for either site in
-`engine/schemasrc` — a `writ.schema` source file with this shape compiles,
+`internal/schemasrc` — a `writ.schema` source file with this shape compiles,
 and the conflict surfaces only once the resolver sees the whole type, at
 `apply` time.
 
@@ -960,7 +960,7 @@ reused.
 
 `lattice` is the remaining attribute §8 excludes from its MAY bullet,
 and its reason is the other one: `newLatticeAccumulator`
-(`engine/internal/fold/strategy.go`) builds its rank map once, when
+(`internal/fold/strategy.go`) builds its rank map once, when
 `Fold` instantiates one accumulator per target from whichever matched
 rule the slice lists first, so that rule's ordering governs every op at
 the target and two rules sharing it while disagreeing on `lattice` are
@@ -987,13 +987,13 @@ version folding on unaffected.
 Rule validation is the security boundary for a rule sourced from the log,
 not the fold path. The fold path performs **no** value-type checking
 (`spec/value-types.md` §Producer-side and reader-tolerant), and
-`ruleAccepts` (`engine/internal/fold/reject.go`) treats an `lww` field as
+`ruleAccepts` (`internal/fold/reject.go`) treats an `lww` field as
 "any non-null JSON value." So a `define-field` op carrying `strategy: ""`
 or `strategy: "bogus"` folds cleanly into schema state — `Uninterpretable`
 has no opinion on a string value at a `keyed-lww`-typed field, because
 schema's own fold rules type `strategy` as `string`, not as a member of
 the strategy catalogue — and handing that value to `Fold` as a rule would
-reach `NewAccumulator` (`engine/internal/fold/strategy.go`), which returns
+reach `NewAccumulator` (`internal/fold/strategy.go`), which returns
 a hard `fold: unknown strategy ""` error. That would violate the
 uninterpretable-operation contract (`spec/fold.md` §7.1) for the
 *consuming* object, not the schema object itself.
@@ -1008,7 +1008,7 @@ whose target or a key column is not a valid identifier is dropped and
 reported exactly like one declaring an unknown strategy — never installed,
 never handed to `Fold`. This is why the resolver lives in package
 `writ` (`engine/schema.go`, which already imports `spec`) and not in
-`engine/internal/fold`: that package's import allowlist does not include
+`internal/fold`: that package's import allowlist does not include
 `spec`, and keeping fold pure is a house rule, not a convenience.
 
 ---

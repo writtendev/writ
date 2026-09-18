@@ -1,8 +1,8 @@
 package writ
 
 import (
-	"github.com/writtendev/writ/engine/resolve"
-	"github.com/writtendev/writ/engine/state"
+	"github.com/writtendev/writ/internal/resolve"
+	"github.com/writtendev/writ/internal/state"
 )
 
 // Anchor is a content-based position in code (v1), a value type any

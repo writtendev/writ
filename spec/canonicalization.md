@@ -7,7 +7,7 @@ Writ signs and content-addresses op payloads, so two independent
 implementations given the logically-same value have to produce the same
 bytes. This document defines that encoding completely: a second
 implementation written from this file alone must agree byte-for-byte
-with the reference implementation (`engine/codec/canonicaljson`) on
+with the reference implementation (`internal/codec/canonicaljson`) on
 every input. The machine-checkable form of that claim is the vector file
 `spec/testdata/canonicalization/vectors.json`; when prose and vectors
 disagree, the vectors win and the prose has a bug to fix.

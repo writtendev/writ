@@ -212,14 +212,17 @@ Everything open lives in a single Apache-2.0 monorepo because the spec, engine, 
 
 ```
 /spec          — convention doc, JSON schemas, conformance fixtures (the real standard)
-/engine        — codec, dag, fold, resolve, projection, sync (public Go API at the root package)
+/engine        — the public Go API, root package only: no importable subpackages
+/internal      — codec, dag, fold, resolve, projection, sync, and the rest of the
+                 machinery `/engine` is built from, unimportable outside this
+                 module (WRIT-287)
 /cmd/writ      — CLI: porcelain for humans, --json plumbing for scripts/agents
 /docs
 ```
 
 Downstream clients (TUIs, web viewers, GitHub bridges, hosted services) live in separate downstream repositories consuming the engine's public Go API (`github.com/writtendev/writ/engine`) or the `--json` CLI plumbing. Keeping the public API strong enough that downstream tools never need private hooks is a deliberate design constraint: it keeps the convention honest. `spec/` can graduate to a neutral home once independent implementations exist and governance is worth formalizing.
 
-That "ordinary pinned Go module" is one monorepo-wide `go.mod` at the repo root, module path `github.com/writtendev/writ`, covering `/engine` and `/cmd/writ` — not a separate module for the engine. A consumer that imports `github.com/writtendev/writ/engine` gets only the engine and its direct dependencies; `engine/internal/` enforces the API boundary whether `engine` sits in its own `go.mod` or as a subtree of one. A second module and a `go.work` file are deferred until a real external consumer needs independent engine versioning (decision and full rationale: `docs/module-boundary-decision.md`, WRIT-61).
+That "ordinary pinned Go module" is one monorepo-wide `go.mod` at the repo root, module path `github.com/writtendev/writ`, covering `/engine` and `/cmd/writ` — not a separate module for the engine. A consumer that imports `github.com/writtendev/writ/engine` gets only the engine and its direct dependencies; the root `/internal/` enforces the API boundary (WRIT-287: every `engine/*` subpackage moved there so no exported root signature could name a package a caller can't import). That move has a consequence for module shape, not just visibility: `/internal/` now sits above `/engine`, not inside it, so `engine` can no longer be split into its own `go.mod` without moving `/internal/` back down underneath it first — the option `docs/module-boundary-decision.md` (WRIT-61) recorded as cheap to take later no longer is. A second module and a `go.work` file stay deferred until a real external consumer needs independent engine versioning; taking that path now costs the `/internal/` move-back this paragraph describes, not just the file split the decision doc originally priced in.
 
 ## Spec = fixtures
 

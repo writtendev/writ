@@ -3,9 +3,9 @@ package writ
 import (
 	"errors"
 
-	"github.com/writtendev/writ/engine/projection"
-	writsync "github.com/writtendev/writ/engine/sync"
 	"github.com/writtendev/writ/internal/gitdir"
+	"github.com/writtendev/writ/internal/projection"
+	writsync "github.com/writtendev/writ/internal/sync"
 )
 
 var (
