@@ -140,17 +140,59 @@ func (c *refreshConfig) enumerateOptions() []dag.EnumerateOption {
 // another chain. The prepared statement is a point lookup on the primary
 // key, reused across every candidate commit in one pass; the caller must
 // call the returned close func once this pass's EnumerateSince call
-// returns.
-func (d *DB) incrementalSeenOption() (dag.EnumerateOption, func(), error) {
+// returns, and check its error.
+//
+// The predicate itself can only return bool — dag.WithSeen has no way to
+// carry an error out of the walk — so "not seen" and "the seen lookup
+// itself failed" would otherwise look identical to EnumerateSince, which
+// treats false as an ordinary cache miss and falls back to walking that
+// commit's ancestry. That fallback is safe (see WithSeen's doc comment)
+// but silently gives up the O(new ops) win this option exists for. A real
+// query error — sustained SQLITE_BUSY past busy_timeout, a corrupt
+// database — must not masquerade as that. sql.ErrNoRows is the only
+// expected "not seen" outcome, matching this file's dbType lookup below
+// and projection.go's loadMetaBool; anything else is captured here as
+// seenErr and returned by the close func so the caller fails the pass
+// instead of silently reverting to a full ancestry walk.
+func (d *DB) incrementalSeenOption() (dag.EnumerateOption, func() error, error) {
 	stmt, err := d.db.Prepare("SELECT 1 FROM ops WHERE op_id = ?")
 	if err != nil {
 		return nil, nil, fmt.Errorf("projection: prepare seen lookup: %w", err)
 	}
+	seen, closeSeen := newIncrementalSeenPredicate(stmt)
+	return dag.WithSeen(seen), closeSeen, nil
+}
+
+// newIncrementalSeenPredicate builds the seen func and its paired
+// error-reporting close func around an already-prepared stmt, split out
+// from incrementalSeenOption so the predicate's error handling can be
+// driven directly by a test without reaching into dag.EnumerateOption's
+// unexported innards (dag.WithSeen's argument is just a bool-returning
+// func; there is no way to pull it back out of the option it produces).
+func newIncrementalSeenPredicate(stmt *sql.Stmt) (func(opID string) bool, func() error) {
+	var seenErr error
 	seen := func(opID string) bool {
 		var one int
-		return stmt.QueryRow(opID).Scan(&one) == nil
+		err := stmt.QueryRow(opID).Scan(&one)
+		if err == nil {
+			return true
+		}
+		if !errors.Is(err, sql.ErrNoRows) && seenErr == nil {
+			seenErr = fmt.Errorf("projection: query seen lookup for %s: %w", opID, err)
+		}
+		return false
 	}
-	return dag.WithSeen(seen), func() { _ = stmt.Close() }, nil
+	close := func() error {
+		closeErr := stmt.Close()
+		if seenErr != nil {
+			return seenErr
+		}
+		if closeErr != nil {
+			return fmt.Errorf("projection: close seen lookup: %w", closeErr)
+		}
+		return nil
+	}
+	return seen, close
 }
 
 // Refresh incrementally brings the projection SQLite cache up to date with the underlying DAG store.
@@ -241,10 +283,18 @@ func (d *DB) Refresh(store *dag.Store, opts ...Option) (Stats, error) {
 		if err != nil {
 			return Stats{}, err
 		}
-		res, err := store.EnumerateSince(storedCursors, append(cfg.enumerateOptions(), seenOpt)...)
-		closeSeen()
-		if err != nil {
-			return Stats{}, fmt.Errorf("projection: enumerate since cursors: %w", err)
+		res, enumErr := store.EnumerateSince(storedCursors, append(cfg.enumerateOptions(), seenOpt)...)
+		// closeSeen's error takes priority: a genuine failure in the seen
+		// lookup (as opposed to an ordinary "not seen" miss) must surface
+		// as a hard error here rather than let the walk's own result — sane
+		// on its face, since EnumerateSince treated every failed lookup as
+		// "not seen" and fell back to a full ancestry walk for it — stand
+		// in for a pass that silently gave up its incremental fast path.
+		if closeErr := closeSeen(); closeErr != nil {
+			return Stats{}, fmt.Errorf("projection: incremental seen lookup: %w", closeErr)
+		}
+		if enumErr != nil {
+			return Stats{}, fmt.Errorf("projection: enumerate since cursors: %w", enumErr)
 		}
 		enumRes = res
 	}
