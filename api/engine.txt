@@ -420,6 +420,7 @@ func WithChainObserver(observe func(objectType string, newTip plumbing.Hash)) Op
 func WithLiveTrustStore(ts codec.TrustStore) EnumerateOption
 func WithNow(now func() time.Time) Option
 func WithProducerVocabularies(resolve func() (codec.Vocabularies, error)) Option
+func WithSeen(match func(opID string) bool) EnumerateOption
 func WithSigner(signer Signer) Option
 
 type ChainRef struct {

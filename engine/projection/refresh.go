@@ -118,12 +118,39 @@ func WithLiveTrustStore(ts codec.TrustStore, digest string) Option {
 
 // enumerateOptions translates this pass's trust-store override, if any,
 // into the dag.EnumerateOption EnumerateSince needs to verify against it
-// instead of the Store's own Open-time trust store.
+// instead of the Store's own Open-time trust store. Shared by both the
+// incremental path and rebuildWithConfig, unlike incrementalSeenOption
+// below: a trust-store override applies equally to a cold walk and an
+// incremental one, but dag.WithSeen must not (see that method's comment
+// and the one at rebuildWithConfig's EnumerateSince call).
 func (c *refreshConfig) enumerateOptions() []dag.EnumerateOption {
 	if !c.trustStoreOverride {
 		return nil
 	}
 	return []dag.EnumerateOption{dag.WithLiveTrustStore(c.trustStore)}
+}
+
+// incrementalSeenOption prepares a dag.WithSeen option backed by the ops
+// table's op_id primary key, for Refresh's incremental path only (WRIT-273).
+// A commit already recorded there had its full ancestry walked by whichever
+// pass first inserted it — see dag.WithSeen's doc comment for why that
+// invariant holds for this projection specifically — so EnumerateSince can
+// treat it as an already-seen stop point instead of re-decoding its whole
+// ancestry every time a new op's causal parent happens to sit deep inside
+// another chain. The prepared statement is a point lookup on the primary
+// key, reused across every candidate commit in one pass; the caller must
+// call the returned close func once this pass's EnumerateSince call
+// returns.
+func (d *DB) incrementalSeenOption() (dag.EnumerateOption, func(), error) {
+	stmt, err := d.db.Prepare("SELECT 1 FROM ops WHERE op_id = ?")
+	if err != nil {
+		return nil, nil, fmt.Errorf("projection: prepare seen lookup: %w", err)
+	}
+	seen := func(opID string) bool {
+		var one int
+		return stmt.QueryRow(opID).Scan(&one) == nil
+	}
+	return dag.WithSeen(seen), func() { _ = stmt.Close() }, nil
 }
 
 // Refresh incrementally brings the projection SQLite cache up to date with the underlying DAG store.
@@ -199,12 +226,23 @@ func (d *DB) Refresh(store *dag.Store, opts ...Option) (Stats, error) {
 		return d.rebuildWithConfig(store, cfg, targetTips)
 	}
 
-	// 3. Enumerate delta since stored cursors
+	// 3. Enumerate delta since stored cursors. dag.WithSeen(...) is scoped
+	// to this incremental call alone (see incrementalSeenOption and the
+	// comment at rebuildWithConfig's own EnumerateSince call, which must
+	// never receive it): it lets the walk stop at any commit already
+	// projected instead of re-decoding that commit's whole ancestry, which
+	// is what makes an op whose causal parent sits deep inside another
+	// chain cost O(new ops) instead of O(history) (WRIT-273).
 	var enumRes *dag.EnumerateResult
 	if cfg.enumOverride != nil {
 		enumRes = cfg.enumOverride
 	} else {
-		res, err := store.EnumerateSince(storedCursors, cfg.enumerateOptions()...)
+		seenOpt, closeSeen, err := d.incrementalSeenOption()
+		if err != nil {
+			return Stats{}, err
+		}
+		res, err := store.EnumerateSince(storedCursors, append(cfg.enumerateOptions(), seenOpt)...)
+		closeSeen()
 		if err != nil {
 			return Stats{}, fmt.Errorf("projection: enumerate since cursors: %w", err)
 		}
@@ -366,6 +404,15 @@ func (d *DB) Rebuild(store *dag.Store, opts ...Option) (Stats, error) {
 }
 
 func (d *DB) rebuildWithConfig(store *dag.Store, cfg *refreshConfig, targetTips map[string]string) (Stats, error) {
+	// Deliberately no dag.WithSeen here, unlike the incremental call in
+	// Refresh above: this runs before the tables below are truncated, so a
+	// rebuild has to be a genuine cold walk of every commit or the
+	// droppable-cache guarantee (AGENTS.md: "the SQLite projection is a
+	// droppable cache, never a source of truth") breaks — a caller who
+	// drops and rebuilds this projection must get back exactly what a cold
+	// walk produces, not whatever the pre-rebuild ops table happened to
+	// already contain. Do not "tidy" this to share incrementalSeenOption
+	// with the call above.
 	enumRes, err := store.EnumerateSince(nil, cfg.enumerateOptions()...)
 	if err != nil {
 		return Stats{}, fmt.Errorf("projection: cold enumerate: %w", err)

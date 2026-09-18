@@ -70,6 +70,12 @@ type enumerateConfig struct {
 	// fresh immediately before the call. Zero value (nil) means "no trust
 	// store", exactly like an unconfigured one.
 	trustStore codec.TrustStore
+	// seen, when non-nil, is consulted by Step 3's walk wherever
+	// stopBoundary is: a commit it reports true for is marked visited but
+	// neither decoded nor expanded to its parents, exactly like a
+	// stopBoundary tip. Nil (the default) keeps today's behaviour of
+	// walking every commit back to the stored cursors. See WithSeen.
+	seen func(opID string) bool
 }
 
 // EnumerateOption configures a single Enumerate or EnumerateSince call,
@@ -133,6 +139,38 @@ func WithLiveTrustStore(ts codec.TrustStore) EnumerateOption {
 	return func(c *enumerateConfig) {
 		c.trustStore = ts
 	}
+}
+
+// WithSeen scopes Step 3's walk to stop at any commit match reports true
+// for, exactly as the walk already stops at a stopBoundary cursor tip: the
+// commit is marked visited but neither decoded nor expanded to its
+// parents. Nil (the default, and the zero value) keeps today's behaviour
+// of walking every commit back to the stored cursors. match is called
+// with a commit's hex SHA — the same string codec.DecodeCommit reports as
+// that commit's op.ID, so a caller keying off op IDs it already holds
+// needs no translation.
+//
+// Caller invariant: every ancestor of a commit match accepts must itself
+// already be recorded by the caller. Violate this and the walk silently
+// drops that unrecorded ancestor, and everything behind it, from the
+// result — there is nothing in EnumerateResult to say so, because from
+// this call's point of view the predicate simply said "already have it".
+//
+// projection.Refresh's incremental path satisfies the invariant: its
+// predicate is backed by the ops table's op_id primary key, and every op
+// in that table had its full ancestry walked by whichever pass first
+// inserted it, because rebuildWithConfig always truncates ops and
+// chain_tips together before a cold EnumerateSince(nil, …) repopulates
+// them, and both a rewound chain and a disappeared chain force that same
+// full rebuild (Step 2 above, which this option never touches) instead of
+// ever reaching an incremental pass with a gap in what ops records. Git
+// commit ancestry is immutable, so a commit recorded as an ancestor of
+// some tip stays one forever — nothing after the fact can make the
+// invariant stop holding for an op already in the table. A caller that
+// cannot make the same guarantee (a partial fetch with no rebuild-on-gap
+// path, a hand-rolled cache) must not pass this option.
+func WithSeen(match func(opID string) bool) EnumerateOption {
+	return func(c *enumerateConfig) { c.seen = match }
 }
 
 // Enumerate discovers all writ chains and enumerates all ops cold (equivalent to EnumerateSince(nil)).
@@ -212,11 +250,19 @@ func (s *Store) EnumerateSince(cursors CursorSet, opts ...EnumerateOption) (*Enu
 	sort.Strings(result.Rewound)
 
 	// Step 3: Walk commit ancestry from startTips, stopping at stopBoundary
+	// or, when cfg.seen is set, at any commit it already knows about (see
+	// WithSeen). stop is the one place that decides, so the start-tip loop
+	// and the parent-expansion loop below never drift apart on what "stop"
+	// means.
+	stop := func(h plumbing.Hash) bool {
+		return stopBoundary[h] || (cfg.seen != nil && cfg.seen(h.String()))
+	}
+
 	visited := make(map[plumbing.Hash]bool)
 	var queue []plumbing.Hash
 
 	for _, tip := range startTips {
-		if stopBoundary[tip] {
+		if stop(tip) {
 			visited[tip] = true
 			continue
 		}
@@ -252,7 +298,7 @@ func (s *Store) EnumerateSince(cursors CursorSet, opts ...EnumerateOption) (*Enu
 			if visited[pHash] {
 				continue
 			}
-			if stopBoundary[pHash] {
+			if stop(pHash) {
 				visited[pHash] = true
 				continue
 			}
