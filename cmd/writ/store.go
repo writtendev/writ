@@ -114,7 +114,28 @@ func renderErr(w io.Writer, err error) int {
 		return 0
 	}
 	fmt.Fprintln(w, escapeErrReport(errLine(err), subprocessFailure(err)))
+	if storeOpenFailure(err) {
+		return 5
+	}
 	return 1
+}
+
+// storeOpenFailure reports whether err's chain is one of the sentinels
+// writ.Open wraps every store-open failure in: path resolution, git
+// storage, DAG store, projection cache directory or database, and sync
+// client (writ.ErrStoreOpen), or "not inside a git repository" specifically
+// (writ.ErrNotRepository, which ErrStoreOpen itself does not subsume --
+// ResolveGitDir and Open both wrap it directly). It does not cover schema
+// resolution/apply failures during Open -- those are log-content errors,
+// not open failures, and stay at exit 1 like any other rejection.
+//
+// renderErr uses this so every verb -- not just sync, which classified this
+// itself before this change -- returns the exit 5 docs/cli-json.md §2.5
+// promises for "not a git repository / store cannot be opened". cmd/writ/
+// sync.go's exitCodeFor calls this same function so the two definitions
+// cannot drift apart.
+func storeOpenFailure(err error) bool {
+	return errors.Is(err, writ.ErrStoreOpen) || errors.Is(err, writ.ErrNotRepository)
 }
 
 // subprocessFailure reports whether err's chain carries the failure of a

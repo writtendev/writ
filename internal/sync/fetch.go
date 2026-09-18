@@ -47,6 +47,9 @@ func (c *Client) Fetch(ctx context.Context, remote string) (*FetchResult, error)
 	if remote == "" {
 		return nil, fmt.Errorf("sync: remote name cannot be empty")
 	}
+	if err := ValidateRemoteName(remote); err != nil {
+		return nil, err
+	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -56,9 +59,9 @@ func (c *Client) Fetch(ctx context.Context, remote string) (*FetchResult, error)
 		return nil, fmt.Errorf("sync: read chains before fetch: %w", err)
 	}
 
-	stdout, stderr, err := c.runGit(ctx, "fetch", remote)
+	stdout, stderr, err := c.runGit(ctx, "fetch", "--end-of-options", remote)
 	if err != nil {
-		return nil, c.classifyGitError(remote, []string{"fetch", remote}, err, stderr, stdout)
+		return nil, c.classifyGitError(remote, []string{"fetch", "--end-of-options", remote}, err, stderr, stdout)
 	}
 
 	after, err := dag.Chains(c.storer)

@@ -59,6 +59,9 @@ func (c *Client) Push(ctx context.Context, remote string) (*PushResult, error) {
 	if remote == "" {
 		return nil, fmt.Errorf("sync: remote name cannot be empty")
 	}
+	if err := ValidateRemoteName(remote); err != nil {
+		return nil, err
+	}
 	if c.identity.WriterID == "" {
 		return nil, fmt.Errorf("sync: writer-id cannot be empty")
 	}
@@ -73,7 +76,7 @@ func (c *Client) Push(ctx context.Context, remote string) (*PushResult, error) {
 		return nil, fmt.Errorf("sync: read chains before push: %w", err)
 	}
 
-	stdout, stderr, runErr := c.runGit(ctx, "push", "--porcelain", remote, refspec)
+	stdout, stderr, runErr := c.runGit(ctx, "push", "--porcelain", "--end-of-options", remote, refspec)
 
 	pushedRefs := parsePushPorcelain(string(stdout))
 
@@ -94,7 +97,7 @@ func (c *Client) Push(ctx context.Context, remote string) (*PushResult, error) {
 	}
 
 	if runErr != nil {
-		return pushRes, c.classifyGitError(remote, []string{"push", "--porcelain", remote, refspec}, runErr, stderr, stdout)
+		return pushRes, c.classifyGitError(remote, []string{"push", "--porcelain", "--end-of-options", remote, refspec}, runErr, stderr, stdout)
 	}
 
 	return pushRes, nil

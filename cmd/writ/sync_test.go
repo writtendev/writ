@@ -429,10 +429,91 @@ func TestSync_ExitCodeClassification(t *testing.T) {
 
 	t.Run("e2e_unknown_remote", func(t *testing.T) {
 		_, aliceDir, _ := setupSyncTestHarness(t)
+		configPath := filepath.Join(aliceDir, ".git", "config")
+		before, err := os.ReadFile(configPath)
+		if err != nil {
+			t.Fatalf("read .git/config before sync: %v", err)
+		}
+
 		var stdout, stderr bytes.Buffer
 		code := run(context.Background(), []string{"-C", aliceDir, "sync", "nosuchremote"}, &stdout, &stderr)
 		if code != 3 {
 			t.Errorf("sync nosuchremote exit code = %d (want 3); stderr: %s", code, stderr.String())
+		}
+
+		// Regression pin (WRIT-283): a well-formed but unconfigured remote
+		// name must not write a phantom [remote "nosuchremote"] section.
+		after, err := os.ReadFile(configPath)
+		if err != nil {
+			t.Fatalf("read .git/config after sync: %v", err)
+		}
+		if !bytes.Equal(before, after) {
+			t.Errorf(".git/config changed after sync nosuchremote failed:\nbefore:\n%s\nafter:\n%s", before, after)
+		}
+	})
+
+	t.Run("e2e_invalid_remote_name_is_usage_error", func(t *testing.T) {
+		// A syntactically invalid remote name is a usage error (exit 2),
+		// distinct from the well-formed-but-unconfigured case above (exit
+		// 3) -- the orchestrator plan-gate decision on WRIT-283 is explicit
+		// that these are different failure modes and code 3's documented
+		// meaning does not widen to cover this one.
+		_, aliceDir, _ := setupSyncTestHarness(t)
+		configPath := filepath.Join(aliceDir, ".git", "config")
+		before, err := os.ReadFile(configPath)
+		if err != nil {
+			t.Fatalf("read .git/config before sync: %v", err)
+		}
+
+		var stdout, stderr bytes.Buffer
+		code := run(context.Background(), []string{"-C", aliceDir, "sync", "--", "a b"}, &stdout, &stderr)
+		if code != 2 {
+			t.Errorf("sync -- \"a b\" exit code = %d (want 2); stderr: %s", code, stderr.String())
+		}
+
+		// The self-DoS pin (WRIT-283): nothing is written for an invalid
+		// name, so a plain `git remote` still exits 0 afterwards -- before
+		// this fix, the invalid refspec this wrote made every subsequent
+		// `git remote` in the repo exit 128.
+		after, err := os.ReadFile(configPath)
+		if err != nil {
+			t.Fatalf("read .git/config after sync: %v", err)
+		}
+		if !bytes.Equal(before, after) {
+			t.Errorf(".git/config changed after sync rejected an invalid remote name:\nbefore:\n%s\nafter:\n%s", before, after)
+		}
+		cmd := exec.Command("git", "remote")
+		cmd.Dir = aliceDir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Errorf("git remote after sync -- \"a b\" exited nonzero: %v (%s)", err, out)
+		}
+	})
+
+	t.Run("e2e_upload_pack_injection_never_executes", func(t *testing.T) {
+		// The other half of WRIT-283: this is a real argument-injection
+		// hole, not cosmetic argv tidying. Before --end-of-options and
+		// ValidateRemoteName's "-"-leading rejection, "writ sync --
+		// --upload-pack=<script>" reached git fetch and was verified to
+		// execute the script.
+		_, aliceDir, _ := setupSyncTestHarness(t)
+		sentinelDir := t.TempDir()
+		sentinelPath := filepath.Join(sentinelDir, "pwned")
+		scriptPath := filepath.Join(sentinelDir, "pwn.sh")
+		script := fmt.Sprintf("#!/bin/sh\ntouch %q\necho PWNED_UPLOAD_PACK_RAN >&2\nexit 1\n", sentinelPath)
+		if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+			t.Fatalf("write pwn script: %v", err)
+		}
+
+		arg := "--upload-pack=" + scriptPath
+		var stdout, stderr bytes.Buffer
+		code := run(context.Background(), []string{"-C", aliceDir, "sync", "--", arg}, &stdout, &stderr)
+		if code != 2 {
+			t.Errorf("sync -- %q exit code = %d (want 2, rejected as an invalid remote name before reaching git); stderr: %s", arg, code, stderr.String())
+		}
+		if _, err := os.Stat(sentinelPath); err == nil {
+			t.Fatalf("pwn script executed: sentinel file %s exists", sentinelPath)
+		} else if !os.IsNotExist(err) {
+			t.Fatalf("stat sentinel file: %v", err)
 		}
 	})
 

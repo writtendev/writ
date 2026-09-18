@@ -98,6 +98,21 @@ func (s *Store) Sync(ctx context.Context, remote string) (SyncResult, error) {
 		return SyncResult{}, fmt.Errorf("writ: remote cannot be empty")
 	}
 
+	// A remote that is syntactically invalid, or well-formed but not
+	// configured at all (no remote.<remote>.url), is checked once, upfront,
+	// before Ensure, Fetch, or Push ever run. This is a deliberate carve-out
+	// from the "push is never gated on fetch" rule below: that rule exists
+	// so a peer's broken chain or a dead-but-configured remote's fetch
+	// failure can never strand this writer's unpushed ops (WRIT-270), but a
+	// remote that is not configured at all is not a fetch failure -- there
+	// is nowhere to push either, so gating both here does not weaken that
+	// rule. It also closes the WRIT-283 phantom-remote bug at its source:
+	// s.syncClient.Ensure would otherwise write a url-less config section
+	// for a name that was never a real remote.
+	if err := s.checkRemoteAvailable(ctx, remote); err != nil {
+		return SyncResult{}, err
+	}
+
 	// fetchErr and pushErr are tracked separately because push must not be
 	// gated on fetch (or refspec-ensure) success: PushRefspec is constructed
 	// per invocation and passed on the command line, never read from
@@ -106,6 +121,11 @@ func (s *Store) Sync(ctx context.Context, remote string) (SyncResult, error) {
 	// strand this writer's unpushed ops (WRIT-270). They fold into one
 	// syncErr below, fetch taking precedence when both are set: it is the
 	// earlier stage, and it is the one that explains a dead remote.
+	//
+	// This is why checkRemoteAvailable above has to run before either step
+	// rather than folding into fetchErr the way Ensure's own failures do:
+	// letting an unconfigured remote merely set fetchErr would still let
+	// Push below run against it, since Push is unconditional on fetchErr.
 	var fetchErr, pushErr error
 
 	// 1. Ensure fetch refspec
@@ -215,6 +235,39 @@ func (s *Store) Sync(ctx context.Context, remote string) (SyncResult, error) {
 	}
 
 	return result, nil
+}
+
+// checkRemoteAvailable validates remote's name and confirms it is
+// configured (remote.<remote>.url set) before Sync does anything else. It
+// never writes to .git/config -- RemoteConfigured is a read-only probe --
+// so a rejection here leaves .git/config untouched, unlike the old
+// Ensure-only guard this replaces as the entry point (Ensure and
+// cmd/writ/init.go's direct Ensure calls still run the same checks
+// themselves; this is what additionally keeps Push from being attempted
+// against a remote that was never configured at all).
+func (s *Store) checkRemoteAvailable(ctx context.Context, remote string) error {
+	if err := writsync.ValidateRemoteName(remote); err != nil {
+		return &SyncError{
+			Remote:  remote,
+			Kind:    string(writsync.FailureKindNotFound),
+			Message: err.Error(),
+			Err:     writsync.ErrInvalidRemoteName,
+		}
+	}
+
+	configured, err := s.syncClient.RemoteConfigured(ctx, remote)
+	if err != nil {
+		return s.wrapSyncError(remote, err, 0)
+	}
+	if !configured {
+		return &SyncError{
+			Remote:  remote,
+			Kind:    string(writsync.FailureKindNotFound),
+			Message: fmt.Sprintf("remote %q is not configured", remote),
+			Err:     writsync.ErrUnknownRemote,
+		}
+	}
+	return nil
 }
 
 func (s *Store) wrapSyncError(remote string, err error, unsynced int) error {

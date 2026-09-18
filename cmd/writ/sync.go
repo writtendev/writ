@@ -177,6 +177,16 @@ func exitCodeFor(err error) int {
 	if err == nil {
 		return 0
 	}
+	// A syntactically invalid remote name (e.g. "a b", "--upload-pack=...")
+	// is a usage error, exit 2 -- the caller passed a malformed argument.
+	// It is checked separately from, and ahead of, the well-formed-but-
+	// unconfigured case just below (exit 3, code 3's existing meaning):
+	// the two are different failure modes and the orchestrator plan-gate
+	// decision on WRIT-283 is explicit that code 3's documented meaning
+	// does not widen to cover this.
+	if errors.Is(err, writ.ErrInvalidRemoteName) || errors.Is(err, sync.ErrInvalidRemoteName) {
+		return 2
+	}
 	if errors.Is(err, writ.ErrAuth) || errors.Is(err, sync.ErrAuth) {
 		return 6
 	}
@@ -224,7 +234,7 @@ func exitCodeFor(err error) int {
 		}
 	}
 
-	if errors.Is(err, writ.ErrStoreOpen) || errors.Is(err, writ.ErrNotRepository) {
+	if storeOpenFailure(err) {
 		return 5
 	}
 	return 1
