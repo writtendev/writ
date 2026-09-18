@@ -31,7 +31,11 @@ package projection
 // 16: WRIT-251 added verification and key_fingerprint columns to ops, and
 // a verification column to objects and unknown_ops, so ingest-time
 // signature verification outcomes have somewhere to be cached.
-const schemaVersion = 16
+// 17: WRIT-278 fixed sshsig principal/namespace matching to be
+// case-sensitive, changing what a cached verification value means for a
+// case-mismatched op without touching a column, so an existing checkout
+// must re-verify rather than keep serving the stale outcome.
+const schemaVersion = 17
 
 // substrateTables lists the type-agnostic tables created unconditionally at
 // Open, before any schema is ever applied: meta, chain_tips, code_tips, ops,
