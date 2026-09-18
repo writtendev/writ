@@ -111,10 +111,15 @@ func TestResolutionVectorsValidate(t *testing.T) {
 			// decodes as the JSON number 1 (an integral float such as 1.0
 			// included, per spec/resolution.md's Version Pre-Check and
 			// spec/canonicalization.md's "no integer/float distinction") and the
-			// case isn't malformed. A malformed-version vector's version does
-			// not decode as a number at all, and validating either kind would
-			// just restate that it is schema- or invariant-invalid by
-			// construction.
+			// case isn't malformed. A malformed-version vector's version
+			// either does not decode as a number at all (the string "1", or
+			// no version key) or decodes but does not equal 1 (1.5,
+			// ±9007199254740992); validating either would just restate that
+			// it is schema- or invariant-invalid by construction. Both halves
+			// of that disjunction are load-bearing: narrowing this gate back
+			// to a decode-success test would start validating the fraction
+			// and int53-overflow vectors against anchor.schema.json, silently
+			// changing what this test covers.
 			var version float64
 			isVersion1 := len(anchorObj.Version) > 0 && json.Unmarshal(anchorObj.Version, &version) == nil && version == 1
 			if isVersion1 && !isMalformedCase {
