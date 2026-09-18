@@ -204,6 +204,52 @@ Output:
 origin: fetched 8 ops, 2 objects updated
 ```
 
+### Clone with full history
+
+Writ's operations are commits under `refs/writ/*`, and folding an object
+correctly needs each op commit's full ancestry — including its blobs —
+to be present locally. `writ sync` fetches those refs without `--depth`,
+so an ordinary **shallow** clone (`--depth=...`) of the repository does
+not truncate them: `writ sync` still fetches the complete op chains even
+though `.git/shallow` stays in place. A **partial** clone
+(`--filter=...`) is the one that bites: it leaves some op commits'
+objects missing from the local store, and an ordinary `writ sync` does
+not backfill them.
+
+* GitHub Actions: `actions/checkout`'s `filter:` input is independent of
+  its `fetch-depth:` input — leave `filter:` unset (the default) rather
+  than passing `blob:none` or similar. Its `sparse-checkout:` input
+  applies `blob:none` on its own whenever `filter:` is unset, and
+  setting `filter: ''` does not override that
+  ([actions/checkout#1949](https://github.com/actions/checkout/issues/1949)):
+  skip `sparse-checkout:` if you need every op's objects, or repair
+  afterward as below.
+* Plain git: clone without `--filter`. Repair an existing partial clone
+  with `git fetch --refetch --no-filter`; plain `--refetch` re-applies
+  the clone's configured filter and leaves the same objects missing.
+
+What a partial clone's missing objects do to `writ object show` depends
+on how much of an object's history got filtered out. Missing *every* op
+for an object fails outright — `writ: object not found`, exit 1. Missing
+only *some* of them does not: the object folds from whatever ops
+survived the filter and exits 0, which can be a stale but
+plausible-looking answer — for example a size-limit filter (`git clone
+--filter=blob:limit=...`) that lets small op blobs through but drops one
+large one silently returns the value from before that op, with no error
+and nothing in the output pointing at what is missing.
+
+`writ sync` reports ops it could not apply — `N ops not applied` in
+porcelain, `"rejected": N` under `--json` — and that count is the only
+signal that anything was dropped. It mixes two different causes it does
+not distinguish on its own: a malformed op rejected on reader
+validation, or an op commit naming an object this clone does not have (a
+partial clone, above); see `RefreshStats.Rejections` in the Go API,
+where each entry's reason does distinguish them. The count is also
+one-shot: it reflects only the sync call that observed the rejection, so
+a later `writ sync` that finds nothing new to fetch reports `up to date`
+with no `rejected`/`ops not applied` field at all — even though the
+object folded above is still stale.
+
 Your collaborator can now list and inspect tickets offline — filtering to
 one schema-declared type at a time:
 

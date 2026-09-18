@@ -20,8 +20,8 @@ type Rejection struct {
 }
 
 // RejectObjectUnavailable reports that a commit, tree, or op.json blob an
-// op-commit chain references is not present in this clone — a partial or
-// shallow clone missing an object, most commonly. It is engine-local, not
+// op-commit chain references is not present in this clone — a partial
+// clone missing an object, most commonly. It is engine-local, not
 // part of spec/op-envelope.md's closed reader-validation rejection set: a
 // reader working from a complete clone never produces it, and whether an
 // engine-local reason like this belongs in the spec instead is a

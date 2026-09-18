@@ -249,7 +249,11 @@ var syncCmd = &command{
 	UsageLine: "Usage: writ sync [-C <dir>] [--status] [--json] [remote...]",
 	Long: "Synchronize collaborative SDLC operations with one or more git remotes.\n\n" +
 		"Fetch remote operations, push local operations, and refresh the local projection cache.\n" +
-		"With no remote specified, defaults to 'origin' or the sole configured remote.",
+		"With no remote specified, defaults to 'origin' or the sole configured remote.\n\n" +
+		"A partial clone (--filter=...) is missing objects those op commits need, so those ops\n" +
+		"are rejected rather than applied; an ordinary shallow clone (--depth=...) is not affected.\n" +
+		"Clone without --filter (in CI, leave actions/checkout's filter: input unset and skip its\n" +
+		"sparse-checkout: input, which applies blob:none on its own).",
 	Flags: []flagSpec{
 		{Name: "C"},
 		{Name: "status"},

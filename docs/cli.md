@@ -278,6 +278,11 @@ Synchronize collaborative SDLC operations with one or more git remotes.
 Fetch remote operations, push local operations, and refresh the local projection cache.
 With no remote specified, defaults to 'origin' or the sole configured remote.
 
+A partial clone (--filter=...) is missing objects those op commits need, so those ops
+are rejected rather than applied; an ordinary shallow clone (--depth=...) is not affected.
+Clone without --filter (in CI, leave actions/checkout's filter: input unset and skip its
+sparse-checkout: input, which applies blob:none on its own).
+
 #### Flags
 
 - `-C <dir>`: Run as if writ was started in <dir>

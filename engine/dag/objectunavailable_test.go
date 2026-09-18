@@ -17,7 +17,7 @@ import (
 // writeCommitWithMissingOpJSONBlob writes a commit directly into repo's
 // object store — bypassing dag.Store.Append, which would never produce
 // this shape — whose tree names an op.json blob that is never itself
-// written to the storer. This is the shape a partial or shallow clone
+// written to the storer. This is the shape a partial clone
 // leaves behind: the commit and tree objects are present (they were
 // fetched), but a blob the fetch's object-negotiation left out was not.
 func writeCommitWithMissingOpJSONBlob(repo *git.Repository, parent plumbing.Hash) (plumbing.Hash, error) {
@@ -183,7 +183,7 @@ func writeCommitWithTreeHashNamingPresentBlob(repo *git.Repository, parent, blob
 
 // TestEnumerate_ObjectUnavailableDistinctFromMalformed pins WRIT-271's
 // absent-vs-malformed split at the dag layer: a chain whose tip's op.json
-// blob is absent from the object store — the shape a partial or shallow
+// blob is absent from the object store — the shape a partial
 // clone leaves behind — is reported with reason object-unavailable, not
 // missing-op-json (a genuine tree-shape violation) and not
 // non-canonical-payload (a genuinely malformed payload). Before this fix,

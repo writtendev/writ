@@ -160,7 +160,7 @@ func fromGitCommit(s storage.Storer, commit *object.Commit) (Commit, error) {
 // swallowed: the object.Tree.TreeEntryFile call open closes over reaches
 // s.EncodedObject, which surfaces plumbing.ErrObjectNotFound verbatim
 // when the op.json blob is genuinely absent from this clone (a partial
-// or shallow clone, most commonly). Wrapping with %w lets
+// clone, most commonly). Wrapping with %w lets
 // dag.EnumerateSince (WRIT-271) distinguish that case — reason
 // object-unavailable, engine-local, not a reader-validation rejection —
 // from a malformed op. Before WRIT-271 these three failures returned

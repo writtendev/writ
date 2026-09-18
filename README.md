@@ -30,3 +30,11 @@ Verify:
 ```
 writ version
 ```
+
+writ needs every object a `refs/writ/*` op commit's ancestry names, not
+just the commits: clone without `--filter` (or, in CI, leave
+`actions/checkout`'s `filter:` input unset and skip its
+`sparse-checkout:` input, which applies `blob:none` on its own) — a
+partial clone leaves those objects missing and `writ sync` cannot
+backfill them. An ordinary shallow (`--depth=...`) clone is fine; see
+[Clone with full history](docs/quickstart.md#clone-with-full-history).
