@@ -90,6 +90,8 @@ git config core.hooksPath .githooks
 
 This uses `.githooks/prepare-commit-msg` to append a `Signed-off-by` trailer
 when not already present, sourced from your `user.name` and `user.email`.
+Set `user.email` to an address on your GitHub account, since the hook
+sources the trailer from it (the hook itself needs no change).
 
 Alternatively, sign off manually:
 
@@ -98,11 +100,24 @@ git commit -s
 ```
 
 The trailer format is `Signed-off-by: Your Name <your.email@example.com>`.
-The sign-off email must match the commit author's email (and for GitHub pull
-requests, your GitHub account email so it survives squash merges). Use your
-real name — no pseudonyms or anonymous contributions. If you forgot on your
-last commit, `git commit --amend -s` fixes it. The DCO check on pull requests
-enforces this on every commit.
+Use your real name — no pseudonyms or anonymous contributions. The sign-off
+email must be one of the addresses on your GitHub account (a
+`users.noreply.github.com` address is fine); it does not need to equal the
+commit's own author email. GitHub rewrites the author email to your
+account's primary address when it squash-merges a pull request, so the
+trailer and the author legitimately differ on the commit that actually
+lands on `main` — the sign-off identifies your GitHub account, which is
+what the DCO's attributable assertion of right-to-contribute needs, not the
+per-commit author identity. If you forgot on your last commit,
+`git commit --amend -s` fixes it. The DCO check enforces this on every
+pull request and, separately, on the commit that lands on `main`.
+
+This rule applies to every commit that lands on `main` from the commit that
+introduced this paragraph forward; commits before it are not rewritten to
+match. At `144a3b7`, of 235 non-merge commits on `main`, 12 carried no
+`Signed-off-by` trailer at all and 85 carried one whose email did not equal
+the (pre-squash) commit author's email — the shape this section's earlier,
+stricter wording made unsatisfiable by a squash-merge workflow.
 
 ## Build and test
 
