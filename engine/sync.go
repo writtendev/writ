@@ -29,8 +29,8 @@ type SyncResult struct {
 	// Rejected is the number of op commits this sync's projection refresh
 	// could not accept: a malformed peer op rejected on reader
 	// validation, or an op commit naming an object absent from this
-	// clone (dag.RejectObjectUnavailable — e.g. excluded by a partial or
-	// shallow clone's fetch filter, engine-local and not itself a
+	// clone (dag.RejectObjectUnavailable — e.g. excluded by a partial
+	// clone's fetch filter, engine-local and not itself a
 	// reader-validation reason). See RefreshStats.Rejections for each
 	// one's specific reason — a quarantined peer op is no longer
 	// silently discarded (WRIT-271).

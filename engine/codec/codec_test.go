@@ -450,7 +450,7 @@ func TestWriteCommitRoundTrip(t *testing.T) {
 
 // TestFromGitCommitMissingOpJSONBlob pins WRIT-271's absent-vs-malformed
 // split at the source: a commit whose tree names an op.json blob that was
-// never written to the storer (a partial or shallow clone's shape — the
+// never written to the storer (a partial clone's shape — the
 // commit and tree are present, the blob is not) must surface as an error
 // dag.EnumerateSince can classify as object-unavailable, not as a
 // malformed op. Before this fix, readOpJSONBlob's open()/Reader()/ReadAll

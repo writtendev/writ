@@ -287,7 +287,7 @@ func formatSyncResult(remote string, res writ.SyncResult) string {
 	if res.Rejected > 0 {
 		// "not applied" rather than "rejected": Rejected also counts op
 		// commits naming an object absent from this clone (e.g. a
-		// partial or shallow clone's fetch filter), which is not a
+		// partial clone's fetch filter), which is not a
 		// reader-validation rejection (WRIT-271 round 1 review).
 		parts = append(parts, fmt.Sprintf("%d %s not applied", res.Rejected, plural(res.Rejected, "op", "ops")))
 	}
