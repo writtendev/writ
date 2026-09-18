@@ -118,12 +118,25 @@ func ClassifyGitError(remote string, args []string, err error, stderr []byte, st
 			advice = "repository not found or remote does not exist"
 		}
 
-	// 4. Ref update rejected
+	// 4. Ref update rejected. The advice is path-aware: on the push path
+	// (args[0] == "push"), a fetch already succeeded on this sync — a forced
+	// fetch refspec (WRIT-270) lands a peer's own rewind rather than
+	// rejecting it — so "fetch latest ops before pushing" is simply wrong
+	// there. What actually happened is that the remote's copy of this
+	// writer's own chain is not an ancestor of the local tip: something
+	// wrote into refs/writ/<this-writer-id>/*, or the remote itself was
+	// restored/rewound, and fetching does not fix either.
 	case strings.Contains(combined, "non-fast-forward") ||
 		strings.Contains(combined, "fetch first"):
 		kind = FailureKindRejected
 		sentinel = ErrNonFastForward
-		if remote != "" {
+		if len(args) > 0 && args[0] == "push" {
+			if remote != "" {
+				advice = fmt.Sprintf("remote %s rejected non-fast-forward update; your writer namespace was written to by something other than this chain, or the remote was restored/rewound -- fetching will not fix it", remote)
+			} else {
+				advice = "rejected non-fast-forward update; your writer namespace was written to by something other than this chain, or the remote was restored/rewound -- fetching will not fix it"
+			}
+		} else if remote != "" {
 			advice = fmt.Sprintf("remote %s rejected non-fast-forward update; fetch latest ops before pushing", remote)
 		} else {
 			advice = "rejected non-fast-forward update; fetch latest ops before pushing"

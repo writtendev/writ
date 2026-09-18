@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -207,6 +208,225 @@ func TestStoreSyncLifecycle(t *testing.T) {
 	entry, _ := verdicts[0].(map[string]any)
 	if entry["value"] != "approve" {
 		t.Errorf("Alice unexpected verdict: %+v", entry)
+	}
+}
+
+// TestStoreSync_RewindThroughFetch pins WRIT-270's core fix end-to-end: a
+// peer force-pushing a rewind of their own chain (a backup restore, an
+// unpushed-history rebase, or a plain --force) is a normal, non-hostile
+// event, and it must land through an ordinary Store.Sync fetch instead of
+// wedging it. engine/projection/refresh_test.go's TestRollbackTriggersRebuild
+// reaches the projection's Rewound handling only by hand-setting a local
+// ref; that path now runs in the normal case rather than never, so it
+// deserves coverage that actually fetches from a real remote.
+func TestStoreSync_RewindThroughFetch(t *testing.T) {
+	bareDir, aliceDir, bobDir := setupSyncHarness(t)
+	ctx := context.Background()
+
+	sA, err := writ.Open(aliceDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Open Alice failed: %v", err)
+	}
+	defer sA.Close()
+
+	sB, err := writ.Open(bobDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Open Bob failed: %v", err)
+	}
+	defer sB.Close()
+
+	applyCoreSchema(t, ctx, sA)
+	if _, err := sA.Sync(ctx, "origin"); err != nil {
+		t.Fatalf("Alice Sync of the schema failed: %v", err)
+	}
+	if _, err := sB.Sync(ctx, "origin"); err != nil {
+		t.Fatalf("Bob Sync of the schema failed: %v", err)
+	}
+
+	// Alice creates a widget (op1) and pushes it.
+	widgetID, err := sA.Objects.Create(ctx, "acme.widget", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Pre-rewind Title"},
+	})
+	if err != nil {
+		t.Fatalf("Alice create widget: %v", err)
+	}
+	if _, err := sA.Sync(ctx, "origin"); err != nil {
+		t.Fatalf("Alice Sync after create failed: %v", err)
+	}
+
+	// Capture Alice's chain tip (op1) before it moves any further, so the
+	// remote can be forced back to it below -- simulating an out-of-band
+	// rewind of Alice's OWN chain (a backup restore or a plain --force),
+	// the same shape a real peer's rewind produces. This never touches
+	// Alice's local store.
+	aliceChainRef := "refs/writ/0123456789abcdef/acme.widget"
+	op1 := strings.TrimSpace(runGitCmd(t, aliceDir, "rev-parse", aliceChainRef))
+
+	// Alice updates the widget (op2) and pushes again.
+	if err := sA.Objects.Apply(ctx, widgetID, writ.NewOp{
+		Type:   "update",
+		Fields: map[string]any{"title": "Later Title (about to be rewound)"},
+	}); err != nil {
+		t.Fatalf("Alice update widget: %v", err)
+	}
+	if _, err := sA.Sync(ctx, "origin"); err != nil {
+		t.Fatalf("Alice Sync after update failed: %v", err)
+	}
+
+	// Bob syncs now, BEFORE the rewind, so his local remote-tracking ref for
+	// Alice's chain is actually established at op2. Without this, the
+	// fetch below would be creating Bob's tracking ref for the first time
+	// rather than moving it backward -- a fast-forward (from nothing) in
+	// either the forced or the pre-WRIT-270 unforced case, which would
+	// prove nothing about the refspec change under test.
+	if _, err := sB.Sync(ctx, "origin"); err != nil {
+		t.Fatalf("Bob Sync before rewind failed: %v", err)
+	}
+	if obj, err := sB.Objects.Get(ctx, widgetID); err != nil || obj.Fields["title"] != "Later Title (about to be rewound)" {
+		t.Fatalf("Bob pre-rewind state = %+v, err %v, want title %q", obj, err, "Later Title (about to be rewound)")
+	}
+
+	// Force the bare remote's copy of Alice's chain back to op1.
+	runGitCmd(t, bareDir, "update-ref", aliceChainRef, op1)
+
+	// Bob syncs again. With the forced fetch refspec (WRIT-270), this MUST
+	// succeed and land the rewind rather than fail non-fast-forward.
+	syncRes, err := sB.Sync(ctx, "origin")
+	if err != nil {
+		t.Fatalf("Bob Sync after peer rewind failed (forced fetch must land it): %v", err)
+	}
+	if syncRes.Unsynced != 0 {
+		t.Errorf("Bob Unsynced = %d, want 0", syncRes.Unsynced)
+	}
+
+	// The projection must have rebuilt to reflect the rewound state: only
+	// op1 (the create) is reachable from Alice's chain now, so reads
+	// through the projection see the pre-rewind title, not the update that
+	// was rewound away.
+	obj, err := sB.Objects.Get(ctx, widgetID)
+	if err != nil {
+		t.Fatalf("Bob Objects.Get after rewind fetch failed: %v", err)
+	}
+	if obj.Fields["title"] != "Pre-rewind Title" {
+		t.Errorf("Bob Fields[title] = %v, want %q (the rewind must have landed)", obj.Fields["title"], "Pre-rewind Title")
+	}
+
+	byText, err := sB.Query.Objects(writ.ObjectFilter{Text: "Pre-rewind Title"})
+	if err != nil {
+		t.Fatalf("Bob Query.Objects(Text) after rewind fetch failed: %v", err)
+	}
+	if len(byText) != 1 || byText[0].ObjectID != widgetID {
+		t.Fatalf("Bob Query.Objects(Text=%q) after rewind = %+v, want exactly [%s]", "Pre-rewind Title", byText, widgetID)
+	}
+}
+
+// TestStoreSync_BrokenPeerDoesNotStrandLocalWrites pins WRIT-270's central
+// acceptance criterion: a peer rewinding their own chain must never strand
+// a different writer's own, unrelated, already-pending ops. Pre-WRIT-270,
+// Bob's fetch failed non-fast-forward against Alice's rewound chain on
+// every retry, and push was gated on fetch succeeding (engine/sync.go), so
+// Bob's own widget could never reach the remote no matter how many times he
+// retried "writ sync" -- exactly the "wedges every writer's sync" failure
+// this ticket exists to close.
+func TestStoreSync_BrokenPeerDoesNotStrandLocalWrites(t *testing.T) {
+	bareDir, aliceDir, bobDir := setupSyncHarness(t)
+	ctx := context.Background()
+
+	sA, err := writ.Open(aliceDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Open Alice failed: %v", err)
+	}
+	defer sA.Close()
+
+	sB, err := writ.Open(bobDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Open Bob failed: %v", err)
+	}
+	defer sB.Close()
+
+	applyCoreSchema(t, ctx, sA)
+	if _, err := sA.Sync(ctx, "origin"); err != nil {
+		t.Fatalf("Alice Sync of the schema failed: %v", err)
+	}
+	if _, err := sB.Sync(ctx, "origin"); err != nil {
+		t.Fatalf("Bob Sync of the schema failed: %v", err)
+	}
+
+	// Alice creates a widget (op1) and pushes it.
+	aliceWidgetID, err := sA.Objects.Create(ctx, "acme.widget", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Alice Widget"},
+	})
+	if err != nil {
+		t.Fatalf("Alice create widget: %v", err)
+	}
+	if _, err := sA.Sync(ctx, "origin"); err != nil {
+		t.Fatalf("Alice Sync after create failed: %v", err)
+	}
+
+	aliceChainRef := "refs/writ/0123456789abcdef/acme.widget"
+	op1 := strings.TrimSpace(runGitCmd(t, aliceDir, "rev-parse", aliceChainRef))
+
+	if err := sA.Objects.Apply(ctx, aliceWidgetID, writ.NewOp{
+		Type:   "update",
+		Fields: map[string]any{"title": "Alice Widget, Later"},
+	}); err != nil {
+		t.Fatalf("Alice update widget: %v", err)
+	}
+	if _, err := sA.Sync(ctx, "origin"); err != nil {
+		t.Fatalf("Alice Sync after update failed: %v", err)
+	}
+
+	// Bob syncs now, BEFORE the damage, so his local remote-tracking ref
+	// for Alice's chain is actually established at the pre-damage tip.
+	// Without this, the rewind below would be creating Bob's tracking ref
+	// for the first time rather than moving it backward -- a fast-forward
+	// in either the forced or the pre-WRIT-270 unforced case, which would
+	// prove nothing about the fix under test.
+	if _, err := sB.Sync(ctx, "origin"); err != nil {
+		t.Fatalf("Bob Sync before peer damage failed: %v", err)
+	}
+
+	// Damage Alice's chain on the remote out-of-band, the same shape a real
+	// peer's own rewind produces.
+	runGitCmd(t, bareDir, "update-ref", aliceChainRef, op1)
+
+	// Bob, unaware of the damage, creates his own widget locally: an
+	// unrelated, unpushed op of his own.
+	if _, err := sB.Objects.Create(ctx, "acme.widget", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Bob Widget"},
+	}); err != nil {
+		t.Fatalf("Bob create widget: %v", err)
+	}
+
+	statusBefore, err := sB.SyncStatus(ctx, "origin")
+	if err != nil {
+		t.Fatalf("Bob SyncStatus before sync: %v", err)
+	}
+	if statusBefore.Unsynced != 1 {
+		t.Fatalf("Bob Unsynced before sync = %d, want 1", statusBefore.Unsynced)
+	}
+
+	// Bob syncs. His own op must reach the remote regardless of Alice's
+	// broken chain.
+	syncRes, err := sB.Sync(ctx, "origin")
+	if err != nil {
+		t.Fatalf("Bob Sync must not fail merely because a peer's chain is broken: %v", err)
+	}
+	if syncRes.OpsPushed != 1 {
+		t.Errorf("Bob OpsPushed = %d, want 1 (his own widget must reach the remote)", syncRes.OpsPushed)
+	}
+	if syncRes.Unsynced != 0 {
+		t.Errorf("Bob Unsynced = %d, want 0", syncRes.Unsynced)
+	}
+
+	// Confirm directly on the bare remote: Bob's ref actually landed there,
+	// not merely reported as pushed by a stale local count.
+	bobChainRef := "refs/writ/fedcba9876543210/acme.widget"
+	if tip := strings.TrimSpace(runGitCmd(t, bareDir, "rev-parse", bobChainRef)); tip == "" {
+		t.Fatalf("Bob's widget ref did not land on the remote")
 	}
 }
 

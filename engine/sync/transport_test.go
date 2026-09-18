@@ -155,7 +155,16 @@ func TestFetch_BringsAllWritersAndPreservesUnpushed(t *testing.T) {
 	}
 }
 
-func TestFetch_RollbackRejected(t *testing.T) {
+// TestFetch_RollbackLands pins WRIT-270's forced fetch refspec
+// (+refs/writ/*:refs/remotes/<remote>/writ/*): a peer force-pushing a
+// rewind of their own chain is a normal event (a backup restore, an
+// unpushed-history rebase, a plain --force), not an attack to reject, and
+// the projection already tolerates a Rewound chain and rebuilds. Fetch
+// must land the rewind rather than reject it, so one rewound peer can never
+// wedge every other writer's sync. This inverts the old
+// TestFetch_RollbackRejected, which pinned the pre-WRIT-270 behaviour this
+// refspec change deliberately removes.
+func TestFetch_RollbackLands(t *testing.T) {
 	bareDir, _ := initBareRepo(t)
 	localDir, localRepo := initTestRepo(t)
 
@@ -198,27 +207,22 @@ func TestFetch_RollbackRejected(t *testing.T) {
 		t.Fatalf("expected tracking ref %s = %s, got %s", trackingRef, op2, refsBefore[trackingRef])
 	}
 
-	// Force bare remote ref backwards to op1
+	// Force bare remote ref backwards to op1 (a peer rewinding their own chain)
 	cmd = exec.Command("git", "update-ref", "refs/writ/"+aliceID+"/widget", op1)
 	cmd.Dir = bareDir
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("force update-ref on bare: %v", err)
 	}
 
-	// Now Fetch again: MUST reject non-fast-forward rollback
-	_, err = client.Fetch(ctx, "origin")
-	if err == nil {
-		t.Fatalf("expected Fetch to fail with non-fast-forward rejection, but succeeded")
+	// Fetch again: with the forced refspec, this MUST succeed and land the rewind.
+	if _, err := client.Fetch(ctx, "origin"); err != nil {
+		t.Fatalf("expected Fetch to succeed and land the rewind, got error: %v", err)
 	}
 
-	if !errors.Is(err, writsync.ErrNonFastForward) {
-		t.Fatalf("expected ErrNonFastForward, got: %v", err)
-	}
-
-	// Assert remote tracking ref is unchanged at op2
+	// Assert remote tracking ref moved back to op1
 	refsAfter := snapshotAllRefs(t, localRepo)
-	if refsAfter[trackingRef] != op2 {
-		t.Fatalf("tracking ref must remain at %s, but changed to %s", op2, refsAfter[trackingRef])
+	if refsAfter[trackingRef] != op1 {
+		t.Fatalf("expected tracking ref %s to land the rewind at %s, got %s", trackingRef, op1, refsAfter[trackingRef])
 	}
 }
 
