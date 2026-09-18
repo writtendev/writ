@@ -110,7 +110,8 @@ One toolchain, one command, per ARCHITECTURE.md: `go build ./...` and
 `go test ./...` from the repo root. CI runs the same tests plus
 `golangci-lint` and `go test -race` on every PR; the conformance fixtures
 run as part of the ordinary test suite as they land, so a fixture failure
-in CI is the spec speaking.
+in CI is the spec speaking. `make lint` runs the same pinned `golangci-lint`
+CI runs, so a local `lint` pass and CI's `lint` job agree.
 
 ## The public API baseline
 

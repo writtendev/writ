@@ -27,8 +27,17 @@ build:
 test:
 	go test ./...
 
-lint: ## Check that cmd/writ porcelain print sites use porcelainf/porcelainln
+# Pinned to what CI runs (.github/workflows/ci.yml). v1.64.8 cannot read Go
+# 1.26+ export data, so the go command it shells out to must be a 1.25
+# toolchain; GOTOOLCHAIN pins that here without touching build or test.
+GOLANGCI_VERSION := v1.64.8
+LINT_GOTOOLCHAIN ?= go1.25.14
+GOLANGCI_LINT ?= GOTOOLCHAIN=$(LINT_GOTOOLCHAIN) \
+  go run github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_VERSION)
+
+lint: ## The CI lint gate: porcelain print sites, then golangci-lint
 	go test ./cmd/writ -run TestPorcelainPrintSites
+	$(GOLANGCI_LINT) run --go=1.25 --timeout=5m
 
 FUZZTIME ?= 30s
 

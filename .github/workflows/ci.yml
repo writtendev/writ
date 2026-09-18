@@ -123,10 +123,10 @@ jobs:
 
 
 
-  # golangci-lint v1.64.8 requires Go 1.25 until the v2 migration lands (see
-  # WRIT-218). GOTOOLCHAIN=local keeps Go 1.25 from auto-switching to
-  # go.mod's toolchain, and --go=1.25 aligns the targeted version with the
-  # runtime version.
+  # golangci-lint v1.64.8 cannot read Go 1.26+ export data, so this job pins
+  # Go 1.25. GOTOOLCHAIN=local keeps it from auto-switching to go.mod's
+  # toolchain, and --go=1.25 aligns the targeted version with the runtime
+  # version. `make lint` pins the same version and args.
   lint:
     name: lint
     runs-on: ubuntu-latest
