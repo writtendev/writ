@@ -20,7 +20,7 @@ import (
 // golden op sequences are stable across runs. Compile's objectID
 // parameter has no default (WRIT-187): the corpus supplies one exactly as
 // a real caller must.
-const testObjectID = "sch-acme"
+const testObjectID = "schema:acme"
 
 var updateGolden = flag.Bool("update-golden", false, "update engine/schemasrc golden op sequences and renderings")
 

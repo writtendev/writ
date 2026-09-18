@@ -1,6 +1,6 @@
 [
   {
-    "object_id": "sch-acme",
+    "object_id": "schema:acme",
     "object_type": "schema",
     "op_type": "create",
     "op_version": 1,
@@ -10,7 +10,7 @@
     }
   },
   {
-    "object_id": "sch-acme",
+    "object_id": "schema:acme",
     "object_type": "schema",
     "op_type": "define-type",
     "op_version": 1,
@@ -20,7 +20,7 @@
     }
   },
   {
-    "object_id": "sch-acme",
+    "object_id": "schema:acme",
     "object_type": "schema",
     "op_type": "define-op",
     "op_version": 1,
@@ -32,7 +32,7 @@
     }
   },
   {
-    "object_id": "sch-acme",
+    "object_id": "schema:acme",
     "object_type": "schema",
     "op_type": "define-op",
     "op_version": 1,
@@ -43,7 +43,7 @@
     }
   },
   {
-    "object_id": "sch-acme",
+    "object_id": "schema:acme",
     "object_type": "schema",
     "op_type": "define-op",
     "op_version": 1,
@@ -54,7 +54,7 @@
     }
   },
   {
-    "object_id": "sch-acme",
+    "object_id": "schema:acme",
     "object_type": "schema",
     "op_type": "define-op",
     "op_version": 1,
@@ -65,7 +65,7 @@
     }
   },
   {
-    "object_id": "sch-acme",
+    "object_id": "schema:acme",
     "object_type": "schema",
     "op_type": "define-field",
     "op_version": 1,
@@ -85,7 +85,7 @@
     }
   },
   {
-    "object_id": "sch-acme",
+    "object_id": "schema:acme",
     "object_type": "schema",
     "op_type": "define-field",
     "op_version": 1,
@@ -109,7 +109,7 @@
     }
   },
   {
-    "object_id": "sch-acme",
+    "object_id": "schema:acme",
     "object_type": "schema",
     "op_type": "define-field",
     "op_version": 1,
@@ -123,7 +123,7 @@
     }
   },
   {
-    "object_id": "sch-acme",
+    "object_id": "schema:acme",
     "object_type": "schema",
     "op_type": "define-field",
     "op_version": 1,
@@ -137,7 +137,7 @@
     }
   },
   {
-    "object_id": "sch-acme",
+    "object_id": "schema:acme",
     "object_type": "schema",
     "op_type": "define-field",
     "op_version": 1,
@@ -151,7 +151,7 @@
     }
   },
   {
-    "object_id": "sch-acme",
+    "object_id": "schema:acme",
     "object_type": "schema",
     "op_type": "define-field",
     "op_version": 1,
@@ -165,7 +165,7 @@
     }
   },
   {
-    "object_id": "sch-acme",
+    "object_id": "schema:acme",
     "object_type": "schema",
     "op_type": "define-field",
     "op_version": 1,
@@ -187,7 +187,7 @@
     }
   },
   {
-    "object_id": "sch-acme",
+    "object_id": "schema:acme",
     "object_type": "schema",
     "op_type": "define-field",
     "op_version": 1,
@@ -202,7 +202,7 @@
     }
   },
   {
-    "object_id": "sch-acme",
+    "object_id": "schema:acme",
     "object_type": "schema",
     "op_type": "define-field",
     "op_version": 1,
@@ -216,7 +216,7 @@
     }
   },
   {
-    "object_id": "sch-acme",
+    "object_id": "schema:acme",
     "object_type": "schema",
     "op_type": "define-field",
     "op_version": 1,
@@ -230,7 +230,7 @@
     }
   },
   {
-    "object_id": "sch-acme",
+    "object_id": "schema:acme",
     "object_type": "schema",
     "op_type": "define-field",
     "op_version": 1,
@@ -244,7 +244,7 @@
     }
   },
   {
-    "object_id": "sch-acme",
+    "object_id": "schema:acme",
     "object_type": "schema",
     "op_type": "define-field",
     "op_version": 1,
@@ -258,7 +258,7 @@
     }
   },
   {
-    "object_id": "sch-acme",
+    "object_id": "schema:acme",
     "object_type": "schema",
     "op_type": "define-field",
     "op_version": 1,
@@ -280,7 +280,7 @@
     }
   },
   {
-    "object_id": "sch-acme",
+    "object_id": "schema:acme",
     "object_type": "schema",
     "op_type": "define-field",
     "op_version": 1,
@@ -295,7 +295,7 @@
     }
   },
   {
-    "object_id": "sch-acme",
+    "object_id": "schema:acme",
     "object_type": "schema",
     "op_type": "define-field",
     "op_version": 1,

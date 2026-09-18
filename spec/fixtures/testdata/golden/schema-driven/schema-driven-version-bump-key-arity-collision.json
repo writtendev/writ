@@ -1,9 +1,9 @@
 {
   "schemas": [
     {
-      "object_id": "sch-acme",
+      "object_id": "schema:acme",
       "schema": {
-        "object_id": "sch-acme",
+        "object_id": "schema:acme",
         "namespace": "acme",
         "types": [
           {
@@ -62,7 +62,7 @@
     {
       "object_type": "acme.gadget",
       "object_ids": [
-        "sch-acme"
+        "schema:acme"
       ],
       "reason": "field rule (approve, 2, verdict) reuses target \"verdict\" already bound by (approve, 1, verdict), but they disagree on key; a key tuple is the keyed-lww register's identity, not what it holds, so rules sharing a target MUST agree on it even across a version bump of the same (op_type, field) — a version bump that changes the key tuple or a key column's type must declare a distinct target (spec/schema-ops.md §8)"
     }

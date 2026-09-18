@@ -2,7 +2,7 @@
   "ops": [
     {
       "ref": "refs/writ/alice/schema",
-      "commit": "7e7b98e49daea722263a972a87eb6425554eec85",
+      "commit": "6878f32e6ceba5d25b58018d4349cddbfb8921eb",
       "parents": [],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -11,11 +11,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "81b9c3ec973cb4bc15875a3c04ef000cd6437f83"
+          "sha": "1a44f955f1da02c7e96e27e24a524e12a0f57d7b"
         }
       ],
-      "payload": "{\"body\":{\"namespace\":\"acme\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"create\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{\"namespace\":\"acme\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"create\",\"op_version\":1}",
+      "payload": "{\"body\":{\"namespace\":\"acme\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"create\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"namespace\":\"acme\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"create\",\"op_version\":1}",
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "valid",
@@ -29,9 +29,9 @@
     },
     {
       "ref": "refs/writ/alice/schema",
-      "commit": "d2d4bf47dccd80491cdecacab391d6840646c5a2",
+      "commit": "bc8e7c1f1c78f9de75b6fad53a582223bf0c66e7",
       "parents": [
-        "7e7b98e49daea722263a972a87eb6425554eec85"
+        "6878f32e6ceba5d25b58018d4349cddbfb8921eb"
       ],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -40,11 +40,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "6957ee331e0bc97497b48fb6d13cc9560fce8075"
+          "sha": "32b3ef318b1c47b79bf87da2452a0501aee27c58"
         }
       ],
-      "payload": "{\"body\":{\"type\":\"acme.widget\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-type\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{\"type\":\"acme.widget\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-type\",\"op_version\":1}",
+      "payload": "{\"body\":{\"type\":\"acme.widget\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"define-type\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"type\":\"acme.widget\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"define-type\",\"op_version\":1}",
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "valid",
@@ -58,9 +58,9 @@
     },
     {
       "ref": "refs/writ/alice/schema",
-      "commit": "b418d747e52331c52e28b53fb37e39d16f9748ab",
+      "commit": "27382775734ac958e763d554093467861828431e",
       "parents": [
-        "d2d4bf47dccd80491cdecacab391d6840646c5a2"
+        "bc8e7c1f1c78f9de75b6fad53a582223bf0c66e7"
       ],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -69,11 +69,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "c5318ad411a51eec6a0b5c7c32feaf2dcd3b5c2d"
+          "sha": "f5ef6a6bd428327b6fb4c75d93c5620619aed5fd"
         }
       ],
-      "payload": "{\"body\":{\"type\":\"acme.gadget\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-type\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{\"type\":\"acme.gadget\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-type\",\"op_version\":1}",
+      "payload": "{\"body\":{\"type\":\"acme.gadget\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"define-type\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"type\":\"acme.gadget\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"define-type\",\"op_version\":1}",
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "valid",
@@ -87,9 +87,9 @@
     },
     {
       "ref": "refs/writ/alice/schema",
-      "commit": "44b0282ab8f68b2158df49e0e84f670bd2f925fe",
+      "commit": "48c204f4cba9c214de249f181eeebd04d24f5f62",
       "parents": [
-        "b418d747e52331c52e28b53fb37e39d16f9748ab"
+        "27382775734ac958e763d554093467861828431e"
       ],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -98,11 +98,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "49876d050b80e49d1671654983ad6d529c2a6341"
+          "sha": "fc73c838d3786a34fce95d270003e3c58cde1680"
         }
       ],
-      "payload": "{\"body\":{\"field\":\"title\",\"op_type\":\"create\",\"op_version\":\"1\",\"strategy\":\"lww\",\"type\":\"acme.widget\",\"value_type\":\"string\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{\"field\":\"title\",\"op_type\":\"create\",\"op_version\":\"1\",\"strategy\":\"lww\",\"type\":\"acme.widget\",\"value_type\":\"string\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
+      "payload": "{\"body\":{\"field\":\"title\",\"op_type\":\"create\",\"op_version\":\"1\",\"strategy\":\"lww\",\"type\":\"acme.widget\",\"value_type\":\"string\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"field\":\"title\",\"op_type\":\"create\",\"op_version\":\"1\",\"strategy\":\"lww\",\"type\":\"acme.widget\",\"value_type\":\"string\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "valid",
@@ -116,9 +116,9 @@
     },
     {
       "ref": "refs/writ/alice/schema",
-      "commit": "0b31d03fd525a1af2158e451d96ca37d58af73af",
+      "commit": "3ed7ada4ebe921505e07e57ad6490d205cfeded1",
       "parents": [
-        "44b0282ab8f68b2158df49e0e84f670bd2f925fe"
+        "48c204f4cba9c214de249f181eeebd04d24f5f62"
       ],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -127,11 +127,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "c9407d9b2bd36636310caffca41752dac6c4393a"
+          "sha": "7c6eb15444ee96aca683efc3cf309f479f0df301"
         }
       ],
-      "payload": "{\"body\":{\"field\":\"base\",\"op_type\":\"log\",\"op_version\":\"1\",\"strategy\":\"append\",\"type\":\"acme.widget\",\"value_type\":\"git-oid\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{\"field\":\"base\",\"op_type\":\"log\",\"op_version\":\"1\",\"strategy\":\"append\",\"type\":\"acme.widget\",\"value_type\":\"git-oid\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
+      "payload": "{\"body\":{\"field\":\"base\",\"op_type\":\"log\",\"op_version\":\"1\",\"strategy\":\"append\",\"type\":\"acme.widget\",\"value_type\":\"git-oid\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"field\":\"base\",\"op_type\":\"log\",\"op_version\":\"1\",\"strategy\":\"append\",\"type\":\"acme.widget\",\"value_type\":\"git-oid\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "valid",
@@ -145,9 +145,9 @@
     },
     {
       "ref": "refs/writ/alice/schema",
-      "commit": "355f7791a6319fbff1b29758d37a78a7d0df92ce",
+      "commit": "f2787164af180502b6741da0e569a155afb69569",
       "parents": [
-        "0b31d03fd525a1af2158e451d96ca37d58af73af"
+        "3ed7ada4ebe921505e07e57ad6490d205cfeded1"
       ],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -156,11 +156,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "234eab24f531dfd4d35050c819151773b3fbbc5b"
+          "sha": "addf5011a29266401d4445c7be3b78047f1a86cd"
         }
       ],
-      "payload": "{\"body\":{\"field\":\"head\",\"op_type\":\"log\",\"op_version\":\"1\",\"strategy\":\"append\",\"type\":\"acme.widget\",\"value_type\":\"git-oid\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{\"field\":\"head\",\"op_type\":\"log\",\"op_version\":\"1\",\"strategy\":\"append\",\"type\":\"acme.widget\",\"value_type\":\"git-oid\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
+      "payload": "{\"body\":{\"field\":\"head\",\"op_type\":\"log\",\"op_version\":\"1\",\"strategy\":\"append\",\"type\":\"acme.widget\",\"value_type\":\"git-oid\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"field\":\"head\",\"op_type\":\"log\",\"op_version\":\"1\",\"strategy\":\"append\",\"type\":\"acme.widget\",\"value_type\":\"git-oid\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "valid",
@@ -174,9 +174,9 @@
     },
     {
       "ref": "refs/writ/alice/schema",
-      "commit": "1b8946edeb76bf9b2857a200098d9c7460c1144a",
+      "commit": "55318451ec6b561cc7832648f6731407d60e6573",
       "parents": [
-        "355f7791a6319fbff1b29758d37a78a7d0df92ce"
+        "f2787164af180502b6741da0e569a155afb69569"
       ],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -185,11 +185,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "b4a3f013550781c25405037e6ba4dbae8d70f94a"
+          "sha": "bae51a4292154b9959c1bee288443fabe00a9262"
         }
       ],
-      "payload": "{\"body\":{\"field\":\"revision\",\"key\":[\"subject\",\"revision\"],\"key_types\":{\"revision\":\"git-oid\",\"subject\":\"person-ref\"},\"op_type\":\"vote\",\"op_version\":\"1\",\"strategy\":\"keyed-lww\",\"type\":\"acme.widget\",\"value_type\":\"git-oid\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{\"field\":\"revision\",\"key\":[\"subject\",\"revision\"],\"key_types\":{\"revision\":\"git-oid\",\"subject\":\"person-ref\"},\"op_type\":\"vote\",\"op_version\":\"1\",\"strategy\":\"keyed-lww\",\"type\":\"acme.widget\",\"value_type\":\"git-oid\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
+      "payload": "{\"body\":{\"field\":\"revision\",\"key\":[\"subject\",\"revision\"],\"key_types\":{\"revision\":\"git-oid\",\"subject\":\"person-ref\"},\"op_type\":\"vote\",\"op_version\":\"1\",\"strategy\":\"keyed-lww\",\"type\":\"acme.widget\",\"value_type\":\"git-oid\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"field\":\"revision\",\"key\":[\"subject\",\"revision\"],\"key_types\":{\"revision\":\"git-oid\",\"subject\":\"person-ref\"},\"op_type\":\"vote\",\"op_version\":\"1\",\"strategy\":\"keyed-lww\",\"type\":\"acme.widget\",\"value_type\":\"git-oid\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "valid",
@@ -203,9 +203,9 @@
     },
     {
       "ref": "refs/writ/alice/schema",
-      "commit": "a29042564ea3cb6fde7c93a288ec71424933c534",
+      "commit": "11a96881d7aa8fab9a70893b3d4ceb09355c4ec8",
       "parents": [
-        "1b8946edeb76bf9b2857a200098d9c7460c1144a"
+        "55318451ec6b561cc7832648f6731407d60e6573"
       ],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -214,11 +214,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "f17f87efb96ae6892a40a9124e4cf07517a3b509"
+          "sha": "897119b6d14315fa1ef36123bbe05678b9e15adb"
         }
       ],
-      "payload": "{\"body\":{\"enum\":[\"yes\",\"no\",\"none\"],\"field\":\"choice\",\"key\":[\"subject\",\"revision\"],\"key_types\":{\"revision\":\"git-oid\",\"subject\":\"person-ref\"},\"op_type\":\"vote\",\"op_version\":\"1\",\"strategy\":\"keyed-lww\",\"type\":\"acme.widget\",\"value_type\":\"enum\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{\"enum\":[\"yes\",\"no\",\"none\"],\"field\":\"choice\",\"key\":[\"subject\",\"revision\"],\"key_types\":{\"revision\":\"git-oid\",\"subject\":\"person-ref\"},\"op_type\":\"vote\",\"op_version\":\"1\",\"strategy\":\"keyed-lww\",\"type\":\"acme.widget\",\"value_type\":\"enum\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
+      "payload": "{\"body\":{\"enum\":[\"yes\",\"no\",\"none\"],\"field\":\"choice\",\"key\":[\"subject\",\"revision\"],\"key_types\":{\"revision\":\"git-oid\",\"subject\":\"person-ref\"},\"op_type\":\"vote\",\"op_version\":\"1\",\"strategy\":\"keyed-lww\",\"type\":\"acme.widget\",\"value_type\":\"enum\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"enum\":[\"yes\",\"no\",\"none\"],\"field\":\"choice\",\"key\":[\"subject\",\"revision\"],\"key_types\":{\"revision\":\"git-oid\",\"subject\":\"person-ref\"},\"op_type\":\"vote\",\"op_version\":\"1\",\"strategy\":\"keyed-lww\",\"type\":\"acme.widget\",\"value_type\":\"enum\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "valid",
@@ -232,9 +232,9 @@
     },
     {
       "ref": "refs/writ/alice/schema",
-      "commit": "607b8f2c03bc960dca8e3f9b54d6419a8e7ed799",
+      "commit": "1f44797563562b38e75bf5b21c186e7f042f59be",
       "parents": [
-        "a29042564ea3cb6fde7c93a288ec71424933c534"
+        "11a96881d7aa8fab9a70893b3d4ceb09355c4ec8"
       ],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -243,11 +243,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "1b8ab1e66790062d4baa1d57f1750abda25522c0"
+          "sha": "8feb3f4eb65f75502b805720fc480f21bbab1ed6"
         }
       ],
-      "payload": "{\"body\":{\"field\":\"subject\",\"key\":[\"subject\",\"revision\"],\"key_types\":{\"revision\":\"git-oid\",\"subject\":\"person-ref\"},\"op_type\":\"vote\",\"op_version\":\"1\",\"strategy\":\"keyed-lww\",\"type\":\"acme.widget\",\"value_type\":\"person-ref\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{\"field\":\"subject\",\"key\":[\"subject\",\"revision\"],\"key_types\":{\"revision\":\"git-oid\",\"subject\":\"person-ref\"},\"op_type\":\"vote\",\"op_version\":\"1\",\"strategy\":\"keyed-lww\",\"type\":\"acme.widget\",\"value_type\":\"person-ref\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
+      "payload": "{\"body\":{\"field\":\"subject\",\"key\":[\"subject\",\"revision\"],\"key_types\":{\"revision\":\"git-oid\",\"subject\":\"person-ref\"},\"op_type\":\"vote\",\"op_version\":\"1\",\"strategy\":\"keyed-lww\",\"type\":\"acme.widget\",\"value_type\":\"person-ref\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"field\":\"subject\",\"key\":[\"subject\",\"revision\"],\"key_types\":{\"revision\":\"git-oid\",\"subject\":\"person-ref\"},\"op_type\":\"vote\",\"op_version\":\"1\",\"strategy\":\"keyed-lww\",\"type\":\"acme.widget\",\"value_type\":\"person-ref\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "valid",
@@ -261,9 +261,9 @@
     },
     {
       "ref": "refs/writ/alice/schema",
-      "commit": "f586f65479e40c07f0df4ea1737a8e10d3c8772a",
+      "commit": "33d18fcb9b84cce446660d6e63f3c90e6d56703c",
       "parents": [
-        "607b8f2c03bc960dca8e3f9b54d6419a8e7ed799"
+        "1f44797563562b38e75bf5b21c186e7f042f59be"
       ],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -272,11 +272,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "c734972f2969dea008f2fe45a4509dbe55c926e0"
+          "sha": "d86ed4cd7b032413d84dcc68790dc4ba5c6834dd"
         }
       ],
-      "payload": "{\"body\":{\"field\":\"subject\",\"op_type\":\"create\",\"op_version\":\"1\",\"strategy\":\"create-once\",\"type\":\"acme.gadget\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{\"field\":\"subject\",\"op_type\":\"create\",\"op_version\":\"1\",\"strategy\":\"create-once\",\"type\":\"acme.gadget\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
+      "payload": "{\"body\":{\"field\":\"subject\",\"op_type\":\"create\",\"op_version\":\"1\",\"strategy\":\"create-once\",\"type\":\"acme.gadget\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"field\":\"subject\",\"op_type\":\"create\",\"op_version\":\"1\",\"strategy\":\"create-once\",\"type\":\"acme.gadget\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "valid",
@@ -290,9 +290,9 @@
     },
     {
       "ref": "refs/writ/alice/schema",
-      "commit": "e672e6b8bf15ce9d47e77ddc543e5fb602dfa3b2",
+      "commit": "a352b255cef6c258b7eee51cc85e352e1c5b13cb",
       "parents": [
-        "f586f65479e40c07f0df4ea1737a8e10d3c8772a"
+        "33d18fcb9b84cce446660d6e63f3c90e6d56703c"
       ],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -301,11 +301,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "126665edca0894b51423f69cf0c5fa610e769e1f"
+          "sha": "22383362d9216b74dbc0938b8a3a75b62d666153"
         }
       ],
-      "payload": "{\"body\":{\"field\":\"text\",\"op_type\":\"create\",\"op_version\":\"1\",\"strategy\":\"lww\",\"type\":\"acme.gadget\",\"value_type\":\"text\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{\"field\":\"text\",\"op_type\":\"create\",\"op_version\":\"1\",\"strategy\":\"lww\",\"type\":\"acme.gadget\",\"value_type\":\"text\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
+      "payload": "{\"body\":{\"field\":\"text\",\"op_type\":\"create\",\"op_version\":\"1\",\"strategy\":\"lww\",\"type\":\"acme.gadget\",\"value_type\":\"text\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"field\":\"text\",\"op_type\":\"create\",\"op_version\":\"1\",\"strategy\":\"lww\",\"type\":\"acme.gadget\",\"value_type\":\"text\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "valid",
@@ -319,9 +319,9 @@
     },
     {
       "ref": "refs/writ/alice/schema",
-      "commit": "e2eeeeffa1b114dfc99adb94b1f9c404ca180bfb",
+      "commit": "5c70d5fade71cbb51df9cf420f4514a384260723",
       "parents": [
-        "e672e6b8bf15ce9d47e77ddc543e5fb602dfa3b2"
+        "a352b255cef6c258b7eee51cc85e352e1c5b13cb"
       ],
       "author": "Alice Example \u003calice@example.test\u003e",
       "committer": "Alice Example \u003calice@example.test\u003e",
@@ -330,11 +330,11 @@
         {
           "name": "op.json",
           "mode": "0100644",
-          "sha": "e793ad686f293895b1090910c49b7fcaa12f5f59"
+          "sha": "2f8c8fa947d38578d09d9501fc32fe95fd59198a"
         }
       ],
-      "payload": "{\"body\":{\"field\":\"anchor\",\"op_type\":\"create\",\"op_version\":\"1\",\"strategy\":\"create-once\",\"type\":\"acme.gadget\",\"value_type\":\"anchor\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
-      "canonical_payload": "{\"body\":{\"field\":\"anchor\",\"op_type\":\"create\",\"op_version\":\"1\",\"strategy\":\"create-once\",\"type\":\"acme.gadget\",\"value_type\":\"anchor\"},\"object_id\":\"sch-acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
+      "payload": "{\"body\":{\"field\":\"anchor\",\"op_type\":\"create\",\"op_version\":\"1\",\"strategy\":\"create-once\",\"type\":\"acme.gadget\",\"value_type\":\"anchor\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"field\":\"anchor\",\"op_type\":\"create\",\"op_version\":\"1\",\"strategy\":\"create-once\",\"type\":\"acme.gadget\",\"value_type\":\"anchor\"},\"object_id\":\"schema:acme\",\"object_type\":\"schema\",\"op_type\":\"define-field\",\"op_version\":1}",
       "signed": true,
       "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
       "verification_outcome": "valid",

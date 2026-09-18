@@ -49,7 +49,7 @@ func TestObjectsCreateApplyGetRoundTrip_NeverHeardOfType(t *testing.T) {
 	}
 	defer store.Close()
 
-	envs := compileTestSchema(t, "sch-waypoint", waypointSchemaSrc)
+	envs := compileTestSchema(t, "schema:acme", waypointSchemaSrc)
 	if err := store.ApplySchema(ctx, envs); err != nil {
 		t.Fatalf("ApplySchema failed: %v", err)
 	}
@@ -214,7 +214,7 @@ type widgetv {
 	}
 	defer store.Close()
 
-	envs := compileTestSchema(t, "sch-widgetv", src)
+	envs := compileTestSchema(t, "schema:acme", src)
 	if err := store.ApplySchema(ctx, envs); err != nil {
 		t.Fatalf("ApplySchema failed: %v", err)
 	}
@@ -339,9 +339,9 @@ func TestObjectsCreate_DeclaredTypeWithNoFieldsIsCreatable(t *testing.T) {
 	store, ctx := openWritableStore(t)
 
 	schemaEnvs := []codec.Envelope{
-		schemaEnv(t, "sch-widget", "create", map[string]any{"namespace": "acme"}),
-		schemaEnv(t, "sch-widget", "define-type", map[string]any{"type": "acme.widget"}),
-		schemaEnv(t, "sch-widget", "define-op", map[string]any{"type": "acme.widget", "op_type": "create", "op_version": "1"}),
+		schemaEnv(t, "schema:acme", "create", map[string]any{"namespace": "acme"}),
+		schemaEnv(t, "schema:acme", "define-type", map[string]any{"type": "acme.widget"}),
+		schemaEnv(t, "schema:acme", "define-op", map[string]any{"type": "acme.widget", "op_type": "create", "op_version": "1"}),
 	}
 	if err := store.ApplySchema(ctx, schemaEnvs); err != nil {
 		t.Fatalf("ApplySchema failed: %v", err)

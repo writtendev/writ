@@ -1,9 +1,9 @@
 {
   "schemas": [
     {
-      "object_id": "sch-acme",
+      "object_id": "schema:acme",
       "schema": {
-        "object_id": "sch-acme",
+        "object_id": "schema:acme",
         "namespace": "acme",
         "types": [
           {
@@ -60,28 +60,28 @@
     {
       "object_type": "acme.gadget",
       "object_ids": [
-        "sch-acme"
+        "schema:acme"
       ],
       "reason": "field rule (set-kind, 1, kind) is invalid and was not installed: rule for (set-kind, kind) declares value_type enum but no enum values"
     },
     {
       "object_type": "acme.gadget",
       "object_ids": [
-        "sch-acme"
+        "schema:acme"
       ],
       "reason": "field rule (set-note, 1, note) is invalid and was not installed: rule for (set-note, note) declares max_length on value_type \"bool\"; only string and text take one"
     },
     {
       "object_type": "acme.gadget",
       "object_ids": [
-        "sch-acme"
+        "schema:acme"
       ],
       "reason": "field rule (set-pair, 1, pair) is invalid and was not installed: rule for (set-pair, pair) declares key_types covering 1 column(s), want exactly the 2 in key [a b]"
     },
     {
       "object_type": "acme.gadget",
       "object_ids": [
-        "sch-acme"
+        "schema:acme"
       ],
       "reason": "field rule (set-status, 1, status) is invalid and was not installed: rule for (set-status, status) has unknown strategy \"bogus\""
     }

@@ -1,0 +1,126 @@
+{
+  "refs": [
+    {
+      "name": "refs/writ/0123456789abcdef/schema",
+      "commit": "0341777fec5e14a7d0492d311dcd2e907879db87"
+    },
+    {
+      "name": "refs/writ/fedcba9876543210/schema",
+      "commit": "cd925711a3432de7995bc024697729a2abd750a2"
+    },
+    {
+      "name": "refs/writ/0123456789abcdef/widget",
+      "commit": "53b3610b9aacfdd024dc6dd273300413ae48b3f6"
+    },
+    {
+      "name": "refs/writ/fedcba9876543210/gadget",
+      "commit": "45a8b3c5874a285cb72262d9bb02a2c6fdd9442b"
+    }
+  ],
+  "generations": [
+    {
+      "ref": "refs/writ/0123456789abcdef/schema",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "1609bb661526467a027df44366579ac508b54660",
+          "tree": "34ea76857b187dc8c8861abb7cb50918cb719bba",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "message": "writ: create schema/schema:acme\n",
+          "signed": true
+        },
+        {
+          "sha": "8374a6c37989426d4d69315950759c13ca80e4ff",
+          "tree": "ca78439bb9815d37872edb62cd893ea301ceddd2",
+          "parents": [
+            "1609bb661526467a027df44366579ac508b54660"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:01:00Z",
+          "message": "writ: define-type schema/schema:acme\n",
+          "signed": true
+        },
+        {
+          "sha": "0341777fec5e14a7d0492d311dcd2e907879db87",
+          "tree": "a1a1a3fa236a140a09cb40dd8570eac36c162408",
+          "parents": [
+            "8374a6c37989426d4d69315950759c13ca80e4ff"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:02:00Z",
+          "message": "writ: define-field schema/schema:acme\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/fedcba9876543210/schema",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "895e5bc0b13df4fccf8b43aeefdab7020f060ca9",
+          "tree": "a7cbc0fb101b2b40d3cf272c3962f4b128d92307",
+          "parents": [],
+          "author": "Bob Example \u003cbob@example.test\u003e",
+          "timestamp": "2026-01-01T00:00:30Z",
+          "message": "writ: create schema/rogue-object\n",
+          "signed": true
+        },
+        {
+          "sha": "c84ab7c057eb89d5d880f43eacbdbebf63014f34",
+          "tree": "40f7305f1a2cedaf46dbbad2afc181fec1442e5b",
+          "parents": [
+            "895e5bc0b13df4fccf8b43aeefdab7020f060ca9"
+          ],
+          "author": "Bob Example \u003cbob@example.test\u003e",
+          "timestamp": "2026-01-01T00:01:30Z",
+          "message": "writ: define-type schema/rogue-object\n",
+          "signed": true
+        },
+        {
+          "sha": "cd925711a3432de7995bc024697729a2abd750a2",
+          "tree": "5c6b043c8ceeb013027a985dbfce4fdc1f67dd39",
+          "parents": [
+            "c84ab7c057eb89d5d880f43eacbdbebf63014f34"
+          ],
+          "author": "Bob Example \u003cbob@example.test\u003e",
+          "timestamp": "2026-01-01T00:02:30Z",
+          "message": "writ: define-field schema/rogue-object\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/widget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "53b3610b9aacfdd024dc6dd273300413ae48b3f6",
+          "tree": "e905a7b2c8e7b5f24578ed3253e80528f2b18235",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:03:00Z",
+          "message": "writ: create acme.widget/widget-1\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/fedcba9876543210/gadget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "45a8b3c5874a285cb72262d9bb02a2c6fdd9442b",
+          "tree": "f595b9c1eb7b51369e708e87898e9ef7232d596d",
+          "parents": [],
+          "author": "Bob Example \u003cbob@example.test\u003e",
+          "timestamp": "2026-01-01T00:03:30Z",
+          "message": "writ: create bigco.gadget/gadget-1\n",
+          "signed": true
+        }
+      ]
+    }
+  ]
+}

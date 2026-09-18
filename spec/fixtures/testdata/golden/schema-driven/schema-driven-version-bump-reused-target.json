@@ -1,9 +1,9 @@
 {
   "schemas": [
     {
-      "object_id": "sch-acme",
+      "object_id": "schema:acme",
       "schema": {
-        "object_id": "sch-acme",
+        "object_id": "schema:acme",
         "namespace": "acme",
         "types": [
           {
@@ -33,7 +33,7 @@
     {
       "object_type": "acme.gadget",
       "object_ids": [
-        "sch-acme"
+        "schema:acme"
       ],
       "reason": "field rule (configure, 2, mode) reuses target \"mode\" already bound by (configure, 1, mode), but they disagree on strategy (\"lww\" vs \"set-union\"); a version bump that changes strategy must declare a distinct target"
     }

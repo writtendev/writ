@@ -142,7 +142,7 @@ type note {
 // counted alongside the objects it declares the types of — so a test
 // asserting over every object in a store names it here rather than
 // pretending the vocabulary arrived from nowhere.
-const coreSchemaObjectID = "sch-acme"
+const coreSchemaObjectID = "schema:acme"
 
 // applyCoreSchema installs coreSchemaSrc into store's log.
 func applyCoreSchema(t testing.TB, ctx context.Context, store *writ.Store) {

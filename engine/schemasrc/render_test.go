@@ -16,7 +16,7 @@ import (
 // can catch is otherwise indistinguishable from a normal field.
 func schemaWithField(f state.SchemaField) state.Schema {
 	return state.Schema{
-		ObjectID:  "sch-acme",
+		ObjectID:  "schema:acme",
 		Namespace: "acme",
 		Types: []state.SchemaType{
 			{
@@ -205,7 +205,7 @@ func TestRenderAcceptsConformingField(t *testing.T) {
 func TestRenderRejectsUnparseableNames(t *testing.T) {
 	baseSchema := func() state.Schema {
 		return state.Schema{
-			ObjectID:  "sch-acme",
+			ObjectID:  "schema:acme",
 			Namespace: "acme",
 			Types: []state.SchemaType{
 				{
@@ -296,7 +296,7 @@ func TestRenderRejectsUnparseableNames(t *testing.T) {
 // Parse accepts the result back.
 func TestRenderAcceptsConformingNames(t *testing.T) {
 	sch := state.Schema{
-		ObjectID:  "sch-acme",
+		ObjectID:  "schema:acme",
 		Namespace: "acme",
 		Types: []state.SchemaType{
 			{
@@ -326,7 +326,7 @@ func TestRenderAcceptsConformingNames(t *testing.T) {
 // global keywords table for every slot, field name included).
 func TestRenderAcceptsFieldsNamedDescriptionTargetAndType(t *testing.T) {
 	sch := state.Schema{
-		ObjectID:  "sch-acme",
+		ObjectID:  "schema:acme",
 		Namespace: "acme",
 		Types: []state.SchemaType{
 			{

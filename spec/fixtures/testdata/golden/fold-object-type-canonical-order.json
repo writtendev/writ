@@ -2,7 +2,7 @@
   "refs": [
     {
       "name": "refs/writ/0123456789abcdef/schema",
-      "commit": "5bf529b8676cc4472c72cacdd590e292ff694465"
+      "commit": "cafbdf8853c64cff978effdf31fc850f0c5e9738"
     },
     {
       "name": "refs/writ/0123456789abcdef/widget",
@@ -19,67 +19,67 @@
       "index": 0,
       "commits": [
         {
-          "sha": "7e7b98e49daea722263a972a87eb6425554eec85",
-          "tree": "2601775727c841f53a2960e4169e9a4a216f66d2",
+          "sha": "6878f32e6ceba5d25b58018d4349cddbfb8921eb",
+          "tree": "34ea76857b187dc8c8861abb7cb50918cb719bba",
           "parents": [],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2025-12-01T00:00:00Z",
-          "message": "writ: create schema/sch-acme\n",
+          "message": "writ: create schema/schema:acme\n",
           "signed": true
         },
         {
-          "sha": "d2d4bf47dccd80491cdecacab391d6840646c5a2",
-          "tree": "0d000adf9aa15b74b58f8785776daae39b83c5d1",
+          "sha": "bc8e7c1f1c78f9de75b6fad53a582223bf0c66e7",
+          "tree": "ca78439bb9815d37872edb62cd893ea301ceddd2",
           "parents": [
-            "7e7b98e49daea722263a972a87eb6425554eec85"
+            "6878f32e6ceba5d25b58018d4349cddbfb8921eb"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2025-12-01T00:01:00Z",
-          "message": "writ: define-type schema/sch-acme\n",
+          "message": "writ: define-type schema/schema:acme\n",
           "signed": true
         },
         {
-          "sha": "b418d747e52331c52e28b53fb37e39d16f9748ab",
-          "tree": "83d171b392b9a6e05f5f2aedc2994bb8b462d471",
+          "sha": "27382775734ac958e763d554093467861828431e",
+          "tree": "ebb82b68a989d50eb19dfef8475674e8f4925927",
           "parents": [
-            "d2d4bf47dccd80491cdecacab391d6840646c5a2"
+            "bc8e7c1f1c78f9de75b6fad53a582223bf0c66e7"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2025-12-01T00:02:00Z",
-          "message": "writ: define-type schema/sch-acme\n",
+          "message": "writ: define-type schema/schema:acme\n",
           "signed": true
         },
         {
-          "sha": "6e23d0b69c08e0ffb8956e15c583f3b45b67c45a",
-          "tree": "0aad48fc878cc6e488d3afe357e53cad015fbd6d",
+          "sha": "945ed2141810e9cdd848e7dd339253242330f16b",
+          "tree": "5e2cb14d285d4cf7fcddcb81150080d0ff88d79f",
           "parents": [
-            "b418d747e52331c52e28b53fb37e39d16f9748ab"
+            "27382775734ac958e763d554093467861828431e"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2025-12-01T00:03:00Z",
-          "message": "writ: define-field schema/sch-acme\n",
+          "message": "writ: define-field schema/schema:acme\n",
           "signed": true
         },
         {
-          "sha": "124dc6fd0aba7e33e967b7d6e040532389d263f1",
-          "tree": "ccdf76ae70cfc132f932ecb06da4256540eebcf6",
+          "sha": "6dd152eca347b63746830b3a99acae1f6d709fb5",
+          "tree": "d83958d0c207dbaadf97ef2b264535042aa6ffb8",
           "parents": [
-            "6e23d0b69c08e0ffb8956e15c583f3b45b67c45a"
+            "945ed2141810e9cdd848e7dd339253242330f16b"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2025-12-01T00:04:00Z",
-          "message": "writ: define-field schema/sch-acme\n",
+          "message": "writ: define-field schema/schema:acme\n",
           "signed": true
         },
         {
-          "sha": "5bf529b8676cc4472c72cacdd590e292ff694465",
-          "tree": "148ae4fcfa8c8a75c2ff46e94f71644bee605fa4",
+          "sha": "cafbdf8853c64cff978effdf31fc850f0c5e9738",
+          "tree": "c08d526a12c11fd88e7001c813635bd4d348c9c1",
           "parents": [
-            "124dc6fd0aba7e33e967b7d6e040532389d263f1"
+            "6dd152eca347b63746830b3a99acae1f6d709fb5"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2025-12-01T00:05:00Z",
-          "message": "writ: define-field schema/sch-acme\n",
+          "message": "writ: define-field schema/schema:acme\n",
           "signed": true
         }
       ]

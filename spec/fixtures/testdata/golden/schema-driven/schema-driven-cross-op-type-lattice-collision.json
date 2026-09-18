@@ -1,9 +1,9 @@
 {
   "schemas": [
     {
-      "object_id": "sch-acme",
+      "object_id": "schema:acme",
       "schema": {
-        "object_id": "sch-acme",
+        "object_id": "schema:acme",
         "namespace": "acme",
         "types": [
           {
@@ -39,7 +39,7 @@
     {
       "object_type": "acme.widget",
       "object_ids": [
-        "sch-acme"
+        "schema:acme"
       ],
       "reason": "field rule (promote, 1, level) reuses target \"level\" already bound by (demote, 1, level), but they disagree on lattice ([high low] vs [low high]); lattice is consulted by the strategy at fold time, so rules sharing a target MUST agree on it even across a version bump of the same (op_type, field) (spec/schema-ops.md §8)"
     }

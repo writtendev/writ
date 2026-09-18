@@ -2,11 +2,11 @@
   "refs": [
     {
       "name": "refs/writ/0123456789abcdef/schema",
-      "commit": "ae8794f2a5f25c7735ee9bea0e29426d7600033a"
+      "commit": "2be906a6c50f2e1bbdc1d961265365acd77cf5f8"
     },
     {
       "name": "refs/writ/fedcba9876543210/schema",
-      "commit": "1a2705d15dd87a255b8c357d76477c5999add155"
+      "commit": "534df537f5f77ca563d34edd7bf3fc1d5ea871e8"
     }
   ],
   "generations": [
@@ -15,23 +15,23 @@
       "index": 0,
       "commits": [
         {
-          "sha": "e757135a7ea39025ef0c9e671178087fde6ca133",
-          "tree": "be8cafb278e4d4cf625e04c9078116c568ad3b42",
+          "sha": "1609bb661526467a027df44366579ac508b54660",
+          "tree": "34ea76857b187dc8c8861abb7cb50918cb719bba",
           "parents": [],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:00:00Z",
-          "message": "writ: create schema/sch-race\n",
+          "message": "writ: create schema/schema:acme\n",
           "signed": true
         },
         {
-          "sha": "ae8794f2a5f25c7735ee9bea0e29426d7600033a",
-          "tree": "3cd94d9523b9a2105f1279d5ec4dc71f8d663b38",
+          "sha": "2be906a6c50f2e1bbdc1d961265365acd77cf5f8",
+          "tree": "55118e40b3576375338f6ebd11fd7e20a8196cf3",
           "parents": [
-            "e757135a7ea39025ef0c9e671178087fde6ca133"
+            "1609bb661526467a027df44366579ac508b54660"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:02:00Z",
-          "message": "writ: define-field schema/sch-race\n",
+          "message": "writ: define-field schema/schema:acme\n",
           "signed": true
         }
       ]
@@ -41,12 +41,12 @@
       "index": 0,
       "commits": [
         {
-          "sha": "1a2705d15dd87a255b8c357d76477c5999add155",
-          "tree": "978e00755c2fa0052dbb895437f013ca786d18a8",
+          "sha": "534df537f5f77ca563d34edd7bf3fc1d5ea871e8",
+          "tree": "258ab48f038dcb96ebffca73e4c51de890920e70",
           "parents": [],
           "author": "Bob Example \u003cbob@example.test\u003e",
           "timestamp": "2026-01-01T00:01:00Z",
-          "message": "writ: define-field schema/sch-race\n",
+          "message": "writ: define-field schema/schema:acme\n",
           "signed": true
         }
       ]

@@ -1,0 +1,76 @@
+name: schema-namespace-hijack-quarantined
+description: >
+  WRIT-254 change 1 (spec/schema-ops.md §3.4): a create op targeting a
+  derived-id object ("schema:acme") whose own namespace body field
+  disagrees with the id's suffix is uninterpretable and must never reach
+  the create-once namespace assignment, however early its t* orders it.
+  Alice honestly bootstraps schema:acme with namespace "acme" and declares
+  acme.widget. Bob, on his own writer chain, pushes a second, parentless
+  create on the same object id claiming namespace "evil" -- exactly the
+  shape a root op with a forged, unbounded author.When could use to win
+  create-once outright if this quarantine did not exist (bob's timestamp
+  is 1970-01-01, decades before alice's, so it would win t* ordering).
+  The hijack op must quarantine into UnknownOps instead: Namespace stays
+  "acme", and acme.widget's own declaration is unaffected. (pins: reader)
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: alice-create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: alice-define-type
+            parents: [alice-create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "acme.widget"
+            expect: accept
+
+          - id: alice-define-field
+            parents: [alice-define-type]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+  - name: refs/writ/fedcba9876543210/schema
+    history:
+      - commits:
+          - id: bob-hijack-create
+            author: bob
+            timestamp: 1970-01-01T00:00:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "evil"
+            expect: accept

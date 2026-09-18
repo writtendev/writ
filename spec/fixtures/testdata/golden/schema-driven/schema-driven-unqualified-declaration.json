@@ -1,9 +1,9 @@
 {
   "schemas": [
     {
-      "object_id": "sch-acme",
+      "object_id": "schema:acme",
       "schema": {
-        "object_id": "sch-acme",
+        "object_id": "schema:acme",
         "namespace": "acme",
         "types": [
           {
@@ -63,7 +63,7 @@
       "object_type": "acme.foo.bar",
       "namespace": "acme",
       "object_ids": [
-        "sch-acme"
+        "schema:acme"
       ],
       "reason": "define-type \"acme.foo.bar\" is not a valid object type (must match ^[a-z][a-z0-9-]{0,63}(\\.[a-z][a-z0-9-]{0,63})?$, max 129 chars, and not end in \".lock\") and was not installed"
     },
@@ -71,7 +71,7 @@
       "object_type": "bigco.retro",
       "namespace": "acme",
       "object_ids": [
-        "sch-acme"
+        "schema:acme"
       ],
       "reason": "define-type \"bigco.retro\" is not qualified with this schema object's own namespace \"acme\" (must be \"acme.\u003ctype\u003e\") and was not installed"
     },
@@ -79,7 +79,7 @@
       "object_type": "standup",
       "namespace": "acme",
       "object_ids": [
-        "sch-acme"
+        "schema:acme"
       ],
       "reason": "define-type \"standup\" is not qualified with this schema object's own namespace \"acme\" (must be \"acme.\u003ctype\u003e\") and was not installed"
     }

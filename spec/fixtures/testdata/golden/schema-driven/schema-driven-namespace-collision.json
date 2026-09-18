@@ -47,10 +47,16 @@
     {
       "namespace": "shared-namespace",
       "object_ids": [
-        "sch-alice",
+        "sch-alice"
+      ],
+      "reason": "schema object id \"sch-alice\" does not match the derived form \"schema:shared-namespace\" for namespace \"shared-namespace\" and none of its types were installed"
+    },
+    {
+      "namespace": "shared-namespace",
+      "object_ids": [
         "sch-bob"
       ],
-      "reason": "namespace \"shared-namespace\" is declared by more than one schema object"
+      "reason": "schema object id \"sch-bob\" does not match the derived form \"schema:shared-namespace\" for namespace \"shared-namespace\" and none of its types were installed"
     }
   ],
   "objects": [
@@ -63,9 +69,16 @@
           "t_star": 1767225780
         }
       ],
-      "state": {
-        "title": "Widget A"
-      }
+      "state": {},
+      "unknown_ops": [
+        {
+          "commit": "d7dc7fdde9d3fe9e3ddc85a6246a9af5ee9c725e",
+          "object_type": "shared-namespace.widget-a",
+          "op_type": "create",
+          "op_version": 1,
+          "verification": "wrong-key"
+        }
+      ]
     },
     {
       "object_id": "widget-b-1",
@@ -76,9 +89,16 @@
           "t_star": 1767225810
         }
       ],
-      "state": {
-        "title": "Widget B"
-      }
+      "state": {},
+      "unknown_ops": [
+        {
+          "commit": "4763128b5a32f8b9bc9ef67e2d123f1058e21f09",
+          "object_type": "shared-namespace.widget-b",
+          "op_type": "create",
+          "op_version": 1,
+          "verification": "wrong-key"
+        }
+      ]
     }
   ]
 }

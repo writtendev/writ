@@ -12,7 +12,7 @@ refs:
             author: alice
             timestamp: 2025-12-01T00:00:00Z
             op:
-              object_id: sch-acme
+              object_id: schema:acme
               object_type: schema
               op_type: create
               op_version: 1
@@ -25,7 +25,7 @@ refs:
             author: alice
             timestamp: 2025-12-01T00:01:00Z
             op:
-              object_id: sch-acme
+              object_id: schema:acme
               object_type: schema
               op_type: define-type
               op_version: 1
@@ -38,7 +38,7 @@ refs:
             author: alice
             timestamp: 2025-12-01T00:02:00Z
             op:
-              object_id: sch-acme
+              object_id: schema:acme
               object_type: schema
               op_type: define-type
               op_version: 1
@@ -51,7 +51,7 @@ refs:
             author: alice
             timestamp: 2025-12-01T00:03:00Z
             op:
-              object_id: sch-acme
+              object_id: schema:acme
               object_type: schema
               op_type: define-field
               op_version: 1
@@ -69,7 +69,7 @@ refs:
             author: alice
             timestamp: 2025-12-01T00:04:00Z
             op:
-              object_id: sch-acme
+              object_id: schema:acme
               object_type: schema
               op_type: define-field
               op_version: 1
@@ -90,7 +90,7 @@ refs:
             author: alice
             timestamp: 2025-12-01T00:05:00Z
             op:
-              object_id: sch-acme
+              object_id: schema:acme
               object_type: schema
               op_type: define-field
               op_version: 1
@@ -107,7 +107,7 @@ refs:
             author: alice
             timestamp: 2025-12-01T00:06:00Z
             op:
-              object_id: sch-acme
+              object_id: schema:acme
               object_type: schema
               op_type: define-field
               op_version: 1

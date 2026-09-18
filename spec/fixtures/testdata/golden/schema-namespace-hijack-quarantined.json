@@ -1,0 +1,66 @@
+{
+  "refs": [
+    {
+      "name": "refs/writ/0123456789abcdef/schema",
+      "commit": "0341777fec5e14a7d0492d311dcd2e907879db87"
+    },
+    {
+      "name": "refs/writ/fedcba9876543210/schema",
+      "commit": "4720ea1f881e6ccc7e2d80be55aa984e61a5d0b5"
+    }
+  ],
+  "generations": [
+    {
+      "ref": "refs/writ/0123456789abcdef/schema",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "1609bb661526467a027df44366579ac508b54660",
+          "tree": "34ea76857b187dc8c8861abb7cb50918cb719bba",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "message": "writ: create schema/schema:acme\n",
+          "signed": true
+        },
+        {
+          "sha": "8374a6c37989426d4d69315950759c13ca80e4ff",
+          "tree": "ca78439bb9815d37872edb62cd893ea301ceddd2",
+          "parents": [
+            "1609bb661526467a027df44366579ac508b54660"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:01:00Z",
+          "message": "writ: define-type schema/schema:acme\n",
+          "signed": true
+        },
+        {
+          "sha": "0341777fec5e14a7d0492d311dcd2e907879db87",
+          "tree": "a1a1a3fa236a140a09cb40dd8570eac36c162408",
+          "parents": [
+            "8374a6c37989426d4d69315950759c13ca80e4ff"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:02:00Z",
+          "message": "writ: define-field schema/schema:acme\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/fedcba9876543210/schema",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "4720ea1f881e6ccc7e2d80be55aa984e61a5d0b5",
+          "tree": "f582d4618c54f2d6524b1220da66274ca5e5e24d",
+          "parents": [],
+          "author": "Bob Example \u003cbob@example.test\u003e",
+          "timestamp": "1970-01-01T00:00:00Z",
+          "message": "writ: create schema/schema:acme\n",
+          "signed": true
+        }
+      ]
+    }
+  ]
+}

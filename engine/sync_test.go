@@ -700,7 +700,7 @@ func TestStoreSync_InvalidatesVocabulariesForAppendRegardlessOfWindow(t *testing
 	}
 
 	// Alice declares a new type and pushes it.
-	if err := sA.ApplySchema(ctx, compileTestSchema(t, "sch-peer", `namespace acme
+	if err := sA.ApplySchema(ctx, compileTestSchema(t, "schema:acme", `namespace acme
 description "peer schema for the sync-invalidation test"
 
 type gizmo {

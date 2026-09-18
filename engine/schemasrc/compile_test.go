@@ -50,7 +50,7 @@ type widget {
 }
 `
 	f := mustParse(t, src)
-	envs, err := schemasrc.Compile(f, "sch-acme")
+	envs, err := schemasrc.Compile(f, "schema:acme")
 	if err != nil {
 		t.Fatalf("Compile: %v", err)
 	}
@@ -88,7 +88,7 @@ type widget {
 }
 `
 	f := mustParse(t, src)
-	if _, err := schemasrc.Compile(f, "sch-acme"); err == nil {
+	if _, err := schemasrc.Compile(f, "schema:acme"); err == nil {
 		t.Fatal("expected an error for a duplicate op declaration")
 	} else if !strings.Contains(err.Error(), "declared more than once") {
 		t.Errorf("unexpected error: %v", err)
@@ -109,7 +109,7 @@ type widget {
 }
 `
 	f := mustParse(t, src)
-	if _, err := schemasrc.Compile(f, "sch-acme"); err == nil {
+	if _, err := schemasrc.Compile(f, "schema:acme"); err == nil {
 		t.Fatal("expected an error for a duplicate field declaration")
 	} else if !strings.Contains(err.Error(), "declared more than once") {
 		t.Errorf("unexpected error: %v", err)
@@ -134,7 +134,7 @@ type widget {
 }
 `
 	f := mustParse(t, src)
-	if _, err := schemasrc.Compile(f, "sch-acme"); err == nil {
+	if _, err := schemasrc.Compile(f, "schema:acme"); err == nil {
 		t.Fatal("expected an error for a duplicate type declaration")
 	} else if !strings.Contains(err.Error(), "declared more than once") {
 		t.Errorf("unexpected error: %v", err)
@@ -162,7 +162,7 @@ type ticket {
 }
 `
 	f := mustParse(t, src)
-	_, err := schemasrc.Compile(f, "sch-acme")
+	_, err := schemasrc.Compile(f, "schema:acme")
 	if err == nil {
 		t.Fatal("expected an error for a version bump reusing the default target across a strategy change")
 	}
@@ -196,7 +196,7 @@ type ticket {
 }
 `
 	f := mustParse(t, src)
-	if _, err := schemasrc.Compile(f, "sch-acme"); err != nil {
+	if _, err := schemasrc.Compile(f, "schema:acme"); err != nil {
 		t.Fatalf("Compile: %v", err)
 	}
 }
@@ -222,7 +222,7 @@ type widget {
 }
 `
 	f := mustParse(t, src)
-	_, err := schemasrc.Compile(f, "sch-acme")
+	_, err := schemasrc.Compile(f, "schema:acme")
 	if err == nil {
 		t.Fatal("expected an error for two op_types sharing a target but disagreeing on value_type")
 	}
@@ -265,7 +265,7 @@ type widget {
 }
 `
 	f := mustParse(t, src)
-	_, err := schemasrc.Compile(f, "sch-acme")
+	_, err := schemasrc.Compile(f, "schema:acme")
 	if err == nil {
 		t.Fatal("expected an error: a version-bump class (configure) and an unrelated class (reset) share target \"mode\"")
 	}
@@ -300,7 +300,7 @@ type ticket {
 }
 `
 	f := mustParse(t, src)
-	if _, err := schemasrc.Compile(f, "sch-acme"); err != nil {
+	if _, err := schemasrc.Compile(f, "schema:acme"); err != nil {
 		t.Fatalf("Compile: %v", err)
 	}
 }
@@ -343,7 +343,7 @@ type widget {
 		t.Run(opType, func(t *testing.T) {
 			src := fmt.Sprintf(template, opType, opType)
 			f := mustParse(t, src)
-			_, err := schemasrc.Compile(f, "sch-acme")
+			_, err := schemasrc.Compile(f, "schema:acme")
 			if err == nil {
 				t.Fatalf("expected an error: %q's version 1 (string) disagrees with beta's (int) even though %s's version 2 (also int) does not", opType, opType)
 			}
@@ -372,7 +372,7 @@ type widget {
 }
 `
 	f := mustParse(t, src)
-	envs, err := schemasrc.Compile(f, "sch-acme")
+	envs, err := schemasrc.Compile(f, "schema:acme")
 	if err != nil {
 		t.Fatalf("Compile: %v", err)
 	}

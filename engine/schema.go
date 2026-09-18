@@ -940,6 +940,36 @@ func validNamespaceGrammar(namespace string) bool {
 	return namespace != "" && len(namespace) <= namespaceGrammarMaxLength && namespaceGrammar.MatchString(namespace)
 }
 
+// schemaObjectIDPrefix mirrors state's own unexported copy
+// (engine/state/schema.go) and cmd/writ's deriveSchemaObjectID: the
+// derived-id form's literal prefix (spec/identifiers.md's schema
+// carve-out, "schema:" + namespace). Kept as its own unexported literal
+// here too, rather than a shared exported symbol, since exporting a
+// three-package literal would grow api/engine.txt for no external caller.
+const schemaObjectIDPrefix = "schema:"
+
+// schemaObjectIDMatchesNamespace reports whether sch's own object id is
+// the derived form spec/identifiers.md's schema carve-out requires:
+// "schema:" + its own folded namespace (WRIT-254 change 2). A schema
+// object failing this is dropped by resolveSchemaTypes below —
+// contributing no type, field, op, or description — which is the
+// read-side half of making namespace identity actually enforced rather
+// than merely producer-promised (§1.1): change 1
+// (engine/state/schema.go's FoldSchema) closes the write side by
+// quarantining a `create` whose own `namespace` disagrees with the
+// derived id it targets; this closes the read side for every other way a
+// mismatched object could reach the log — a non-conforming producer, or
+// a hand-crafted commit appended directly onto a derived-id object's ref
+// under some unrelated object_id. It is also what makes an object_type
+// collision unreachable for a real, namespace-qualified type: two schema
+// objects that both survive this gate can never share a namespace,
+// because Store.Schema folds one state.Schema per distinct ObjectID
+// before this function ever sees them, and at most one ObjectID equals
+// "schema:" + any given namespace.
+func schemaObjectIDMatchesNamespace(sch state.Schema) bool {
+	return sch.ObjectID == schemaObjectIDPrefix+sch.Namespace
+}
+
 // declarationInstallable reports whether a declared type name could ever
 // be installed for a schema object carrying the given namespace: the
 // namespace itself must be grammar-valid, the type name must satisfy the
@@ -1015,8 +1045,16 @@ type resolvedSchemaTypes struct {
 	declared map[string]bool
 	// contested lists every object type two or more schema objects bind.
 	// Neither schema's rules are installed for it (§6): fields[t] and
-	// ops[t] are absent, and VocabulariesFromSchemas reports
-	// Vocabulary{Contested: true} for it.
+	// ops[t] are absent, and VocabulariesFromSchemas would report
+	// Vocabulary{Contested: true} for it — except VocabulariesFromSchemas
+	// never even looks up "schema" here (it special-cases and skips that
+	// key unconditionally), and WRIT-254's schema-object-id gate above
+	// means no other t can ever reach this map with two distinct owners
+	// (see the comment on that branch, and schemaObjectIDMatchesNamespace's
+	// doc comment). contested["schema"] can still be set — see the
+	// unconditional t.Name == "schema" branch — so this map is not always
+	// empty; it is codec.Vocabulary{Contested: true} specifically that has
+	// no reachable writer left, which the PR description flags for Matt.
 	contested map[string]bool
 	// fields holds, per non-contested non-"schema" object type, every
 	// field declaration that survived grammar, spec.ValidateFieldRule, and
@@ -1092,9 +1130,8 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 	sorted := append([]state.Schema(nil), schemas...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ObjectID < sorted[j].ObjectID })
 
-	boundBy := make(map[string]string)        // object_type -> owning schema ObjectID
-	namespaceOwner := make(map[string]string) // namespace -> owning schema ObjectID
-	contested := make(map[string]bool)        // object_type -> withheld from installation
+	boundBy := make(map[string]string) // object_type -> owning schema ObjectID
+	contested := make(map[string]bool) // object_type -> withheld from installation
 	declared := make(map[string]bool)
 	var conflicts []SchemaConflict
 
@@ -1117,18 +1154,27 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 			continue
 		}
 
-		if sch.Namespace != "" {
-			if owner, ok := namespaceOwner[sch.Namespace]; ok {
-				if owner != sch.ObjectID {
-					conflicts = append(conflicts, SchemaConflict{
-						Namespace: sch.Namespace,
-						ObjectIDs: []string{owner, sch.ObjectID},
-						Reason:    fmt.Sprintf("namespace %q is declared by more than one schema object", sch.Namespace),
-					})
-				}
-			} else {
-				namespaceOwner[sch.Namespace] = sch.ObjectID
-			}
+		// Schema object id implied by namespace (WRIT-254 change 2), gated
+		// immediately after the namespace-grammar check above and before
+		// any of this object's types are looked at: a schema object
+		// carrying a well-formed namespace but the wrong object id for it
+		// — a non-conforming producer, or a hand-crafted commit appended
+		// under some unrelated object_id — is dropped wholesale, the same
+		// "one bad root, whole object refused" shape the grammar gate
+		// above uses. This also replaces the old namespace-collision
+		// check that used to live here: two schema objects declaring the
+		// same namespace can no longer both survive this gate, since at
+		// most one ObjectID can equal that namespace's one derived form,
+		// so the collision this section used to detect and report is now
+		// unreachable rather than merely refused after the fact
+		// (schemaObjectIDMatchesNamespace's doc comment above).
+		if !schemaObjectIDMatchesNamespace(sch) {
+			conflicts = append(conflicts, SchemaConflict{
+				Namespace: sch.Namespace,
+				ObjectIDs: []string{sch.ObjectID},
+				Reason:    fmt.Sprintf("schema object id %q does not match the derived form %q for namespace %q and none of its types were installed", sch.ObjectID, schemaObjectIDPrefix+sch.Namespace, sch.Namespace),
+			})
+			continue
 		}
 
 		for _, t := range sch.Types {
@@ -1187,6 +1233,26 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 			}
 			declared[t.Name] = true
 
+			// WRIT-254 note on reachability, left in place rather than
+			// resolved by deletion (Matt's ruling: narrow the prose that
+			// depends on this branch, keep the mechanism). For a real,
+			// namespace-qualified t.Name, this branch is no longer
+			// reachable: two entries in sorted can never both pass the
+			// schema-object-id gate above with the same namespace, since
+			// at most one ObjectID equals "schema:" + any given
+			// namespace, and typeIsQualifiedForNamespace requires t.Name
+			// to carry that exact namespace as its prefix — so two
+			// surviving schema objects can never bind the identical
+			// qualified t.Name here. It stays reachable only for the
+			// literal bare type "schema", via the unconditional branch
+			// above this loop (t.Name == "schema"), which sets
+			// contested["schema"] on any single qualifying declaration
+			// with no owner comparison at all — that branch never reaches
+			// this one. Left installed rather than removed: deleting it
+			// would also retire the one remaining contested[...] writer
+			// this file has for a non-"schema" type, which is the
+			// producer tier-3 / codec.Vocabulary.Contested question the
+			// PR description flags for Matt rather than settling here.
 			owner, bound := boundBy[t.Name]
 			if !bound {
 				boundBy[t.Name] = sch.ObjectID
@@ -1210,15 +1276,25 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 	for _, sch := range sorted {
 		for _, t := range sch.Types {
 			// Mirrors the first pass's namespace-grammar, object_type-
-			// grammar, and namespace-qualification gates (WRIT-217,
-			// WRIT-253) via the same declarationInstallable predicate that
-			// pass uses: a type that failed any of them above never
-			// touched boundBy/declared and was never a candidate for
-			// contested either, so it must be excluded here by the exact
-			// same test, not inferred from contested[t.Name] alone —
+			// grammar, namespace-qualification, and schema-object-id
+			// gates (WRIT-217, WRIT-253, WRIT-254) via the same
+			// declarationInstallable/schemaObjectIDMatchesNamespace
+			// predicates that pass uses: a type or a whole schema object
+			// that failed any of them above never touched
+			// boundBy/declared and was never a candidate for contested
+			// either, so it must be excluded here by the exact same
+			// tests, not inferred from contested[t.Name] alone —
 			// otherwise a gated declaration's own fields would still
 			// populate fields[t.Name] and end up installed regardless.
-			if t.Name == "schema" || contested[t.Name] || !declarationInstallable(t.Name, sch.Namespace) {
+			// schemaObjectIDMatchesNamespace(sch) matters here
+			// independently of declarationInstallable: this loop ranges
+			// over sorted, not over whatever the first pass admitted, so
+			// a schema object the first pass dropped wholesale for a
+			// mismatched id — but whose declared type name would
+			// otherwise still look grammar-valid and correctly
+			// qualified — must be excluded here too, or its fields would
+			// install anyway despite never having reached boundBy.
+			if t.Name == "schema" || contested[t.Name] || !declarationInstallable(t.Name, sch.Namespace) || !schemaObjectIDMatchesNamespace(sch) {
 				continue
 			}
 

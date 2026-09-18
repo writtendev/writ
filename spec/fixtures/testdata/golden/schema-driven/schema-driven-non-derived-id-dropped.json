@@ -1,0 +1,90 @@
+{
+  "schemas": [
+    {
+      "object_id": "rogue-object",
+      "schema": {
+        "object_id": "rogue-object",
+        "namespace": "bigco",
+        "types": [
+          {
+            "type": "bigco.gadget",
+            "fields": [
+              {
+                "field": "title",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "object_id": "schema:acme",
+      "schema": {
+        "object_id": "schema:acme",
+        "namespace": "acme",
+        "types": [
+          {
+            "type": "acme.widget",
+            "fields": [
+              {
+                "field": "title",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "conflicts": [
+    {
+      "namespace": "bigco",
+      "object_ids": [
+        "rogue-object"
+      ],
+      "reason": "schema object id \"rogue-object\" does not match the derived form \"schema:bigco\" for namespace \"bigco\" and none of its types were installed"
+    }
+  ],
+  "objects": [
+    {
+      "object_id": "gadget-1",
+      "object_type": "bigco.gadget",
+      "total_order": [
+        {
+          "commit": "45a8b3c5874a285cb72262d9bb02a2c6fdd9442b",
+          "t_star": 1767225810
+        }
+      ],
+      "state": {},
+      "unknown_ops": [
+        {
+          "commit": "45a8b3c5874a285cb72262d9bb02a2c6fdd9442b",
+          "object_type": "bigco.gadget",
+          "op_type": "create",
+          "op_version": 1,
+          "verification": "wrong-key"
+        }
+      ]
+    },
+    {
+      "object_id": "widget-1",
+      "object_type": "acme.widget",
+      "total_order": [
+        {
+          "commit": "53b3610b9aacfdd024dc6dd273300413ae48b3f6",
+          "t_star": 1767225780
+        }
+      ],
+      "state": {
+        "title": "Widget"
+      }
+    }
+  ]
+}

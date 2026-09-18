@@ -1,9 +1,9 @@
 {
   "objects": [
     {
-      "object_id": "sch-acme",
+      "object_id": "schema:acme",
       "schema": {
-        "object_id": "sch-acme",
+        "object_id": "schema:acme",
         "namespace": "acme",
         "types": [
           {
@@ -44,28 +44,28 @@
         ],
         "unknown_ops": [
           {
-            "commit": "9b12df08267b09d176f24c23dd96908f4e47eff9",
+            "commit": "e1fdccb75784b3fbd787717b2f1b2134d0e39bd4",
             "object_type": "schema",
             "op_type": "define-field",
             "op_version": 1,
             "verification": "wrong-key"
           },
           {
-            "commit": "b27a56c03802b3f66711c59e6e09eef27fdbcf48",
+            "commit": "3606c1edcc70d692ca886203abe99251af2c2f6d",
             "object_type": "schema",
             "op_type": "define-field",
             "op_version": 1,
             "verification": "wrong-key"
           },
           {
-            "commit": "7eb6cdf1e87983fc814aded3088f424e702d12b5",
+            "commit": "ec2f82fd5a25ed808f6467b45e49d7774c41544c",
             "object_type": "schema",
             "op_type": "define-field",
             "op_version": 1,
             "verification": "wrong-key"
           },
           {
-            "commit": "97f04c837671dbeb8dbabe686f800d490af6cbcc",
+            "commit": "0a22559cd750dfefd605787940f3c985b6dc3d46",
             "object_type": "schema",
             "op_type": "define-field",
             "op_version": 1,
