@@ -973,6 +973,13 @@ func TestInit_NoSuchRemoteWritesNoPhantomSection(t *testing.T) {
 // *whole* run, leaving a perfectly good "origin" unconfigured too. writ
 // init must configure every discovered remote it can and only report the
 // one it could not, rather than stranding the others.
+//
+// Round 4: a url-less section never had anything configured for it, so
+// skipping it is not a partial result -- the exit code is 0, not 1 (that
+// stays reserved for a *real* remote, with a url, that Ensure's gate
+// rejects for an invalid name; see
+// TestInit_DiscoveredDashLeadingRemoteDoesNotStrandGoodOnes). The ghost is
+// still named on stderr either way.
 func TestInit_DiscoveredGhostRemoteDoesNotStrandGoodOnes(t *testing.T) {
 	env := setupTestCLIEnv(t)
 
@@ -983,8 +990,8 @@ func TestInit_DiscoveredGhostRemoteDoesNotStrandGoodOnes(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("init exited with %d, want 1 (partial: one discovered remote skipped); stderr: %s", code, stderr.String())
+	if code != 0 {
+		t.Fatalf("init exited with %d, want 0 (a url-less ghost had nothing configured for it, so nothing is stranded); stderr: %s", code, stderr.String())
 	}
 
 	originFetch := getGitConfigAll(t, env.repoDir, "remote.origin.fetch")
