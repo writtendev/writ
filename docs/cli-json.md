@@ -246,7 +246,7 @@ Runs the same computation as `writ schema plan`, then signs and appends the resu
 
 ### `writ schema show [<type>] --json`
 
-Reports the vocabulary `Store.Types` resolves right now — built-in types overlaid by whatever the log declares. This is a different question from `writ schema plan`/`apply` (`Store.Schema`, the working-tree `writ.schema` file's own view): `schema show` answers "what is installed and folding today," not "what would this file change."
+Reports the vocabulary `Store.Types` resolves right now — exactly what the log's `schema` objects declare. This is a different question from `writ schema plan`/`apply` (`Store.Schema`, the working-tree `writ.schema` file's own view): `schema show` answers "what is installed and folding today," not "what would this file change."
 
 - **Envelope `kind`**: `"schema.show"`
 - **`data` Type**: with `<type>`, one `SchemaType` object; with no `<type>`, an array of `SchemaType` objects (`[]SchemaType`) — every installed type, sorted by name.

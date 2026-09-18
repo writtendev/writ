@@ -5,17 +5,18 @@ import (
 	"strconv"
 )
 
-const localSchemaVersion = 2
+// localSchemaVersion 3: WRIT-275 dropped the read_state table with
+// Store.ReadState (Mark/Clear/Unread), whose only reader that deletion
+// removed.
+const localSchemaVersion = 3
 
 var localTables = []string{
 	"meta",
-	"read_state",
 	"sync_cursors",
 }
 
 var localTableQueries = map[string]string{
 	"meta":         "SELECT * FROM meta ORDER BY key ASC",
-	"read_state":   "SELECT * FROM read_state ORDER BY object_id ASC",
 	"sync_cursors": "SELECT * FROM sync_cursors ORDER BY remote ASC, ref_name ASC",
 }
 
@@ -23,12 +24,6 @@ const localSchemaSQL = `
 CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS read_state (
-    object_id TEXT PRIMARY KEY,
-    last_read_at INTEGER NOT NULL,
-    last_read_op_id TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS sync_cursors (

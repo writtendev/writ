@@ -245,7 +245,8 @@ func TestInvalidAnchorVectors(t *testing.T) {
 
 // TestGitHubConversionVectors checks the anchor halves of the informative
 // {github, pr, anchor} conversion vectors (spec/anchors.md appendix A).
-// The conversion itself is exercised by the bridge once it exists.
+// The conversion itself is exercised by whatever consumer imports these
+// comments, once one exists.
 func TestGitHubConversionVectors(t *testing.T) {
 	sch := compileAnchorSchema(t)
 	for _, name := range readDirNames(t, "testdata/anchors/github") {

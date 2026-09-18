@@ -67,9 +67,7 @@ Wrote starter /path/to/repo/writ.schema
 ```
 
 The starter file `writ init` wrote has a namespace and nothing else — it
-declares no types of its own (see the note above on this repository's own
-still-built-in types, which live in the engine rather than in any
-`writ.schema` file):
+declares no types of its own:
 
 ```
 namespace my-project

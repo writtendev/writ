@@ -243,6 +243,20 @@ func TestVerification_ForgedOpFoldsButFlagged(t *testing.T) {
 	if preRes.Verification != "valid" {
 		t.Errorf("pre-forgery ObjectResult.Verification = %q, want %q", preRes.Verification, "valid")
 	}
+
+	// The forgery follows A's own create op causally, the way a real edit
+	// would: the projection's frontier (WRIT-275 deleted ObjectResult.LastOpID
+	// as git plumbing on the query surface, so the test-only projection seam
+	// is how a caller inside this module still reaches an op id for this).
+	frontier, err := writ.StoreProjection(storeA).Frontier(id)
+	if err != nil {
+		t.Fatalf("Frontier (pre-forgery): %v", err)
+	}
+	if len(frontier) != 1 {
+		t.Fatalf("pre-forgery frontier = %v, want exactly one op", frontier)
+	}
+	preLastOpID := frontier[0]
+
 	if err := storeA.Close(); err != nil {
 		t.Fatalf("Close storeA: %v", err)
 	}
@@ -254,7 +268,7 @@ func TestVerification_ForgedOpFoldsButFlagged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("git.PlainOpen: %v", err)
 	}
-	forgeOp(t, repo, malloryWriterID, id, "acme.widget", "update", 1, map[string]any{"title": "FORGED"}, "", preRes.LastOpID)
+	forgeOp(t, repo, malloryWriterID, id, "acme.widget", "update", 1, map[string]any{"title": "FORGED"}, "", preLastOpID)
 
 	// A fresh writ.Open, exactly as a second reader would see it.
 	storeB, err := writ.Open(dir)

@@ -9,10 +9,10 @@ import (
 	"github.com/writtendev/writ/internal/state"
 )
 
-func insertObject(t *testing.T, db *sql.DB, objectID, objectType string, opCount int, lastOpID, authorName, authorEmail string, createdAt, updatedAt int64) {
+func insertObject(t *testing.T, db *sql.DB, objectID, objectType string, opCount int, authorName, authorEmail string, createdAt, updatedAt int64) {
 	t.Helper()
-	execSQL(t, db, "INSERT INTO objects (object_id, object_type, op_count, last_op_id, author_name, author_email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		objectID, objectType, opCount, lastOpID, authorName, authorEmail, createdAt, updatedAt)
+	execSQL(t, db, "INSERT INTO objects (object_id, object_type, op_count, author_name, author_email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		objectID, objectType, opCount, authorName, authorEmail, createdAt, updatedAt)
 }
 
 func execSQL(t *testing.T, db *sql.DB, query string, args ...any) {
@@ -46,14 +46,14 @@ func TestObjectsCrossTypeFilter(t *testing.T) {
 	}
 
 	rawDB := db.DB()
-	insertObject(t, rawDB, "tkt-1", "ticket", 1, "op-tkt-1", "Alice Smith", "alice@example.com", 1000, 1100)
+	insertObject(t, rawDB, "tkt-1", "ticket", 1, "Alice Smith", "alice@example.com", 1000, 1100)
 	execSQL(t, rawDB, "INSERT INTO o_ticket (object_id, f_title) VALUES (?, ?)", "tkt-1", "Fix 100% CPU in loop_worker")
-	insertObject(t, rawDB, "tkt-2", "ticket", 1, "op-tkt-2", "Bob Jones", "bob@example.com", 1200, 1200)
+	insertObject(t, rawDB, "tkt-2", "ticket", 1, "Bob Jones", "bob@example.com", 1200, 1200)
 	execSQL(t, rawDB, "INSERT INTO o_ticket (object_id, f_title) VALUES (?, ?)", "tkt-2", "Add feature foo_bar")
-	insertObject(t, rawDB, "tkt-3", "ticket", 1, "op-tkt-3", "Charlie Brown", "charlie@example.com", 1300, 1300)
+	insertObject(t, rawDB, "tkt-3", "ticket", 1, "Charlie Brown", "charlie@example.com", 1300, 1300)
 	execSQL(t, rawDB, "INSERT INTO o_ticket (object_id, f_title) VALUES (?, ?)", "tkt-3", "Refactor storage layer")
 
-	insertObject(t, rawDB, "su-1", "standup", 1, "op-su-1", "Alice Smith", "alice@example.com", 2000, 2000)
+	insertObject(t, rawDB, "su-1", "standup", 1, "Alice Smith", "alice@example.com", 2000, 2000)
 	execSQL(t, rawDB, "INSERT INTO o_standup (object_id, f_title) VALUES (?, ?)", "su-1", "Memory leak under 100% workload")
 
 	// Filter by type
@@ -138,10 +138,10 @@ func TestObjectsTextClauseSkipsTypeWithNoTextTarget(t *testing.T) {
 	}
 
 	rawDB := db.DB()
-	insertObject(t, rawDB, "widget-1", "widget", 1, "op-widget-1", "Alice Smith", "alice@example.com", 1000, 1000)
+	insertObject(t, rawDB, "widget-1", "widget", 1, "Alice Smith", "alice@example.com", 1000, 1000)
 	execSQL(t, rawDB, "INSERT INTO o_widget (object_id, f_active) VALUES (?, ?)", "widget-1", 1)
 
-	insertObject(t, rawDB, "gadget-1", "gadget", 1, "op-gadget-1", "Bob Jones", "bob@example.com", 2000, 2000)
+	insertObject(t, rawDB, "gadget-1", "gadget", 1, "Bob Jones", "bob@example.com", 2000, 2000)
 	execSQL(t, rawDB, "INSERT INTO o_gadget (object_id, f_title) VALUES (?, ?)", "gadget-1", "a shiny gadget")
 
 	results, err := db.Objects(projection.ObjectFilter{Text: "shiny"})
@@ -203,7 +203,7 @@ func TestObjectsNotDeletedTwoTombstoneTargets(t *testing.T) {
 		{"ticket-both", "archived and purged", 1, 1},
 	}
 	for i, s := range seed {
-		insertObject(t, rawDB, s.id, "ticket", 1, "op-"+s.id, "Alice Smith", "alice@example.com", int64(1000+i), int64(1000+i))
+		insertObject(t, rawDB, s.id, "ticket", 1, "Alice Smith", "alice@example.com", int64(1000+i), int64(1000+i))
 		execSQL(t, rawDB, "INSERT INTO o_ticket (object_id, f_title, f_archived, f_purged) VALUES (?, ?, ?, ?)",
 			s.id, s.title, s.archived, s.purged)
 	}
@@ -245,10 +245,10 @@ func TestObjectsSoftDeleteWideningOverSharedRules(t *testing.T) {
 	}
 
 	rawDB := db.DB()
-	insertObject(t, rawDB, "w-live", "widget", 1, "op-w-live", "Alice Smith", "alice@example.com", 4000, 4000)
+	insertObject(t, rawDB, "w-live", "widget", 1, "Alice Smith", "alice@example.com", 4000, 4000)
 	execSQL(t, rawDB, "INSERT INTO o_widget (object_id, f_title, f_description, f_archived) VALUES (?, ?, ?, ?)",
 		"w-live", "Introduction", "still here", 0)
-	insertObject(t, rawDB, "w-deleted", "widget", 1, "op-w-deleted", "Bob Jones", "bob@example.com", 4100, 4100)
+	insertObject(t, rawDB, "w-deleted", "widget", 1, "Bob Jones", "bob@example.com", 4100, 4100)
 	execSQL(t, rawDB, "INSERT INTO o_widget (object_id, f_title, f_description, f_archived) VALUES (?, ?, ?, ?)",
 		"w-deleted", "Withdrawn", "archived away", 1)
 
@@ -307,8 +307,8 @@ func TestObjectsWithheldTypeCoexistsWithDeclaredTypes(t *testing.T) {
 	rawDB := db.DB()
 	// widget is withheld: no o_widget table exists to insert into, only the
 	// base cross-type index row materializeObject always writes.
-	insertObject(t, rawDB, "widget-1", "widget", 1, "op-widget-1", "Alice Smith", "alice@example.com", 1000, 1000)
-	insertObject(t, rawDB, "gadget-1", "gadget", 1, "op-gadget-1", "Bob Jones", "bob@example.com", 2000, 2000)
+	insertObject(t, rawDB, "widget-1", "widget", 1, "Alice Smith", "alice@example.com", 1000, 1000)
+	insertObject(t, rawDB, "gadget-1", "gadget", 1, "Bob Jones", "bob@example.com", 2000, 2000)
 	execSQL(t, rawDB, "INSERT INTO o_gadget (object_id, f_title) VALUES (?, ?)", "gadget-1", "a shiny gadget")
 
 	all, err := db.Objects(projection.ObjectFilter{})
@@ -388,7 +388,7 @@ func TestObjectsHostileTypeNameNotDeletedAndLimit(t *testing.T) {
 		{"obj-deleted", 1},
 	}
 	for i, s := range seed {
-		insertObject(t, rawDB, s.id, hostile, 1, "op-"+s.id, "Alice Smith", "alice@example.com", int64(1000+i), int64(1000+i))
+		insertObject(t, rawDB, s.id, hostile, 1, "Alice Smith", "alice@example.com", int64(1000+i), int64(1000+i))
 		execSQL(t, rawDB, "INSERT INTO "+quotedTable+" (object_id, f_title, f_archived) VALUES (?, ?, ?)",
 			s.id, "title for "+s.id, s.archived)
 	}

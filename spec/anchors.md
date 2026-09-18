@@ -287,13 +287,14 @@ algorithm itself, thresholds, and orphan semantics are specified in
 
 ## Appendix A — GitHub inline-comment convertibility (informative)
 
-The GitHub bridge read path must import GitHub pull-request
-review comments without losing position information. This appendix
-demonstrates the mapping; the conversion vectors under
+A consumer importing GitHub pull-request review comments must do so
+without losing position information. This appendix demonstrates the
+mapping; the conversion vectors under
 [`testdata/anchors/github/`](testdata/anchors/github/) make it concrete as
 `{github, pr, anchor}` triples. The vectors' `anchor` members are validated
 against the schema by `spec/anchors_test.go` today; executing the
-conversion itself becomes a bridge test when the bridge lands.
+conversion itself becomes a consumer-side test once such an importer
+exists.
 
 A GitHub review comment's position fields, and where each lands:
 
@@ -302,9 +303,9 @@ A GitHub review comment's position fields, and where each lands:
 | `path` | Names the file on the **head side** of the diff regardless of `side` (the old side only when the file was deleted), so it feeds `new.path` directly; `old.path` comes from the diff's file pairing (rename detection) between the two commits — the same computation that locates the old-side blob. |
 | `side`, `start_side` | Encoded structurally: `RIGHT` positions produce `new`, `LEFT` positions produce `old`; a `start_side` ≠ `side` range produces both ([cross-side ranges](#cross-side-ranges)). |
 | `line`, `start_line` | `range.end` and `range.start` on the corresponding side (`start_line` absent means a single-line comment: `start` = `end` = `line`). |
-| `original_commit_id`, `original_line`, `original_start_line` | The anchor is captured at the comment's *original* position: for `RIGHT`, `commit` is `original_commit_id`; for `LEFT` it is the diff's base — the merge-base of the PR's base branch and `original_commit_id`, which the bridge computes from the repository (GitHub's API reports only the *current* `base_sha`, not the base at comment time; the merge-base against the original head recovers it unless the base branch itself was rewritten, in which case the current-position fallback below applies). The original line fields feed `range`. GitHub's *current* `commit_id`/`line` are that platform's own re-anchoring output — derived state Writ's resolver recomputes rather than imports. |
-| `diff_hunk` | Informative excerpt, redundant for capture: the bridge holds the repository, so `context` is captured from the blob at the recorded commit per the [capture rules](#context-capture), never parsed out of the hunk. |
-| `position`, `original_position` | Legacy hunk offsets, derivable from `diff_hunk` + line numbers; carried by nothing, reconstructible by the bridge on the write path from the diff itself. |
+| `original_commit_id`, `original_line`, `original_start_line` | The anchor is captured at the comment's *original* position: for `RIGHT`, `commit` is `original_commit_id`; for `LEFT` it is the diff's base — the merge-base of the PR's base branch and `original_commit_id`, which a consumer computes from the repository (GitHub's API reports only the *current* `base_sha`, not the base at comment time; the merge-base against the original head recovers it unless the base branch itself was rewritten, in which case the current-position fallback below applies). The original line fields feed `range`. GitHub's *current* `commit_id`/`line` are that platform's own re-anchoring output — derived state Writ's resolver recomputes rather than imports. |
+| `diff_hunk` | Informative excerpt, redundant for capture: a consumer importing these comments holds the repository, so `context` is captured from the blob at the recorded commit per the [capture rules](#context-capture), never parsed out of the hunk. |
+| `position`, `original_position` | Legacy hunk offsets, derivable from `diff_hunk` + line numbers; carried by nothing, reconstructible by a consumer on the write path from the diff itself. |
 | `subject_type` | `"line"` produces ranged sides; `"file"` produces a [whole-file anchor](#whole-file-anchors). |
 | `commit_id`, `in_reply_to_id`, `body`, reactions, author, timestamps | Not position data — they map to the body and envelope of the op carrying the anchor, not to the anchor. |
 
@@ -315,7 +316,7 @@ lossless-convertibility claim of this ticket's definition of done.
 One honest boundary: capture needs the blobs, so it needs the recorded
 commits to be fetchable. When they are not — the original head was
 force-pushed away and the platform garbage-collected it — a v1 anchor for
-the *original* position cannot be captured. The bridge then anchors at the
+the *original* position cannot be captured. A consumer then anchors at the
 comment's **current** position instead (`commit_id`, `line`, `side` —
 GitHub's own re-anchoring output, whose commit is the live head and always
 fetchable): a faithful anchor for where the platform itself says the

@@ -22,11 +22,6 @@ type UnknownOp = state.UnknownOp
 // ObjectState is the folded state produced by the fold driver for a collaborative object.
 type ObjectState = state.ObjectState
 
-// ParseReference parses a reference string into its repository designator and target object ID.
-func ParseReference(ref string) (string, string, error) {
-	return state.ParseReference(ref)
-}
-
 // NormalizePerson normalizes a person identifier string per spec/identifiers.md
 // (scheme lowercased; value trimmed and case-folded).
 func NormalizePerson(s string) string {

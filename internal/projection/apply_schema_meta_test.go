@@ -47,7 +47,7 @@ func TestApplySchemaWritesMetaOnStrategyChangeWithSameDigest(t *testing.T) {
 	}
 
 	rawDB := db.DB()
-	insertObject(t, rawDB, "widget-1", "widget", 1, "op-widget-1", "Alice Smith", "alice@example.com", 1000, 1000)
+	insertObject(t, rawDB, "widget-1", "widget", 1, "Alice Smith", "alice@example.com", 1000, 1000)
 	execSQL(t, rawDB, "INSERT INTO o_widget (object_id, f_title, f_gone) VALUES (?, ?, ?)", "widget-1", "a widget", 1)
 
 	var digestBefore string

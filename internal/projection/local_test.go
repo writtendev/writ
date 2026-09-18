@@ -45,38 +45,7 @@ func TestLocalStoreCRUD(t *testing.T) {
 	}
 	defer db.Close()
 
-	// 1. Read state CRUD
-	now := time.Now().UTC().Truncate(time.Second)
-	if err := db.MarkRead("obj-1", "op-1", now); err != nil {
-		t.Fatalf("MarkRead failed: %v", err)
-	}
-	if err := db.MarkRead("obj-2", "op-2", now); err != nil {
-		t.Fatalf("MarkRead 2 failed: %v", err)
-	}
-
-	marks, err := db.ReadMarks("obj-1", "obj-2")
-	if err != nil {
-		t.Fatalf("ReadMarks failed: %v", err)
-	}
-	if len(marks) != 2 {
-		t.Fatalf("expected 2 marks, got %d", len(marks))
-	}
-	if m1, ok := marks["obj-1"]; !ok || m1.LastReadOpID != "op-1" || !m1.LastReadAt.Equal(now) {
-		t.Fatalf("unexpected mark for obj-1: %+v", m1)
-	}
-
-	if err := db.ClearRead("obj-1"); err != nil {
-		t.Fatalf("ClearRead failed: %v", err)
-	}
-	marksAfterClear, err := db.ReadMarks("obj-1")
-	if err != nil {
-		t.Fatalf("ReadMarks after clear: %v", err)
-	}
-	if len(marksAfterClear) != 0 {
-		t.Fatalf("expected 0 marks for obj-1 after clear, got %d", len(marksAfterClear))
-	}
-
-	// 2. Sync cursor CRUD
+	// Sync cursor CRUD
 	syncTime := time.Now().UTC().Truncate(time.Second)
 	if err := db.SetSyncCursor("origin", "refs/writ/writer1/widget", "0123456789abcdef", syncTime); err != nil {
 		t.Fatalf("SetSyncCursor failed: %v", err)
@@ -129,9 +98,6 @@ func TestLocalStateSurvivesRebuild(t *testing.T) {
 
 	// Write local state
 	now := time.Now().UTC().Truncate(time.Second)
-	if err := db.MarkRead("w-survive", "op-initial", now); err != nil {
-		t.Fatalf("MarkRead failed: %v", err)
-	}
 	if err := db.SetSyncCursor("origin", "refs/writ/0123456789abcdef/widget", "tip-sha", now); err != nil {
 		t.Fatalf("SetSyncCursor failed: %v", err)
 	}

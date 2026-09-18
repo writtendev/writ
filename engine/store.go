@@ -42,9 +42,6 @@ type Store struct {
 	// collaborative objects of any schema-declared type.
 	Objects *Objects
 
-	// ReadState provides local read/unread tracking across collaborative objects.
-	ReadState *ReadState
-
 	// Query provides read queries over collaborative objects.
 	Query *Query
 
@@ -61,7 +58,6 @@ type Store struct {
 	signerErr   error
 	autoRefresh bool
 	targetRefs  []string
-	localRepoID string
 	closed      bool
 	subscribers []*subscriber
 	mu          sync.Mutex
@@ -127,9 +123,10 @@ type Store struct {
 	// is one fixed, documented constant, not something a caller configures.
 	now func() time.Time
 
-	// ruleCache is the fold-rule counterpart to vocabCache: the built-in
-	// vocabulary overlaid by whatever the log declares (RulesFromSchemas),
-	// log wins per type. It is recomputed in the same cache-miss branch as
+	// ruleCache is the fold-rule counterpart to vocabCache: whatever the log
+	// declares, per object_type, and nothing else (RulesFromSchemas) --
+	// writ ships no vocabulary of its own to overlay it on (see Store.rules's
+	// own doc comment). It is recomputed in the same cache-miss branch as
 	// vocabCache and typesCache (Store.vocabularies), behind the same
 	// dag.Chains fingerprint, so none of the three ever costs a second
 	// Schema()/Enumerate fold — that part is genuinely shared. What is not
@@ -191,18 +188,6 @@ func (s *Store) Close() error {
 		}
 	}
 	return errors.Join(errs...)
-}
-
-// Ref returns the fully-qualified reference string (<local-repo-id>#<object-id>) for a local
-// object ID when a local repo-id is known, or the bare objectID otherwise.
-func (s *Store) Ref(objectID string) string {
-	if s == nil || objectID == "" {
-		return objectID
-	}
-	if s.localRepoID != "" {
-		return s.localRepoID + "#" + objectID
-	}
-	return objectID
 }
 
 // resolveRulesForProjection checks s.closed and, if the store is open,

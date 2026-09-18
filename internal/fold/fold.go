@@ -22,14 +22,18 @@ type Rule struct {
 	MaxLength int64             `json:"max_length,omitempty"`
 	KeyTypes  map[string]string `json:"key_types,omitempty"`
 	// ObjectType scopes the rule to one object type (spec/fold.md §5): empty
-	// on either the rule or the op matches anything, mirroring OpVersion's
-	// treatment in opMatchesRule. Before WRIT-195 it was left empty on every
-	// hand-written Go rule table rather than set to each table's own type —
-	// those tables were already selected per object type by their callers
-	// and the typed reducers, so an empty ObjectType changed nothing for
-	// them — and WRIT-195 deleted the tables outright rather than retrofit
-	// them. Only log-sourced rules (RulesFromSchemas) and rules built from
-	// spec.FieldRules() carry it.
+	// on the rule matches anything, mirroring OpVersion's treatment in
+	// opMatchesRule. An empty ObjectType on the op side does not also match
+	// anything (WRIT-275): the op-envelope schema requires a non-empty
+	// object_type on every op that reaches the log, so that half of the
+	// wildcard was unreachable through the log and existed only for a
+	// caller-built op fed straight to the public Fold. Before WRIT-195 it
+	// was left empty on every hand-written Go rule table rather than set to
+	// each table's own type — those tables were already selected per object
+	// type by their callers and the typed reducers, so an empty ObjectType
+	// changed nothing for them — and WRIT-195 deleted the tables outright
+	// rather than retrofit them. Only log-sourced rules (RulesFromSchemas)
+	// and rules built from spec.FieldRules() carry it.
 	ObjectType string `json:"object_type,omitempty"`
 }
 
@@ -118,14 +122,22 @@ type ObjectState struct {
 // independent expressions of "the object's type" — this filter, Fold's direct
 // read, and materialize.go's own direct read — with nothing asserting they
 // agree.
+//
+// Only the rule side of OpVersion and ObjectType is a wildcard when zero/empty
+// (WRIT-275): the op-envelope schema requires op_version >= 1 and a non-empty
+// object_type on every op that reaches the log via codec.DecodeCommit's
+// ValidateEnvelope call, so an op-side zero/empty was unreachable through the
+// log and existed only for a hand-built op fed straight to the public Fold —
+// where it let two same-target accumulators consume one op that should have
+// matched at most one of them.
 func opMatchesRule(op codec.Op, r Rule) bool {
 	if r.OpType != "" && r.OpType != op.OpType {
 		return false
 	}
-	if r.OpVersion != 0 && op.OpVersion != 0 && r.OpVersion != op.OpVersion {
+	if r.OpVersion != 0 && r.OpVersion != op.OpVersion {
 		return false
 	}
-	if r.ObjectType != "" && op.ObjectType != "" && r.ObjectType != op.ObjectType {
+	if r.ObjectType != "" && r.ObjectType != op.ObjectType {
 		return false
 	}
 	return true

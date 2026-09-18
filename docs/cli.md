@@ -246,10 +246,10 @@ Usage: writ schema show [-C <dir>] [<type>] [--json]
 
 #### Description
 
-Report the vocabulary Store.Types resolves right now -- built-in types overlaid by
-whatever the log declares -- which is not the same question `writ schema plan`/`apply`
-answer (the working-tree writ.schema file's own view). With no <type>, print one bare
-type name per line. With <type>, print that type's declared ops and fields.
+Report the vocabulary Store.Types resolves right now -- exactly what the log's schema
+objects declare -- which is not the same question `writ schema plan`/`apply` answer (the
+working-tree writ.schema file's own view). With no <type>, print one bare type name per
+line. With <type>, print that type's declared ops and fields.
 
 #### Flags
 

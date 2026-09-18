@@ -230,12 +230,17 @@ Field merge rules are declared in machine-readable tables (`field-rules.json`, c
 
 **Rule matching is scoped by object type.** A rule matches an operation only
 when their `op_type` and `op_version` agree (an empty `op_type` on the rule,
-or a zero `op_version` on either side, matches anything, as already
+or a zero `op_version` on the rule, matches anything, as already
 described above) and, in addition, only when their object types agree. An
-empty object type on either side matches anything, the same convention
+empty object type on the rule matches anything, the same convention
 `op_version` already uses, so this changes nothing for a rule table folded
-against a single known object type. A rule's object type is not a new
-`field-rules.json` attribute: for a rule resolved from the log it is
+against a single known object type. A zero `op_version` or an empty object
+type on the *operation* side does not also match anything: every op that
+reaches the log carries a schema-required `op_version >= 1` and a
+non-empty `object_type` (`spec/schemas/op-envelope.schema.json`), so that
+wildcard reaches `Fold` only through a caller-built operation, never
+through anything the log itself produces. A rule's object type is not a
+new `field-rules.json` attribute: for a rule resolved from the log it is
 `spec/schema-ops.md`'s `define-field` body's own `type`, and for the
 bootstrap table it is the `schema` object type that table declares, so the
 wire shape of a `field-rules.json` entry and of a `define-field` op body are
