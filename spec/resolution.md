@@ -140,12 +140,33 @@ If `anchor.version` is not `1` (or not supported by the implementation), the
 side immediately degrades to:
 $$\{ \text{"outcome"}: \text{"orphaned"}, \text{"reason"}: \text{"unsupported-version"} \}$$
 
+`version` is compared to `1` by numeric value, not by lexical form, so a JSON
+number that is integral and within ±2⁵³−1 — the same exact-integer bound
+§Structural Pre-Check step 1 gives `version` itself — is the integer it
+equals: `1.0` and `1e0` are version `1` and reach the ladder below, while
+`1.5` is `"malformed"` under §Structural Pre-Check step 1, not
+`"unsupported-version"`; this matches
+[`spec/canonicalization.md`](canonicalization.md)'s "no integer/float
+distinction: `5.0` encodes as `5`", so the reader is never stricter than
+writ's own encoding model.
+
 ### Structural Pre-Check
 
 Before the ladder runs, every present side is checked for structural
 soundness. A side that fails this check cannot be indexed safely and
 degrades to:
 $$\{ \text{"outcome"}: \text{"orphaned"}, \text{"reason"}: \text{"malformed"} \}$$
+
+An anchor value that is not a JSON object at all, or is a JSON object
+carrying neither `old` nor `new`, has no side present to check or orphan in
+the first place: the resolver produces no side result and no error, and the
+raw value still folds and is preserved and displayed exactly as any other
+anchor's is (§Orphan Semantics, Preservation) — this shape cannot be
+expressed as a resolution outcome at all, since
+[`schemas/resolution.schema.json`](schemas/resolution.schema.json) requires
+at least one side in any resolution; §Resolution Outcome's MUST above, that
+at least one of `old` or `new` be present in the outcome, is about anchors
+that carry a side at all, not this one.
 
 The check proceeds in fixed order:
 

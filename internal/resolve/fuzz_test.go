@@ -108,8 +108,8 @@ func FuzzResolve(f *testing.F) {
 		}()
 		// resolution.schema.json requires at least one of old/new; ResolveRaw
 		// deliberately produces neither for a non-object anchor or one with
-		// no old/new key (the ticket's open question), so only validate when
-		// there is a side to validate.
+		// no old/new key (spec/resolution.md §Structural Pre-Check), so only
+		// validate when there is a side to validate.
 		if rawOutcome.Old != nil || rawOutcome.New != nil {
 			rawJSON, err := json.Marshal(rawOutcome)
 			if err != nil {

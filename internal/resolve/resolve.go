@@ -136,8 +136,7 @@ func ParseAnchor(raw []byte) (Anchor, error) {
 // version pre-check before the ladder:
 //   - If the bytes don't decode as a JSON object, or neither "old" nor "new"
 //     is present, there is no side to orphan: the result carries no Old or
-//     New (spec is deliberately silent on this shape; see the ticket's open
-//     question).
+//     New (spec/resolution.md §Structural Pre-Check).
 //   - A missing or non-integer "version" orphans every present side
 //     "malformed".
 //   - An integer "version" != 1 orphans every present side

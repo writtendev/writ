@@ -108,12 +108,19 @@ func TestResolutionVectorsValidate(t *testing.T) {
 				(expectSides.New != nil && expectSides.New.Reason == "malformed")
 
 			// Validate anchor against anchor.schema.json only when version
-			// decodes as the JSON integer 1 and the case isn't malformed. A
-			// malformed-version vector's version does not decode as an
-			// integer at all, and validating either kind would just
-			// restate that it is schema- or invariant-invalid by
-			// construction.
-			var version int
+			// decodes as the JSON number 1 (an integral float such as 1.0
+			// included, per spec/resolution.md's Version Pre-Check and
+			// spec/canonicalization.md's "no integer/float distinction") and
+			// the case isn't malformed. !isMalformedCase already excludes
+			// every malformed-version-* vector (fraction, both int53
+			// overflows, string, missing, missing-old-only): each carries
+			// expect reason "malformed" regardless of its version. version
+			// == 1 instead excludes unsupported-version,
+			// unsupported-version-negative-boundary, and
+			// version-not-1-undecodable-side, whose version decodes but
+			// isn't 1, so they'd otherwise fail anchor.schema.json's
+			// "version": {"const": 1}.
+			var version float64
 			isVersion1 := len(anchorObj.Version) > 0 && json.Unmarshal(anchorObj.Version, &version) == nil && version == 1
 			if isVersion1 && !isMalformedCase {
 				if err := validateVector(t, anchorSch, c.Anchor); err != nil {
