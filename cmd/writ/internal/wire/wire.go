@@ -295,9 +295,15 @@ func FromObject(o writ.Object) Object {
 // strict RFC 3339 encoder (time.Time.MarshalJSON, appendStrictRFC3339)
 // will accept -- the boundaries of the four-digit year field RFC 3339
 // requires. Anything outside this range fails to marshal at all.
+//
+// rfc3339MinUnix/rfc3339MaxUnix are those same bounds as epoch seconds --
+// see clampRFC3339 for why the comparison must happen in that form.
 var (
 	rfc3339Min = time.Date(0, 1, 1, 0, 0, 0, 0, time.UTC)
 	rfc3339Max = time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
+
+	rfc3339MinUnix = rfc3339Min.Unix()
+	rfc3339MaxUnix = rfc3339Max.Unix()
 )
 
 // clampRFC3339 pins t into the RFC 3339-representable range [rfc3339Min,
@@ -317,13 +323,27 @@ var (
 // from breaking a scripted consumer's JSON decoder (see the package doc
 // comment above), and an unmarshalable timestamp is precisely that kind
 // of break.
+//
+// The comparison is done on t.Unix() (raw epoch seconds), never on t
+// itself via Before/After. time.Unix(sec, 0) builds its absolute internal
+// representation as sec + a fixed constant (seconds from year 1 to the
+// Unix epoch); for a sec near either end of the int64 range that addition
+// overflows int64 and wraps, so Before/After -- which compare that
+// wrapped absolute representation -- can come out backwards (a
+// far-future sec reads as "before year 0"). t.Unix() is unaffected: it
+// reverses that same addition, and addition/subtraction by a fixed
+// constant are exact inverses under two's-complement wraparound, so it
+// always recovers the original sec bit-for-bit even when the
+// intermediate overflowed. Comparing sec against the bounds' own Unix
+// seconds sidesteps the overflow entirely and picks the correct bound.
 func clampRFC3339(t time.Time) (time.Time, *int64) {
+	sec := t.Unix()
 	switch {
-	case t.Before(rfc3339Min):
-		epoch := t.Unix()
+	case sec < rfc3339MinUnix:
+		epoch := sec
 		return rfc3339Min, &epoch
-	case t.After(rfc3339Max):
-		epoch := t.Unix()
+	case sec > rfc3339MaxUnix:
+		epoch := sec
 		return rfc3339Max, &epoch
 	default:
 		return t, nil

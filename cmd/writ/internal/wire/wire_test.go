@@ -2,6 +2,7 @@ package wire_test
 
 import (
 	"encoding/json"
+	"math"
 	"testing"
 	"time"
 
@@ -138,6 +139,38 @@ func TestWire_FromObjectResultSummary_ClampsOutOfRangeTimestamps(t *testing.T) {
 		want := `{"object_id":"0123456789abcdef0123456789abcdef","object_type":"acme.ticket","author":{"name":"Alice","email":"alice@example.com"},"created_at":"0000-01-01T00:00:00Z","created_at_epoch":-70000000000,"updated_at":"0000-01-01T00:00:00Z","updated_at_epoch":-70000000000,"op_count":3,"verification":"valid"}`
 		if string(got) != want {
 			t.Errorf("json.Marshal(clamped downward) =\n%s\nwant\n%s", got, want)
+		}
+	})
+
+	// Regression for the round-1 review finding: time.Unix(sec, 0) builds
+	// its internal absolute time as sec + a fixed constant, which
+	// overflows int64 for a sec this large and wraps around -- so
+	// comparing the resulting time.Time against the bounds with
+	// Before/After (rather than comparing raw epoch seconds) used to read
+	// this far-future timestamp as "before year 0" and clamp it to
+	// rfc3339Min instead of rfc3339Max. math.MaxInt64 is comfortably past
+	// that overflow threshold and must still clamp upward.
+	t.Run("clamped upward beyond int64 overflow boundary", func(t *testing.T) {
+		r := base
+		hostile := time.Unix(math.MaxInt64, 0).UTC()
+		r.CreatedAt = hostile
+		r.UpdatedAt = hostile
+
+		summary := wire.FromObjectResultSummary(r)
+		if summary.CreatedAtEpoch == nil || *summary.CreatedAtEpoch != math.MaxInt64 {
+			t.Fatalf("CreatedAtEpoch = %v, want %d", summary.CreatedAtEpoch, int64(math.MaxInt64))
+		}
+		if summary.UpdatedAtEpoch == nil || *summary.UpdatedAtEpoch != math.MaxInt64 {
+			t.Fatalf("UpdatedAtEpoch = %v, want %d", summary.UpdatedAtEpoch, int64(math.MaxInt64))
+		}
+
+		got, err := json.Marshal(summary)
+		if err != nil {
+			t.Fatalf("json.Marshal: %v", err)
+		}
+		want := `{"object_id":"0123456789abcdef0123456789abcdef","object_type":"acme.ticket","author":{"name":"Alice","email":"alice@example.com"},"created_at":"9999-12-31T23:59:59Z","created_at_epoch":9223372036854775807,"updated_at":"9999-12-31T23:59:59Z","updated_at_epoch":9223372036854775807,"op_count":3,"verification":"valid"}`
+		if string(got) != want {
+			t.Errorf("json.Marshal(clamped upward beyond overflow boundary) =\n%s\nwant\n%s", got, want)
 		}
 	})
 }
