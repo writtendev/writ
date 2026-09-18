@@ -238,9 +238,9 @@ against a single known object type. A zero `op_version` or an empty object
 type on the *operation* side does not also match anything: every op that
 reaches the log carries a schema-required `op_version >= 1` and a
 non-empty `object_type` (`spec/schemas/op-envelope.schema.json`), so that
-half of the wildcard was reachable only by a caller-built operation handed
-straight to `Fold`, never by anything the log itself can produce. A rule's object type is not a new
-`field-rules.json` attribute: for a rule resolved from the log it is
+wildcard reaches `Fold` only through a caller-built operation, never
+through anything the log itself produces. A rule's object type is not a
+new `field-rules.json` attribute: for a rule resolved from the log it is
 `spec/schema-ops.md`'s `define-field` body's own `type`, and for the
 bootstrap table it is the `schema` object type that table declares, so the
 wire shape of a `field-rules.json` entry and of a `define-field` op body are
