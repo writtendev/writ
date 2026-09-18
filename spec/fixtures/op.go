@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/writtendev/writ/engine/codec/canonicaljson"
+	"github.com/writtendev/writ/internal/codec/canonicaljson"
 )
 
 // OpDesc defines the structured payload of a Writ operation within a

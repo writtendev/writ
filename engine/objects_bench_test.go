@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	writ "github.com/writtendev/writ/engine"
-	"github.com/writtendev/writ/engine/codec"
+	"github.com/writtendev/writ/internal/codec"
 )
 
 // BenchmarkObjectGetLiveVerification measures Objects.Get on a repo with

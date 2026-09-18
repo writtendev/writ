@@ -9,7 +9,7 @@ import (
 
 	"github.com/go-git/go-git/v5/plumbing"
 	writ "github.com/writtendev/writ/engine"
-	"github.com/writtendev/writ/engine/codec"
+	"github.com/writtendev/writ/internal/codec"
 )
 
 // runGitCmdTB is runGitCmd's testing.TB counterpart: the existing helper is

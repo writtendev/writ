@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/writtendev/writ/engine/codec/sshsig"
+	"github.com/writtendev/writ/internal/codec/sshsig"
 )
 
 // AllowedSignersContent returns an OpenSSH allowed_signers formatted string

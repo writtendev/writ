@@ -4,7 +4,7 @@ Status: **informative**. The normative artefact is
 [`schema-ops.md`](schema-ops.md)'s operation vocabulary: a conforming
 implementation of writ must agree on the ops that vocabulary defines, and
 need not parse `writ.schema` at all. This document, and the Go package
-that implements it (`engine/schemasrc`), exist for one reason: a schema
+that implements it (`internal/schemasrc`), exist for one reason: a schema
 declared as an op sequence is unpleasant to author or review by hand, and
 `writ.schema` is a human-editable working-tree source form for it,
 Prisma-style — the log stays the source of truth, and this file is a view
@@ -20,7 +20,7 @@ names as long as both write the same ops. That is why no
 conformance surface, and an informative surface syntax has no conformance
 surface to pin — one here would read as normative when it is not. The
 grammar's own test corpus lives with its implementation, under
-`engine/schemasrc/testdata/`, and is asserted against that package's
+`internal/schemasrc/testdata/`, and is asserted against that package's
 behavior, not against other implementations.
 
 Writ's own repository has no `writ.schema` at its root. Writ declares no
@@ -95,7 +95,7 @@ decision 6), and the fence is structural, not a matter of prose
 discipline: there is no expression, call, conditional, import, extends,
 or annotation production anywhere in the parser, so a computed field or a
 hook has no syntax to be written in — not a rejected one, an absent one.
-`engine/schemasrc`'s `invalid/` corpus pins a computed field, a hook, an
+`internal/schemasrc`'s `invalid/` corpus pins a computed field, a hook, an
 `if`, an `import`, an `extends`, a `default now()`, and a permission
 clause each as a syntax error, so the fence lives in the fixtures and not
 only here.
@@ -313,7 +313,7 @@ the versions are always explicit; this grammar never invents an op name
 
 ## 5. Compiling to the op vocabulary
 
-`engine/schemasrc.Compile(f *File, objectID string) ([]codec.Envelope,
+`internal/schemasrc.Compile(f *File, objectID string) ([]codec.Envelope,
 error)` emits, in a fixed, canonically sorted order — independent of how
 the source file itself arranges its types, op blocks, or fields — the
 `create`/`define-type`/`deprecate-type`/`define-op`/`define-field`/
@@ -418,7 +418,7 @@ instead of one imprecise one:
    re-parsing, re-compiling, and re-folding reproduces the same
    rendering), and `Format` is idempotent
    (`Format(Format(src)) == Format(src)`).
-2. A comment-preserving **`Format`** (`engine/schemasrc.Format`) that
+2. A comment-preserving **`Format`** (`internal/schemasrc.Format`) that
    reprints a source file canonically in place: every comment survives,
    and everything else — spacing, quoting, and modifier order within a
    line — is normalized. `Format` walks the parsed source file directly,
@@ -457,7 +457,7 @@ hazard is not that race at all: a `keyed-lww` accumulator fixes nothing
 about its key shape when it is constructed, and instead rebuilds each
 entry's key tuple from that op's own matched rule's `Key`/`KeyTypes` on
 every single op (`keyedLWWAccumulator.Apply`,
-`engine/internal/fold/strategy.go`) — so when two bound rules disagree
+`internal/fold/strategy.go`) — so when two bound rules disagree
 on key arity, the accumulator's `latest` map ends up holding key tuples
 of two different lengths side by side, regardless of which rule sorts
 first. `Result`'s sort comparator (same file) walks its first argument's
@@ -469,7 +469,7 @@ A mixed-arity pair that is not prefix-related differs inside the shared
 indices instead, returns before reaching the end, and never panics —
 differing length is necessary but not sufficient; the shorter tuple
 being a strict prefix of the longer one is the trigger, though not a
-guaranteed one. `engine/schemasrc.Compile`
+guaranteed one. `internal/schemasrc.Compile`
 rejects all three at compile time,
 with a line and column, rather than deferring to the resolver: `compileType` runs this check once every field of the type
 has been compiled, after the field loop, so nothing about it needs to

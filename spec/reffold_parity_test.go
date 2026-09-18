@@ -24,7 +24,7 @@ import (
 // on any edit made to one copy and not the other, including edits whose
 // behaviour a test table would not distinguish.
 const (
-	engineSource  = "../engine/internal/person/person.go"
+	engineSource  = "../internal/person/person.go"
 	engineFirst   = "// FoldValue applies the value half of the normalization rule in"
 	engineLast    = "func ccc(r rune) uint8 {"
 	reffoldSource = "reffold.go"

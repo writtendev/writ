@@ -16,8 +16,8 @@ import (
 
 	"github.com/writtendev/writ/cmd/writ/internal/wire"
 	"github.com/writtendev/writ/engine"
-	"github.com/writtendev/writ/engine/schemasrc"
-	"github.com/writtendev/writ/engine/state"
+	"github.com/writtendev/writ/internal/schemasrc"
+	"github.com/writtendev/writ/internal/state"
 )
 
 // writeSchemaFile overwrites the working-tree writ.schema in dir.

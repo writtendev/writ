@@ -84,7 +84,7 @@ func TestFilterKeepsWholePackageChanges(t *testing.T) {
 			name: "a non-engine symbol referring to an engine type is dropped",
 			report: "Compatible changes:\n" +
 				"- ./spec/fixtures.Trust: added, of type " +
-				"github.com/writtendev/writ/engine/codec/sshsig.TrustStore\n",
+				"github.com/writtendev/writ/internal/codec/sshsig.TrustStore\n",
 			want: "",
 		},
 		{

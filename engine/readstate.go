@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/writtendev/writ/engine/projection"
+	"github.com/writtendev/writ/internal/projection"
 )
 
 // ReadState provides operations for tracking read/unread state of collaborative objects.

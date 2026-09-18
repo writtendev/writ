@@ -15,8 +15,8 @@ import (
 
 	"github.com/writtendev/writ/cmd/writ/internal/wire"
 	"github.com/writtendev/writ/engine"
-	"github.com/writtendev/writ/engine/codec"
-	"github.com/writtendev/writ/engine/codec/canonicaljson"
+	"github.com/writtendev/writ/internal/codec"
+	"github.com/writtendev/writ/internal/codec/canonicaljson"
 )
 
 // TestEmitJSON_EscapesForbiddenCodePoints is the unit-level half of WRIT-137's

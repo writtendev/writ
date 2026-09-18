@@ -217,7 +217,7 @@ operation at a time against the reader profile, where a declined target
 changes no operation's disposition. `FC-13`'s row in §Normative rules summary
 points here, so an implementer conforming against that table reaches these
 bounds rather than finding the over-broad withhold permitted by silence.
-`engine/projection`'s own tests are what pin them executably.
+`internal/projection`'s own tests are what pin them executably.
 
 Declining is bounded:
 

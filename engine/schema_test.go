@@ -16,12 +16,12 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 
 	writ "github.com/writtendev/writ/engine"
-	"github.com/writtendev/writ/engine/codec"
-	"github.com/writtendev/writ/engine/codec/canonicaljson"
-	"github.com/writtendev/writ/engine/dag"
-	"github.com/writtendev/writ/engine/identity"
-	"github.com/writtendev/writ/engine/schemasrc"
-	"github.com/writtendev/writ/engine/state"
+	"github.com/writtendev/writ/internal/codec"
+	"github.com/writtendev/writ/internal/codec/canonicaljson"
+	"github.com/writtendev/writ/internal/dag"
+	"github.com/writtendev/writ/internal/identity"
+	"github.com/writtendev/writ/internal/schemasrc"
+	"github.com/writtendev/writ/internal/state"
 	"github.com/writtendev/writ/spec"
 )
 

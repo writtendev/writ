@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
-	"github.com/writtendev/writ/engine/order"
+	"github.com/writtendev/writ/internal/order"
 	"github.com/writtendev/writ/spec"
 )
 

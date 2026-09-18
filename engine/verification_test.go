@@ -15,9 +15,9 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/writtendev/writ/engine"
-	"github.com/writtendev/writ/engine/codec"
-	"github.com/writtendev/writ/engine/dag"
-	"github.com/writtendev/writ/engine/identity"
+	"github.com/writtendev/writ/internal/codec"
+	"github.com/writtendev/writ/internal/dag"
+	"github.com/writtendev/writ/internal/identity"
 )
 
 // WRIT-251: signature verification never ran on any read path, so a

@@ -1,12 +1,22 @@
 package writ
 
 import (
-	"github.com/writtendev/writ/engine/codec"
-	"github.com/writtendev/writ/engine/state"
+	"github.com/writtendev/writ/internal/codec"
+	"github.com/writtendev/writ/internal/state"
 )
 
 // Rule specifies the merge strategy and value type for an (op_type, op_version, field) tuple.
 type Rule = state.Rule
+
+// Op is a single append-only operation, as read from or written to the log.
+type Op = codec.Op
+
+// Envelope is a signed, encoded Op together with its verification inputs.
+type Envelope = codec.Envelope
+
+// Vocabularies is the per-namespace op vocabulary derived from the schema
+// objects present in the log.
+type Vocabularies = codec.Vocabularies
 
 // Sentinels re-exported from internal/fold.
 var (

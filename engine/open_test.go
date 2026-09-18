@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	"github.com/writtendev/writ/engine"
-	"github.com/writtendev/writ/engine/dag"
-	"github.com/writtendev/writ/engine/identity"
-	writsync "github.com/writtendev/writ/engine/sync"
+	"github.com/writtendev/writ/internal/dag"
+	"github.com/writtendev/writ/internal/identity"
+	writsync "github.com/writtendev/writ/internal/sync"
 )
 
 func TestOpenWithRepositoryExtensions(t *testing.T) {

@@ -89,8 +89,8 @@ var foldValuePaths = []string{
 	// directory, so "." is spec/ — reffold.go and every file that shares its
 	// package namespace.
 	".",
-	"../engine/internal/fold",
-	"../engine/state",
+	"../internal/fold",
+	"../internal/state",
 }
 
 // renderingPackages are the packages a fold value path may not render values

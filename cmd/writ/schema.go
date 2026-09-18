@@ -15,9 +15,7 @@ import (
 
 	"github.com/writtendev/writ/cmd/writ/internal/wire"
 	"github.com/writtendev/writ/engine"
-	"github.com/writtendev/writ/engine/codec"
-	"github.com/writtendev/writ/engine/schemasrc"
-	"github.com/writtendev/writ/engine/state"
+	"github.com/writtendev/writ/internal/schemasrc"
 	"github.com/writtendev/writ/internal/textdiff"
 	"github.com/writtendev/writ/internal/textsafe"
 )
@@ -224,7 +222,7 @@ type schemaApplyResult struct {
 	namespace  string
 	namespaces []string
 	created    bool
-	ops        []codec.Envelope
+	ops        []writ.Envelope
 }
 
 func (r schemaApplyResult) toWireApply() wire.SchemaApply {
@@ -309,7 +307,7 @@ type schemaPlanResult struct {
 	namespaces    []string
 	created       bool
 	upToDate      bool
-	ops           []codec.Envelope
+	ops           []writ.Envelope
 	currentSource []byte
 	plannedSource []byte
 	conflicts     []writ.SchemaConflict
@@ -502,7 +500,7 @@ func buildSchemaPlan(ctx context.Context, store *writ.Store, dir string) (*schem
 // from store.Schema(ctx): no extra store call, no new engine API, no
 // projection read. Always non-nil so a caller serializing it needs no nil
 // check.
-func schemaNamespaces(schemas []state.Schema, extra string) []string {
+func schemaNamespaces(schemas []writ.Schema, extra string) []string {
 	set := make(map[string]bool, len(schemas)+1)
 	for _, s := range schemas {
 		// Same gate as resolveSchemaTarget: a schema object whose id
@@ -575,7 +573,7 @@ func schemaNamespaces(schemas []state.Schema, extra string) []string {
 // resolveSchemaTarget always succeeds now (error stays in the signature
 // rather than being dropped, to keep every call site's shape stable) —
 // there is no remaining case that refuses.
-func resolveSchemaTarget(schemas []state.Schema, f *schemasrc.File) (string, error) {
+func resolveSchemaTarget(schemas []writ.Schema, f *schemasrc.File) (string, error) {
 	for _, s := range schemas {
 		if s.Namespace == f.Namespace && s.ObjectID == deriveSchemaObjectID(s.Namespace) {
 			return s.ObjectID, nil
@@ -619,8 +617,8 @@ func deriveSchemaObjectID(namespace string) string {
 // against, but RulesFromSchemas refuses to let any object bind it and
 // would report exactly that conflict once planned's own types are folded
 // in.
-func conflictsIntroducedByApply(schemas []state.Schema, before []writ.SchemaConflict, planned state.Schema) []writ.SchemaConflict {
-	after := make([]state.Schema, 0, len(schemas)+1)
+func conflictsIntroducedByApply(schemas []writ.Schema, before []writ.SchemaConflict, planned writ.Schema) []writ.SchemaConflict {
+	after := make([]writ.Schema, 0, len(schemas)+1)
 	replaced := false
 	for _, s := range schemas {
 		if s.ObjectID == planned.ObjectID {
@@ -699,45 +697,45 @@ func describeSchemaConflict(c writ.SchemaConflict) string {
 // Schema{} if the repository has no schema object with that id yet — the
 // signal buildSchemaPlan uses to tell "creation" from "extending an
 // existing object" (Schema{}.ObjectID == "").
-func schemaByObjectID(schemas []state.Schema, objectID string) state.Schema {
+func schemaByObjectID(schemas []writ.Schema, objectID string) writ.Schema {
 	for _, s := range schemas {
 		if s.ObjectID == objectID {
 			return s
 		}
 	}
-	return state.Schema{}
+	return writ.Schema{}
 }
 
-func findSchemaType(s state.Schema, name string) (state.SchemaType, bool) {
+func findSchemaType(s writ.Schema, name string) (writ.SchemaType, bool) {
 	for _, t := range s.Types {
 		if t.Name == name {
 			return t, true
 		}
 	}
-	return state.SchemaType{}, false
+	return writ.SchemaType{}, false
 }
 
-func findSchemaOp(t state.SchemaType, opType string, opVersion int64) (state.SchemaOp, bool) {
+func findSchemaOp(t writ.SchemaType, opType string, opVersion int64) (writ.SchemaOp, bool) {
 	for _, o := range t.Ops {
 		if o.OpType == opType && o.OpVersion == opVersion {
 			return o, true
 		}
 	}
-	return state.SchemaOp{}, false
+	return writ.SchemaOp{}, false
 }
 
-func findSchemaField(t state.SchemaType, opType string, opVersion int64, field string) (state.SchemaField, bool) {
+func findSchemaField(t writ.SchemaType, opType string, opVersion int64, field string) (writ.SchemaField, bool) {
 	for _, fl := range t.Fields {
 		if fl.OpType == opType && fl.OpVersion == opVersion && fl.Name == field {
 			return fl, true
 		}
 	}
-	return state.SchemaField{}, false
+	return writ.SchemaField{}, false
 }
 
 // schemaFieldAttributeKeys lists the define-field body keys
 // state.FoldSchema treats as independent keyed-lww registers
-// (engine/state/schema.go): each is overwritten only when a later op's
+// (internal/state/schema.go): each is overwritten only when a later op's
 // body actually carries that key, so a new define-field op whose body
 // omits one does not clear the log's existing value — it leaves the log
 // holding an attribute the file no longer declares, forever. There is no
@@ -791,7 +789,7 @@ func schemaAttributeNarrowingAdvice(attr string) string {
 
 // schemaFieldHasAttribute reports whether current's folded state carries a
 // non-zero value for one of schemaFieldAttributeKeys.
-func schemaFieldHasAttribute(f state.SchemaField, attr string) bool {
+func schemaFieldHasAttribute(f writ.SchemaField, attr string) bool {
 	switch attr {
 	case "value_type":
 		return f.ValueType != ""
@@ -821,7 +819,7 @@ func schemaFieldHasAttribute(f state.SchemaField, attr string) bool {
 // schemaDefineFieldBody's typed decode (used for delta comparison
 // elsewhere) cannot: a Go zero value and an absent JSON key are the same
 // struct value once unmarshaled.
-func compiledFieldBody(compiled []codec.Envelope, typ, opType string, opVersion int64, field string) (map[string]json.RawMessage, bool, error) {
+func compiledFieldBody(compiled []writ.Envelope, typ, opType string, opVersion int64, field string) (map[string]json.RawMessage, bool, error) {
 	for _, env := range compiled {
 		if env.OpType != "define-field" {
 			continue
@@ -875,7 +873,7 @@ func rawFieldString(raw map[string]json.RawMessage, key string) string {
 // against the namespaces of the schema objects already in the log, not by
 // continuity with a prior apply's object id. A namespace the log has not
 // seen before matches no schema object, so resolveSchemaTarget mints a
-// fresh object id and current is the zero state.Schema{} for that apply —
+// fresh object id and current is the zero writ.Schema{} for that apply —
 // there is nothing to compare planned against. A namespace the log
 // already holds — including one an earlier edit moved away from and this
 // one moves back to — matches that object and reuses it, so current is
@@ -898,7 +896,7 @@ func rawFieldString(raw map[string]json.RawMessage, key string) string {
 // (WRIT-226). Escaping them again here would be a second copy of the same
 // rule to keep current, and would go stale the first time a message is
 // added without one.
-func schemaRemovals(current, planned state.Schema, compiled []codec.Envelope) ([]string, error) {
+func schemaRemovals(current, planned writ.Schema, compiled []writ.Envelope) ([]string, error) {
 	var problems []string
 
 	if current.Description != "" && planned.Description == "" {
@@ -1016,8 +1014,8 @@ type schemaDeprecateFieldBody struct {
 // keeps only the envelopes current does not already reflect — the result
 // is a subsequence of the canonical order, so applying it twice is a no-op
 // (WRIT-191's central idempotence property).
-func schemaDelta(current state.Schema, compiled []codec.Envelope) ([]codec.Envelope, error) {
-	var delta []codec.Envelope
+func schemaDelta(current writ.Schema, compiled []writ.Envelope) ([]writ.Envelope, error) {
+	var delta []writ.Envelope
 	for _, env := range compiled {
 		keep, err := schemaDeltaKeep(current, env)
 		if err != nil {
@@ -1030,7 +1028,7 @@ func schemaDelta(current state.Schema, compiled []codec.Envelope) ([]codec.Envel
 	return delta, nil
 }
 
-func schemaDeltaKeep(current state.Schema, env codec.Envelope) (bool, error) {
+func schemaDeltaKeep(current writ.Schema, env writ.Envelope) (bool, error) {
 	switch env.OpType {
 	case "create":
 		var b schemaCreateBody
@@ -1129,7 +1127,7 @@ func schemaDeltaKeep(current state.Schema, env codec.Envelope) (bool, error) {
 	}
 }
 
-func schemaFieldMatchesBody(f state.SchemaField, b schemaDefineFieldBody) bool {
+func schemaFieldMatchesBody(f writ.SchemaField, b schemaDefineFieldBody) bool {
 	if f.ValueType != b.ValueType {
 		return false
 	}

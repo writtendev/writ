@@ -12,7 +12,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
-	"github.com/writtendev/writ/engine/resolve"
+	"github.com/writtendev/writ/internal/resolve"
 	"github.com/writtendev/writ/spec"
 	"github.com/writtendev/writ/spec/fixtures"
 )

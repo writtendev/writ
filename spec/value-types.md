@@ -107,7 +107,7 @@ never able to typecheck, because the strategy's accumulator constrains the
 value:
 
 1. `tombstone` with a `value_type` other than `bool`. The tombstone
-   accumulator (`engine/internal/fold/strategy.go`) tests `val == true` /
+   accumulator (`internal/fold/strategy.go`) tests `val == true` /
    `val == false` and nothing else, so any other declared type is a rule that
    can never fire.
 2. `lattice` with a `value_type` other than `enum`, or `lattice` elements not
@@ -155,8 +155,8 @@ driven off `value_type` as well as the governing schema). A reader MUST
 tolerate a value it cannot interpret, surfacing it through the existing
 `UnknownOp` channel (`spec/forward-compatibility.md`) rather than dropping the
 operation carrying it. Nothing on the read path calls the value-type
-validator: `engine/internal/value` is a producer-side guard, exactly as
-`engine/internal/person.Check` already is.
+validator: `internal/value` is a producer-side guard, exactly as
+`internal/person.Check` already is.
 
 For a type a repository's own `schema` object declares (WRIT-188,
 `spec/op-envelope.md`'s producer precedence tier 2), the `value_type` a

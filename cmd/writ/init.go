@@ -12,11 +12,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/writtendev/writ/engine/dag"
-	"github.com/writtendev/writ/engine/identity"
-	"github.com/writtendev/writ/engine/schemasrc"
-	"github.com/writtendev/writ/engine/sync"
+	"github.com/writtendev/writ/internal/dag"
 	"github.com/writtendev/writ/internal/gitdir"
+	"github.com/writtendev/writ/internal/identity"
+	"github.com/writtendev/writ/internal/schemasrc"
+	"github.com/writtendev/writ/internal/sync"
 )
 
 type initOpts struct {

@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/writtendev/writ/engine"
-	"github.com/writtendev/writ/engine/codec"
+	"github.com/writtendev/writ/internal/codec"
 )
 
 func dummySigner() writ.Signer {
