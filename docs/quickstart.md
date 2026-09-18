@@ -204,6 +204,27 @@ Output:
 origin: fetched 8 ops, 2 objects updated
 ```
 
+### Clone with full history
+
+Writ's operations are commits under `refs/writ/*`, and folding an object
+correctly needs that commit's full ancestry to be present locally. A
+shallow clone (`--depth=...`) or a partial clone (`--filter=...`) leaves
+some op commits absent from the local object store, and fetching into a
+repository that is already shallow keeps it shallow. This is not an
+error: `writ object show` still returns a result, folded from whatever
+subset of its ops happens to be present.
+
+* GitHub Actions: `actions/checkout` defaults to `fetch-depth: 1` — set
+  `fetch-depth: 0`.
+* Plain git: clone without `--depth` or `--filter`; repair an existing
+  shallow clone with `git fetch --unshallow`, a partial clone with
+  `git fetch --refetch`.
+
+`writ sync` reports ops it could not apply — `N ops not applied` in
+porcelain, `"rejected": N` under `--json` — and a nonzero count right
+after a fresh clone means op commits are missing locally, not that a
+peer wrote bad ops.
+
 Your collaborator can now list and inspect tickets offline — filtering to
 one schema-declared type at a time:
 

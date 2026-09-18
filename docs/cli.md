@@ -278,6 +278,9 @@ Synchronize collaborative SDLC operations with one or more git remotes.
 Fetch remote operations, push local operations, and refresh the local projection cache.
 With no remote specified, defaults to 'origin' or the sole configured remote.
 
+A shallow or partial clone is missing some op commits, so those ops are rejected rather
+than applied; check out at full depth in CI (fetch-depth: 0 for actions/checkout).
+
 #### Flags
 
 - `-C <dir>`: Run as if writ was started in <dir>

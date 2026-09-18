@@ -30,3 +30,7 @@ Verify:
 ```
 writ version
 ```
+
+writ needs full history for `refs/writ/*`: clone without `--depth` or set
+`fetch-depth: 0` in CI (`actions/checkout` defaults to shallow) — see
+[Clone with full history](docs/quickstart.md#clone-with-full-history).
