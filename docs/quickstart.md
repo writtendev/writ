@@ -218,7 +218,12 @@ not backfill them.
 
 * GitHub Actions: `actions/checkout`'s `filter:` input is independent of
   its `fetch-depth:` input — leave `filter:` unset (the default) rather
-  than passing `blob:none` or similar.
+  than passing `blob:none` or similar. Its `sparse-checkout:` input
+  applies `blob:none` on its own whenever `filter:` is unset, and
+  setting `filter: ''` does not override that
+  ([actions/checkout#1949](https://github.com/actions/checkout/issues/1949)):
+  skip `sparse-checkout:` if you need every op's objects, or repair
+  afterward as below.
 * Plain git: clone without `--filter`. Repair an existing partial clone
   with `git fetch --refetch --no-filter`; plain `--refetch` re-applies
   the clone's configured filter and leaves the same objects missing.
@@ -230,9 +235,9 @@ A partial clone's missing objects make `writ object show` fail outright
 porcelain, `"rejected": N` under `--json` — and that count mixes two
 different causes it does not distinguish on its own: a malformed op
 rejected on reader validation, or an op commit naming an object this
-clone does not have (a partial clone, above). See
-`RefreshStats.Rejections` in the Go API, or `docs/cli-json.md`'s
-`rejected` field, to tell which.
+clone does not have (a partial clone, above). The count alone cannot
+tell you which; see `RefreshStats.Rejections` in the Go API, where each
+entry's reason does.
 
 Your collaborator can now list and inspect tickets offline — filtering to
 one schema-declared type at a time:

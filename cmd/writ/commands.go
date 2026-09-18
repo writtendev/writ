@@ -252,7 +252,8 @@ var syncCmd = &command{
 		"With no remote specified, defaults to 'origin' or the sole configured remote.\n\n" +
 		"A partial clone (--filter=...) is missing objects those op commits need, so those ops\n" +
 		"are rejected rather than applied; an ordinary shallow clone (--depth=...) is not affected.\n" +
-		"Clone without --filter (in CI, leave actions/checkout's filter: input unset).",
+		"Clone without --filter (in CI, leave actions/checkout's filter: input unset and skip its\n" +
+		"sparse-checkout: input, which applies blob:none on its own).",
 	Flags: []flagSpec{
 		{Name: "C"},
 		{Name: "status"},
