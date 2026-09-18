@@ -228,16 +228,27 @@ not backfill them.
   with `git fetch --refetch --no-filter`; plain `--refetch` re-applies
   the clone's configured filter and leaves the same objects missing.
 
-A partial clone's missing objects make `writ object show` fail outright
-— `writ: object not found`, exit 1 — not a silently-wrong result.
+What a partial clone's missing objects do to `writ object show` depends
+on how much of an object's history got filtered out. Missing *every* op
+for an object fails outright — `writ: object not found`, exit 1. Missing
+only *some* of them does not: the object folds from whatever ops
+survived the filter and exits 0, which can be a stale but
+plausible-looking answer — for example a size-limit filter (`git clone
+--filter=blob:limit=...`) that lets small op blobs through but drops one
+large one silently returns the value from before that op, with no error
+and nothing in the output pointing at what is missing.
 
 `writ sync` reports ops it could not apply — `N ops not applied` in
-porcelain, `"rejected": N` under `--json` — and that count mixes two
-different causes it does not distinguish on its own: a malformed op
-rejected on reader validation, or an op commit naming an object this
-clone does not have (a partial clone, above). The count alone cannot
-tell you which; see `RefreshStats.Rejections` in the Go API, where each
-entry's reason does.
+porcelain, `"rejected": N` under `--json` — and that count is the only
+signal that anything was dropped. It mixes two different causes it does
+not distinguish on its own: a malformed op rejected on reader
+validation, or an op commit naming an object this clone does not have (a
+partial clone, above); see `RefreshStats.Rejections` in the Go API,
+where each entry's reason does distinguish them. The count is also
+one-shot: it reflects only the sync call that observed the rejection, so
+a later `writ sync` that finds nothing new to fetch reports `up to date`
+with no `rejected`/`ops not applied` field at all — even though the
+object folded above is still stale.
 
 Your collaborator can now list and inspect tickets offline — filtering to
 one schema-declared type at a time:
