@@ -144,6 +144,94 @@ func TestWatchLocalWritesEmit(t *testing.T) {
 	}
 }
 
+// TestWatchDeepCausalParentEmitsOneChangedEvent is WRIT-273's regression at
+// the Watch layer: a normal Objects.Apply causally parents on the target
+// object's current frontier (objects.go), and that frontier can sit deep
+// inside the writer's own chain by the time the update lands -- any object
+// created earlier, then left alone while other objects were created, has
+// exactly this shape. Before the fix, the incremental Refresh triggered by
+// such an update re-walked every commit between the frontier and the
+// chain's old cursor tip, re-decoding each intervening object's create op
+// and reporting it as a fresh Changed{Created: true} -- so this single
+// update produced one EventChanged for the object actually touched *and*
+// one spurious EventCreated per untouched object the walk passed through.
+// After the fix, it produces exactly the one EventChanged and nothing
+// else.
+//
+// 10 widgets are created (advancing one chain, root to tip); the update
+// targets the 6th (index 5), whose frontier sits behind 5 other widgets'
+// create commits (indices 0..4) -- mid-chain, not the chain's root and not
+// its tip.
+func TestWatchDeepCausalParentEmitsOneChangedEvent(t *testing.T) {
+	repoDir, _ := setupConfiguredRepo(t)
+	ctx := context.Background()
+
+	store, err := writ.Open(repoDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer store.Close()
+
+	applyCoreSchema(t, ctx, store)
+
+	events := store.Watch(ctx)
+
+	const n = 10
+	ids := make([]string, n)
+	for i := 0; i < n; i++ {
+		id, err := store.Objects.Create(ctx, "acme.widget", writ.NewOp{
+			Type:   "create",
+			Fields: map[string]any{"title": fmt.Sprintf("Widget %d", i)},
+		})
+		if err != nil {
+			t.Fatalf("Objects.Create(%d) failed: %v", i, err)
+		}
+		ids[i] = id
+
+		select {
+		case ev := <-events:
+			if ev.Kind != writ.EventCreated || ev.ObjectID != id {
+				t.Fatalf("unexpected create event %d: %+v", i, ev)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("timed out waiting for create event %d", i)
+		}
+	}
+
+	targetID := ids[5]
+	if err := store.Objects.Apply(ctx, targetID, writ.NewOp{
+		Type:   "update",
+		Fields: map[string]any{"title": "Widget 5, updated"},
+	}); err != nil {
+		t.Fatalf("Objects.Apply(update) failed: %v", err)
+	}
+
+	select {
+	case ev := <-events:
+		if ev.Kind != writ.EventChanged {
+			t.Fatalf("expected EventChanged, got %q: %+v", ev.Kind, ev)
+		}
+		if ev.ObjectID != targetID {
+			t.Fatalf("expected ObjectID %q, got %q", targetID, ev.ObjectID)
+		}
+		expectedOpTypes := []string{"update"}
+		if !reflect.DeepEqual(ev.OpTypes, expectedOpTypes) {
+			t.Fatalf("expected OpTypes %v, got %v", expectedOpTypes, ev.OpTypes)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for the update event")
+	}
+
+	// No further events: before the fix, the 5 untouched widgets whose
+	// create commits sat behind targetID's frontier (indices 0..4) would
+	// each have produced their own spurious EventCreated here.
+	select {
+	case ev := <-events:
+		t.Fatalf("unexpected extra event: %+v", ev)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
 func TestWatchPostFetchRefoldsEmit(t *testing.T) {
 	_, aliceDir, bobDir := setupSyncHarness(t)
 	ctx := context.Background()

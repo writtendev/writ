@@ -2,6 +2,7 @@ package projection_test
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -497,6 +498,133 @@ func TestNewWriterNamespaceDetected(t *testing.T) {
 
 	if !reflect.DeepEqual(incDump, coldDump) {
 		t.Fatalf("new writer incremental dump differs from cold dump")
+	}
+}
+
+// twoWriterDeepCausalParentFixture is shared by
+// TestRefresh_DeepCausalParent_EventSemantics and
+// TestIncrementalRefoldMatchesColdRebuild_DeepCausalParent (WRIT-273): bob
+// creates 20 widgets on one chain (one create op per object), fully
+// refreshed into db, then alice appends one update to a brand-new object
+// whose causal parent is bob's 10th create (index 9) -- a mid-chain
+// commit, not bob's chain tip. This is the shape the ticket's own repro
+// used (a normal cross-writer causal parent landing deep inside another
+// writer's chain, the common case for Objects.Apply's frontier-based
+// causal parent), scaled down from 2000/1000 to 20/1 for test speed.
+func twoWriterDeepCausalParentFixture(t *testing.T, db *projection.DB) (storeBob *dag.Store, bobOps []*codec.Op) {
+	t.Helper()
+	ctx := context.Background()
+	repo, storeBob := createTestStore(t, "0123456789abcdef")
+
+	storeAlice, err := dag.OpenRepo(repo, identity.Identity{
+		WriterID: identity.WriterID("fedcba9876543210"),
+		Author:   identity.Author{Name: "Alice", Email: "alice@example.com"},
+	}, withVocabularies(appendRules()))
+	if err != nil {
+		t.Fatalf("dag.OpenRepo storeAlice: %v", err)
+	}
+
+	for i := 0; i < 20; i++ {
+		env := makeWidgetEnv(fmt.Sprintf("w-%d", i), "create", map[string]any{"title": fmt.Sprintf("Widget %d", i)})
+		op, err := storeBob.Append(ctx, env, nil)
+		if err != nil {
+			t.Fatalf("storeBob.Append %d failed: %v", i, err)
+		}
+		bobOps = append(bobOps, op)
+	}
+
+	if _, err := db.Refresh(storeBob, projection.WithSchema(testRules())); err != nil {
+		t.Fatalf("Refresh (bob's creates) failed: %v", err)
+	}
+
+	envAlice := makeWidgetEnv("w-alice", "update", map[string]any{"title": "Alice's edit"})
+	if _, err := storeAlice.Append(ctx, envAlice, []string{bobOps[9].ID}); err != nil {
+		t.Fatalf("storeAlice.Append failed: %v", err)
+	}
+
+	return storeBob, bobOps
+}
+
+// TestRefresh_DeepCausalParent_EventSemantics is WRIT-273's regression at
+// the projection layer: Stats.Changed reported one entry per commit
+// EnumerateSince re-walked, not per commit newly relevant to this pass, so
+// alice's update -- causally parented deep inside bob's chain -- made the
+// incremental Refresh that picks it up also re-decode bob's first 10
+// creates (indices 0..9) and report 11 Changed entries, 10 of them
+// Created: true for objects that were already fully projected. After the
+// fix, it reports exactly what changed: 1 op decoded, 1 object touched, 1
+// Changed entry with Created: false.
+func TestRefresh_DeepCausalParent_EventSemantics(t *testing.T) {
+	db, err := projection.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open projection failed: %v", err)
+	}
+	defer db.Close()
+
+	storeBob, _ := twoWriterDeepCausalParentFixture(t, db)
+
+	stats2, err := db.Refresh(storeBob, projection.WithSchema(testRules()))
+	if err != nil {
+		t.Fatalf("Refresh 2 failed: %v", err)
+	}
+	if stats2.OpsDecoded != 1 {
+		t.Fatalf("stats2.OpsDecoded = %d, want 1 (deep causal parent must not re-walk bob's history)", stats2.OpsDecoded)
+	}
+	if stats2.ObjectsTouched != 1 {
+		t.Fatalf("stats2.ObjectsTouched = %d, want 1", stats2.ObjectsTouched)
+	}
+	if stats2.Rebuilt {
+		t.Fatalf("stats2.Rebuilt = true, want false")
+	}
+	if len(stats2.Changed) != 1 {
+		t.Fatalf("len(stats2.Changed) = %d, want 1: %+v", len(stats2.Changed), stats2.Changed)
+	}
+	want := projection.ObjectChange{
+		ObjectID:   "w-alice",
+		ObjectType: "widget",
+		OpTypes:    []string{"update"},
+		Created:    false,
+	}
+	if !reflect.DeepEqual(stats2.Changed[0], want) {
+		t.Fatalf("stats2.Changed[0] = %+v, want %+v", stats2.Changed[0], want)
+	}
+}
+
+// TestIncrementalRefoldMatchesColdRebuild_DeepCausalParent is a sibling of
+// TestIncrementalRefoldMatchesColdRebuild for WRIT-273: the deep-causal-
+// parent scenario that exposed the defect must still leave the
+// incremental projection byte-identical to a cold Rebuild of the same
+// repo. This is the test that would catch dag.WithSeen's predicate
+// leaking onto the rebuild path (see the comment at rebuildWithConfig's
+// EnumerateSince call) -- a rebuild that silently reused it would stop
+// short of a genuine cold walk and diverge from this dump.
+func TestIncrementalRefoldMatchesColdRebuild_DeepCausalParent(t *testing.T) {
+	db, err := projection.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open projection failed: %v", err)
+	}
+	defer db.Close()
+
+	storeBob, _ := twoWriterDeepCausalParentFixture(t, db)
+
+	if _, err := db.Refresh(storeBob, projection.WithSchema(testRules())); err != nil {
+		t.Fatalf("Refresh 2 failed: %v", err)
+	}
+	incDump, err := db.DumpTables()
+	if err != nil {
+		t.Fatalf("DumpTables incremental failed: %v", err)
+	}
+
+	if _, err := db.Rebuild(storeBob, projection.WithSchema(testRules())); err != nil {
+		t.Fatalf("Rebuild failed: %v", err)
+	}
+	coldDump, err := db.DumpTables()
+	if err != nil {
+		t.Fatalf("DumpTables cold failed: %v", err)
+	}
+
+	if !reflect.DeepEqual(incDump, coldDump) {
+		t.Fatalf("incremental dump != cold dump:\nincremental: %+v\ncold: %+v", incDump, coldDump)
 	}
 }
 
