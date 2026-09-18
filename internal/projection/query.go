@@ -89,11 +89,13 @@ func joinBalanced(parts []string, op string) string {
 // binds can sum past sqliteMaxVariableNumber regardless of which branch
 // objectsTextClause takes — the wide branch binds one param per
 // contributing type too, so switching to it does not help. This is not a
-// regression: such a schema already breaches SQLITE_MAX_EXPR_DEPTH at
-// roughly 1,000 types, well short of the ~16,383 types this shape needs, so
-// no divisor here changes what actually fails first. The /2 buys headroom
-// against the fixed-size contributors above; it was never sized to cover
-// objectsNotDeletedClause's per-type cost, which is a distinct bind ceiling
+// regression: main dies on the same schema too, with a different error.
+// joinBalanced removes the expression-depth ceiling these clauses used to
+// hit, so depth is no longer what fails first on a many-narrow-types
+// schema — the bind ceiling above is, at roughly 16,400 declared types, and
+// no divisor changes that. The /2 buys headroom against the fixed-size
+// contributors above; it was never sized to cover objectsNotDeletedClause's
+// per-type cost, and cannot, since that cost is a distinct bind ceiling
 // this constant does not address.
 const sqliteMaxVariableNumber = 32766
 const wideTextSearchBindThreshold = sqliteMaxVariableNumber / 2
