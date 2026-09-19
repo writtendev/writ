@@ -284,6 +284,15 @@ func (o *Objects) Get(ctx context.Context, objectID string) (Object, error) {
 
 	ops := enumRes.Ops[objectID]
 	if len(ops) == 0 {
+		// enumRes.Rejections is repository-wide, not scoped to objectID: a
+		// rejected commit never decoded far enough to reveal its
+		// object_id, so there is no per-object rejection list to report,
+		// only how many commits this pass could not read at all. See
+		// ErrRejectedOps's doc comment.
+		if len(enumRes.Rejections) > 0 {
+			return Object{}, fmt.Errorf("%w: %d op commit(s) could not be read: %w",
+				ErrNotFound, len(enumRes.Rejections), ErrRejectedOps)
+		}
 		return Object{}, ErrNotFound
 	}
 

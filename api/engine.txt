@@ -33,6 +33,7 @@ var ErrNonFastForward = writsync.ErrNonFastForward
 var ErrNotFound = projection.ErrNotFound
 var ErrNotRepository = gitdir.ErrNotRepository
 var ErrRefRejected = writsync.ErrRefRejected
+var ErrRejectedOps = errors.New("one or more op commits in this repository failed reader validation, so this object's absence is not certain")
 var ErrStoreOpen = errors.New("writ: cannot open store")
 var ErrUnknownRemote = writsync.ErrUnknownRemote
 

@@ -2,14 +2,20 @@ package writ_test
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/internal/codec"
+	"github.com/writtendev/writ/internal/codec/canonicaljson"
 )
 
 // waypointSchemaSrc declares "waypoint": an object type writ.Open's engine
@@ -402,8 +408,15 @@ func TestObjectsApply_TargetKeyDiffersFromWriteField(t *testing.T) {
 	}
 }
 
-// TestObjectsGet_NotFound pins Get's ErrNotFound for an object id with no
-// ops at all.
+// TestObjectsGet_NotFound pins Get's bare, unwrapped ErrNotFound sentinel
+// for the clean-repository case: an object id with no ops at all, and
+// nothing in the repository that failed reader validation. This is the
+// common case, and it must stay a plain, definitive ErrNotFound rather
+// than growing an ErrRejectedOps wrapper it has no cause to carry --
+// TestObjectsGet_RejectedOpsSentinel_SharpCase below pins the other side
+// of that branch. errors.Is (rather than ==) is used so this keeps
+// passing if a future change wraps ErrNotFound for some other reason;
+// today err is in fact the bare sentinel by identity.
 func TestObjectsGet_NotFound(t *testing.T) {
 	ctx := context.Background()
 	dir, _ := setupConfiguredRepo(t)
@@ -413,8 +426,164 @@ func TestObjectsGet_NotFound(t *testing.T) {
 	}
 	defer store.Close()
 
-	if _, err := store.Objects.Get(ctx, "nonexistent-object-id"); err != writ.ErrNotFound {
+	if _, err := store.Objects.Get(ctx, "nonexistent-object-id"); !errors.Is(err, writ.ErrNotFound) {
 		t.Fatalf("Objects.Get(nonexistent): err = %v, want ErrNotFound", err)
+	}
+}
+
+// writeRejectedOpCommit appends a single op commit directly onto
+// refs/writ/<writerID>/<objectType> in dir's repository, with a second
+// tree entry beside op.json -- the same "extra tree entry beside op.json"
+// shape internal/dag/objectunavailable_test.go and
+// engine/schema_test.go's writeForeignSchemaOp use elsewhere, here to
+// produce a bare codec.RejectExtraTreeEntry. Rejection at this point
+// happens before the commit's op.json payload -- the bytes carrying
+// object_id -- is ever decoded (internal/codec/decode.go's tree-entry
+// count check runs ahead of DecodePayload), which is exactly why
+// EnumerateResult.Rejections cannot be attributed to any particular
+// object id: this commit's own object_id, objectID, is written into the
+// payload only to keep the fixture self-describing, and is never read
+// by the code under test.
+func writeRejectedOpCommit(t *testing.T, dir, writerID, objectType, objectID string) {
+	t.Helper()
+
+	repo, err := git.PlainOpen(dir)
+	if err != nil {
+		t.Fatalf("opening repo at %s: %v", dir, err)
+	}
+
+	raw, err := json.Marshal(map[string]any{
+		"object_id":   objectID,
+		"object_type": objectType,
+		"op_type":     "create",
+		"op_version":  1,
+		"body":        map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("marshal op payload: %v", err)
+	}
+	canon, err := canonicaljson.Marshal(raw)
+	if err != nil {
+		t.Fatalf("canonicalize op payload: %v", err)
+	}
+
+	who := codec.Identity{
+		Name:  "Rejected Client",
+		Email: "rejected@example.test",
+		When:  time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
+	}
+	commit := &codec.Commit{
+		Author:    who,
+		Committer: who,
+		Message:   fmt.Sprintf("writ: create %s/%s\n", objectType, objectID),
+		Tree: []codec.TreeEntry{
+			{Name: "extra", Mode: "100644", Data: []byte("extra tree entry")},
+			{Name: "op.json", Mode: "100644", Data: canon},
+		},
+	}
+
+	hash, err := codec.WriteCommit(context.Background(), repo.Storer, commit, nil)
+	if err != nil {
+		t.Fatalf("writing rejected op commit: %v", err)
+	}
+
+	refName := plumbing.ReferenceName(fmt.Sprintf("refs/writ/%s/%s", writerID, objectType))
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(refName, hash)); err != nil {
+		t.Fatalf("setting ref %s: %v", refName, err)
+	}
+}
+
+// TestObjectsGet_RejectedOpsSentinel_SharpCase is the sharp case: a
+// repository holding one commit that fails reader validation (here,
+// RejectExtraTreeEntry) makes every subsequent not-found Get in that same
+// repository indeterminate, because Enumerate's rejections are
+// repository-wide and cannot be attributed to the id the rejected commit
+// would have named. This must fail if engine/objects.go's conditional
+// wrap around ErrRejectedOps is removed (i.e. if Get goes back to
+// returning bare ErrNotFound regardless of enumRes.Rejections): the
+// errors.Is(err, writ.ErrRejectedOps) assertion below would then see a
+// nil-safe false and fail with "want true".
+func TestObjectsGet_RejectedOpsSentinel_SharpCase(t *testing.T) {
+	store, ctx, dir := openStoreWithCoreSchema(t)
+
+	writeRejectedOpCommit(t, dir, "0123456789abcdef", "acme.trash", "trash-1")
+
+	_, err := store.Objects.Get(ctx, "nonexistent-object-id")
+	if !errors.Is(err, writ.ErrNotFound) {
+		t.Errorf("err = %v, want errors.Is(err, ErrNotFound) = true", err)
+	}
+	if !errors.Is(err, writ.ErrRejectedOps) {
+		t.Errorf("err = %v, want errors.Is(err, ErrRejectedOps) = true", err)
+	}
+}
+
+// TestObjectsGet_RejectedOpsAbsentInCleanRepo is the negative case: a
+// clean repository -- no op commit anywhere failed reader validation --
+// must never set ErrRejectedOps on a not-found Get. Without this test,
+// ErrRejectedOps could be wrapped unconditionally and nothing here would
+// catch it; this is what keeps the sentinel meaningful signal rather than
+// noise on every not-found.
+func TestObjectsGet_RejectedOpsAbsentInCleanRepo(t *testing.T) {
+	store, ctx, _ := openStoreWithCoreSchema(t)
+
+	_, err := store.Objects.Get(ctx, "nonexistent-object-id")
+	if !errors.Is(err, writ.ErrNotFound) {
+		t.Errorf("err = %v, want errors.Is(err, ErrNotFound) = true", err)
+	}
+	if errors.Is(err, writ.ErrRejectedOps) {
+		t.Errorf("err = %v, want errors.Is(err, ErrRejectedOps) = false in a clean repository", err)
+	}
+}
+
+// TestObjectsGet_RejectedOpsNoCollateralDamage guards against the fix
+// leaking the repository-wide rejection condition into a successful Get:
+// a valid object's Fields, ObjectType and Verification in a repository
+// that also holds a rejected commit elsewhere must be identical to the
+// same Get in an otherwise-identical clean repository.
+func TestObjectsGet_RejectedOpsNoCollateralDamage(t *testing.T) {
+	cleanStore, ctx, _ := openStoreWithCoreSchema(t)
+	cleanID, err := cleanStore.Objects.Create(ctx, "acme.widget", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Widget"},
+	})
+	if err != nil {
+		t.Fatalf("Objects.Create (clean) failed: %v", err)
+	}
+	cleanObj, err := cleanStore.Objects.Get(ctx, cleanID)
+	if err != nil {
+		t.Fatalf("Objects.Get (clean) failed: %v", err)
+	}
+
+	dirtyStore, dirtyCtx, dirtyDir := openStoreWithCoreSchema(t)
+	dirtyID, err := dirtyStore.Objects.Create(dirtyCtx, "acme.widget", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Widget"},
+	})
+	if err != nil {
+		t.Fatalf("Objects.Create (dirty) failed: %v", err)
+	}
+	writeRejectedOpCommit(t, dirtyDir, "0123456789abcdef", "acme.trash", "trash-1")
+
+	// Confirm the repository is actually dirty in the sense this test
+	// cares about, so a broken fixture fails loudly instead of passing
+	// vacuously.
+	if _, err := dirtyStore.Objects.Get(dirtyCtx, "nonexistent-object-id"); !errors.Is(err, writ.ErrRejectedOps) {
+		t.Fatalf("fixture check: Get(nonexistent) in dirty repo: err = %v, want ErrRejectedOps", err)
+	}
+
+	dirtyObj, err := dirtyStore.Objects.Get(dirtyCtx, dirtyID)
+	if err != nil {
+		t.Fatalf("Objects.Get (dirty) failed: %v", err)
+	}
+
+	if !reflect.DeepEqual(cleanObj.Fields, dirtyObj.Fields) {
+		t.Errorf("Fields = %#v, want %#v (identical to the clean repository's Get)", dirtyObj.Fields, cleanObj.Fields)
+	}
+	if cleanObj.ObjectType != dirtyObj.ObjectType {
+		t.Errorf("ObjectType = %q, want %q", dirtyObj.ObjectType, cleanObj.ObjectType)
+	}
+	if cleanObj.Verification != dirtyObj.Verification {
+		t.Errorf("Verification = %q, want %q", dirtyObj.Verification, cleanObj.Verification)
 	}
 }
 
