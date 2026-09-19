@@ -65,9 +65,15 @@ same signing key then mint the same op id.
   observed or depended on. When a chain is empty (the writer's first op
   on that chain), causal references start at `parents[0]`; if there are
   no causal dependencies, the op has zero parents. Parent ops MUST NOT
-  point at non-op commits. (See [`spec/ref-layout.md`](ref-layout.md) for
-  ref layout and edge rules; an object's op-DAG is the
-  ancestry-restricted subgraph over its `object_id`.)
+  point at non-op commits. Producers MUST NOT emit a commit whose parent
+  list repeats an op id: parent op ids MUST be pairwise distinct. Readers
+  MUST accept a commit whose parent list nonetheless repeats an op id —
+  rejecting it would let a malformed peer remove an object's history from
+  every reader — and MUST treat the parent list as a set of
+  happens-before edges: a repeated parent contributes one edge, not two.
+  (See [`spec/ref-layout.md`](ref-layout.md) for ref layout and edge
+  rules; an object's op-DAG is the ancestry-restricted subgraph over its
+  `object_id`.)
 - **Author and committer.** The committer identity and timestamp MUST be
   byte-identical to the author identity and timestamp. There is no
   separate "committer" concept in the op model.

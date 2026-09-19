@@ -1,0 +1,23 @@
+{
+  "objects": [
+    {
+      "object_id": "w-duplicate-parent",
+      "object_type": "acme.widget",
+      "total_order": [
+        {
+          "commit": "c1a5d602c94b32a44af3d4f052d0efada6a0e203",
+          "label": "widget-create",
+          "t_star": 1767225600
+        },
+        {
+          "commit": "14a40b36f5a8457edcff2479c225914c6b9af867",
+          "label": "widget-update",
+          "t_star": 1767225660
+        }
+      ],
+      "state": {
+        "title": "Updated Title"
+      }
+    }
+  ]
+}

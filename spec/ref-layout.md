@@ -97,6 +97,11 @@ follows:
   dependencies, it MUST have zero parents (a root commit).
 - **Target validity:** All commit parents MUST point at valid op commits
   and MUST NOT point at arbitrary non-op commits.
+- **Distinct parents:** Parent op ids MUST be pairwise distinct; a
+  producer MUST NOT emit a commit whose parent list repeats an op id.
+  (See [`spec/op-envelope.md`](op-envelope.md) §Parents for the
+  reader-side rule: a reader MUST accept a repeat and treat the parent
+  list as a set of happens-before edges.)
 
 **Why the chain spine MUST exist:** The requirement that `parents[0]`
 points to the writer's previous op on that chain is self-enforcing. It

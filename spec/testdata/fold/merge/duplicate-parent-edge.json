@@ -1,0 +1,49 @@
+{
+  "name": "duplicate-parent-edge",
+  "description": "A repeated parent entry contributes one happens-before edge, not two: folding a commit whose parent list names the same causally-observed op twice produces state byte-identical to the same commit naming it once (op-envelope.md's reader rule; fold.md §1, Ancestry restriction)",
+  "object_id": "obj-1",
+  "fields": {
+    "body": { "strategy": "multi-value" }
+  },
+  "ops": [
+    {
+      "id": "op-root",
+      "parents": [],
+      "time": 100,
+      "object_id": "obj-1",
+      "body": {
+        "body": "Initial body"
+      }
+    },
+    {
+      "id": "op-a",
+      "parents": ["op-root"],
+      "time": 200,
+      "object_id": "obj-1",
+      "body": {
+        "body": "Version A"
+      }
+    },
+    {
+      "id": "op-b",
+      "parents": ["op-root"],
+      "time": 300,
+      "object_id": "obj-1",
+      "body": {
+        "body": "Version B"
+      }
+    },
+    {
+      "id": "op-c-resolve",
+      "parents": ["op-a", "op-b", "op-b"],
+      "time": 400,
+      "object_id": "obj-1",
+      "body": {
+        "body": "Resolved single version"
+      }
+    }
+  ],
+  "expected_state": {
+    "body": "Resolved single version"
+  }
+}
