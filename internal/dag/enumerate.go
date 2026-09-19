@@ -357,13 +357,21 @@ func (s *Store) EnumerateSince(cursors CursorSet, opts ...EnumerateOption) (*Enu
 
 	for _, commitObj := range commitsToDecode {
 		// pureCommit.Payload comes from FromGitCommit (gogit.go), which
-		// builds it by re-encoding go-git's already-parsed *object.Commit
-		// (EncodeWithoutSignature) rather than reading the commit's raw
-		// object bytes: object.Commit doesn't model every header a raw
-		// commit can carry, so this is not guaranteed byte-identical to the
-		// original object. It is still not a caller-supplied value, though:
-		// codec/verify.go's caller-supplied-Payload trust point is not
-		// reachable from this path.
+		// builds it with commit.EncodeWithoutSignature. commitObj always
+		// comes from object.GetCommit above, so go-git still holds the
+		// encoded object it was decoded from, and EncodeWithoutSignature
+		// streams those raw bytes verbatim, dropping only the
+		// gpgsig/gpgsig-sha256 header lines and their continuations
+		// (stripObjectSignatures). The payload is therefore the original
+		// object's bytes minus the signature header block — exactly the
+		// bytes the signature was computed over, headers object.Commit
+		// gives no field of its own included — which is what
+		// spec/signing.md §Signed Payload requires. go-git re-encodes the
+		// parsed struct only when matchesSource() is false: an
+		// in-memory-constructed commit, or one whose exported fields were
+		// mutated after decode. Neither happens on this path. The payload
+		// is also not a caller-supplied value: codec/verify.go's
+		// caller-supplied-Payload trust point is not reachable from here.
 		pureCommit, err := codec.FromGitCommit(cachedStorer, commitObj)
 		if err != nil {
 			reason := codec.RejectMissingOpJSON
