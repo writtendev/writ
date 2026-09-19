@@ -384,6 +384,85 @@ func TestAllowedSigners_OpenSSHMatchSemantics(t *testing.T) {
 		}
 	})
 
+	// A list whose only subpattern is a negation that does not match must
+	// not authorize anything: "at least one non-negated subpattern
+	// matched" is the actual rule (match_pattern_list's got_positive), and
+	// a negated subpattern that fails to match only declines to reject --
+	// it never itself authorizes. Pins the WRIT-302 round-2 major finding:
+	// namespaces="!ssh" verifying a "git"-namespace signature must be
+	// wrong-key, the same outcome a bare rule with no namespaces= option at
+	// all would give for a namespace other than "git" -- not valid, which
+	// an equally faithful reading of "a leading '!' negates a subpattern"
+	// alone (without the "requires a positive match" half of the rule)
+	// would allow a second conforming implementation to reach.
+	t.Run("all-negated list never authorizes, even when nothing in it matches", func(t *testing.T) {
+		sshPub, pubLine := newKey(t)
+		ts, err := sshsig.ParseAllowedSigners(strings.NewReader(`alice@example.test namespaces="!ssh" ` + pubLine + "\n"))
+		if err != nil {
+			t.Fatalf("ParseAllowedSigners failed: %v", err)
+		}
+		if ts.IsAuthorized(sshPub, "alice@example.test", "git", now) {
+			t.Error(`namespaces="!ssh" must not authorize namespace "git": the list contains no non-negated subpattern for "git" to match, so it never matches, regardless of "!ssh" itself not matching "git" either`)
+		}
+	})
+
+	// OpenSSH's match_pattern_list copies each subpattern into a
+	// 1024-byte stack buffer and aborts the *entire list* -- discarding
+	// even an already-recorded match from an earlier subpattern -- the
+	// moment a subpattern reaches 1023 bytes (real match.c rev 1.46,
+	// compiled and driven for WRIT-302 round 2: a 1022-byte subpattern is
+	// accepted, a 1023-byte one aborts the list). spec/signing.md
+	// deliberately makes writ more permissive here: conforming verifiers
+	// MUST NOT impose a subpattern length limit, and MUST NOT let one
+	// subpattern's length affect whether any other subpattern in the same
+	// list matches. Both MUST NOTs are pinned here so a future re-port
+	// that copies match.c's sub[1024] buffer and its abort does not land
+	// with every other test green.
+	t.Run("no subpattern length limit: an oversized literal subpattern still matches on its own", func(t *testing.T) {
+		sshPub, pubLine := newKey(t)
+		longPrincipal := strings.Repeat("a", 1100) + "@example.test"
+		ts, err := sshsig.ParseAllowedSigners(strings.NewReader(longPrincipal + " " + pubLine + "\n"))
+		if err != nil {
+			t.Fatalf("ParseAllowedSigners failed: %v", err)
+		}
+		if !ts.IsAuthorized(sshPub, longPrincipal, "git", now) {
+			t.Errorf("a %d-byte literal subpattern must still match the identical %d-byte value: conforming verifiers MUST NOT impose a subpattern length limit", len(longPrincipal), len(longPrincipal))
+		}
+	})
+
+	t.Run("an oversized later subpattern must not discard an earlier subpattern's match", func(t *testing.T) {
+		sshPub, pubLine := newKey(t)
+		principals := "alice@example.test," + strings.Repeat("x", 1100)
+		ts, err := sshsig.ParseAllowedSigners(strings.NewReader(principals + " " + pubLine + "\n"))
+		if err != nil {
+			t.Fatalf("ParseAllowedSigners failed: %v", err)
+		}
+		if !ts.IsAuthorized(sshPub, "alice@example.test", "git", now) {
+			t.Error("alice@example.test must still match: real match.c's sub[1024] buffer would abort the whole list on the 1100-byte second subpattern, discarding this already-recorded match, but conforming verifiers MUST NOT let one subpattern's length affect whether any other subpattern in the list matches")
+		}
+	})
+
+	// A trailing comma must not synthesize an extra, empty subpattern.
+	// match_pattern_list's loop condition is `i < len(pattern)`: skipping
+	// the final comma lands the index exactly at len(pattern), so no
+	// further subpattern -- empty or otherwise -- is ever started after
+	// it, unlike strings.Split, which always synthesizes a trailing "".
+	// Left unhandled, that extra element would let an allowed_signers
+	// line ending in a comma authorize an op whose author.email is empty.
+	t.Run("a trailing comma does not authorize an empty principal", func(t *testing.T) {
+		sshPub, pubLine := newKey(t)
+		ts, err := sshsig.ParseAllowedSigners(strings.NewReader(`alice@example.test, ` + pubLine + "\n"))
+		if err != nil {
+			t.Fatalf("ParseAllowedSigners failed: %v", err)
+		}
+		if ts.IsAuthorized(sshPub, "", "git", now) {
+			t.Error(`"alice@example.test," must not authorize an empty principal: match_pattern_list never evaluates a subpattern after a list-terminating trailing comma`)
+		}
+		if !ts.IsAuthorized(sshPub, "alice@example.test", "git", now) {
+			t.Error(`"alice@example.test," must still authorize "alice@example.test" itself`)
+		}
+	})
+
 	// Positive controls, guarding against a matcher that simply rejects
 	// everything passing every negative assertion above vacuously.
 	t.Run("positive control: wildcard suffix still matches", func(t *testing.T) {

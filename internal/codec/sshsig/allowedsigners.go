@@ -83,7 +83,7 @@ func parseAllowedSignersLine(line string) (*SignerRule, error) {
 	}
 
 	principalsField := fields[0]
-	principals := strings.Split(principalsField, ",")
+	principals := splitPatternList(principalsField)
 
 	var optionsStr string
 	var keyType string
@@ -118,7 +118,7 @@ func parseAllowedSignersLine(line string) (*SignerRule, error) {
 				rule.CertAuthority = true
 			} else if strings.HasPrefix(opt, "namespaces=") {
 				val := strings.Trim(strings.TrimPrefix(opt, "namespaces="), `"`)
-				rule.Namespaces = strings.Split(val, ",")
+				rule.Namespaces = splitPatternList(val)
 			} else if strings.HasPrefix(opt, "valid-after=") {
 				val := strings.Trim(strings.TrimPrefix(opt, "valid-after="), `"`)
 				t, err := parseTimeOpt(val)
@@ -150,6 +150,30 @@ func parseAllowedSignersLine(line string) (*SignerRule, error) {
 	rule.PublicKey = pubKey
 
 	return rule, nil
+}
+
+// splitPatternList splits a comma-separated subpattern list (an
+// allowed_signers Principals or namespaces= field) the way match.c's
+// match_pattern_list walks it, not the way strings.Split does on its
+// own. match_pattern_list's loop condition is `i < len(pattern)`: each
+// subpattern is delimited by a comma or the end of the string, and a
+// comma found is then skipped before the loop re-checks that condition.
+// A leading or interior empty subpattern (from ",x" or "x,,y") is real
+// and gets matched, because the loop still has bytes left after
+// skipping that comma. But when the list ends in a comma, skipping it
+// lands the index exactly at len(pattern), the loop condition is now
+// false, and no further subpattern -- empty or otherwise -- is ever
+// started. strings.Split has no such stopping condition: it always
+// synthesizes one trailing "" for a trailing separator. Left alone,
+// that extra element is a subpattern match_pattern_list never evaluates,
+// and for a Principals field it lets an allowed_signers line ending in
+// a comma authorize an op whose author.email is empty.
+func splitPatternList(s string) []string {
+	parts := strings.Split(s, ",")
+	if len(parts) > 1 && strings.HasSuffix(s, ",") {
+		parts = parts[:len(parts)-1]
+	}
+	return parts
 }
 
 func splitOptions(s string) []string {

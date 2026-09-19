@@ -75,7 +75,15 @@ state out, no I/O") and WRIT-3:
   matches both `alice@example.test*` and `alice@example.test**`. A leading
   `!` negates a subpattern, and a negated match rejects the rule outright
   regardless of any other subpattern's outcome. An empty subpattern (as
-  from a doubled comma) matches only the empty string.
+  from a doubled comma) matches only the empty string. A list matches only
+  if at least one **non-negated** subpattern in it matches the value; a
+  negated subpattern that matches rejects the list outright as above, but a
+  negated subpattern that does *not* match never by itself authorizes
+  anything -- it only declines to reject. Consequently a list with no
+  non-negated subpattern -- including one made up entirely of negated
+  subpatterns that all fail to match -- never matches: `namespaces="!ssh"`
+  does not authorize the `"git"` namespace (or any other), because it
+  contains no non-negated subpattern for `"git"` to match against.
 
   OpenSSH's `match_pattern_list` copies each subpattern into a fixed
   1024-byte buffer and, once a subpattern reaches 1023 bytes, aborts the
