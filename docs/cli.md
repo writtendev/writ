@@ -45,12 +45,11 @@ every wire type the schema declares, so it is never derived from a directory nam
 
 With no remote given, every remote `git remote` lists is configured. One that Ensure's
 existence/name gate rejects (a url-less remote section, or a "-"-leading name -- both
-configurations git itself accepts) is skipped and reported rather than stopping the run:
-every other discovered remote still gets its fetch refspec. A url-less section never had
-anything configured for it, so skipping it exits 0; a real remote (a url is set) whose name
-Ensure rejects is a genuine partial result and exits 1. A remote named explicitly on the
-command line does not get this treatment -- a bad name the caller typed stops the run,
-same as before.
+configurations git itself accepts) is reported on stderr and skipped rather than stopping
+the run: every other discovered remote still gets its fetch refspec, and the process still
+exits 0 -- a remote writ merely discovered being unusable is not a failure. A remote named
+explicitly on the command line does not get this treatment -- a bad name the caller typed
+stops the run, same as before.
 
 #### Flags
 
@@ -60,13 +59,9 @@ same as before.
 #### Exit Codes
 
 - `0`: Success: every remote (explicit, or discovered with none given) was configured, or the
-   run finished having only skipped a discovered url-less remote section -- nothing was
-   ever configured for it, so nothing is stranded
-- `1`: Runtime failure: either the run stopped part-way (an explicit remote's name was
-   rejected, or a write failed), or it finished but skipped one or more discovered,
-   real remotes (a url is set) whose name Ensure's gate would not configure (see stderr
-   for which, and why) -- distinct from a usage error, since nothing the caller typed
-   was wrong
+   run finished having only skipped a discovered remote it could not configure
+- `1`: Runtime failure: the run stopped part-way (an explicit remote's name was rejected, or a
+   write failed)
 - `2`: Usage error (bad flag)
 
 #### Examples
