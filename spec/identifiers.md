@@ -764,10 +764,15 @@ escape, and `\p{Mn}` is not the same set, so a value whose NFD carries more
 than 30 consecutive non-starters is a shape the schema accepts and a
 conforming producer refuses. `testdata/persons/invalid/index.json` marks a
 vector rejected only by one of these producer-side rules `enforced_by:
-"producer"` rather than expecting the schema to catch it. Schema validation
-is a necessary check, not a sufficient one; §[Normalization rules](#normalization-rules)
-and §[Value shape: Stream-Safe Text](#value-shape-stream-safe-text) are the
-rest of the obligation.
+"producer"` rather than expecting the schema to catch it, and names which
+rule in a sibling `producer_rule` field (`stream-safe` or `repertoire`) —
+the categorized-rejection discipline
+[`spec/canonicalization.md`](canonicalization.md)
+§[Test vectors](canonicalization.md#test-vectors) already asks of a
+conformance harness, applied here to the producer-side arm. Schema
+validation is a necessary check, not a sufficient one; §[Normalization
+rules](#normalization-rules) and §[Value shape: Stream-Safe
+Text](#value-shape-stream-safe-text) are the rest of the obligation.
 
 ### Rendering a person identifier
 
@@ -815,7 +820,9 @@ normalized form, and identifiers it must and must not compare equal to;
 `invalid/` vectors carry an identifier the grammar, the bounds, the
 repertoire, or the Stream-Safe Text run-length limit rejects, with
 `invalid/index.json` recording why — and, for a rejection only the producer
-can make (not the JSON Schema), an `enforced_by: "producer"` marker. Between
+can make (not the JSON Schema), an `enforced_by: "producer"` marker naming,
+in a sibling `producer_rule` field, which producer-side rule (`stream-safe`
+or `repertoire`) it pins. Between
 them they pin first-colon parsing with a quoted local part, cross-scheme
 non-equality, case and whitespace normalization, unknown-scheme preservation,
 a maximal-length value and one code point more, a value that crosses the
@@ -825,10 +832,10 @@ control, a bidi override, a bidi isolate, a zero-width character, the BOM,
 soft hyphen, the Arabic letter mark, the Mongolian vowel separator, the word
 joiner, an invisible operator, the Hangul filler — the invisible-but-not-`Cf`
 class — and a tag character, the one vector this list marks `enforced_by:
-"producer"`, since the schema pattern cannot reach a code point above the
-Basic Multilingual Plane), what is deliberately still permitted despite the
-repertoire rule (an emoji value, an interior space, and unmarked
-right-to-left script),
+"producer"` with `producer_rule: "repertoire"`, since the schema pattern
+cannot reach a code point above the Basic Multilingual Plane), what is
+deliberately still permitted despite the repertoire rule (an emoji value,
+an interior space, and unmarked right-to-left script),
 backward-combining starters composed in context under Unicode 17.0.0
 ([`normalization-unicode17-backward-combining-starter.json`](testdata/persons/valid/normalization-unicode17-backward-combining-starter.json)),
 and the Stream-Safe Text boundary: a value accepted at exactly 30 consecutive NFD
