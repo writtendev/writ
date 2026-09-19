@@ -19,6 +19,7 @@ const OrderByCreatedAtAsc = projection.OrderByCreatedAtAsc
 const OrderByCreatedAtDesc = projection.OrderByCreatedAtDesc
 const OrderByUpdatedAtAsc = projection.OrderByUpdatedAtAsc
 const OrderByUpdatedAtDesc = projection.OrderByUpdatedAtDesc
+const RejectObjectUnavailable = dag.RejectObjectUnavailable
 
 var ErrAuth = writsync.ErrAuth
 var ErrCycle = state.ErrCycle
@@ -115,6 +116,10 @@ func (*Query) Object(id string) (ObjectResult, error)
 func (*Query) Objects(f ObjectFilter) ([]ObjectResult, error)
 
 type RefreshStats = projection.Stats
+
+type RejectReason = codec.RejectReason
+
+type Rejection = dag.Rejection
 
 type Rule = state.Rule
 

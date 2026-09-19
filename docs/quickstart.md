@@ -251,8 +251,8 @@ porcelain, `"rejected": N` under `--json` — and that count is the only
 signal that anything was dropped. It mixes two different causes it does
 not distinguish on its own: a malformed op rejected on reader
 validation, or an op commit naming an object this clone does not have (a
-partial clone, above); see `RefreshStats.Rejections` in the Go API,
-where each entry's reason does distinguish them. The count is also
+partial clone, above); see `RefreshStats.Rejections` (a `[]writ.Rejection`)
+in the Go API, where each entry's reason does distinguish them. The count is also
 one-shot: it reflects only the sync call that observed the rejection, so
 a later `writ sync` that finds nothing new to fetch reports `up to date`
 with no `rejected`/`ops not applied` field at all — even though the
