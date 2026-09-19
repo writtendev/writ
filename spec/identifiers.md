@@ -954,10 +954,11 @@ several repositories would need something to replicate them between remotes,
 and there is deliberately no such thing (ARCHITECTURE.md §Object homing,
 WRIT-180; supersedes WRIT-113).
 
-That home is a single repository, but not necessarily a single designator: a
-clone that runs `writ init` mints its own rather than inheriting the
-source's (§Repository designators above), so a repository with several
-initialized clones has one designator per clone, not one globally.
+Clones of that repository are themselves separate git repositories: a
+clone that runs `writ init` mints its own designator rather than
+inheriting the source's (§Repository designators above), so the same ops
+can be reached through several repositories, each carrying its own
+designator, with no single designator covering all of them.
 
 ## Reference grammar
 
