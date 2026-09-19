@@ -91,7 +91,9 @@ func (e *SyncError) Unwrap() error {
 // On any failure -- whether the remote turns out to be syntactically invalid
 // or unconfigured, or the fetch/push transport itself fails -- Sync still
 // refreshes the projection cache and returns the remaining unsynced count
-// wrapped in a *SyncError.
+// wrapped in a *SyncError. The one exception is an empty remote name, which
+// reports Unsynced: 0 rather than the real count; see SyncStatus, which
+// carves the same case out of the same guarantee for the same reason.
 func (s *Store) Sync(ctx context.Context, remote string) (SyncResult, error) {
 	if s == nil {
 		return SyncResult{}, fmt.Errorf("writ: store is nil")
@@ -127,6 +129,11 @@ func (s *Store) Sync(ctx context.Context, remote string) (SyncResult, error) {
 		// tracking frontier. Skipping them here left a --json caller
 		// reading "unsynced":0 for a remote that in fact had unpushed ops
 		// (round-1 review finding).
+		//
+		// An empty remote name is the documented exception: countUnsynced's
+		// ComputeStatus rejects it outright, so the count below is 0 rather
+		// than the real one. See SyncStatus's doc comment for why that is
+		// left alone rather than special-cased here.
 		s.invalidateVocabularies()
 		refreshStats, refreshErr := s.Refresh(ctx)
 		unsynced, _ := s.countUnsynced(ctx, remote)
@@ -360,11 +367,22 @@ func (s *Store) wrapSyncError(remote string, err error, unsynced int) error {
 // The rejection still carries the true unsynced count, same as every
 // failure path of Sync itself: ComputeStatus is pure local work -- chain
 // refs and this remote's last-fetched tracking frontier, nothing that
-// needs the remote to be configured, reachable, or even a well-formed name
-// -- so there is no reason for this one path to report a fictional zero
-// while "writ sync" (also rejecting the same malformed name) reports the
-// real count for the identical repository (round-3 review finding: the two
-// used to disagree).
+// needs the remote to be configured or reachable -- so there is no reason
+// for a rejected name like "a b" to report a fictional zero while
+// "writ sync" (also rejecting it) reports the real count for the identical
+// repository (round-3 review finding: the two used to disagree).
+//
+// One name is carved out of that guarantee: an empty one reports
+// Unsynced: 0, not the real count. ComputeStatus rejects an empty remote
+// outright, because chain.Ref.Remote == "" is its own sentinel for a local
+// chain -- without that guard a writer's local chains would read as the
+// remote tracking frontier. So the empty string is the one input where
+// ComputeStatus does need a well-formed name, and the 0 is not special-
+// cased away: an empty name is a usage error caught before any remote is
+// involved, so there is no remote for a count to be about. Both modes
+// agree on the 0, so round-3's property (the two must not disagree) still
+// holds. Every other syntactically invalid name still carries the real
+// count.
 func (s *Store) SyncStatus(ctx context.Context, remote string) (SyncStatus, error) {
 	if s == nil {
 		return SyncStatus{}, fmt.Errorf("writ: store is nil")
