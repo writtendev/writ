@@ -25,8 +25,8 @@ import "github.com/writtendev/writ/internal/codec"
 //     strategy consumes a collection, its immediate elements. It never
 //     recurses into a structured payload's interior at all — whether that
 //     interior would itself be well-formed is a question for the value
-//     type's own producer-side check (engine/internal/value) and the
-//     read-side resolver (engine/resolve), never for fold.
+//     type's own producer-side check (internal/value) and the
+//     read-side resolver (internal/resolve), never for fold.
 //   - Whether a value the strategy stores verbatim matches the type its
 //     vocabulary schema declares. The fold catalogue knows strategies, not
 //     schemas, and teaching it types would make the rules a second source of

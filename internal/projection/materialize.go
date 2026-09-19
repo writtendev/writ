@@ -490,6 +490,18 @@ func writeMembersRows(tx *sql.Tx, table, objectID string, raw any) error {
 // order included, while an untyped lww value arrives already decoded and
 // falls through to toText, which stores a JSON object re-marshaled (<, >
 // and & escaped) and a JSON string bare, without its quotes.
+//
+// A value that contradicts its declared value_type — fold does not enforce
+// one, spec/fold.md §7.1 — falls through the int/number/bool cases below to
+// toText rather than to nil. These tables are not SQLite STRICT tables, so
+// the column's declared type is only an affinity: it holds the text
+// verbatim rather than refusing it. NULL is reserved for the value's
+// absence (the v == nil case above); it is no longer this column's way of
+// saying "present but unreadable". This does not make typeof() universally
+// report "text" for such a column: SQLite's INTEGER/REAL affinity still
+// converts a numeric-looking string (e.g. "42" into an int column stores
+// the integer 42, not the text "42"), so a mismatched value that happens to
+// look numeric reads back as a number rather than the original string.
 func columnValue(valueType string, v any) any {
 	if v == nil {
 		return nil
@@ -513,7 +525,7 @@ func columnValue(valueType string, v any) any {
 		case int:
 			return int64(n)
 		}
-		return nil
+		return toText(v)
 	case "number":
 		switch n := v.(type) {
 		case float64:
@@ -523,7 +535,7 @@ func columnValue(valueType string, v any) any {
 		case int:
 			return float64(n)
 		}
-		return nil
+		return toText(v)
 	case "bool":
 		if b, ok := v.(bool); ok {
 			if b {
@@ -531,7 +543,7 @@ func columnValue(valueType string, v any) any {
 			}
 			return 0
 		}
-		return nil
+		return toText(v)
 	default:
 		return toText(v)
 	}

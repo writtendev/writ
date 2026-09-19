@@ -53,11 +53,15 @@ var (
 const referenceMaxLen = 289
 
 // Validate reports whether v conforms to valueType, parameterised by params.
-// Validation is producer-side and reader-tolerant (spec/op-envelope.md
-// §Producer validation): callers on the read path MUST NOT call this to
-// decide whether to keep a value it cannot interpret
-// (spec/forward-compatibility.md) — surface it through the existing
-// UnknownOp channel instead.
+// Validation is producer-side only (spec/op-envelope.md §Producer
+// validation): a caller on the read path MUST NOT call this to decide
+// whether to keep a value. Fold does not enforce declared value types
+// (spec/fold.md §7.1): a value that contradicts one still folds verbatim,
+// rather than being dropped or quarantined. The projection then stores it
+// rather than dropping it as NULL, though not always verbatim: SQLite's
+// column affinity can still convert a numeric-looking mismatch (e.g.
+// {"count": "42"} at value_type "int") to a number on the way in (see
+// columnValue's doc comment in internal/projection/materialize.go).
 func Validate(valueType string, params Params, v any) error {
 	switch valueType {
 	case "string", "text":
