@@ -20,8 +20,9 @@ type Rejection struct {
 }
 
 // RejectObjectUnavailable reports that an op-commit chain references an
-// object absent from this clone: either a tree or op.json blob withheld
-// by a partial clone's fetch filter, or a commit — a chain tip, or a
+// object absent from this clone: either a tree or op.json blob missing
+// from this clone's object store — most commonly one withheld by a
+// partial clone's fetch filter — or a commit — a chain tip, or a
 // parent reached through ParentHashes — missing from this clone's
 // object store. No filter produces the second shape: a partial clone's
 // fetch filter withholds blobs and trees, never commits. It is

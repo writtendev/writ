@@ -54,8 +54,9 @@ const (
 	OrderByUpdatedAtDesc = projection.OrderByUpdatedAtDesc
 
 	// RejectObjectUnavailable reports that an op-commit chain references
-	// an object absent from this clone: a tree or op.json blob withheld
-	// by a partial clone's fetch filter, or a commit missing from this
+	// an object absent from this clone: a tree or op.json blob missing
+	// from this clone's object store — most commonly one withheld by a
+	// partial clone's fetch filter — or a commit missing from this
 	// clone's object store (no filter produces that — a filter withholds
 	// blobs and trees, not commits). It is engine-local, not part of
 	// spec/op-envelope.md's closed reader-validation rejection set.
