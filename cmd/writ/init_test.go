@@ -1036,8 +1036,8 @@ func TestInit_DiscoveredDashLeadingRemoteDoesNotStrandGoodOnes(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("init exited with %d, want 1 (partial: one discovered remote skipped); stderr: %s", code, stderr.String())
+	if code != 0 {
+		t.Fatalf("init exited with %d, want 0 (a discovered remote it cannot configure is reported and skipped, not a failure); stderr: %s", code, stderr.String())
 	}
 
 	originFetch := getGitConfigAll(t, env.repoDir, "remote.origin.fetch")
