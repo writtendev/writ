@@ -1,0 +1,106 @@
+name: fold-duplicate-parent
+description: >
+  A commit whose parent list repeats the same op id — the reader-acceptance
+  half of the pairwise-distinct parent rule (spec/op-envelope.md §Parents).
+  Fold MUST accept it and treat the parent list as a set of happens-before
+  edges: the fixture's manifest golden pins the duplicated SHA actually
+  appearing twice in the commit's parents, and the fold golden pins the
+  resulting state being ordinary — identical to what an equivalent commit
+  naming the same causal dependency once would produce.
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: schema-create
+            author: alice
+            timestamp: 2025-12-01T00:00:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: schema-define-type
+            parents: [schema-create]
+            author: alice
+            timestamp: 2025-12-01T00:01:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "acme.widget"
+            expect: accept
+
+          - id: schema-define-create-title
+            parents: [schema-define-type]
+            author: alice
+            timestamp: 2025-12-01T00:02:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: schema-define-update-title
+            parents: [schema-define-create-title]
+            author: alice
+            timestamp: 2025-12-01T00:03:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "update"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/widget
+    history:
+      - commits:
+          - id: widget-create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: w-duplicate-parent
+              object_type: acme.widget
+              op_type: create
+              op_version: 1
+              body:
+                title: "Initial Title"
+            expect: accept
+
+          # The chain predecessor (parents[0]) and an additional causal
+          # parent (parents[1:]) both name widget-create — a producer MUST
+          # NOT emit this (spec/op-envelope.md §Parents), but a reader MUST
+          # accept it and fold the repeated edge as one.
+          - id: widget-update
+            parents: [widget-create, widget-create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: w-duplicate-parent
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "Updated Title"
+            expect: accept

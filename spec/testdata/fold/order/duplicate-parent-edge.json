@@ -1,0 +1,37 @@
+{
+  "name": "duplicate-parent-edge",
+  "description": "op-c repeats op-b in its parent list; the repeat contributes one happens-before edge, not two, so the total order is byte-identical to the same commit naming op-b once (op-envelope.md's reader rule; fold.md §4)",
+  "object_id": "obj-1",
+  "ops": [
+    {
+      "id": "op-a",
+      "parents": [],
+      "time": 100,
+      "object_id": "obj-1"
+    },
+    {
+      "id": "op-b",
+      "parents": [],
+      "time": 400,
+      "object_id": "obj-1"
+    },
+    {
+      "id": "op-c",
+      "parents": ["op-a", "op-b", "op-b"],
+      "time": 200,
+      "object_id": "obj-1"
+    },
+    {
+      "id": "op-d",
+      "parents": [],
+      "time": 350,
+      "object_id": "obj-1"
+    }
+  ],
+  "expected_order": [
+    "op-a",
+    "op-d",
+    "op-b",
+    "op-c"
+  ]
+}

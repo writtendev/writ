@@ -55,7 +55,10 @@ $$\text{Parents}_S(u) = [\, p \in u.\text{parents} \mid p \in S \,]$$
 
 Edges pointing to commits outside $S$ are excluded from $\text{Parents}_S(u)$.
 The order of parents in $\text{Parents}_S(u)$ preserves their relative order in
-$u.\text{parents}$.
+$u.\text{parents}$. A commit parent repeated in $u.\text{parents}$ (forbidden
+for a conforming producer, but a reader MUST accept it per
+`spec/op-envelope.md` §Parents) yields one edge in $\text{Parents}_S(u)$, not
+two.
 
 ### Partial ancestry and truncated graphs
 
