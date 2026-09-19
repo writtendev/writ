@@ -977,7 +977,9 @@ func TestSync_JSONInvalidRemoteNameReportsDistinctKind(t *testing.T) {
 // Unsynced field was left unset; ComputeStatus is pure local work -- chain
 // refs and this remote's last-fetched tracking frontier -- so it needs
 // nothing from the (invalid) remote name to compute the real count, the
-// same property Sync's own invalid-name path already relies on.
+// same property Sync's own invalid-name path already relies on. The one
+// exception is the empty name, which ComputeStatus rejects outright; see
+// TestSync_EmptyRemoteNameReportsZeroUnsynced below.
 func TestSync_StatusJSONInvalidRemoteNameReportsTrueUnsyncedCount(t *testing.T) {
 	_, aliceDir, _ := setupSyncTestHarness(t)
 	ctx := context.Background()
@@ -1052,6 +1054,91 @@ func TestSync_StatusJSONInvalidRemoteNameReportsTrueUnsyncedCount(t *testing.T) 
 	wantLine := fmt.Sprintf("%d %s unsynced", wantStatus.Unsynced, plural(wantStatus.Unsynced, "op", "ops"))
 	if !strings.Contains(pStderr.String(), wantLine) {
 		t.Errorf("sync --status -- \"a b\" stderr = %q, want it to contain %q", pStderr.String(), wantLine)
+	}
+}
+
+// TestSync_EmptyRemoteNameReportsZeroUnsynced pins the one carve-out in the
+// invalid-name path's unsynced-count guarantee (round-7 review finding,
+// WRIT-283). Every other syntactically invalid name carries the true count
+// on that path -- the property
+// TestSync_StatusJSONInvalidRemoteNameReportsTrueUnsyncedCount above pins
+// for "a b" -- but the empty string collides with ComputeStatus's own
+// sentinel for a local chain (chain.Ref.Remote == ""), so ComputeStatus
+// refuses it outright and the count reports 0. That is deliberate: the
+// sentinel is load-bearing (without it a writer's local chains would read
+// as the remote tracking frontier), and an empty name is a usage error
+// caught before any remote is involved, so there is no remote for a count
+// to be about. This test is the contrast pair, so a future change to
+// either side has to face the other.
+func TestSync_EmptyRemoteNameReportsZeroUnsynced(t *testing.T) {
+	_, aliceDir, _ := setupSyncTestHarness(t)
+	ctx := context.Background()
+
+	sA, err := writ.Open(aliceDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Open Alice failed: %v", err)
+	}
+	applyTicketSchemaViaStore(t, ctx, sA, aliceDir)
+	if _, err := sA.Objects.Create(ctx, "acme.ticket", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Empty Remote Name Ticket"},
+	}); err != nil {
+		sA.Close()
+		t.Fatalf("Alice create object: %v", err)
+	}
+	wantStatus, err := sA.SyncStatus(ctx, "ground-truth-remote")
+	if err != nil {
+		sA.Close()
+		t.Fatalf("Alice SyncStatus(ground-truth-remote): %v", err)
+	}
+	sA.Close()
+	if wantStatus.Unsynced == 0 {
+		t.Fatalf("test setup produced 0 unsynced ops; need at least 1 to tell the two cases apart")
+	}
+
+	type syncEnvelope struct {
+		Data []struct {
+			Unsynced int `json:"unsynced"`
+			Failure  *struct {
+				Kind string `json:"kind"`
+			} `json:"failure,omitempty"`
+		} `json:"data"`
+	}
+
+	for _, mode := range []struct {
+		name string
+		args []string
+	}{
+		{"sync --json", []string{"sync", "--json", "--"}},
+		{"sync --status --json", []string{"sync", "--status", "--json", "--"}},
+	} {
+		for _, tc := range []struct {
+			remote   string
+			unsynced int
+			why      string
+		}{
+			{"a b", wantStatus.Unsynced, "the true count: ComputeStatus needs nothing from the name"},
+			{"", 0, "ComputeStatus rejects the empty remote outright -- it is its own local-chain sentinel"},
+		} {
+			var stdout, stderr bytes.Buffer
+			code := run(ctx, append(append([]string{"-C", aliceDir}, mode.args...), tc.remote), &stdout, &stderr)
+			if code != 2 {
+				t.Fatalf("writ %s %q exited with %d (want 2); stderr: %s", mode.name, tc.remote, code, stderr.String())
+			}
+			var env syncEnvelope
+			if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
+				t.Fatalf("unmarshal writ %s %q: %v (raw: %s)", mode.name, tc.remote, err, stdout.String())
+			}
+			if len(env.Data) != 1 || env.Data[0].Failure == nil {
+				t.Fatalf("writ %s %q data = %+v, want 1 entry with a failure", mode.name, tc.remote, env.Data)
+			}
+			if got := env.Data[0].Failure.Kind; got != "invalid-name" {
+				t.Errorf("writ %s %q failure.kind = %q, want \"invalid-name\"", mode.name, tc.remote, got)
+			}
+			if got := env.Data[0].Unsynced; got != tc.unsynced {
+				t.Errorf("writ %s %q unsynced = %d, want %d (%s)", mode.name, tc.remote, got, tc.unsynced, tc.why)
+			}
+		}
 	}
 }
 
