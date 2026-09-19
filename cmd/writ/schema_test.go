@@ -799,6 +799,72 @@ type widget {
 	}
 }
 
+// TestSchemaApply_GrammarInvalidNamespaceNotCountedOrRendered pins
+// WRIT-291, one field away from
+// TestSchemaApply_HostileFetchedNamespaceNotCountedOrRendered in
+// textsafe_render_test.go: engine/schema.go's resolveSchemaTypes drops a
+// whole schema object on two independent gates -- the namespace-grammar
+// gate (WRIT-253) and the derived-id gate (WRIT-254) -- but
+// schemaNamespaces used to copy only the second. A namespace that is
+// grammar-invalid but still legal printable ASCII survives the derived-id
+// gate (its object id genuinely is "schema:" + the namespace, so
+// state.FoldSchema's create-once quarantine admits it) while the
+// resolver's grammar gate still drops it, so the porcelain count and the
+// --json namespaces field used to disagree with what the engine actually
+// installs. schemaNamespaces now gates on state.SchemaInstallable, the
+// same two-gate predicate resolveSchemaTypes itself uses, so the hostile
+// object is excluded from both surfaces.
+func TestSchemaApply_GrammarInvalidNamespaceNotCountedOrRendered(t *testing.T) {
+	env := initTestRepo(t)
+
+	// hostile's own object id is its derived form ("schema:" + hostile),
+	// so state.FoldSchema's namespace-implied-by-id quarantine (WRIT-254
+	// change 1) admits the create: the body namespace agrees with the
+	// id's own suffix. Every byte is printable ASCII, so the envelope
+	// check (engine/codec/decode.go) admits it too. It is the namespace
+	// grammar (^[a-z][a-z0-9-]*$) that hostile fails.
+	hostile := "Ev!l';--"
+	writeForeignOp(t, env.repoDir, "fedcba9876543210", "schema", "schema:"+hostile, "create", 1, map[string]any{
+		"namespace": hostile,
+	})
+
+	writeSchemaFile(t, env.repoDir, fullTestSchema)
+
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	out := stdout.Bytes()
+	// The dropped grammar-invalid object must not inflate the count: only
+	// the local "acme" mint counts, so the singular "namespace:" form --
+	// not "namespaces:" -- is what a correct apply prints.
+	if !bytes.Contains(out, []byte("1 namespace: acme")) {
+		t.Errorf("schema apply output = %s, want exactly \"1 namespace: acme\" -- the grammar-invalid namespace must not be counted", out)
+	}
+	if bytes.Contains(out, []byte("namespaces:")) {
+		t.Errorf("schema apply output = %s, want the singular \"namespace:\" form; \"namespaces:\" would mean the dropped object was still counted", out)
+	}
+	if bytes.Contains(out, []byte(hostile)) {
+		t.Errorf("schema apply output = %s, want no trace of the dropped grammar-invalid namespace", out)
+	}
+
+	// Cover the --json path explicitly: the sibling hostile-namespace test
+	// only checks porcelain. This second apply is a no-op (writ.schema
+	// hasn't changed), the same "reuse, nothing to apply" shape
+	// TestSchemaCLI_ApplyReuseStaysQuiet's no-op case exercises, so
+	// .data.namespaces still reflects every namespace currently installed.
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply", "--json"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply --json failed with %d; stderr: %s", code, stderr.String())
+	}
+	apply := schemaApplyFromJSON(t, stdout.Bytes())
+	if want := []string{"acme"}; !slices.Equal(apply.Namespaces, want) {
+		t.Errorf("schema apply --json namespaces = %v, want %v -- the grammar-invalid namespace must not be counted", apply.Namespaces, want)
+	}
+}
+
 // TestSchemaCLI_ObjectIdentity exercises two of the three cases
 // resolveSchemaTarget implements: a fresh mint reporting `created`, and
 // reuse of an existing namespace match without minting. The third case

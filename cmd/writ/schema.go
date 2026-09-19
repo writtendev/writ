@@ -16,6 +16,7 @@ import (
 	"github.com/writtendev/writ/cmd/writ/internal/wire"
 	"github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/internal/schemasrc"
+	"github.com/writtendev/writ/internal/state"
 	"github.com/writtendev/writ/internal/textdiff"
 	"github.com/writtendev/writ/internal/textsafe"
 )
@@ -503,14 +504,20 @@ func buildSchemaPlan(ctx context.Context, store *writ.Store, dir string) (*schem
 func schemaNamespaces(schemas []writ.Schema, extra string) []string {
 	set := make(map[string]bool, len(schemas)+1)
 	for _, s := range schemas {
-		// Same gate as resolveSchemaTarget: a schema object whose id
-		// disagrees with "schema:" + its own namespace is dropped
-		// wholesale by the read path (engine/schema.go's
-		// resolveSchemaTypes) and installs nothing, so it must not be
-		// counted as declaring its namespace here either — otherwise
-		// this report, and the --json namespaces field it feeds, names
-		// a namespace nothing actually installed for.
-		if s.Namespace != "" && s.ObjectID == deriveSchemaObjectID(s.Namespace) {
+		// state.SchemaInstallable is the one predicate engine/schema.go's
+		// resolveSchemaTypes gates the whole-object drop on (WRIT-291): a
+		// schema object failing it -- an ungrammatical namespace (WRIT-253)
+		// or an object id disagreeing with its own derived form (WRIT-254)
+		// -- installs nothing on the read path, so it must not be counted
+		// as declaring its namespace here either, or this report, and the
+		// --json namespaces field it feeds, would name a namespace nothing
+		// actually installed for. The s.Namespace != "" guard stays
+		// alongside it because SchemaInstallable answers the resolver's
+		// drop decision, not "does this object declare a namespace worth
+		// reporting" -- an object with an empty namespace passes the
+		// grammar half of SchemaInstallable vacuously (see its doc
+		// comment) but plainly has no namespace to add to this set.
+		if s.Namespace != "" && state.SchemaInstallable(s) {
 			set[s.Namespace] = true
 		}
 	}
@@ -534,19 +541,22 @@ func schemaNamespaces(schemas []writ.Schema, extra string) []string {
 //
 // A match requires both the namespace and the derived-id agreement WRIT-254
 // change 2 requires of every schema object the read-side resolver
-// (engine/schema.go's resolveSchemaTypes) installs: s.ObjectID ==
-// deriveSchemaObjectID(s.Namespace). Filtering on namespace alone, as an
-// earlier revision did, let a hijacked or hand-crafted sibling under the
-// target namespace — one the engine already drops and installs nothing
-// for — still count as a match here, which could make this function
-// refuse a legitimate reuse or apply, invisibly, onto an object the rest
-// of the system does not treat as that namespace's schema object. Once
-// every match is required to carry the derived id, at most one can ever
-// exist per namespace: two schema objects can never both equal
-// "schema:" + the same namespace (schemaObjectIDMatchesNamespace's own
-// doc comment in engine/schema.go makes the identical argument for the
-// resolver). So the multi-match refusal an earlier revision needed here
-// is gone, not weakened: it is unreachable now, not merely rarer.
+// (engine/schema.go's resolveSchemaTypes) installs: state.SchemaInstallable(s)
+// (WRIT-291 factored the exact conjunction resolveSchemaTypes gates on —
+// the namespace-grammar check and this derived-id check — into that one
+// shared predicate; this call site used to spell out just the derived-id
+// half inline). Filtering on namespace alone, as an earlier revision did,
+// let a hijacked or hand-crafted sibling under the target namespace — one
+// the engine already drops and installs nothing for — still count as a
+// match here, which could make this function refuse a legitimate reuse or
+// apply, invisibly, onto an object the rest of the system does not treat
+// as that namespace's schema object. Once every match is required to
+// carry the derived id, at most one can ever exist per namespace: two
+// schema objects can never both equal "schema:" + the same namespace
+// (state.SchemaObjectIDMatchesNamespace's own doc comment makes the
+// identical argument for the resolver). So the multi-match refusal an
+// earlier revision needed here is gone, not weakened: it is unreachable
+// now, not merely rarer.
 //
 // An earlier revision also refused case 0 and case 1 when f's own
 // declared types collided with some *other* schema object's already-bound
@@ -575,7 +585,7 @@ func schemaNamespaces(schemas []writ.Schema, extra string) []string {
 // there is no remaining case that refuses.
 func resolveSchemaTarget(schemas []writ.Schema, f *schemasrc.File) (string, error) {
 	for _, s := range schemas {
-		if s.Namespace == f.Namespace && s.ObjectID == deriveSchemaObjectID(s.Namespace) {
+		if s.Namespace == f.Namespace && state.SchemaInstallable(s) {
 			return s.ObjectID, nil
 		}
 	}
@@ -583,9 +593,11 @@ func resolveSchemaTarget(schemas []writ.Schema, f *schemasrc.File) (string, erro
 }
 
 // deriveSchemaObjectID returns the schema object id for namespace:
-// "schema:" + namespace, per spec/identifiers.md's schema carve-out. A
-// schema object's identity is its namespace, so two writers bootstrapping
-// the same namespace offline derive the same id and converge on the same
+// "schema:" + namespace, per spec/identifiers.md's schema carve-out. Thin
+// wrapper over state.DeriveSchemaObjectID (WRIT-291), kept here for its
+// own doc comment and its call sites' local, unqualified name. A schema
+// object's identity is its namespace, so two writers bootstrapping the
+// same namespace offline derive the same id and converge on the same
 // object instead of minting two that both bind the same object_type(s) —
 // the collision RulesFromSchemas has no way to resolve. namespacePattern
 // (engine/schemasrc/parse.go) constrains namespace to
@@ -594,7 +606,7 @@ func resolveSchemaTarget(schemas []writ.Schema, f *schemasrc.File) (string, erro
 // and never confusable with a minted id, since ^[0-9a-f]{32}$ admits no
 // colon.
 func deriveSchemaObjectID(namespace string) string {
-	return "schema:" + namespace
+	return state.DeriveSchemaObjectID(namespace)
 }
 
 // conflictsIntroducedByApply computes which of RulesFromSchemas' conflicts

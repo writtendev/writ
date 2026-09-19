@@ -64,6 +64,72 @@ func mkField(typ, opType string, opVersion int64, field, strategy string) writ.S
 	return writ.SchemaField{Name: field, OpType: opType, OpVersion: opVersion, Strategy: strategy, ValueType: "string"}
 }
 
+// TestSchemaInstallable_AgreesWithResolverDrop is the anti-drift device
+// WRIT-291 adds so a third read-side copy of resolveSchemaTypes' two
+// whole-object drop gates (the namespace-grammar gate, WRIT-253, and the
+// derived-id gate, WRIT-254) cannot silently diverge from the resolver
+// again the way cmd/writ/schema.go's schemaNamespaces once did (it copied
+// only the derived-id gate). state.SchemaInstallable is now the one
+// predicate both resolveSchemaTypes and schemaNamespaces gate on; this
+// test proves it agrees with resolveSchemaTypes' own decision by checking
+// it against RulesFromSchemas' conflicts directly, over one shape per
+// gate combination, rather than trusting that the two can never drift
+// apart just because one now calls the other.
+//
+// A whole-object drop always shows up in RulesFromSchemas' conflicts as
+// one with an empty ObjectType: both the namespace-grammar and the
+// derived-id gate in resolveSchemaTypes report that shape, and nothing
+// else does -- a per-type or per-field conflict always names the
+// non-empty ObjectType it was raised against.
+func TestSchemaInstallable_AgreesWithResolverDrop(t *testing.T) {
+	tests := []struct {
+		name      string
+		namespace string
+		objectID  string
+	}{
+		{
+			name:      "grammar-valid namespace, derived id",
+			namespace: "acme",
+			objectID:  "schema:acme",
+		},
+		{
+			name:      "grammar-invalid namespace, derived id",
+			namespace: "a') OR 1 --",
+			objectID:  "schema:a') OR 1 --",
+		},
+		{
+			name:      "grammar-valid namespace, foreign (non-derived) id",
+			namespace: "acme",
+			objectID:  "foreign-evil-schema",
+		},
+		{
+			name:      "empty namespace, bare derived id",
+			namespace: "",
+			objectID:  "schema:",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sch := state.Schema{ObjectID: tc.objectID, Namespace: tc.namespace}
+			installable := state.SchemaInstallable(sch)
+
+			_, conflicts := writ.RulesFromSchemas([]state.Schema{sch})
+			var droppedWholesale bool
+			for _, c := range conflicts {
+				if c.ObjectType == "" && slices.Contains(c.ObjectIDs, sch.ObjectID) {
+					droppedWholesale = true
+					break
+				}
+			}
+
+			if installable == droppedWholesale {
+				t.Fatalf("state.SchemaInstallable(%+v) = %v, but RulesFromSchemas reported a whole-object drop for it = %v -- these must always disagree, since Installable means NOT dropped", sch, installable, droppedWholesale)
+			}
+		})
+	}
+}
+
 // TestRulesFromSchemas_ObjectTypeCollisionInstallsNoRules pinned, before
 // WRIT-254, the collision that remained reachable after WRIT-217: two
 // schema objects sharing one namespace ("acme") that both declare a type

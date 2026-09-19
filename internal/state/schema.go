@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -22,10 +23,66 @@ import (
 // schemaObjectIDPrefix is the derived-id form's literal prefix
 // (spec/identifiers.md's schema carve-out): a schema object's id is
 // "schema:" + namespace, never minted. Kept as its own constant so the
-// namespace-implied-by-id quarantine below reads the same literal
-// cmd/writ/schema.go's deriveSchemaObjectID and engine/schema.go's
-// resolver gate use.
+// namespace-implied-by-id quarantine below and DeriveSchemaObjectID read
+// the same literal; cmd/writ's deriveSchemaObjectID delegates to
+// DeriveSchemaObjectID rather than holding a second copy of it.
 const schemaObjectIDPrefix = "schema:"
+
+// namespaceGrammar is spec/schema-ops.md §2's "bare form" grammar a
+// schema's namespace must itself satisfy: the same per-segment shape
+// object_type's own grammar is built from, capped at
+// NamespaceGrammarMaxLength characters. Moved here from engine/schema.go
+// (WRIT-291) so the read-side installability gates that consult it
+// (ValidNamespaceGrammar, SchemaInstallable) live beside the one
+// schemaObjectIDPrefix constant this package already shared with them.
+var namespaceGrammar = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+
+// NamespaceGrammarMaxLength bounds a schema's namespace to the length
+// spec/schema-ops.md §2 states.
+const NamespaceGrammarMaxLength = 64
+
+// ValidNamespaceGrammar reports whether namespace satisfies
+// spec/schema-ops.md §2's bare-form grammar: non-empty, at most
+// NamespaceGrammarMaxLength characters, matching ^[a-z][a-z0-9-]*$.
+func ValidNamespaceGrammar(namespace string) bool {
+	return namespace != "" && len(namespace) <= NamespaceGrammarMaxLength && namespaceGrammar.MatchString(namespace)
+}
+
+// DeriveSchemaObjectID returns the schema object id for namespace:
+// "schema:" + namespace, per spec/identifiers.md's schema carve-out. A
+// schema object's identity is its namespace, so two writers bootstrapping
+// the same namespace offline derive the same id and converge on the same
+// object instead of minting two that both bind the same object_type(s).
+func DeriveSchemaObjectID(namespace string) string {
+	return schemaObjectIDPrefix + namespace
+}
+
+// SchemaObjectIDMatchesNamespace reports whether sch's own object id is
+// the derived form spec/identifiers.md's schema carve-out requires:
+// "schema:" + its own folded namespace (WRIT-254 change 2). A schema
+// object failing this is dropped wholesale by engine/schema.go's
+// resolveSchemaTypes.
+func SchemaObjectIDMatchesNamespace(sch Schema) bool {
+	return sch.ObjectID == DeriveSchemaObjectID(sch.Namespace)
+}
+
+// SchemaInstallable reports whether sch survives the two whole-object drop
+// gates engine/schema.go's resolveSchemaTypes applies, in order: the
+// namespace-grammar gate (WRIT-253) and the derived-id gate (WRIT-254).
+// This mirrors the resolver's *drop* decision byte for byte; it is not an
+// "installs something" predicate. In particular, an empty namespace does
+// NOT trip the grammar gate here, exactly as resolveSchemaTypes' own gate
+// is guarded by sch.Namespace != "": a schema object with an empty
+// namespace and object id "schema:" is not dropped by this predicate — it
+// simply declares nothing installable downstream, since every type name it
+// might declare fails the resolver's separate namespace-qualification
+// check regardless. A caller that instead needs "does this object install
+// anything" must add that check itself (cmd/writ/schema.go's
+// schemaNamespaces is the example: it additionally requires
+// sch.Namespace != "").
+func SchemaInstallable(sch Schema) bool {
+	return (sch.Namespace == "" || ValidNamespaceGrammar(sch.Namespace)) && SchemaObjectIDMatchesNamespace(sch)
+}
 
 // SchemaField represents one field declaration within a schema-declared
 // type's op vocabulary (v1), keyed by (op_type, op_version, field) — the
