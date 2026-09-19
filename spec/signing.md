@@ -63,19 +63,28 @@ state out, no I/O") and WRIT-3:
   (this is what `sshsig.c`'s `check_allowed_keys_line` gets from OpenSSH's
   `match_pattern_list`/`match_pattern` in `match.c`, stated here on its own
   terms rather than by reference to a particular upstream revision): each
-  list is a comma-separated sequence of subpatterns, compared
-  case-sensitively over bytes (not runes, so a multi-byte character is
-  several match units, not one), where `?` matches exactly one byte and
-  every byte that is not `*` or `?` -- `[`, `]`, and `\` included --
-  compares literally; there is no character class and no escape. `*`
-  matches any run of bytes, including none, and a run of two or more
-  consecutive `*` is equivalent to one: in particular, a `*` (or a run of
-  `*`) at the end of a subpattern matches even after the rest of the
+  list is split into subpatterns on commas, and a comma terminates the
+  subpattern *before* it rather than separating two subpatterns that both
+  get evaluated regardless of position. That distinction only shows up at
+  the ends of the list: a **leading or doubled** comma has no preceding
+  subpattern to terminate, so it starts an empty subpattern, which matches
+  only the empty string (`,alice@example.test` and
+  `alice@example.test,,bob@example.test` both contain one); a **trailing**
+  comma, by contrast, terminates the subpattern before it and then has
+  nothing left to start, so it ends the list rather than opening a further,
+  empty final subpattern -- `alice@example.test,` is the single subpattern
+  `alice@example.test`, not that subpattern plus an empty one after it.
+  Subpatterns are compared case-sensitively over bytes (not runes, so a
+  multi-byte character is several match units, not one), where `?` matches
+  exactly one byte and every byte that is not `*` or `?` -- `[`, `]`, and
+  `\` included -- compares literally; there is no character class and no
+  escape. `*` matches any run of bytes, including none, and a run of two or
+  more consecutive `*` is equivalent to one: in particular, a `*` (or a run
+  of `*`) at the end of a subpattern matches even after the rest of the
   subpattern has already consumed the entire value, so `alice@example.test`
   matches both `alice@example.test*` and `alice@example.test**`. A leading
   `!` negates a subpattern, and a negated match rejects the rule outright
-  regardless of any other subpattern's outcome. An empty subpattern (as
-  from a doubled comma) matches only the empty string. A list matches only
+  regardless of any other subpattern's outcome. A list matches only
   if at least one **non-negated** subpattern in it matches the value; a
   negated subpattern that matches rejects the list outright as above, but a
   negated subpattern that does *not* match never by itself authorizes
