@@ -42,11 +42,13 @@ func MintRepoID() (RepoID, error) {
 	return ParseRepoID(hex.EncodeToString(buf[:]))
 }
 
-// LoadRepoID reads the repository designator out of git config in repoDir.
+// LoadRepoID reads the repository designator out of repoDir's local git
+// config only — never global or system config, unlike writer-id and
+// person-id, because a repo-id's whole job is telling repositories apart.
 // If writ.repoId is unset or empty, it returns ("", nil) so repositories
 // that have never run 'writ init' can still open without error.
 func LoadRepoID(ctx context.Context, repoDir string) (RepoID, error) {
-	cfg, err := readGitConfig(ctx, repoDir)
+	cfg, err := readLocalGitConfig(ctx, repoDir)
 	if err != nil {
 		return "", err
 	}
@@ -69,15 +71,18 @@ func LoadRepoID(ctx context.Context, repoDir string) (RepoID, error) {
 
 // EnsureRepoID resolves or mints a RepoID for the repository at repoDir:
 //
-//  1. If writ.repoId is already present in merged git config, it is validated
-//     and reused as-is without modifying repository config.
+//  1. If writ.repoId is already present in repoDir's local git config, it is
+//     validated and reused as-is without modifying repository config. A
+//     writ.repoId set only in global or system config is not seen here and
+//     is not reused — a repo-id's whole job is telling repositories apart,
+//     so global sourcing would defeat the point.
 //  2. Otherwise, a new RepoID is minted and persisted to local repository
 //     configuration via 'git config --local writ.repoId <id>'.
 //
 // The returned boolean reports whether a new RepoID was minted (true) or an existing
 // ID was reused (false).
 func EnsureRepoID(ctx context.Context, repoDir string) (RepoID, bool, error) {
-	cfg, err := readGitConfig(ctx, repoDir)
+	cfg, err := readLocalGitConfig(ctx, repoDir)
 	if err != nil {
 		return "", false, err
 	}

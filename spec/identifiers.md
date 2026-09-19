@@ -912,22 +912,29 @@ A repository designator MUST be **32 lowercase hexadecimal characters**
 
 The repository designator is **immutable**: it remains unchanged when a
 repository is renamed, transferred between organizations, or re-remoted. A
-clone does not inherit the source repository's local configuration, so it
-has no `writ.repoId` of its own; `writ init` in a clone mints a fresh
-designator rather than inheriting the original's.
+clone does not inherit the source repository's local configuration, and no
+other scope is consulted for this key (see below), so it has no
+`writ.repoId` of its own; `writ init` in a clone mints a fresh designator
+rather than inheriting the original's.
 
 ### Storage and discovery
 
 `writ init` mints the designator into local repository configuration under
-`writ.repoId` only when the key is absent from merged git config. A present
-value that parses is reused unchanged; a present value that does not parse
-is a hard error naming the remedy (unset the key, then re-run `writ init`)
-rather than a silent re-mint. An engine reads the designator from merged git
-config (local, then global, per git's own precedence — see
-`spec/ref-layout.md` §Sourcing precedence for the sibling key,
-`writ.writerId`). If the key is absent, the repository has simply never
-been initialized, and the engine reports no designator rather than
-erroring.
+`writ.repoId` only when the key is absent from **local** repository
+configuration. A present value that parses is reused unchanged; a present
+value that does not parse is a hard error naming the remedy (unset the key,
+then re-run `writ init`) rather than a silent re-mint. An engine reads the
+designator from local repository configuration only — never global or
+system config. This is narrower than the sibling keys `writ.writerId` and
+`writ.personId` (`spec/ref-layout.md` §Sourcing precedence), whose global
+sourcing is deliberate: one person wants one identity across their
+repositories. A repo-id has the opposite requirement — its only job is
+telling repositories apart — so a value inherited from global or system
+config would let two repositories silently share one designator and
+`<repo-id>#<object-id>` would stop disambiguating anything. If the key is
+absent from local configuration, the repository has simply never been
+initialized (a `writ.repoId` set only in global or system config does not
+count), and the engine reports no designator rather than erroring.
 
 ### Object homing
 

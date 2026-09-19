@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"strings"
 	"testing"
 
 	"github.com/writtendev/writ/internal/identity"
@@ -90,6 +91,54 @@ func TestLoadRepoID_Unset(t *testing.T) {
 	}
 	if id != "" {
 		t.Errorf("expected empty RepoID for unconfigured repo, got %q", id)
+	}
+}
+
+func TestEnsureRepoID_GlobalNotAdopted(t *testing.T) {
+	// A writ.repoId set only in global config must not be adopted by a
+	// fresh repository: EnsureRepoID mints its own, local, designator
+	// instead. Global sourcing is correct for writerId/personId (one
+	// identity across a person's repositories) but wrong for repoId, whose
+	// whole job is telling repositories apart — two repos sharing one
+	// designator makes <repo-id>#<object-id> stop disambiguating anything.
+	env := setupTestEnv(t)
+	setFileConfig(t, env.globalCfgPath, "writ.repoId", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+
+	ctx := context.Background()
+
+	loaded, err := identity.LoadRepoID(ctx, env.repoDir)
+	if err != nil {
+		t.Fatalf("LoadRepoID: %v", err)
+	}
+	if loaded == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+		t.Fatalf("LoadRepoID adopted the global writ.repoId %q; repo-id sourcing must be local-only", loaded)
+	}
+	if loaded != "" {
+		t.Fatalf("LoadRepoID = %q, want empty (no local writ.repoId configured)", loaded)
+	}
+
+	id, minted, err := identity.EnsureRepoID(ctx, env.repoDir)
+	if err != nil {
+		t.Fatalf("EnsureRepoID: %v", err)
+	}
+	if !minted {
+		t.Errorf("expected minted=true (global writ.repoId must not count as already configured), got false")
+	}
+	if id == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+		t.Fatalf("EnsureRepoID adopted the global writ.repoId %q instead of minting its own", id)
+	}
+
+	// The minted ID must have been written to *local* config, not left
+	// unrecorded (which would re-mint a different ID on every call).
+	cmd := exec.Command("git", "config", "--local", "--get", "writ.repoId")
+	cmd.Dir = env.repoDir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git config --local --get writ.repoId: %v", err)
+	}
+	localVal := strings.TrimSpace(string(out))
+	if localVal != string(id) {
+		t.Errorf("local writ.repoId = %q, want minted id %q", localVal, id)
 	}
 }
 
