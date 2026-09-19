@@ -927,8 +927,8 @@ then re-run `writ init`) rather than a silent re-mint. An engine reads the
 designator from local repository configuration only — never global or
 system config. This is narrower than the sibling key `writ.writerId`, whose
 global sourcing is deliberate (`spec/ref-layout.md` §Sourcing precedence):
-one device wants one writer-id across the repositories it works on. A
-repo-id has the opposite requirement — its only job is telling
+one `(user, device)` pair wants one writer-id across the repositories it
+works on. A repo-id has the opposite requirement — its only job is telling
 repositories apart — so a value inherited from global or system
 config would let two repositories silently share one designator and
 `<repo-id>#<object-id>` would stop disambiguating anything. If the key is
