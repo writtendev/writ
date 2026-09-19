@@ -26,11 +26,11 @@ type SyncResult struct {
 	// Unsynced is the remaining number of unpushed local ops for the remote.
 	Unsynced int `json:"unsynced"`
 
-	// Rejected is the number of op commits this sync's projection refresh
-	// could not accept: a malformed peer op rejected on reader
-	// validation, or an op commit naming an object absent from this
-	// clone (dag.RejectObjectUnavailable — e.g. excluded by a partial
-	// clone's fetch filter, engine-local and not itself a
+	// Rejected is the number of op commits this sync's projection
+	// refresh could not accept: a malformed peer op rejected on
+	// reader validation, or an op commit naming an object absent from
+	// this clone (RejectObjectUnavailable — an absent tree or op.json
+	// blob, or a missing commit; engine-local, not itself a
 	// reader-validation reason). See RefreshStats.Rejections for each
 	// one's specific reason — a quarantined peer op is no longer
 	// silently discarded (WRIT-271).
