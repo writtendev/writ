@@ -238,13 +238,15 @@ not backfill them.
 
 What a partial clone's missing objects do to `writ object show` depends
 on how much of an object's history got filtered out. Missing *every* op
-for an object fails outright — `writ: object not found`, exit 1. Missing
-only *some* of them does not: the object folds from whatever ops
-survived the filter and exits 0, which can be a stale but
-plausible-looking answer — for example a size-limit filter (`git clone
---filter=blob:limit=...`) that lets small op blobs through but drops one
-large one silently returns the value from before that op, with no error
-and nothing in the output pointing at what is missing.
+for an object fails outright — `writ: object not found`, exit 1, also
+naming how many op commits this pass could not read at all when the
+clone holds any it could not decode. Missing only *some* of them does
+not: the object folds from whatever ops survived the filter and exits
+0, which can be a stale but plausible-looking answer — for example a
+size-limit filter (`git clone --filter=blob:limit=...`) that lets small
+op blobs through but drops one large one silently returns the value
+from before that op, with no error and nothing in the output pointing
+at what is missing.
 
 `writ sync` reports ops it could not apply — `N ops not applied` in
 porcelain, `"rejected": N` under `--json` — and that count is the only
