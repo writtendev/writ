@@ -49,18 +49,21 @@
   },
   "format-tag-character.json": {
     "reason": "a tag character (U+E0020 TAG SPACE) is forbidden (General_Category Cf), but is above the Basic Multilingual Plane, so the person-id JSON Schema pattern cannot express it: without the ECMA-262 u flag a character class range spanning a surrogate pair parses as a reversed range (a syntax error in a compliant engine). Enforced only at the producer (PersonValueRepertoireOK)",
-    "enforced_by": "producer"
+    "enforced_by": "producer",
+    "producer_rule": "repertoire"
   },
   "format-word-joiner.json": {
     "reason": "the word joiner (U+2060) is forbidden (General_Category Cf)"
   },
   "normalization-long-mark-run.json": {
     "reason": "value composes to á followed by 30 U+0316, whose NFD is a followed by 31 consecutive non-starters (U+0301 plus the 30 U+0316) -- one past the 30-non-starter Stream-Safe Text bound (spec/identifiers.md section Value shape: Stream-Safe Text); not expressible as a schema pattern",
-    "enforced_by": "producer"
+    "enforced_by": "producer",
+    "producer_rule": "stream-safe"
   },
   "normalization-mark-run-over-limit.json": {
     "reason": "value's NFD carries 40 consecutive non-starters, well over the 30-non-starter Stream-Safe Text bound (spec/identifiers.md section Value shape: Stream-Safe Text); not expressible as a schema pattern",
-    "enforced_by": "producer"
+    "enforced_by": "producer",
+    "producer_rule": "stream-safe"
   },
   "scheme-leading-digit.json": {
     "reason": "scheme must begin with [a-z]"

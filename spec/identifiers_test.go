@@ -343,6 +343,19 @@ func TestValidPersonVectors(t *testing.T) {
 	}
 }
 
+// personProducerRules is the vocabulary a testdata/persons/invalid vector's
+// producer_rule field can name: the producer-side rules the person-id JSON
+// Schema cannot express, keyed by the token index.json uses for each. Each
+// function reports whether it accepts an identifier (true) or rejects it
+// (false). TestInvalidPersonVectors holds a "producer" vector to exactly the
+// rule its producer_rule names and checks every other rule in this table
+// accepts it — and its coverage check fails if a rule is added here with no
+// vector naming it.
+var personProducerRules = map[string]func(string) bool{
+	"stream-safe": spec.PersonValueIsStreamSafe,
+	"repertoire":  spec.PersonValueRepertoireOK,
+}
+
 // TestInvalidPersonVectors checks that every testdata/persons/invalid vector
 // is rejected, and that index.json accounts for each one — a rejection nobody
 // wrote a reason for is a rejection nobody checked.
@@ -357,13 +370,15 @@ func TestValidPersonVectors(t *testing.T) {
 // such a vector `"enforced_by": "producer"` and this test checks the
 // producer-side rules instead of the schema for exactly those.
 //
-// The arm below fails only when both producer rules (PersonValueIsStreamSafe
-// and PersonValueRepertoireOK) accept, so a "producer" vector is required to
-// be rejected by at least one of the two — not necessarily the one its
-// "reason" names. A vector may legitimately trip either rule, and
-// index.json has no field today saying which one a given vector means to
-// pin, so the conjunction is the strongest check available; WRIT-292 is
-// filed to add that binding via a structured field on the vector index.
+// A "producer" entry also names, in its producer_rule field, which one rule
+// in personProducerRules it pins. The arm below holds the vector to that
+// rule specifically: the named rule MUST reject it, and every other rule in
+// the table MUST accept it. That exclusivity is what makes the binding
+// checkable — spec/canonicalization.md §Test vectors already asks a harness
+// to verify a rejection is for the categorized reason, not merely that a
+// rejection happens, and this applies that same discipline to the producer
+// arm. Deleting a named rule reddens exactly the vectors that name it and no
+// others; the coverage check after the loop catches a rule nothing names.
 func TestInvalidPersonVectors(t *testing.T) {
 	sch := compilePersonIDSchema(t)
 
@@ -372,8 +387,9 @@ func TestInvalidPersonVectors(t *testing.T) {
 		t.Fatal(err)
 	}
 	var index map[string]struct {
-		Reason     string `json:"reason"`
-		EnforcedBy string `json:"enforced_by,omitempty"`
+		Reason       string `json:"reason"`
+		EnforcedBy   string `json:"enforced_by,omitempty"`
+		ProducerRule string `json:"producer_rule,omitempty"`
 	}
 	if err := json.Unmarshal(rawIndex, &index); err != nil {
 		t.Fatalf("decoding index.json: %v", err)
@@ -391,6 +407,7 @@ func TestInvalidPersonVectors(t *testing.T) {
 		}
 	}
 
+	producerRuleNamed := make(map[string]bool)
 	for name := range files {
 		entry, ok := index[name]
 		if !ok {
@@ -408,26 +425,46 @@ func TestInvalidPersonVectors(t *testing.T) {
 			}
 			switch entry.EnforcedBy {
 			case "", "schema":
+				if entry.ProducerRule != "" {
+					t.Fatalf("%s: enforced_by %q does not name a producer rule, but index.json sets producer_rule %q", name, entry.EnforcedBy, entry.ProducerRule)
+				}
 				if err := personSchemaAccepts(sch, vec.Identifier); err == nil {
 					t.Errorf("schema accepted %q; expected rejection: %s", vec.Identifier, entry.Reason)
 				}
 			case "producer":
-				// A "producer" vector must be rejected by at least one of
-				// the two producer-side rules, not accepted by both.
-				// Checking only one rule would spuriously fail a vector the
-				// *other* rule legitimately rejects -- every producer vector
-				// today trips exactly one of the two. The conjunction does
-				// not bind a vector to the specific rule its "reason"
-				// names -- a vector passes on either rule alone, without
-				// ever exercising the one its reason describes. WRIT-292
-				// adds that binding.
-				if spec.PersonValueIsStreamSafe(vec.Identifier) && spec.PersonValueRepertoireOK(vec.Identifier) {
-					t.Errorf("producer checks accepted %q; expected rejection by at least one producer-side rule: %s", vec.Identifier, entry.Reason)
+				// The named rule must reject the vector -- that is what
+				// binds it to the rule its "reason" names, rather than to
+				// whichever rule happens to reject it.
+				pinned, ok := personProducerRules[entry.ProducerRule]
+				if !ok {
+					t.Fatalf("%s: index.json names unknown or missing producer_rule %q", name, entry.ProducerRule)
+				}
+				producerRuleNamed[entry.ProducerRule] = true
+				if pinned(vec.Identifier) {
+					t.Errorf("producer rule %q accepted %q; expected rejection: %s", entry.ProducerRule, vec.Identifier, entry.Reason)
+				}
+				// Every other rule must accept it. Without this, deleting a
+				// rule this vector does not name could still redden it, and
+				// the vector would not actually be pinned to the rule it
+				// claims.
+				for otherToken, other := range personProducerRules {
+					if otherToken == entry.ProducerRule {
+						continue
+					}
+					if !other(vec.Identifier) {
+						t.Errorf("producer rule %q also rejected %q, but the vector is pinned to %q; expected every other producer rule to accept: %s", otherToken, vec.Identifier, entry.ProducerRule, entry.Reason)
+					}
 				}
 			default:
 				t.Fatalf("%s: index.json names unknown enforced_by %q", name, entry.EnforcedBy)
 			}
 		})
+	}
+
+	for token := range personProducerRules {
+		if !producerRuleNamed[token] {
+			t.Errorf("no testdata/persons/invalid vector names producer_rule %q; it is untested", token)
+		}
 	}
 }
 
