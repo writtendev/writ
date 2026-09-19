@@ -19,7 +19,25 @@ func ReadGitConfig(ctx context.Context, repoDir string) (map[string]string, erro
 // output into a map of lowercase keys to values, with later entries overriding
 // earlier ones (matching git config precedence: local overrides global, etc.).
 func readGitConfig(ctx context.Context, repoDir string) (map[string]string, error) {
-	cmd := exec.CommandContext(ctx, "git", "config", "--list", "--null")
+	return runGitConfigList(ctx, repoDir)
+}
+
+// readLocalGitConfig executes git config --list --null --local in repoDir,
+// restricting the read to the repository's own local configuration (no
+// global or system scope). writerId and personId source from readGitConfig
+// deliberately: one identity across a person's repositories is the point. A
+// repo-id has the opposite requirement — its whole job is telling
+// repositories apart — so it reads local config only.
+func readLocalGitConfig(ctx context.Context, repoDir string) (map[string]string, error) {
+	return runGitConfigList(ctx, repoDir, "--local")
+}
+
+// runGitConfigList executes git config --list --null with the given extra
+// scope flags in repoDir and parses the output into a map of lowercase keys
+// to values.
+func runGitConfigList(ctx context.Context, repoDir string, extraArgs ...string) (map[string]string, error) {
+	args := append([]string{"config", "--list", "--null"}, extraArgs...)
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = repoDir
 
 	out, err := cmd.Output()
