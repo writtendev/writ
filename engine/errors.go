@@ -50,10 +50,10 @@ var (
 	// ErrRejectedOps is returned wrapped alongside ErrNotFound by
 	// Objects.Get when the enumeration pass that found no ops for the
 	// requested object id also failed to read at least one op commit
-	// elsewhere in the repository. errors.Is(err, ErrNotFound) still
-	// holds, so a caller that only checks for ErrNotFound today is
-	// unaffected; a caller that also checks for ErrRejectedOps learns
-	// that the object's absence is not certain.
+	// in the repository. errors.Is(err, ErrNotFound) still holds, so a
+	// caller that only checks for ErrNotFound today is unaffected; a
+	// caller that also checks for ErrRejectedOps learns that the
+	// object's absence is not certain.
 	//
 	// The rejections behind this sentinel are repository-wide, not
 	// attributable to the object id passed to Get: a commit that fails
@@ -63,7 +63,7 @@ var (
 	// holds op commits that could not be read, which means the requested
 	// id's absence cannot be trusted as definitive. It does not, and
 	// cannot, say those commits concern the requested object.
-	ErrRejectedOps = errors.New("one or more op commits in this repository failed reader validation, so this object's absence is not certain")
+	ErrRejectedOps = errors.New("this object's absence is not certain")
 
 	// ErrStoreOpen is returned (wrapped) by Open for every error caused by
 	// the repository or its local state failing to open: path resolution,
