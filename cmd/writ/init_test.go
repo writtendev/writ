@@ -975,11 +975,8 @@ func TestInit_NoSuchRemoteWritesNoPhantomSection(t *testing.T) {
 // one it could not, rather than stranding the others.
 //
 // Round 4: a url-less section never had anything configured for it, so
-// skipping it is not a partial result -- the exit code is 0, not 1 (that
-// stays reserved for a *real* remote, with a url, that Ensure's gate
-// rejects for an invalid name; see
-// TestInit_DiscoveredDashLeadingRemoteDoesNotStrandGoodOnes). The ghost is
-// still named on stderr either way.
+// skipping it is not a partial result -- the exit code is 0, not 1. The
+// ghost is still named on stderr either way.
 func TestInit_DiscoveredGhostRemoteDoesNotStrandGoodOnes(t *testing.T) {
 	env := setupTestCLIEnv(t)
 

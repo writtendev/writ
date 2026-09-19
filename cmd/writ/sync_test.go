@@ -598,6 +598,53 @@ func TestSync_ExitCodeClassification(t *testing.T) {
 		}
 	})
 
+	t.Run("e2e_empty_remote_name_is_usage_error", func(t *testing.T) {
+		// Round-6 review finding (WRIT-283): an empty remote name is the
+		// one syntactically invalid name that escaped the exit-2 contract
+		// this PR documents. ValidateRemoteName has always rejected "" with
+		// ErrInvalidRemoteName, but Store.Sync and Store.SyncStatus each
+		// short-circuited on a bare "remote cannot be empty" error ahead of
+		// that check, so "writ sync -- \"\"" exited 1 with failure.kind
+		// "unknown" -- the code docs/cli-json.md defines as an unclassified
+		// runtime or transport failure, which a retrying wrapper retries
+		// forever instead of surfacing as the usage error it is. A script
+		// running "writ sync --json -- \"$REMOTE\"" with $REMOTE unset is
+		// the concrete case.
+		_, aliceDir, _ := setupSyncTestHarness(t)
+
+		type failureEnvelope struct {
+			Data []struct {
+				Failure *struct {
+					Kind string `json:"kind"`
+				} `json:"failure,omitempty"`
+			} `json:"data"`
+		}
+
+		for _, tc := range []struct {
+			name string
+			args []string
+		}{
+			{"sync", []string{"sync", "--json", "--", ""}},
+			{"sync --status", []string{"sync", "--status", "--json", "--", ""}},
+		} {
+			var stdout, stderr bytes.Buffer
+			code := run(context.Background(), append([]string{"-C", aliceDir}, tc.args...), &stdout, &stderr)
+			if code != 2 {
+				t.Errorf("writ %s -- \"\" exit code = %d (want 2); stderr: %s", tc.name, code, stderr.String())
+			}
+			var env failureEnvelope
+			if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
+				t.Fatalf("unmarshal writ %s -- \"\": %v (raw: %s)", tc.name, err, stdout.String())
+			}
+			if len(env.Data) != 1 || env.Data[0].Failure == nil {
+				t.Fatalf("writ %s -- \"\" data = %+v, want 1 entry with a failure", tc.name, env.Data)
+			}
+			if got := env.Data[0].Failure.Kind; got != "invalid-name" {
+				t.Errorf("writ %s -- \"\" failure.kind = %q, want \"invalid-name\"", tc.name, got)
+			}
+		}
+	})
+
 	t.Run("e2e_upload_pack_injection_never_executes", func(t *testing.T) {
 		// The other half of WRIT-283: this is a real argument-injection
 		// hole, not cosmetic argv tidying. Before --end-of-options and
