@@ -88,14 +88,73 @@ func (e *SyncError) Unwrap() error {
 // Sync ensures fetch refspecs in .git/config, fetches remote operations, pushes local operations,
 // and refreshes the projection cache.
 //
-// On transport failure, Sync still refreshes the projection cache and returns the remaining
-// unsynced count wrapped in a *SyncError.
+// On any failure -- whether the remote turns out to be syntactically invalid
+// or unconfigured, or the fetch/push transport itself fails -- Sync still
+// refreshes the projection cache and returns the remaining unsynced count
+// wrapped in a *SyncError. The one exception is an empty remote name, which
+// reports Unsynced: 0 rather than the real count; see SyncStatus, which
+// carves the same case out of the same guarantee for the same reason.
 func (s *Store) Sync(ctx context.Context, remote string) (SyncResult, error) {
 	if s == nil {
 		return SyncResult{}, fmt.Errorf("writ: store is nil")
 	}
-	if remote == "" {
-		return SyncResult{}, fmt.Errorf("writ: remote cannot be empty")
+
+	// An empty remote name gets no guard of its own here: ValidateRemoteName
+	// rejects it with ErrInvalidRemoteName exactly like every other
+	// syntactically unusable name, so it reports the same invalid-name kind
+	// and the same exit 2. A bare error returned ahead of that check (what
+	// this used to do) surfaced as exit 1 / kind "unknown" -- the code a
+	// caller reads as a transport failure and retries.
+	//
+	// A remote that is syntactically invalid, or well-formed but not
+	// configured at all (no remote.<remote>.url or remote.<remote>.pushurl),
+	// is checked once, upfront,
+	// before Ensure, Fetch, or Push ever run. This is a deliberate carve-out
+	// from the "push is never gated on fetch" rule below: that rule exists
+	// so a peer's broken chain or a dead-but-configured remote's fetch
+	// failure can never strand this writer's unpushed ops (WRIT-270), but a
+	// remote that is not configured at all is not a fetch failure -- there
+	// is nowhere to push either, so gating both here does not weaken that
+	// rule. It also closes the WRIT-283 phantom-remote bug at its source:
+	// s.syncClient.Ensure would otherwise write a url-less config section
+	// for a name that was never a real remote.
+	if err := s.checkRemoteAvailable(ctx, remote); err != nil {
+		// Sync's doc comment promises the projection cache is refreshed and
+		// the true remaining unsynced count is returned on every failure
+		// path, not just a transport failure below -- and both are purely
+		// local work that does not need this remote to be reachable, or
+		// even syntactically valid, to run: Refresh rebuilds the cache from
+		// this repo's own git objects, and countUnsynced's ComputeStatus
+		// walks local chain refs against this remote's last-fetched
+		// tracking frontier. Skipping them here left a --json caller
+		// reading "unsynced":0 for a remote that in fact had unpushed ops
+		// (round-1 review finding).
+		//
+		// An empty remote name is the documented exception: countUnsynced's
+		// ComputeStatus rejects it outright, so the count below is 0 rather
+		// than the real one. See SyncStatus's doc comment for why that is
+		// left alone rather than special-cased here.
+		s.invalidateVocabularies()
+		refreshStats, refreshErr := s.Refresh(ctx)
+		unsynced, _ := s.countUnsynced(ctx, remote)
+
+		objectsTouched := 0
+		rejected := 0
+		if refreshErr == nil {
+			objectsTouched = refreshStats.ObjectsTouched
+			rejected = len(refreshStats.Rejections)
+		}
+
+		var syncErr *SyncError
+		if errors.As(err, &syncErr) {
+			syncErr.Unsynced = unsynced
+		}
+
+		return SyncResult{
+			ObjectsTouched: objectsTouched,
+			Unsynced:       unsynced,
+			Rejected:       rejected,
+		}, err
 	}
 
 	// fetchErr and pushErr are tracked separately because push must not be
@@ -106,6 +165,11 @@ func (s *Store) Sync(ctx context.Context, remote string) (SyncResult, error) {
 	// strand this writer's unpushed ops (WRIT-270). They fold into one
 	// syncErr below, fetch taking precedence when both are set: it is the
 	// earlier stage, and it is the one that explains a dead remote.
+	//
+	// This is why checkRemoteAvailable above has to run before either step
+	// rather than folding into fetchErr the way Ensure's own failures do:
+	// letting an unconfigured remote merely set fetchErr would still let
+	// Push below run against it, since Push is unconditional on fetchErr.
 	var fetchErr, pushErr error
 
 	// 1. Ensure fetch refspec
@@ -217,6 +281,40 @@ func (s *Store) Sync(ctx context.Context, remote string) (SyncResult, error) {
 	return result, nil
 }
 
+// checkRemoteAvailable validates remote's name and confirms it is
+// configured (remote.<remote>.url or remote.<remote>.pushurl set) before
+// Sync does anything else. It never writes to .git/config -- RemoteConfigured
+// is a read-only probe -- so a rejection here leaves .git/config untouched,
+// unlike the old
+// Ensure-only guard this replaces as the entry point (Ensure and
+// cmd/writ/init.go's direct Ensure calls still run the same checks
+// themselves; this is what additionally keeps Push from being attempted
+// against a remote that was never configured at all).
+func (s *Store) checkRemoteAvailable(ctx context.Context, remote string) error {
+	if err := writsync.ValidateRemoteName(remote); err != nil {
+		return &SyncError{
+			Remote:  remote,
+			Kind:    string(writsync.FailureKindInvalidName),
+			Message: err.Error(),
+			Err:     writsync.ErrInvalidRemoteName,
+		}
+	}
+
+	configured, err := s.syncClient.RemoteConfigured(ctx, remote)
+	if err != nil {
+		return s.wrapSyncError(remote, err, 0)
+	}
+	if !configured {
+		return &SyncError{
+			Remote:  remote,
+			Kind:    string(writsync.FailureKindNotFound),
+			Message: fmt.Sprintf("remote %q is not configured", remote),
+			Err:     writsync.ErrUnknownRemote,
+		}
+	}
+	return nil
+}
+
 func (s *Store) wrapSyncError(remote string, err error, unsynced int) error {
 	if err == nil {
 		return nil
@@ -252,18 +350,63 @@ func (s *Store) wrapSyncError(remote string, err error, unsynced int) error {
 	}
 }
 
-// SyncStatus reports the number of local operations not yet pushed to the remote.
+// SyncStatus reports the number of local operations not yet pushed to the
+// remote. It is offline: unlike Sync, it never confirms the remote is
+// actually configured (remote.<remote>.url or remote.<remote>.pushurl set),
+// only that its name is syntactically valid -- ComputeStatus works entirely
+// from local chain refs and this remote's last-fetched tracking frontier,
+// so it does not need the remote to exist, let alone be reachable.
+//
+// The syntax check still runs, though: a syntactically invalid remote name
+// (e.g. "a b", "--upload-pack=...") is a usage error under "writ sync",
+// exit 2, and SyncStatus rejecting the same names is what keeps
+// "writ sync --status" reporting the same contract instead of a clean
+// success for an argument the very next "writ sync" call would refuse
+// (round-1 review finding).
+//
+// The rejection still carries the true unsynced count, same as every
+// failure path of Sync itself: ComputeStatus is pure local work -- chain
+// refs and this remote's last-fetched tracking frontier, nothing that
+// needs the remote to be configured or reachable -- so there is no reason
+// for a rejected name like "a b" to report a fictional zero while
+// "writ sync" (also rejecting it) reports the real count for the identical
+// repository (round-3 review finding: the two used to disagree).
+//
+// One name is carved out of that guarantee: an empty one reports
+// Unsynced: 0, not the real count. ComputeStatus rejects an empty remote
+// outright, because chain.Ref.Remote == "" is its own sentinel for a local
+// chain -- without that guard a writer's local chains would read as the
+// remote tracking frontier. So the empty string is the one input where
+// ComputeStatus does need a well-formed name, and the 0 is not special-
+// cased away: an empty name is a usage error caught before any remote is
+// involved, so there is no remote for a count to be about. Both modes
+// agree on the 0, so round-3's property (the two must not disagree) still
+// holds. Every other syntactically invalid name still carries the real
+// count.
 func (s *Store) SyncStatus(ctx context.Context, remote string) (SyncStatus, error) {
 	if s == nil {
 		return SyncStatus{}, fmt.Errorf("writ: store is nil")
 	}
-	if remote == "" {
-		return SyncStatus{}, fmt.Errorf("writ: remote cannot be empty")
-	}
-
+	// As in Sync, an empty remote name is left to ValidateRemoteName below
+	// rather than short-circuited here, so it reports invalid-name like
+	// every other syntactically unusable name.
 	var writerID identity.WriterID
 	if s.hasIdentity {
 		writerID = s.identity.WriterID
+	}
+
+	if err := writsync.ValidateRemoteName(remote); err != nil {
+		unsynced := 0
+		if status, statusErr := writsync.ComputeStatus(s.storer, writerID, remote); statusErr == nil {
+			unsynced = status.Unsynced
+		}
+		return SyncStatus{}, &SyncError{
+			Remote:   remote,
+			Kind:     string(writsync.FailureKindInvalidName),
+			Message:  err.Error(),
+			Unsynced: unsynced,
+			Err:      writsync.ErrInvalidRemoteName,
+		}
 	}
 
 	status, err := writsync.ComputeStatus(s.storer, writerID, remote)

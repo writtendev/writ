@@ -192,6 +192,68 @@ func TestSync_RoundTripAndRefold(t *testing.T) {
 	}
 }
 
+// TestSync_SlashContainingRemoteName is the regression pin for round 2's
+// first finding (WRIT-283): ValidateRemoteName's blanket "/" ban rejected
+// remote names git itself accepts and writ previously synced fine on --
+// "git remote add team/fork <url>; writ sync team/fork" pushed ops before
+// this fix and, with the ban in place, exited 2 with nothing pushed. Git
+// 2.50.1's "git remote add" is the oracle here (verified out-of-band): it
+// accepts "team/fork" as a remote name, and a push/fetch against it
+// round-trips through refs/remotes/team/fork/writ/* without ambiguity, so
+// writ must accept it too rather than stranding a writer's ops.
+func TestSync_SlashContainingRemoteName(t *testing.T) {
+	bareDir, aliceDir, _ := setupSyncTestHarness(t)
+	ctx := context.Background()
+
+	addRemote(t, aliceDir, "team/fork", bareDir)
+
+	sA, err := writ.Open(aliceDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Open Alice failed: %v", err)
+	}
+	applyTicketSchemaViaStore(t, ctx, sA, aliceDir)
+	if _, err := sA.Objects.Create(ctx, "acme.ticket", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Slash Remote Ticket"},
+	}); err != nil {
+		sA.Close()
+		t.Fatalf("Alice create object: %v", err)
+	}
+	sA.Close()
+
+	var stdout, stderr bytes.Buffer
+	code := run(ctx, []string{"-C", aliceDir, "sync", "team/fork"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf(`sync "team/fork" exited with %d (want 0, nothing should strand); stderr: %s`, code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "pushed") {
+		t.Errorf(`sync "team/fork" stdout does not mention pushed ops: %s`, stdout.String())
+	}
+
+	// Confirm the ops actually landed in the bare repo, not just that the
+	// CLI reported success.
+	cmd := exec.Command("git", "for-each-ref", "refs/writ/0123456789abcdef")
+	cmd.Dir = bareDir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git for-each-ref in bare repo: %v", err)
+	}
+	if strings.TrimSpace(string(out)) == "" {
+		t.Errorf(`sync "team/fork" reported success but the bare repo has no refs/writ/* ref for Alice's writer ID`)
+	}
+
+	// Same again for a remote whose name is exactly "@" -- go-git's own
+	// reference-name validator wrongly rejects a lone "@" path component
+	// where git does not; ValidateRemoteName is expected to route around
+	// that divergence the same way it does for "/".
+	addRemote(t, aliceDir, "@", bareDir)
+	var stdoutAt, stderrAt bytes.Buffer
+	codeAt := run(ctx, []string{"-C", aliceDir, "sync", "@"}, &stdoutAt, &stderrAt)
+	if codeAt != 0 {
+		t.Fatalf(`sync "@" exited with %d (want 0); stderr: %s`, codeAt, stderrAt.String())
+	}
+}
+
 func TestSync_Idempotent(t *testing.T) {
 	_, aliceDir, _ := setupSyncTestHarness(t)
 	ctx := context.Background()
@@ -429,10 +491,185 @@ func TestSync_ExitCodeClassification(t *testing.T) {
 
 	t.Run("e2e_unknown_remote", func(t *testing.T) {
 		_, aliceDir, _ := setupSyncTestHarness(t)
+		configPath := filepath.Join(aliceDir, ".git", "config")
+		before, err := os.ReadFile(configPath)
+		if err != nil {
+			t.Fatalf("read .git/config before sync: %v", err)
+		}
+
 		var stdout, stderr bytes.Buffer
 		code := run(context.Background(), []string{"-C", aliceDir, "sync", "nosuchremote"}, &stdout, &stderr)
 		if code != 3 {
 			t.Errorf("sync nosuchremote exit code = %d (want 3); stderr: %s", code, stderr.String())
+		}
+
+		// Regression pin (WRIT-283): a well-formed but unconfigured remote
+		// name must not write a phantom [remote "nosuchremote"] section.
+		after, err := os.ReadFile(configPath)
+		if err != nil {
+			t.Fatalf("read .git/config after sync: %v", err)
+		}
+		if !bytes.Equal(before, after) {
+			t.Errorf(".git/config changed after sync nosuchremote failed:\nbefore:\n%s\nafter:\n%s", before, after)
+		}
+	})
+
+	t.Run("e2e_invalid_remote_name_is_usage_error", func(t *testing.T) {
+		// A syntactically invalid remote name is a usage error (exit 2),
+		// distinct from the well-formed-but-unconfigured case above (exit
+		// 3) -- the orchestrator plan-gate decision on WRIT-283 is explicit
+		// that these are different failure modes and code 3's documented
+		// meaning does not widen to cover this one.
+		_, aliceDir, _ := setupSyncTestHarness(t)
+		configPath := filepath.Join(aliceDir, ".git", "config")
+		before, err := os.ReadFile(configPath)
+		if err != nil {
+			t.Fatalf("read .git/config before sync: %v", err)
+		}
+
+		var stdout, stderr bytes.Buffer
+		code := run(context.Background(), []string{"-C", aliceDir, "sync", "--", "a b"}, &stdout, &stderr)
+		if code != 2 {
+			t.Errorf("sync -- \"a b\" exit code = %d (want 2); stderr: %s", code, stderr.String())
+		}
+
+		// The self-DoS pin (WRIT-283): nothing is written for an invalid
+		// name, so a plain `git remote` still exits 0 afterwards -- before
+		// this fix, the invalid refspec this wrote made every subsequent
+		// `git remote` in the repo exit 128.
+		after, err := os.ReadFile(configPath)
+		if err != nil {
+			t.Fatalf("read .git/config after sync: %v", err)
+		}
+		if !bytes.Equal(before, after) {
+			t.Errorf(".git/config changed after sync rejected an invalid remote name:\nbefore:\n%s\nafter:\n%s", before, after)
+		}
+		cmd := exec.Command("git", "remote")
+		cmd.Dir = aliceDir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Errorf("git remote after sync -- \"a b\" exited nonzero: %v (%s)", err, out)
+		}
+	})
+
+	t.Run("e2e_status_mode_invalid_remote_name_is_usage_error", func(t *testing.T) {
+		// Round-1 review finding (WRIT-283): "--status" took the same
+		// positional through Store.SyncStatus without validating it, so
+		// "writ sync --status -- \"a b\"" reported a clean exit 0 "up to
+		// date" for the exact argument "writ sync -- \"a b\"" rejects as
+		// malformed above. SyncStatus now runs the same ValidateRemoteName
+		// check Sync does, so both modes agree on what a usage error is.
+		_, aliceDir, _ := setupSyncTestHarness(t)
+
+		var stdout, stderr bytes.Buffer
+		code := run(context.Background(), []string{"-C", aliceDir, "sync", "--status", "--", "a b"}, &stdout, &stderr)
+		if code != 2 {
+			t.Errorf("sync --status -- \"a b\" exit code = %d (want 2); stderr: %s", code, stderr.String())
+		}
+
+		var stdoutJSON, stderrJSON bytes.Buffer
+		codeJSON := run(context.Background(), []string{"-C", aliceDir, "sync", "--status", "--json", "--", "--upload-pack=/x/pwn.sh"}, &stdoutJSON, &stderrJSON)
+		if codeJSON != 2 {
+			t.Errorf("sync --status --json -- \"--upload-pack=...\" exit code = %d (want 2); stderr: %s", codeJSON, stderrJSON.String())
+		}
+		type statusEnvelope struct {
+			Data []struct {
+				Remote   string `json:"remote"`
+				Unsynced int    `json:"unsynced"`
+				Failure  *struct {
+					Kind string `json:"kind"`
+				} `json:"failure,omitempty"`
+			} `json:"data"`
+		}
+		var env statusEnvelope
+		if err := json.Unmarshal(stdoutJSON.Bytes(), &env); err != nil {
+			t.Fatalf("unmarshal sync --status --json invalid remote: %v (raw: %s)", err, stdoutJSON.String())
+		}
+		if len(env.Data) != 1 || env.Data[0].Failure == nil {
+			t.Fatalf("sync --status --json invalid remote data = %+v, want 1 entry with a failure", env.Data)
+		}
+		// Round-2 review finding (WRIT-283): a syntactically invalid name
+		// must not report the same "not-found" kind as a well-formed but
+		// unconfigured remote -- the usage-error/unknown-remote distinction
+		// the plan-gate ruling insisted on has to live in the JSON payload,
+		// not only in the exit code, or a --json caller cannot tell the two
+		// apart from the data alone.
+		if got := env.Data[0].Failure.Kind; got != "invalid-name" {
+			t.Errorf("sync --status --json invalid remote failure.kind = %q, want \"invalid-name\"", got)
+		}
+	})
+
+	t.Run("e2e_empty_remote_name_is_usage_error", func(t *testing.T) {
+		// Round-6 review finding (WRIT-283): an empty remote name is the
+		// one syntactically invalid name that escaped the exit-2 contract
+		// this PR documents. ValidateRemoteName has always rejected "" with
+		// ErrInvalidRemoteName, but Store.Sync and Store.SyncStatus each
+		// short-circuited on a bare "remote cannot be empty" error ahead of
+		// that check, so "writ sync -- \"\"" exited 1 with failure.kind
+		// "unknown" -- the code docs/cli-json.md defines as an unclassified
+		// runtime or transport failure, which a retrying wrapper retries
+		// forever instead of surfacing as the usage error it is. A script
+		// running "writ sync --json -- \"$REMOTE\"" with $REMOTE unset is
+		// the concrete case.
+		_, aliceDir, _ := setupSyncTestHarness(t)
+
+		type failureEnvelope struct {
+			Data []struct {
+				Failure *struct {
+					Kind string `json:"kind"`
+				} `json:"failure,omitempty"`
+			} `json:"data"`
+		}
+
+		for _, tc := range []struct {
+			name string
+			args []string
+		}{
+			{"sync", []string{"sync", "--json", "--", ""}},
+			{"sync --status", []string{"sync", "--status", "--json", "--", ""}},
+		} {
+			var stdout, stderr bytes.Buffer
+			code := run(context.Background(), append([]string{"-C", aliceDir}, tc.args...), &stdout, &stderr)
+			if code != 2 {
+				t.Errorf("writ %s -- \"\" exit code = %d (want 2); stderr: %s", tc.name, code, stderr.String())
+			}
+			var env failureEnvelope
+			if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
+				t.Fatalf("unmarshal writ %s -- \"\": %v (raw: %s)", tc.name, err, stdout.String())
+			}
+			if len(env.Data) != 1 || env.Data[0].Failure == nil {
+				t.Fatalf("writ %s -- \"\" data = %+v, want 1 entry with a failure", tc.name, env.Data)
+			}
+			if got := env.Data[0].Failure.Kind; got != "invalid-name" {
+				t.Errorf("writ %s -- \"\" failure.kind = %q, want \"invalid-name\"", tc.name, got)
+			}
+		}
+	})
+
+	t.Run("e2e_upload_pack_injection_never_executes", func(t *testing.T) {
+		// The other half of WRIT-283: this is a real argument-injection
+		// hole, not cosmetic argv tidying. Before --end-of-options and
+		// ValidateRemoteName's "-"-leading rejection, "writ sync --
+		// --upload-pack=<script>" reached git fetch and was verified to
+		// execute the script.
+		_, aliceDir, _ := setupSyncTestHarness(t)
+		sentinelDir := t.TempDir()
+		sentinelPath := filepath.Join(sentinelDir, "pwned")
+		scriptPath := filepath.Join(sentinelDir, "pwn.sh")
+		script := fmt.Sprintf("#!/bin/sh\ntouch %q\necho PWNED_UPLOAD_PACK_RAN >&2\nexit 1\n", sentinelPath)
+		if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+			t.Fatalf("write pwn script: %v", err)
+		}
+
+		arg := "--upload-pack=" + scriptPath
+		var stdout, stderr bytes.Buffer
+		code := run(context.Background(), []string{"-C", aliceDir, "sync", "--", arg}, &stdout, &stderr)
+		if code != 2 {
+			t.Errorf("sync -- %q exit code = %d (want 2, rejected as an invalid remote name before reaching git); stderr: %s", arg, code, stderr.String())
+		}
+		if _, err := os.Stat(sentinelPath); err == nil {
+			t.Fatalf("pwn script executed: sentinel file %s exists", sentinelPath)
+		} else if !os.IsNotExist(err) {
+			t.Fatalf("stat sentinel file: %v", err)
 		}
 	})
 
@@ -610,6 +847,298 @@ func TestSync_JSONOutput(t *testing.T) {
 	}
 	if envMulti.Data[1].Remote != "badremote" || envMulti.Data[1].Failure == nil || envMulti.Data[1].Failure.Kind != "network" {
 		t.Errorf("expected badremote to have network failure, got %+v", envMulti.Data[1])
+	}
+}
+
+// TestSync_JSONUnconfiguredRemoteReportsTrueUnsyncedCount is the regression
+// pin for the round-1 review finding on engine/sync.go's checkRemoteAvailable
+// early return (WRIT-283): failing fast on a well-formed but unconfigured
+// remote must not skip Refresh/countUnsynced the way a transport failure
+// never does -- a --json caller asking about a typo'd remote name must
+// still see the true unsynced count, not a false "0" for a repo that
+// actually has an unpushed op.
+func TestSync_JSONUnconfiguredRemoteReportsTrueUnsyncedCount(t *testing.T) {
+	_, aliceDir, _ := setupSyncTestHarness(t)
+	ctx := context.Background()
+
+	// Alice declares a schema and creates a ticket, all local -- never
+	// synced to any remote, "nosuchremote" included.
+	sA, err := writ.Open(aliceDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Open Alice failed: %v", err)
+	}
+	applyTicketSchemaViaStore(t, ctx, sA, aliceDir)
+	_, err = sA.Objects.Create(ctx, "acme.ticket", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Unconfigured Remote Ticket"},
+	})
+	if err != nil {
+		sA.Close()
+		t.Fatalf("Alice create object: %v", err)
+	}
+
+	// The true unsynced count against "nosuchremote" specifically (its
+	// tracking frontier is empty -- it has never been fetched -- so this
+	// includes every local op, not just the one ticket above).
+	// SyncStatus never validates the remote (finding 3's own subject), so
+	// it is the ground truth this test compares the CLI's --json field
+	// against, rather than hardcoding a count that would drift with the
+	// schema/object fixtures above.
+	wantStatus, err := sA.SyncStatus(ctx, "nosuchremote")
+	if err != nil {
+		sA.Close()
+		t.Fatalf("Alice SyncStatus(nosuchremote): %v", err)
+	}
+	if wantStatus.Unsynced == 0 {
+		sA.Close()
+		t.Fatalf("test setup produced 0 unsynced ops against nosuchremote; need at least 1 to pin this regression")
+	}
+	sA.Close()
+
+	var stdout, stderr bytes.Buffer
+	code := run(ctx, []string{"-C", aliceDir, "sync", "--json", "nosuchremote"}, &stdout, &stderr)
+	if code != 3 {
+		t.Fatalf("sync --json nosuchremote exited with %d (want 3); stderr: %s", code, stderr.String())
+	}
+
+	type syncEnvelope struct {
+		SchemaVersion int    `json:"schema_version"`
+		Kind          string `json:"kind"`
+		Data          []struct {
+			Remote   string `json:"remote"`
+			Unsynced int    `json:"unsynced"`
+			Failure  *struct {
+				Kind    string `json:"kind"`
+				Message string `json:"message"`
+			} `json:"failure,omitempty"`
+		} `json:"data"`
+	}
+	var env syncEnvelope
+	if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
+		t.Fatalf("unmarshal sync --json nosuchremote: %v (raw: %s)", err, stdout.String())
+	}
+	if len(env.Data) != 1 {
+		t.Fatalf("expected 1 remote in sync json, got %d", len(env.Data))
+	}
+	got := env.Data[0]
+	if got.Remote != "nosuchremote" || got.Unsynced != wantStatus.Unsynced {
+		t.Errorf("sync --json nosuchremote data = %+v, want {Remote: nosuchremote, Unsynced: %d}", got, wantStatus.Unsynced)
+	}
+	if got.Failure == nil || got.Failure.Kind != "not-found" {
+		t.Errorf("sync --json nosuchremote failure = %+v, want kind \"not-found\"", got.Failure)
+	}
+}
+
+// TestSync_JSONInvalidRemoteNameReportsDistinctKind is the regression pin
+// for round 2's third finding (WRIT-283): "--json" reported
+// failure.kind: "not-found" for a syntactically invalid remote name, the
+// same kind as a well-formed but unconfigured remote, so the usage-error
+// vs. unknown-remote distinction the plan-gate ruling insisted on lived
+// only in the exit code. "sync --json" (not just "--status --json") must
+// report a distinct kind so a --json caller can tell the two apart from
+// the payload alone, without inspecting the process exit code.
+func TestSync_JSONInvalidRemoteNameReportsDistinctKind(t *testing.T) {
+	_, aliceDir, _ := setupSyncTestHarness(t)
+	ctx := context.Background()
+
+	var stdout, stderr bytes.Buffer
+	code := run(ctx, []string{"-C", aliceDir, "sync", "--json", "--", "a b"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("sync --json -- \"a b\" exited with %d (want 2); stderr: %s", code, stderr.String())
+	}
+
+	type syncEnvelope struct {
+		Data []struct {
+			Remote  string `json:"remote"`
+			Failure *struct {
+				Kind string `json:"kind"`
+			} `json:"failure,omitempty"`
+		} `json:"data"`
+	}
+	var env syncEnvelope
+	if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
+		t.Fatalf("unmarshal sync --json -- \"a b\": %v (raw: %s)", err, stdout.String())
+	}
+	if len(env.Data) != 1 || env.Data[0].Failure == nil {
+		t.Fatalf("sync --json -- \"a b\" data = %+v, want 1 entry with a failure", env.Data)
+	}
+	if got := env.Data[0].Failure.Kind; got != "invalid-name" {
+		t.Errorf("sync --json -- \"a b\" failure.kind = %q, want \"invalid-name\" (distinct from an unconfigured remote's \"not-found\")", got)
+	}
+}
+
+// TestSync_StatusJSONInvalidRemoteNameReportsTrueUnsyncedCount is the
+// regression pin for round 3's third finding (WRIT-283): "sync --status
+// --json -- \"a b\"" reported unsynced: 0 for a syntactically invalid
+// remote name, while plain "sync --json -- \"a b\"" (fixed for the
+// analogous unconfigured-remote case back in round 1) reported the true
+// count for the same repository. SyncStatus's ValidateRemoteName gate
+// returned early with a zero-value SyncStatus and a SyncError whose
+// Unsynced field was left unset; ComputeStatus is pure local work -- chain
+// refs and this remote's last-fetched tracking frontier -- so it needs
+// nothing from the (invalid) remote name to compute the real count, the
+// same property Sync's own invalid-name path already relies on. The one
+// exception is the empty name, which ComputeStatus rejects outright; see
+// TestSync_EmptyRemoteNameReportsZeroUnsynced below.
+func TestSync_StatusJSONInvalidRemoteNameReportsTrueUnsyncedCount(t *testing.T) {
+	_, aliceDir, _ := setupSyncTestHarness(t)
+	ctx := context.Background()
+
+	sA, err := writ.Open(aliceDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Open Alice failed: %v", err)
+	}
+	applyTicketSchemaViaStore(t, ctx, sA, aliceDir)
+	_, err = sA.Objects.Create(ctx, "acme.ticket", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Invalid Remote Name Ticket"},
+	})
+	if err != nil {
+		sA.Close()
+		t.Fatalf("Alice create object: %v", err)
+	}
+
+	// Ground truth: the unsynced count against a syntactically valid,
+	// never-fetched remote name. Neither "a b" below nor this name has
+	// ever been fetched, so both walks stop at the same (empty) remote
+	// tracking frontier and must agree on the count.
+	wantStatus, err := sA.SyncStatus(ctx, "ground-truth-remote")
+	if err != nil {
+		sA.Close()
+		t.Fatalf("Alice SyncStatus(ground-truth-remote): %v", err)
+	}
+	if wantStatus.Unsynced == 0 {
+		sA.Close()
+		t.Fatalf("test setup produced 0 unsynced ops; need at least 1 to pin this regression")
+	}
+	sA.Close()
+
+	var stdout, stderr bytes.Buffer
+	code := run(ctx, []string{"-C", aliceDir, "sync", "--status", "--json", "--", "a b"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("sync --status --json -- \"a b\" exited with %d (want 2); stderr: %s", code, stderr.String())
+	}
+
+	type syncEnvelope struct {
+		Data []struct {
+			Remote   string `json:"remote"`
+			Unsynced int    `json:"unsynced"`
+			Failure  *struct {
+				Kind string `json:"kind"`
+			} `json:"failure,omitempty"`
+		} `json:"data"`
+	}
+	var env syncEnvelope
+	if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
+		t.Fatalf("unmarshal sync --status --json -- \"a b\": %v (raw: %s)", err, stdout.String())
+	}
+	if len(env.Data) != 1 || env.Data[0].Failure == nil {
+		t.Fatalf("sync --status --json -- \"a b\" data = %+v, want 1 entry with a failure", env.Data)
+	}
+	got := env.Data[0]
+	if got.Failure.Kind != "invalid-name" {
+		t.Errorf("sync --status --json -- \"a b\" failure.kind = %q, want \"invalid-name\"", got.Failure.Kind)
+	}
+	if got.Unsynced != wantStatus.Unsynced {
+		t.Errorf("sync --status --json -- \"a b\" unsynced = %d, want the true count %d (matching plain \"sync --json\"'s own invalid-name path)", got.Unsynced, wantStatus.Unsynced)
+	}
+
+	// Porcelain mode carries the same count on the same path
+	// (printSyncError already reads SyncError.Unsynced; this pins that the
+	// value it reads is no longer always zero here).
+	var pStdout, pStderr bytes.Buffer
+	pCode := run(ctx, []string{"-C", aliceDir, "sync", "--status", "--", "a b"}, &pStdout, &pStderr)
+	if pCode != 2 {
+		t.Fatalf("sync --status -- \"a b\" exited with %d (want 2); stderr: %s", pCode, pStderr.String())
+	}
+	wantLine := fmt.Sprintf("%d %s unsynced", wantStatus.Unsynced, plural(wantStatus.Unsynced, "op", "ops"))
+	if !strings.Contains(pStderr.String(), wantLine) {
+		t.Errorf("sync --status -- \"a b\" stderr = %q, want it to contain %q", pStderr.String(), wantLine)
+	}
+}
+
+// TestSync_EmptyRemoteNameReportsZeroUnsynced pins the one carve-out in the
+// invalid-name path's unsynced-count guarantee (round-7 review finding,
+// WRIT-283). Every other syntactically invalid name carries the true count
+// on that path -- the property
+// TestSync_StatusJSONInvalidRemoteNameReportsTrueUnsyncedCount above pins
+// for "a b" -- but the empty string collides with ComputeStatus's own
+// sentinel for a local chain (chain.Ref.Remote == ""), so ComputeStatus
+// refuses it outright and the count reports 0. That is deliberate: the
+// sentinel is load-bearing (without it a writer's local chains would read
+// as the remote tracking frontier), and an empty name is a usage error
+// caught before any remote is involved, so there is no remote for a count
+// to be about. This test is the contrast pair, so a future change to
+// either side has to face the other.
+func TestSync_EmptyRemoteNameReportsZeroUnsynced(t *testing.T) {
+	_, aliceDir, _ := setupSyncTestHarness(t)
+	ctx := context.Background()
+
+	sA, err := writ.Open(aliceDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Open Alice failed: %v", err)
+	}
+	applyTicketSchemaViaStore(t, ctx, sA, aliceDir)
+	if _, err := sA.Objects.Create(ctx, "acme.ticket", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Empty Remote Name Ticket"},
+	}); err != nil {
+		sA.Close()
+		t.Fatalf("Alice create object: %v", err)
+	}
+	wantStatus, err := sA.SyncStatus(ctx, "ground-truth-remote")
+	if err != nil {
+		sA.Close()
+		t.Fatalf("Alice SyncStatus(ground-truth-remote): %v", err)
+	}
+	sA.Close()
+	if wantStatus.Unsynced == 0 {
+		t.Fatalf("test setup produced 0 unsynced ops; need at least 1 to tell the two cases apart")
+	}
+
+	type syncEnvelope struct {
+		Data []struct {
+			Unsynced int `json:"unsynced"`
+			Failure  *struct {
+				Kind string `json:"kind"`
+			} `json:"failure,omitempty"`
+		} `json:"data"`
+	}
+
+	for _, mode := range []struct {
+		name string
+		args []string
+	}{
+		{"sync --json", []string{"sync", "--json", "--"}},
+		{"sync --status --json", []string{"sync", "--status", "--json", "--"}},
+	} {
+		for _, tc := range []struct {
+			remote   string
+			unsynced int
+			why      string
+		}{
+			{"a b", wantStatus.Unsynced, "the true count: ComputeStatus needs nothing from the name"},
+			{"", 0, "ComputeStatus rejects the empty remote outright -- it is its own local-chain sentinel"},
+		} {
+			var stdout, stderr bytes.Buffer
+			code := run(ctx, append(append([]string{"-C", aliceDir}, mode.args...), tc.remote), &stdout, &stderr)
+			if code != 2 {
+				t.Fatalf("writ %s %q exited with %d (want 2); stderr: %s", mode.name, tc.remote, code, stderr.String())
+			}
+			var env syncEnvelope
+			if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
+				t.Fatalf("unmarshal writ %s %q: %v (raw: %s)", mode.name, tc.remote, err, stdout.String())
+			}
+			if len(env.Data) != 1 || env.Data[0].Failure == nil {
+				t.Fatalf("writ %s %q data = %+v, want 1 entry with a failure", mode.name, tc.remote, env.Data)
+			}
+			if got := env.Data[0].Failure.Kind; got != "invalid-name" {
+				t.Errorf("writ %s %q failure.kind = %q, want \"invalid-name\"", mode.name, tc.remote, got)
+			}
+			if got := env.Data[0].Unsynced; got != tc.unsynced {
+				t.Errorf("writ %s %q unsynced = %d, want %d (%s)", mode.name, tc.remote, got, tc.unsynced, tc.why)
+			}
+		}
 	}
 }
 

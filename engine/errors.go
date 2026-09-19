@@ -28,6 +28,12 @@ var (
 	// or could not be found.
 	ErrUnknownRemote = writsync.ErrUnknownRemote
 
+	// ErrInvalidRemoteName indicates that a remote name is syntactically
+	// unusable (empty, "-"-leading, or otherwise not a valid
+	// fetch-refspec destination component) rather than merely
+	// unconfigured.
+	ErrInvalidRemoteName = writsync.ErrInvalidRemoteName
+
 	// ErrAuth indicates that git remote authentication or credentials failed.
 	ErrAuth = writsync.ErrAuth
 
