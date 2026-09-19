@@ -52,14 +52,23 @@ func makeVersionedOp(objID, id string, parents []string, opType string, opVersio
 // version's folded value survived columnValue's type coercion — depended on
 // rule-slice order.
 //
-// Two objects, one written under each version, pin the half a DDL-only
-// determinism test (TestGeneratedDDLIsDeterministic) cannot see: two builds
-// that generate byte-identical DDL and digest can still disagree on
-// materialized content if one of them silently drops a disagreeing
-// version's value through columnValue's int/number/bool coercion (e.g.
-// columnValue("int", "alpha") returns nil). Reverting the ddl.go fix locally
-// turns this red: under whichever ordering picks the "int" rule as
-// representative, w-1's string value comes back NULL.
+// Two objects, one written under each version, assert both halves: the
+// createSQL/digest checks below pin the DDL half (an untyped f_note column,
+// identically under both rule orderings), and noteW1/noteW2 pin that
+// neither version's value comes back NULL under either ordering.
+//
+// Only the DDL half still catches a reps[tk] regression. Since WRIT-279 gave
+// columnValue's int/number/bool fallthroughs `return toText(v)` instead of
+// nil, a disagreeing version's value no longer comes back NULL even when
+// ddl.go's WRIT-205 widening is reverted and an ordering picks "int" as
+// tk's representative: it lands as the text "alpha" in the resulting
+// INTEGER-affinity column instead, and noteW1/noteW2 both stay green.
+// Verified by reverting the ddl.go widening alone, WRIT-279's materialize.go
+// fix left in place: the createSQL assertion below reddens (f_note
+// INTEGER, not TEXT) while the content assertions still pass. The content
+// half's WRIT-205-era regression signal is subsumed by that fix — it is no
+// longer a second, independent guard against reps[tk] picking the wrong
+// representative, only a (still-true) NULL-freedom check.
 //
 // Per spec/value-types.md's "untyped" definition and
 // spec/forward-compatibility.md §"Targets a projection declines" (the

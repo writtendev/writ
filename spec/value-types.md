@@ -151,9 +151,9 @@ value are the same normalized string.
 
 Matching `spec/op-envelope.md`'s existing split: a producer MUST reject a
 value that fails its declared `value_type` (producer validation rule 3, now
-driven off `value_type` as well as the governing schema). A reader MUST
-tolerate a value it cannot interpret, surfacing it through the existing
-`UnknownOp` channel (`spec/forward-compatibility.md`) rather than dropping the
+driven off `value_type` as well as the governing schema). The reader side
+of that split is `spec/fold.md` §7.1: fold does not enforce declared value
+types, folding a mismatched value verbatim rather than rejecting the
 operation carrying it. Nothing on the read path calls the value-type
 validator: `internal/value` is a producer-side guard, exactly as
 `internal/person.Check` already is.

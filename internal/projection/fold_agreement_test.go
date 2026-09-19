@@ -333,3 +333,130 @@ func TestProjectionMatchesFoldOnTruncatedAncestry(t *testing.T) {
 		t.Fatalf("o_record__note over the truncated prefix = %v, want [first] (state.Fold agrees, and must not see the un-fetched \"second\" op)", gotNotes)
 	}
 }
+
+// TestMismatchedValueTypeReachesTheColumnAsText is WRIT-279's own executable
+// statement for columnValue's three type-mismatch fallthroughs
+// (materialize.go: int, number, bool): a folded value that contradicts its
+// target's declared value_type now reaches the projection as text rather
+// than as SQL NULL.
+//
+// Non-vacuity: on main at 6555fc5, columnValue("int", "abc") returned nil
+// and no other code path could put the value there, so the assertion below
+// that a mismatched column is non-NULL and equals the written string is red
+// on main and green after this change — reverting only the three
+// materialize.go lines this ticket touches turns it red again. No other
+// test in this tree exercises that fallthrough, so nothing else moves.
+//
+// Every case's value is deliberately non-numeric-looking, so SQLite's
+// column affinity cannot convert it, except "int-numeric-looking", which is
+// deliberately the opposite: spec/fold.md §7.1 keeps state.Fold and the
+// projection agreeing the value is present, but SQLite's INTEGER affinity
+// still converts "42" into the integer 42 on the way in, so the two
+// surfaces disagree on *type* for a value that merely looks numeric. That
+// residual is not closed by this fix (see columnValue's doc comment) and
+// this case pins it deliberately, so typeof() must never be asserted "text"
+// universally.
+func TestMismatchedValueTypeReachesTheColumnAsText(t *testing.T) {
+	base := time.Unix(1700000000, 0).UTC()
+
+	rules := []state.Rule{
+		{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string", ObjectType: "record"},
+		{OpType: "note", OpVersion: 1, Field: "count", Strategy: "lww", ValueType: "int", ObjectType: "record"},
+		{OpType: "note", OpVersion: 1, Field: "amount", Strategy: "lww", ValueType: "number", ObjectType: "record"},
+		{OpType: "note", OpVersion: 1, Field: "flag", Strategy: "lww", ValueType: "bool", ObjectType: "record"},
+	}
+	rulesByType := map[string][]state.Rule{"record": rules}
+
+	cases := []struct {
+		name       string
+		objID      string
+		field      string
+		column     string
+		value      string
+		wantTypeof string
+	}{
+		{"int", "record-mismatch-int", "count", "f_count", "abc", "text"},
+		{"number", "record-mismatch-number", "amount", "f_amount", "not-a-number", "text"},
+		{"bool", "record-mismatch-bool", "flag", "f_flag", "yes", "text"},
+		{"int-numeric-looking", "record-mismatch-int-numeric", "count", "f_count", "42", "integer"},
+	}
+
+	byObj := make(map[string][]codec.Op, len(cases))
+	var lastOpID string
+	for _, tc := range cases {
+		opCreate := makeRecordOp(tc.objID, "op-create-"+tc.name, nil, "create", map[string]any{"title": "T"}, "Alice", "alice@example.com", base)
+		opNote := makeRecordOp(tc.objID, "op-note-"+tc.name, []string{opCreate.ID}, "note", map[string]any{tc.field: tc.value}, "Alice", "alice@example.com", base.Add(1*time.Second))
+		byObj[tc.objID] = []codec.Op{opCreate, opNote}
+		lastOpID = opNote.ID
+
+		want, err := state.Fold(byObj[tc.objID], rules)
+		if err != nil {
+			t.Fatalf("%s: state.Fold failed: %v", tc.name, err)
+		}
+		if got, _ := want.State[tc.field].(string); got != tc.value {
+			t.Fatalf("%s: test setup: state.Fold's %s = %#v, want %q — fold keeps a value_type mismatch verbatim (spec/fold.md §7.1)", tc.name, tc.field, want.State[tc.field], tc.value)
+		}
+	}
+
+	build := func(t *testing.T) (*projection.DB, map[string][]map[string]any) {
+		t.Helper()
+		_, store := createTestStore(t, "0123456789abcdef")
+		db, err := projection.Open(":memory:")
+		if err != nil {
+			t.Fatalf("Open(:memory:) failed: %v", err)
+		}
+		enumRes := &dag.EnumerateResult{
+			Ops:            byObj,
+			Cursors:        dag.CursorSet{"refs/writ/0123456789abcdef/record": lastOpID},
+			DecodedCommits: 2 * len(cases),
+		}
+		if _, err := db.Refresh(store, projection.WithSchema(rulesByType), projection.WithEnumOverrideForTest(enumRes)); err != nil {
+			t.Fatalf("Refresh failed: %v", err)
+		}
+		dump, err := db.DumpTables()
+		if err != nil {
+			t.Fatalf("DumpTables failed: %v", err)
+		}
+		return db, dump
+	}
+
+	db, dump1 := build(t)
+	defer db.Close()
+	rawDB := db.DB()
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var val sql.NullString
+			var typ string
+			query := "SELECT " + tc.column + ", typeof(" + tc.column + ") FROM o_record WHERE object_id = ?"
+			if err := rawDB.QueryRow(query, tc.objID).Scan(&val, &typ); err != nil {
+				t.Fatalf("query o_record.%s: %v", tc.column, err)
+			}
+			if !val.Valid {
+				t.Fatalf("%s = NULL, want the mismatched value %q stored, not dropped as SQL NULL", tc.column, tc.value)
+			}
+			if val.String != tc.value {
+				t.Fatalf("%s = %q, want %q", tc.column, val.String, tc.value)
+			}
+			if typ != tc.wantTypeof {
+				t.Fatalf("typeof(%s) = %q, want %q", tc.column, typ, tc.wantTypeof)
+			}
+		})
+	}
+
+	// Drop-and-rebuild: db.Rebuild itself always cold-walks the real store
+	// (it ignores WithEnumOverrideForTest, by design — see
+	// append_entries_test.go's TestAppendTablesSurviveDropAndRebuild — and
+	// writ's own producer refuses these mismatched bodies, so they cannot
+	// reach a real store through store.Append). The equivalent check here
+	// is the property drop-and-rebuild exists to guarantee: a second,
+	// independently-built projection refreshed from the identical DAG
+	// reproduces byte-identical rows, so the projection stays a droppable
+	// cache (AGENTS.md) even for a value its declared value_type cannot
+	// represent.
+	db2, dump2 := build(t)
+	defer db2.Close()
+	if !reflect.DeepEqual(dump1, dump2) {
+		t.Fatalf("projection rebuilt from the identical DAG differs from the original build:\nfirst:  %+v\nsecond: %+v", dump1, dump2)
+	}
+}

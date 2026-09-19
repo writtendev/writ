@@ -760,6 +760,68 @@ func appendValueColumnType(t *testing.T, db *sql.DB, table string) string {
 	return ""
 }
 
+// TestAppendMismatchedElementReachesTheColumnAsText is WRIT-279's append-path
+// leg: writeAppendRows converts each array element individually through
+// columnValue (materialize.go), so a single element that contradicts the
+// target's declared value_type must fall through to text exactly as a
+// scalar column does, without disturbing its well-typed neighbors.
+//
+// Before WRIT-279, columnValue's int/number/bool fallthroughs returned nil
+// for such an element, so the second row below would have been NULL rather
+// than the text "not-an-int" — silently dropping a value state.Fold still
+// reports. This is reachable only through a foreign or buggy writer:
+// writ's own producer refuses a "counts" element that fails the target's
+// declared "int" value_type, so the op is hand-built and reaches Refresh
+// via WithEnumOverrideForTest, never store.Append.
+func TestAppendMismatchedElementReachesTheColumnAsText(t *testing.T) {
+	base := time.Unix(1700000000, 0).UTC()
+	opCreate := makeWidgetOp("op-create-1", nil, "create", map[string]any{"title": "T"}, base)
+	opNote := makeWidgetOp("op-note-1", []string{"op-create-1"}, "note", map[string]any{
+		"count": []any{float64(1), "not-an-int"},
+	}, base.Add(1*time.Second))
+	ops := []codec.Op{opCreate, opNote}
+
+	titleRule := state.Rule{OpType: "create", Field: "title", Strategy: "lww", ValueType: "string", ObjectType: "widget"}
+	countRule := state.Rule{OpType: "note", OpVersion: 1, Field: "count", Target: "counts", Strategy: "append", ValueType: "int", ObjectType: "widget"}
+	rules := []state.Rule{titleRule, countRule}
+
+	want, err := state.Fold(ops, rules)
+	if err != nil {
+		t.Fatalf("state.Fold failed: %v", err)
+	}
+	wantCounts, ok := want.State["counts"].([]any)
+	if !ok || !reflect.DeepEqual(wantCounts, []any{float64(1), "not-an-int"}) {
+		t.Fatalf("test setup: state.Fold's counts = %#v, want [1 not-an-int] — fold keeps the mismatched element verbatim (spec/fold.md §7.1)", want.State["counts"])
+	}
+
+	_, store := createTestStore(t, "0123456789abcdef")
+	db, err := projection.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:) failed: %v", err)
+	}
+	defer db.Close()
+
+	enumRes := &dag.EnumerateResult{
+		Ops:            map[string][]codec.Op{"w-1": ops},
+		Cursors:        dag.CursorSet{"refs/writ/0123456789abcdef/widget": "op-note-1"},
+		DecodedCommits: len(ops),
+	}
+	if _, err := db.Refresh(store, projection.WithSchema(map[string][]state.Rule{"widget": rules}), projection.WithEnumOverrideForTest(enumRes)); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	if got := appendValueColumnType(t, db.DB(), "o_widget__counts"); got != "INTEGER" {
+		t.Fatalf("o_widget__counts.value declared type = %q, want INTEGER", got)
+	}
+	want2 := []typedAppendCell{
+		{Value: "1", Type: "integer"},
+		{Value: "not-an-int", Type: "text"},
+	}
+	if got := queryTypedAppendCells(t, db.DB(), "o_widget__counts"); !reflect.DeepEqual(got, want2) {
+		t.Fatalf("o_widget__counts cells = %+v, want %+v — the mismatched second element must land as non-NULL text, not drop the first element's own typed conversion", got, want2)
+	}
+}
+
 // TestAppendExplicitNullContributesNoRow pins the end-to-end outcome for an
 // explicit JSON null on a matched append field: no row lands, and the
 // entries either side of it are unaffected.
