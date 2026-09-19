@@ -37,7 +37,7 @@ All plumbing commands emit a single top-level JSON document on `stdout` adhering
 5. **Machine-Readable Exit Codes:** Classification uses process exit codes:
    - `0`: Success.
    - `1`: Unclassified runtime failure or transport error.
-   - `2`: Usage error (invalid flag, missing required argument).
+   - `2`: Usage error (invalid flag, missing required argument, syntactically invalid remote name).
    - `3`: Unknown or unconfigured git remote.
    - `4`: Rejected non-fast-forward update.
    - `5`: Not a git repository or store cannot be opened.
@@ -63,7 +63,7 @@ Reports the count of unpushed local operations without performing network transp
 |---|---|---|
 | `remote` | string | Name of the git remote (e.g. `origin`). |
 | `unsynced` | integer | Number of local operations not yet pushed to the remote. |
-| `failure` | object (optional) | Structured failure object (`kind`, `message`, `advice`, `retryable`) when sync status query failed. |
+| `failure` | object (optional) | Structured failure object (`kind`, `message`, `advice`, `retryable`) when the status query itself failed. `--status` is offline (it never confirms the remote is actually configured, only that its name is syntactically valid -- see `SyncStatus` in `engine/sync.go`), so `kind` here is `invalid-name` (syntactically invalid remote name, exit `2`) or `unknown` (a local read failure); it is never `not-found` -- a well-formed but unconfigured remote returns `unsynced: 0` with no `failure` at all. `not-found` is reported by `writ sync --json` below, which performs network transport and so does check configuration. |
 
 #### Example Output
 
@@ -99,7 +99,7 @@ Synchronizes operations with remote git repositories (fetches, pushes, and refre
 | `objects_touched` | integer | Number of collaborative objects updated in the projection cache. |
 | `unsynced` | integer | Remaining unsynced operations count for the remote. |
 | `rejected` | integer (optional) | Number of op commits this sync's projection refresh could not accept — malformed ops rejected on reader validation, or op commits naming an object absent from this clone (e.g. excluded by a partial clone's fetch filter). Omitted when zero. |
-| `failure` | object (optional) | Structured failure object (`kind`, `message`, `advice`, `retryable`) when transport failed. |
+| `failure` | object (optional) | Structured failure object (`kind`, `message`, `advice`, `retryable`) when transport failed. `kind` is one of `auth`, `network`, `rejected`, `not-found` (well-formed but unconfigured remote), `invalid-name` (syntactically invalid remote name, exit `2`), `canceled`, `unknown`. |
 
 #### Example Output
 

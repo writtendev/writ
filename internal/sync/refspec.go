@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/writtendev/writ/internal/identity"
 )
 
@@ -81,12 +82,134 @@ func isWritRefspec(refspec string) bool {
 	return false
 }
 
+// ValidateRemoteName reports whether name is syntactically usable as a git
+// remote name. It runs three boring checks, in order:
+//
+//  1. empty -- rejected outright.
+//  2. "-"-leading -- rejected because a git subcommand parses a leading "-"
+//     as a flag rather than a positional argument. This is the primary
+//     defense against the argument-injection hole "writ sync -- <name>"
+//     opened (a "-"-leading remote name reaching git fetch/push verified to
+//     execute an attacker-controlled --upload-pack); passing
+//     "--end-of-options" on every fetch/push/config call closes it as a
+//     second, independent layer at the transport calls themselves. This
+//     check is about argv parsing, not git's own name rules -- git accepts
+//     a "-"-leading remote name just fine when it is not misparsed as a
+//     flag (verified: "git remote add -- -a <url>" succeeds) -- so it stays
+//     even though check 3 below would otherwise let such a name through.
+//  3. unusable as a fetch-refspec destination component -- checked via
+//     validateRefspecDestination, a thin wrapper around go-git's own
+//     reference-name validation (see its doc comment for the one rule it
+//     overrides).
+//
+// A "/"-containing name is deliberately *not* rejected: git itself accepts
+// remote names like "team/fork" ("git remote add" is the oracle -- verified
+// against git 2.50.1), and round 1's ban on the rationale of git's
+// valid_remote_nick rule turned out not to be the rule git 2.50.1 applies --
+// it rejected a class of remotes git itself supports, stranding a writer's
+// ops exactly like the round-1 pushurl finding. refs/remotes/<name>/writ/*
+// stays a well-formed, unambiguous fetch-refspec destination for such names
+// because validateRefspecDestination validates the whole constructed
+// destination, "/"-components and all.
+func ValidateRemoteName(name string) error {
+	if name == "" {
+		return fmt.Errorf("sync: %w: empty remote name", ErrInvalidRemoteName)
+	}
+	if strings.HasPrefix(name, "-") {
+		return fmt.Errorf("sync: %w %q: must not start with \"-\"", ErrInvalidRemoteName, name)
+	}
+	if err := validateRefspecDestination(name); err != nil {
+		return fmt.Errorf("sync: %w %q: %v", ErrInvalidRemoteName, name, err)
+	}
+	return nil
+}
+
+// validateRefspecDestination reports whether name is usable as the <name>
+// path component of the fetch-refspec destination
+// refs/remotes/<name>/writ/*, via go-git's reference-name validation --
+// which already implements git's refname rules for embedded control
+// characters, "..", "@{", ".lock", leading/trailing "." per path component,
+// empty path components, and the rest, checked over the whole constructed
+// destination so a "/"-containing name is validated component by component.
+// go-git is already a dependency (local object I/O), so this adds none.
+//
+// One rule is overridden: go-git additionally rejects any "/"-separated
+// component that is exactly "@", which git itself does not -- "git remote
+// add" accepts "@", "a/@", and "@/a" (verified against git 2.50.1), and a
+// push/fetch against such a remote round-trips through
+// refs/remotes/<name>/writ/* without ambiguity (verified end-to-end). Real
+// git only treats a bare "@" specially as rev-parse shorthand for HEAD, a
+// parsing convenience with nothing to do with refname validity --
+// "refs/heads/@" is itself a valid refname per "git check-ref-format". A
+// lone "@" component is swapped for a plain alphanumeric placeholder before
+// validating, purely to route around that one go-git overreach; the
+// substitution cannot change the outcome of any other rule, and the
+// original name (never the placeholder) is what is actually used to build
+// the refspec and passed to git.
+func validateRefspecDestination(name string) error {
+	parts := strings.Split(name, "/")
+	for i, part := range parts {
+		if part == "@" {
+			parts[i] = "at"
+		}
+	}
+	probe := strings.Join(parts, "/")
+	return plumbing.ReferenceName("refs/remotes/" + probe + "/writ/x").Validate()
+}
+
+// RemoteConfigured reports whether remote is configured at all in
+// .git/config -- the existence probe Ensure and the upfront guard in
+// engine's Store.Sync both need before doing anything else. Plain "git
+// remote" is not the right probe: a remote left holding only a phantom
+// fetch key from the WRIT-283 bug still lists happily with no url at all.
+// Exported so Store.Sync can run the same check before Ensure, Fetch, or
+// Push -- see that function's doc comment for why it must.
+//
+// Checks remote.<remote>.url OR remote.<remote>.pushurl: a remote
+// configured with only pushurl (no fetch url) is real, git-supported
+// configuration -- "git remote" lists it and "git push" works against it --
+// so probing url alone made such a remote read as nonexistent and stranded
+// ops that used to push fine (round-1 review finding). A remote defined
+// only via the legacy $GIT_DIR/remotes/<name> file (pre-"git config
+// remote.*", no remote.<name>.* section at all) is a known, deliberate gap:
+// this probe still reports such a remote as unconfigured. That form
+// predates and is superseded by the config-based remote this codebase
+// otherwise assumes throughout (Check/Ensure both key off
+// remote.<name>.fetch in .git/config), so widening the probe to also read
+// that file is out of scope here.
+//
+// --get-all, not --get: a remote configured with two urls (push
+// mirroring) makes --get exit 2, which would misreport as unconfigured.
+func (c *Client) RemoteConfigured(ctx context.Context, remote string) (bool, error) {
+	for _, key := range []string{"url", "pushurl"} {
+		configKey := fmt.Sprintf("remote.%s.%s", remote, key)
+		stdout, stderr, err := c.runGit(ctx, "config", "--get-all", "--null", "--end-of-options", configKey)
+		if err != nil {
+			var exitErr *exec.ExitError
+			if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+				// Exit code 1 from git config --get-all means key is not
+				// set; try the next candidate key before giving up.
+				continue
+			}
+			return false, c.classifyGitError(remote, []string{"config", "--get-all", "--null", "--end-of-options", configKey}, err, stderr, stdout)
+		}
+		if len(bytes.TrimSpace(stdout)) > 0 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // Check inspects .git/config for the given remote's fetch refspecs and reports any drift.
 func (c *Client) Check(ctx context.Context, remote string) (RefspecStatus, error) {
+	if err := ValidateRemoteName(remote); err != nil {
+		return RefspecStatus{}, err
+	}
+
 	expected := FetchRefspec(remote)
 	configKey := fmt.Sprintf("remote.%s.fetch", remote)
 
-	stdout, stderr, err := c.runGit(ctx, "config", "--get-all", "--null", configKey)
+	stdout, stderr, err := c.runGit(ctx, "config", "--get-all", "--null", "--end-of-options", configKey)
 	var current []string
 	if err != nil {
 		var exitErr *exec.ExitError
@@ -94,7 +217,7 @@ func (c *Client) Check(ctx context.Context, remote string) (RefspecStatus, error
 			// Exit code 1 from git config --get-all means key is not set.
 			current = []string{}
 		} else {
-			return RefspecStatus{}, c.classifyGitError(remote, []string{"config", "--get-all", "--null", configKey}, err, stderr, stdout)
+			return RefspecStatus{}, c.classifyGitError(remote, []string{"config", "--get-all", "--null", "--end-of-options", configKey}, err, stderr, stdout)
 		}
 	} else {
 		records := bytes.Split(stdout, []byte{0})
@@ -147,10 +270,28 @@ func (c *Client) Check(ctx context.Context, remote string) (RefspecStatus, error
 //
 // Ensure operates purely on git config and does not require a complete or signing-capable
 // identity on the Client (e.g. during 'writ init', before signing keys are configured).
+//
+// Ensure confirms the remote is actually configured (remote.<remote>.url or
+// remote.<remote>.pushurl is set) before it ever writes anything: this is
+// what closes the phantom-
+// remote bug (WRIT-283) where "writ sync nosuchremote" and "writ init
+// nosuchremote" -- init calls Ensure directly, once per remote -- both left
+// a url-less [remote "nosuchremote"] fetch-only section behind, and where a
+// malformed name (e.g. "a b") wrote an invalid refspec that broke every
+// subsequent plain "git remote" in the repo. Nothing is written for a
+// remote that is not configured or whose name Check has already rejected.
 func (c *Client) Ensure(ctx context.Context, remote string) (RefspecStatus, error) {
 	status, err := c.Check(ctx, remote)
 	if err != nil {
 		return RefspecStatus{}, err
+	}
+
+	configured, err := c.RemoteConfigured(ctx, remote)
+	if err != nil {
+		return status, err
+	}
+	if !configured {
+		return status, fmt.Errorf("sync: remote %q is not configured: %w", remote, ErrUnknownRemote)
 	}
 
 	if status.State == StatusValid {
@@ -161,7 +302,7 @@ func (c *Client) Ensure(ctx context.Context, remote string) (RefspecStatus, erro
 
 	// Unset existing writ refspecs with regex pattern matching ^(\+)?refs/writ/
 	// or any writ-related fetch refspec.
-	stdout, stderr, err := c.runGit(ctx, "config", "--unset-all", configKey, `^(\+)?refs/writ/`)
+	stdout, stderr, err := c.runGit(ctx, "config", "--unset-all", "--end-of-options", configKey, `^(\+)?refs/writ/`)
 	if err != nil {
 		var exitErr *exec.ExitError
 		// Exit code 5 means no section/name was found to unset; exit code 1 means key not found.
@@ -169,14 +310,14 @@ func (c *Client) Ensure(ctx context.Context, remote string) (RefspecStatus, erro
 		if errors.As(err, &exitErr) && (exitErr.ExitCode() == 5 || exitErr.ExitCode() == 1) {
 			// No entries matched; continue to add
 		} else {
-			return status, c.classifyGitError(remote, []string{"config", "--unset-all", configKey, `^(\+)?refs/writ/`}, err, stderr, stdout)
+			return status, c.classifyGitError(remote, []string{"config", "--unset-all", "--end-of-options", configKey, `^(\+)?refs/writ/`}, err, stderr, stdout)
 		}
 	}
 
 	// Add canonical expected refspec
-	stdout, stderr, err = c.runGit(ctx, "config", "--add", configKey, status.Expected)
+	stdout, stderr, err = c.runGit(ctx, "config", "--add", "--end-of-options", configKey, status.Expected)
 	if err != nil {
-		return status, c.classifyGitError(remote, []string{"config", "--add", configKey, status.Expected}, err, stderr, stdout)
+		return status, c.classifyGitError(remote, []string{"config", "--add", "--end-of-options", configKey, status.Expected}, err, stderr, stdout)
 	}
 
 	// Verify repaired status

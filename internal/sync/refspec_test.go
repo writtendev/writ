@@ -1,8 +1,11 @@
 package sync_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -111,8 +114,18 @@ func TestRefspec_EnsureIdempotentRepair(t *testing.T) {
 			dir, _ := initTestRepo(t)
 			ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
 
+			// A remote must actually be configured (remote.origin.url set)
+			// before Ensure will write anything to it (WRIT-283): without
+			// this, every case below now fails at the existence check this
+			// test predates.
+			cmd := exec.Command("git", "config", "remote.origin.url", "https://example.test/origin.git")
+			cmd.Dir = dir
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("set remote.origin.url: %v", err)
+			}
+
 			// Add standard heads refspec and unrelated entries
-			cmd := exec.Command("git", "config", "--add", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
+			cmd = exec.Command("git", "config", "--add", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
 			cmd.Dir = dir
 			if err := cmd.Run(); err != nil {
 				t.Fatalf("add heads refspec: %v", err)
@@ -206,4 +219,259 @@ func TestRefspec_EnsureIdempotentRepair(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestValidateRemoteName pins the boring checks ValidateRemoteName runs, in
+// the order it runs them: empty, "-"-leading (the primary defense against
+// the argument-injection hole "writ sync -- --upload-pack=<script>" verified
+// to execute, WRIT-283), and go-git's own reference-name validation (with
+// the lone-"@"-component override) as the catch-all.
+//
+// "/"-containing names ("team/fork", "a/@", "@/a") are pinned valid --
+// round-2 review finding: git itself accepts them ("git remote add" is the
+// oracle, verified against git 2.50.1) and a round-1 ban on the rationale
+// of git's valid_remote_nick rule rejected a class of remotes git supports,
+// stranding a writer's ops. "@" alone is pinned valid for the same reason:
+// go-git's reference-name validator rejects a lone "@" component where git
+// does not, and ValidateRemoteName routes around that one divergence.
+func TestValidateRemoteName(t *testing.T) {
+	valid := []string{
+		"origin", "up-stream", "a.b",
+		"team/fork", "@", "a/@", "@/a", "a/b/c", "üñîçødé",
+	}
+	for _, name := range valid {
+		t.Run(fmt.Sprintf("valid_%q", name), func(t *testing.T) {
+			if err := writsync.ValidateRemoteName(name); err != nil {
+				t.Errorf("ValidateRemoteName(%q) = %v, want nil", name, err)
+			}
+		})
+	}
+
+	invalid := []string{
+		"", "-x", "--upload-pack=/bin/sh", "a b",
+		".", "..", "a..b", "x.lock", "he^ad", "q?", "a@{0}",
+		"a//b", "/a", "a/", "a/.lock", "@{",
+	}
+	for _, name := range invalid {
+		t.Run(fmt.Sprintf("invalid_%q", name), func(t *testing.T) {
+			err := writsync.ValidateRemoteName(name)
+			if err == nil {
+				t.Fatalf("ValidateRemoteName(%q) = nil, want error", name)
+			}
+			if !errors.Is(err, writsync.ErrInvalidRemoteName) {
+				t.Errorf("ValidateRemoteName(%q) error = %v, want errors.Is(err, ErrInvalidRemoteName)", name, err)
+			}
+		})
+	}
+}
+
+// TestRefspec_EnsureRejectsUnconfiguredRemote is the regression pin for the
+// WRIT-283 phantom-remote bug: Ensure on a remote with no remote.<name>.*
+// section at all must fail without writing anything -- not even a
+// url-less [remote "zzz"] fetch-only section.
+func TestRefspec_EnsureRejectsUnconfiguredRemote(t *testing.T) {
+	dir, _ := initTestRepo(t)
+	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
+
+	client, err := writsync.Open(dir, ident)
+	if err != nil {
+		t.Fatalf("Open client: %v", err)
+	}
+
+	configPath := filepath.Join(dir, ".git", "config")
+	before, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read .git/config before Ensure: %v", err)
+	}
+
+	if _, err := client.Ensure(context.Background(), "zzz"); err == nil {
+		t.Fatalf("Ensure(zzz) succeeded on a repo with no remote.zzz.* section at all")
+	} else if !errors.Is(err, writsync.ErrUnknownRemote) {
+		t.Errorf("Ensure(zzz) error = %v, want errors.Is(err, ErrUnknownRemote)", err)
+	}
+
+	after, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read .git/config after Ensure: %v", err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Errorf(".git/config changed after Ensure rejected an unconfigured remote:\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}
+
+// TestRefspec_RemoteConfiguredAcceptsURLOrPushurl pins the round-1 review
+// fix for RemoteConfigured (WRIT-283): a remote reads as configured if
+// either remote.<name>.url or remote.<name>.pushurl is set. A push-only
+// remote (pushurl with no url) is legitimate, git-supported configuration
+// -- "git remote" lists it and "git push" works against it -- and probing
+// url alone made it read as nonexistent, stranding ops it could otherwise
+// still push (the round-1 finding). This runs alongside, not instead of,
+// TestRefspec_EnsureRejectsUnconfiguredRemote: both properties -- widened
+// acceptance for a real remote, and a byte-identical .git/config for a
+// truly unconfigured one -- must hold at once.
+func TestRefspec_RemoteConfiguredAcceptsURLOrPushurl(t *testing.T) {
+	tests := []struct {
+		name       string
+		configArgs [][]string
+	}{
+		{
+			name: "url only",
+			configArgs: [][]string{
+				{"config", "remote.r.url", "https://example.test/r.git"},
+			},
+		},
+		{
+			name: "pushurl only, no url",
+			configArgs: [][]string{
+				{"config", "remote.r.pushurl", "https://example.test/r.git"},
+			},
+		},
+		{
+			name: "both url and pushurl",
+			configArgs: [][]string{
+				{"config", "remote.r.url", "https://example.test/r-fetch.git"},
+				{"config", "remote.r.pushurl", "https://example.test/r-push.git"},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, _ := initTestRepo(t)
+			ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
+
+			for _, args := range tc.configArgs {
+				cmd := exec.Command("git", args...)
+				cmd.Dir = dir
+				if err := cmd.Run(); err != nil {
+					t.Fatalf("git %v: %v", args, err)
+				}
+			}
+
+			client, err := writsync.Open(dir, ident)
+			if err != nil {
+				t.Fatalf("Open client: %v", err)
+			}
+
+			configured, err := client.RemoteConfigured(context.Background(), "r")
+			if err != nil {
+				t.Fatalf("RemoteConfigured: %v", err)
+			}
+			if !configured {
+				t.Errorf("RemoteConfigured(%q) = false, want true", tc.name)
+			}
+
+			// Ensure must also succeed end-to-end against this remote --
+			// the phantom-section bug this probe exists to prevent is only
+			// closed if a remote that RemoteConfigured accepts is one
+			// Ensure is actually willing to write refspecs for.
+			if _, err := client.Ensure(context.Background(), "r"); err != nil {
+				t.Errorf("Ensure(%q) after RemoteConfigured=true: %v", tc.name, err)
+			}
+		})
+	}
+}
+
+// writeArgvStub writes a shell script standing in for the git binary: it
+// appends every argument it is invoked with, one per line, to outPath, and
+// exits 0 without doing anything else. Client.Fetch and Client.Push only
+// need dag.Chains(c.storer) (a go-git read, not a subprocess) to succeed
+// around the one runGit call each makes, which an empty repo already
+// satisfies.
+func writeArgvStub(t *testing.T, outPath string) string {
+	t.Helper()
+	dir := t.TempDir()
+	stubPath := filepath.Join(dir, "git-stub")
+	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" >> %q\nexit 0\n", outPath)
+	if err := os.WriteFile(stubPath, []byte(script), 0755); err != nil {
+		t.Fatalf("write git stub: %v", err)
+	}
+	return stubPath
+}
+
+func readArgvLog(t *testing.T, outPath string) []string {
+	t.Helper()
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("read argv log: %v", err)
+	}
+	var lines []string
+	for _, l := range strings.Split(strings.TrimRight(string(data), "\n"), "\n") {
+		if l != "" {
+			lines = append(lines, l)
+		}
+	}
+	return lines
+}
+
+// TestSync_ArgvIncludesEndOfOptions pins the argument-injection fix (WRIT-283):
+// --end-of-options must precede the remote name positional on the actual
+// Fetch and Push transport calls, not just in the code as read -- a stub
+// git binary records the real argv so this can't silently regress.
+func TestSync_ArgvIncludesEndOfOptions(t *testing.T) {
+	assertEndOfOptionsPrecedesRemote := func(t *testing.T, argv []string, remote string) {
+		t.Helper()
+		eooIdx, remoteIdx := -1, -1
+		for i, a := range argv {
+			if a == "--end-of-options" && eooIdx == -1 {
+				eooIdx = i
+			}
+			if a == remote && remoteIdx == -1 {
+				remoteIdx = i
+			}
+		}
+		if eooIdx == -1 {
+			t.Fatalf("argv %v does not include --end-of-options", argv)
+		}
+		if remoteIdx == -1 {
+			t.Fatalf("argv %v does not include the remote %q", argv, remote)
+		}
+		if remoteIdx < eooIdx {
+			t.Fatalf("argv %v: remote %q (index %d) precedes --end-of-options (index %d)", argv, remote, remoteIdx, eooIdx)
+		}
+	}
+
+	t.Run("fetch", func(t *testing.T) {
+		dir, _ := initTestRepo(t)
+		ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
+		outPath := filepath.Join(t.TempDir(), "argv.log")
+		stub := writeArgvStub(t, outPath)
+
+		client, err := writsync.Open(dir, ident, writsync.WithGitBinary(stub))
+		if err != nil {
+			t.Fatalf("Open client: %v", err)
+		}
+		if _, err := client.Fetch(context.Background(), "origin"); err != nil {
+			t.Fatalf("Fetch failed: %v", err)
+		}
+
+		argv := readArgvLog(t, outPath)
+		if len(argv) == 0 || argv[0] != "fetch" {
+			t.Fatalf("argv = %v, want it to start with \"fetch\"", argv)
+		}
+		assertEndOfOptionsPrecedesRemote(t, argv, "origin")
+	})
+
+	t.Run("push", func(t *testing.T) {
+		dir, _ := initTestRepo(t)
+		ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
+		outPath := filepath.Join(t.TempDir(), "argv.log")
+		stub := writeArgvStub(t, outPath)
+
+		client, err := writsync.Open(dir, ident, writsync.WithGitBinary(stub))
+		if err != nil {
+			t.Fatalf("Open client: %v", err)
+		}
+		if _, err := client.Push(context.Background(), "origin"); err != nil {
+			t.Fatalf("Push failed: %v", err)
+		}
+
+		argv := readArgvLog(t, outPath)
+		// "push" must stay args[0]: ClassifyGitError (internal/sync/git.go)
+		// branches on args[0] == "push" to pick push-path advice.
+		if len(argv) == 0 || argv[0] != "push" {
+			t.Fatalf("argv = %v, want it to start with \"push\"", argv)
+		}
+		assertEndOfOptionsPrecedesRemote(t, argv, "origin")
+	})
 }

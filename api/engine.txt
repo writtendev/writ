@@ -24,6 +24,7 @@ const RejectObjectUnavailable = dag.RejectObjectUnavailable
 var ErrAuth = writsync.ErrAuth
 var ErrCycle = state.ErrCycle
 var ErrDuplicateOpID = state.ErrDuplicateOpID
+var ErrInvalidRemoteName = writsync.ErrInvalidRemoteName
 var ErrMixedObjects = state.ErrMixedObjects
 var ErrNetwork = writsync.ErrNetwork
 var ErrNoIdentity = errors.New("identity: no writer identity configured (run 'writ init' to configure)")
