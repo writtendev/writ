@@ -46,3 +46,47 @@ func NewTrustStore() (*sshsig.TrustStore, error) {
 	}
 	return sshsig.ParseAllowedSigners(strings.NewReader(content))
 }
+
+// TrustStoreFor builds the sshsig.TrustStore a description's fixture
+// commits are verified against: NewTrustStore's embedded default for a
+// description with no trust_store: override, or -- when one is given --
+// a store built solely from those rules (WRIT-302). Each call starts
+// from nothing and reads only desc's own field, so a pattern one
+// description's trust_store: adds can never reclassify another
+// description's commits.
+func TrustStoreFor(desc *Description) (*sshsig.TrustStore, error) {
+	if len(desc.TrustStore) == 0 {
+		return NewTrustStore()
+	}
+
+	var buf strings.Builder
+	for _, rule := range desc.TrustStore {
+		id, err := lookupIdentity(rule.Key)
+		if err != nil {
+			return nil, fmt.Errorf("fixtures: description %q trust_store: %w", desc.Name, err)
+		}
+		pubLine, err := pubKeyLine(id)
+		if err != nil {
+			return nil, fmt.Errorf("fixtures: description %q trust_store: %w", desc.Name, err)
+		}
+
+		buf.WriteString(strings.Join(rule.Principals, ","))
+		if len(rule.Namespaces) > 0 {
+			fmt.Fprintf(&buf, ` namespaces="%s"`, strings.Join(rule.Namespaces, ","))
+		}
+		buf.WriteString(" " + pubLine + "\n")
+	}
+
+	return sshsig.ParseAllowedSigners(strings.NewReader(buf.String()))
+}
+
+// pubKeyLine returns id's embedded public key as an authorized_keys-style
+// line ("<type> <base64>"), the form an allowed_signers line embeds after
+// its principal field and options.
+func pubKeyLine(id identity) (string, error) {
+	data, err := keyFS.ReadFile(filepath.Join("keys", id.KeyFile+".pub"))
+	if err != nil {
+		return "", fmt.Errorf("read embedded pubkey for %s: %w", id.Name, err)
+	}
+	return strings.TrimSpace(string(data)), nil
+}

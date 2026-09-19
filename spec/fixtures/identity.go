@@ -25,6 +25,17 @@ var identities = map[string]identity{
 	// this identity exists purely to author a commit whose author email
 	// case-mismatches that line while still signing with alice's key.
 	"alice_upper": {Name: "Alice Example", Email: "Alice@Example.TEST", KeyFile: "alice_ed25519"},
+
+	// alice_slash and alice_bracket exist for the envelope-signer-patterns
+	// fixture (WRIT-302), which needs author emails path.Match's old
+	// semantics treated specially but OpenSSH's match_pattern does not:
+	// a '/' that a glob must be able to cross, and a literal '[' that
+	// must NOT open a character class. Both reuse alice's key, same as
+	// alice_upper, and both are only ever referenced from that
+	// description's own trust_store: override, never from
+	// AllowedSignersContent's generated default.
+	"alice_slash":   {Name: "Alice Example", Email: "alice/laptop@example.test", KeyFile: "alice_ed25519"},
+	"alice_bracket": {Name: "Alice Example", Email: "ali[cex@example.net", KeyFile: "alice_ed25519"},
 }
 
 func lookupIdentity(name string) (identity, error) {

@@ -221,3 +221,366 @@ func TestAllowedSigners_MalformedLines(t *testing.T) {
 		}
 	}
 }
+
+// TestAllowedSigners_OpenSSHMatchSemantics pins WRIT-302: matchPattern and
+// matchNamespace must implement OpenSSH match.c's match_pattern /
+// match_pattern_list exactly -- not Go's path.Match plus an exact-or-"*"
+// namespace check. Each subtest parses its own single-line TrustStore, the
+// same shape TestAllowedSigners_CaseSensitiveMatching already uses, so one
+// rule's result can't be masked by another.
+//
+// Every discriminating case needs a wildcard *and* the other metacharacter:
+// the pre-fix matchPattern only reached path.Match when the pattern
+// contained '*' or '?', and short-circuited on exact string equality
+// first, so a pattern with a lone '[' or '\' and no wildcard was already
+// compared literally and already agreed with OpenSSH.
+func TestAllowedSigners_OpenSSHMatchSemantics(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	newKey := func(t *testing.T) (ssh.PublicKey, string) {
+		t.Helper()
+		pub, _, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sshPub, err := ssh.NewPublicKey(pub)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return sshPub, strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPub)))
+	}
+
+	// 1. '*' crosses '/': path.Match's '*' will not cross a path
+	// separator; OpenSSH's match_pattern has no notion of separators at
+	// all, so '*' matches any byte sequence, slashes included.
+	t.Run("wildcard crosses slash", func(t *testing.T) {
+		sshPub, pubLine := newKey(t)
+		ts, err := sshsig.ParseAllowedSigners(strings.NewReader(`*@example.test ` + pubLine + "\n"))
+		if err != nil {
+			t.Fatalf("ParseAllowedSigners failed: %v", err)
+		}
+		if !ts.IsAuthorized(sshPub, "alice/laptop@example.test", "git", now) {
+			t.Error("*@example.test should match alice/laptop@example.test: '*' matches any byte sequence, including '/'")
+		}
+	})
+
+	// 2. A bracket class is over-permissive under path.Match, which
+	// parses "[cd]" as a character class; OpenSSH has no character
+	// classes, so '[' and ']' are literal bytes that must appear
+	// literally in the value.
+	t.Run("bracket class is literal, not a character class", func(t *testing.T) {
+		sshPub, pubLine := newKey(t)
+		ts, err := sshsig.ParseAllowedSigners(strings.NewReader(`ali[cd]e@*.test ` + pubLine + "\n"))
+		if err != nil {
+			t.Fatalf("ParseAllowedSigners failed: %v", err)
+		}
+		if ts.IsAuthorized(sshPub, "alice@example.test", "git", now) {
+			t.Error("ali[cd]e@*.test should not match alice@example.test: '[' and ']' are literal, not a character class")
+		}
+		if !ts.IsAuthorized(sshPub, "ali[cd]e@example.test", "git", now) {
+			t.Error("ali[cd]e@*.test should match a value containing the literal bracket text")
+		}
+	})
+
+	// 3. A backslash escape is over-permissive under path.Match, which
+	// treats '\' as an escape character; OpenSSH's match_pattern has no
+	// escaping, so '\' is a literal byte.
+	t.Run("backslash is literal, not an escape", func(t *testing.T) {
+		sshPub, pubLine := newKey(t)
+		ts, err := sshsig.ParseAllowedSigners(strings.NewReader(`alice\@*.test ` + pubLine + "\n"))
+		if err != nil {
+			t.Fatalf("ParseAllowedSigners failed: %v", err)
+		}
+		if ts.IsAuthorized(sshPub, "alice@example.test", "git", now) {
+			t.Error(`alice\@*.test should not match alice@example.test: '\' is literal, not an escape`)
+		}
+		if !ts.IsAuthorized(sshPub, `alice\@example.test`, "git", now) {
+			t.Error(`alice\@*.test should match a value containing the literal backslash`)
+		}
+	})
+
+	// 4. An unbalanced '[' is under-permissive under path.Match, which
+	// returns ErrBadPattern for it -- silently treated as no-match by the
+	// pre-fix code. OpenSSH has no character classes to unbalance, so
+	// this is simply a literal '[' compared byte-for-byte.
+	t.Run("unbalanced bracket is not a parse error", func(t *testing.T) {
+		sshPub, pubLine := newKey(t)
+		ts, err := sshsig.ParseAllowedSigners(strings.NewReader(`ali[ce*@example.test ` + pubLine + "\n"))
+		if err != nil {
+			t.Fatalf("ParseAllowedSigners failed: %v", err)
+		}
+		if !ts.IsAuthorized(sshPub, "ali[cex@example.test", "git", now) {
+			t.Error("ali[ce*@example.test should match ali[cex@example.test: an unbalanced '[' is a literal byte, not a parse error")
+		}
+	})
+
+	// 5. namespaces= gains globbing: the pre-fix matchNamespace knew only
+	// exact equality and a bare "*", never a partial glob.
+	t.Run("namespaces= globs like a principal pattern", func(t *testing.T) {
+		sshPub, pubLine := newKey(t)
+		ts, err := sshsig.ParseAllowedSigners(strings.NewReader(`alice@example.test namespaces="g*" ` + pubLine + "\n"))
+		if err != nil {
+			t.Fatalf("ParseAllowedSigners failed: %v", err)
+		}
+		if !ts.IsAuthorized(sshPub, "alice@example.test", "git", now) {
+			t.Error(`namespaces="g*" should match namespace "git"`)
+		}
+		if ts.IsAuthorized(sshPub, "alice@example.test", "ssh", now) {
+			t.Error(`namespaces="g*" should not match namespace "ssh"`)
+		}
+	})
+
+	// 6. namespaces= gains negation: the pre-fix matchNamespace never
+	// looked for a leading '!', so "!git,*" matched "git" via the
+	// trailing "*" with the negation silently ignored.
+	t.Run("namespaces= negation rejects even when a later subpattern matches", func(t *testing.T) {
+		sshPub, pubLine := newKey(t)
+		ts, err := sshsig.ParseAllowedSigners(strings.NewReader(`alice@example.test namespaces="!git,*" ` + pubLine + "\n"))
+		if err != nil {
+			t.Fatalf("ParseAllowedSigners failed: %v", err)
+		}
+		if ts.IsAuthorized(sshPub, "alice@example.test", "git", now) {
+			t.Error(`namespaces="!git,*" should reject namespace "git" outright, regardless of the trailing "*"`)
+		}
+		if !ts.IsAuthorized(sshPub, "alice@example.test", "ssh", now) {
+			t.Error(`namespaces="!git,*" should still match namespace "ssh" via the trailing "*"`)
+		}
+	})
+
+	// 7. Byte-wise, not rune-wise: OpenSSH's match_pattern walks a
+	// NUL-terminated C string byte by byte, so '?' consumes exactly one
+	// byte. "é" (U+00E9) is two UTF-8 bytes (0xC3 0xA9), so it takes two
+	// '?' to match, not one -- unlike path.Match, which iterates runes.
+	t.Run("byte-wise matching: '?' consumes one byte, not one rune", func(t *testing.T) {
+		sshPub, pubLine := newKey(t)
+		ts, err := sshsig.ParseAllowedSigners(strings.NewReader(`alic?@example.test ` + pubLine + "\n"))
+		if err != nil {
+			t.Fatalf("ParseAllowedSigners failed: %v", err)
+		}
+		if ts.IsAuthorized(sshPub, "alicé@example.test", "git", now) {
+			t.Error(`alic?@example.test should not match alicé@example.test: 'é' is 2 bytes, '?' consumes exactly 1`)
+		}
+		if !ts.IsAuthorized(sshPub, "alicX@example.test", "git", now) {
+			t.Error("alic?@example.test should still match a single-byte character in that position")
+		}
+	})
+
+	// Empty subpattern (e.g. from a doubled comma): match_pattern_list
+	// matches it only against the empty string, per match.c; the pre-fix
+	// matchPrincipal instead skipped it entirely (same observable result
+	// for any non-empty principal, but a different mechanism the port
+	// deliberately does not carry forward).
+	t.Run("empty subpattern matches only the empty string", func(t *testing.T) {
+		sshPub, pubLine := newKey(t)
+		ts, err := sshsig.ParseAllowedSigners(strings.NewReader(`alice@example.test,,bob@example.test ` + pubLine + "\n"))
+		if err != nil {
+			t.Fatalf("ParseAllowedSigners failed: %v", err)
+		}
+		if !ts.IsAuthorized(sshPub, "alice@example.test", "git", now) {
+			t.Error("alice@example.test should still match despite the empty subpattern between the commas")
+		}
+		if !ts.IsAuthorized(sshPub, "bob@example.test", "git", now) {
+			t.Error("bob@example.test should still match despite the empty subpattern between the commas")
+		}
+	})
+
+	// A list whose only subpattern is a negation that does not match must
+	// not authorize anything: "at least one non-negated subpattern
+	// matched" is the actual rule (match_pattern_list's got_positive), and
+	// a negated subpattern that fails to match only declines to reject --
+	// it never itself authorizes. Pins the WRIT-302 round-2 major finding:
+	// namespaces="!ssh" verifying a "git"-namespace signature must be
+	// wrong-key, the same outcome a bare rule with no namespaces= option at
+	// all would give for a namespace other than "git" -- not valid, which
+	// an equally faithful reading of "a leading '!' negates a subpattern"
+	// alone (without the "requires a positive match" half of the rule)
+	// would allow a second conforming implementation to reach.
+	t.Run("all-negated list never authorizes, even when nothing in it matches", func(t *testing.T) {
+		sshPub, pubLine := newKey(t)
+		ts, err := sshsig.ParseAllowedSigners(strings.NewReader(`alice@example.test namespaces="!ssh" ` + pubLine + "\n"))
+		if err != nil {
+			t.Fatalf("ParseAllowedSigners failed: %v", err)
+		}
+		if ts.IsAuthorized(sshPub, "alice@example.test", "git", now) {
+			t.Error(`namespaces="!ssh" must not authorize namespace "git": the list contains no non-negated subpattern for "git" to match, so it never matches, regardless of "!ssh" itself not matching "git" either`)
+		}
+	})
+
+	// OpenSSH's match_pattern_list copies each subpattern into a
+	// 1024-byte stack buffer and aborts the *entire list* -- discarding
+	// even an already-recorded match from an earlier subpattern -- the
+	// moment a subpattern reaches 1023 bytes (real match.c rev 1.46,
+	// compiled and driven for WRIT-302 round 2: a 1022-byte subpattern is
+	// accepted, a 1023-byte one aborts the list). spec/signing.md
+	// deliberately makes writ more permissive here: conforming verifiers
+	// MUST NOT impose a subpattern length limit, and MUST NOT let one
+	// subpattern's length affect whether any other subpattern in the same
+	// list matches. Both MUST NOTs are pinned here so a future re-port
+	// that copies match.c's sub[1024] buffer and its abort does not land
+	// with every other test green.
+	t.Run("no subpattern length limit: an oversized literal subpattern still matches on its own", func(t *testing.T) {
+		sshPub, pubLine := newKey(t)
+		longPrincipal := strings.Repeat("a", 1100) + "@example.test"
+		ts, err := sshsig.ParseAllowedSigners(strings.NewReader(longPrincipal + " " + pubLine + "\n"))
+		if err != nil {
+			t.Fatalf("ParseAllowedSigners failed: %v", err)
+		}
+		if !ts.IsAuthorized(sshPub, longPrincipal, "git", now) {
+			t.Errorf("a %d-byte literal subpattern must still match the identical %d-byte value: conforming verifiers MUST NOT impose a subpattern length limit", len(longPrincipal), len(longPrincipal))
+		}
+	})
+
+	t.Run("an oversized later subpattern must not discard an earlier subpattern's match", func(t *testing.T) {
+		sshPub, pubLine := newKey(t)
+		principals := "alice@example.test," + strings.Repeat("x", 1100)
+		ts, err := sshsig.ParseAllowedSigners(strings.NewReader(principals + " " + pubLine + "\n"))
+		if err != nil {
+			t.Fatalf("ParseAllowedSigners failed: %v", err)
+		}
+		if !ts.IsAuthorized(sshPub, "alice@example.test", "git", now) {
+			t.Error("alice@example.test must still match: real match.c's sub[1024] buffer would abort the whole list on the 1100-byte second subpattern, discarding this already-recorded match, but conforming verifiers MUST NOT let one subpattern's length affect whether any other subpattern in the list matches")
+		}
+	})
+
+	// A trailing comma must not synthesize an extra, empty subpattern.
+	// match_pattern_list's loop condition is `i < len(pattern)`: skipping
+	// the final comma lands the index exactly at len(pattern), so no
+	// further subpattern -- empty or otherwise -- is ever started after
+	// it, unlike strings.Split, which always synthesizes a trailing "".
+	// Left unhandled, that extra element would let an allowed_signers
+	// line ending in a comma authorize an op whose author.email is empty.
+	t.Run("a trailing comma does not authorize an empty principal", func(t *testing.T) {
+		sshPub, pubLine := newKey(t)
+		ts, err := sshsig.ParseAllowedSigners(strings.NewReader(`alice@example.test, ` + pubLine + "\n"))
+		if err != nil {
+			t.Fatalf("ParseAllowedSigners failed: %v", err)
+		}
+		if ts.IsAuthorized(sshPub, "", "git", now) {
+			t.Error(`"alice@example.test," must not authorize an empty principal: match_pattern_list never evaluates a subpattern after a list-terminating trailing comma`)
+		}
+		if !ts.IsAuthorized(sshPub, "alice@example.test", "git", now) {
+			t.Error(`"alice@example.test," must still authorize "alice@example.test" itself`)
+		}
+	})
+
+	// Positive controls, guarding against a matcher that simply rejects
+	// everything passing every negative assertion above vacuously.
+	t.Run("positive control: wildcard suffix still matches", func(t *testing.T) {
+		sshPub, pubLine := newKey(t)
+		ts, err := sshsig.ParseAllowedSigners(strings.NewReader(`*@example.test ` + pubLine + "\n"))
+		if err != nil {
+			t.Fatalf("ParseAllowedSigners failed: %v", err)
+		}
+		if !ts.IsAuthorized(sshPub, "alice@example.test", "git", now) {
+			t.Error("*@example.test should still match alice@example.test")
+		}
+	})
+
+	t.Run("positive control: exact namespace still matches", func(t *testing.T) {
+		sshPub, pubLine := newKey(t)
+		ts, err := sshsig.ParseAllowedSigners(strings.NewReader(`alice@example.test namespaces="git" ` + pubLine + "\n"))
+		if err != nil {
+			t.Fatalf("ParseAllowedSigners failed: %v", err)
+		}
+		if !ts.IsAuthorized(sshPub, "alice@example.test", "git", now) {
+			t.Error(`namespaces="git" should still match namespace "git"`)
+		}
+	})
+}
+
+// TestAllowedSigners_TrailingStarRun pins WRIT-302 round 1's major finding:
+// matchPattern must implement the semantics of the NFA match.c has shipped
+// for match_pattern since rev 1.46 -- what real `ssh-keygen -Y verify`
+// does today -- not the older recursive match_pattern the initial port of
+// this file reproduced instead. The two disagree on exactly one class: a
+// residual pattern tail of two or more consecutive '*' matched against a
+// string the rest of the pattern has already exhausted. The recursive
+// matcher's star-handling loop only tried consuming a byte of s while s
+// was still non-empty, so it never tried the star's zero-byte expansion
+// once s ran out, and wrongly failed; the NFA (and real OpenSSH) matches.
+//
+// CI's own ssh-keygen interop oracle runs OpenSSH 9.x, which still ships
+// the pre-1.46 recursive matcher and agrees with the wrong port on this
+// exact class -- interop cannot catch a regression here. These cases must
+// be pinned at the unit layer.
+func TestAllowedSigners_TrailingStarRun(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	newKey := func(t *testing.T) (ssh.PublicKey, string) {
+		t.Helper()
+		pub, _, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sshPub, err := ssh.NewPublicKey(pub)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return sshPub, strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPub)))
+	}
+
+	cases := []struct {
+		name       string
+		principals string
+		value      string
+		want       bool
+	}{
+		{
+			// The exact case from the round 1 finding: real
+			// `ssh-keygen -Y verify` authorizes this; the pre-fix port
+			// returned wrong-key.
+			name:       "trailing double asterisk against an exhausted string",
+			principals: "alice@example.test**",
+			value:      "alice@example.test",
+			want:       true,
+		},
+		{
+			name:       "trailing triple asterisk against an exhausted string",
+			principals: "alice@example.test***",
+			value:      "alice@example.test",
+			want:       true,
+		},
+		{
+			// Exercises the star run reached through the backtracking
+			// loop of a leading '*', not just a literal prefix: the
+			// recursion must still try the trailing "**" once the
+			// leading '*' has found the position where the rest of the
+			// pattern exhausts s.
+			name:       "leading wildcard combined with a trailing asterisk run",
+			principals: "*e@example.test**",
+			value:      "alice@example.test",
+			want:       true,
+		},
+		{
+			// A '?' immediately before the trailing run: '?' must still
+			// consume exactly one byte before the run tries its
+			// zero-byte expansion against the now-exhausted remainder.
+			name:       "question mark then trailing asterisk run against an exhausted string",
+			principals: "alice@example.tes?**",
+			value:      "alice@example.test",
+			want:       true,
+		},
+		{
+			// Negative control: the trailing run does not make the
+			// pattern match unrelated values -- it only closes the gap
+			// on values the rest of the pattern already accounts for.
+			name:       "trailing asterisk run does not authorize an unrelated value",
+			principals: "alice@example.test**",
+			value:      "bob@example.test",
+			want:       false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sshPub, pubLine := newKey(t)
+			ts, err := sshsig.ParseAllowedSigners(strings.NewReader(tc.principals + " " + pubLine + "\n"))
+			if err != nil {
+				t.Fatalf("ParseAllowedSigners failed: %v", err)
+			}
+			if got := ts.IsAuthorized(sshPub, tc.value, "git", now); got != tc.want {
+				t.Errorf("principals=%q, value=%q: IsAuthorized = %v, want %v", tc.principals, tc.value, got, tc.want)
+			}
+		})
+	}
+}

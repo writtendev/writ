@@ -58,6 +58,51 @@ state out, no I/O") and WRIT-3:
   read repository git config or invoke external subprocesses.
 - **Principal:** The principal verified against the trust store MUST be the
   commit author's email address (`author.email`).
+- **Pattern Matching:** Principal and `namespaces=` matching MUST follow the
+  glob-and-negation rule below, with case folding disabled for both lists
+  (this is what `sshsig.c`'s `check_allowed_keys_line` gets from OpenSSH's
+  `match_pattern_list`/`match_pattern` in `match.c`, stated here on its own
+  terms rather than by reference to a particular upstream revision): each
+  list is split into subpatterns on commas, and a comma terminates the
+  subpattern *before* it rather than separating two subpatterns that both
+  get evaluated regardless of position. That distinction only shows up at
+  the ends of the list: a **leading or doubled** comma has no preceding
+  subpattern to terminate, so it starts an empty subpattern, which matches
+  only the empty string (`,alice@example.test` and
+  `alice@example.test,,bob@example.test` both contain one); a **trailing**
+  comma, by contrast, terminates the subpattern before it and then has
+  nothing left to start, so it ends the list rather than opening a further,
+  empty final subpattern -- `alice@example.test,` is the single subpattern
+  `alice@example.test`, not that subpattern plus an empty one after it.
+  Subpatterns are compared case-sensitively over bytes (not runes, so a
+  multi-byte character is several match units, not one), where `?` matches
+  exactly one byte and every byte that is not `*` or `?` -- `[`, `]`, and
+  `\` included -- compares literally; there is no character class and no
+  escape. `*` matches any run of bytes, including none, and a run of two or
+  more consecutive `*` is equivalent to one: in particular, a `*` (or a run
+  of `*`) at the end of a subpattern matches even after the rest of the
+  subpattern has already consumed the entire value, so `alice@example.test`
+  matches both `alice@example.test*` and `alice@example.test**`. A leading
+  `!` negates a subpattern, and a negated match rejects the rule outright
+  regardless of any other subpattern's outcome. A list matches only
+  if at least one **non-negated** subpattern in it matches the value; a
+  negated subpattern that matches rejects the list outright as above, but a
+  negated subpattern that does *not* match never by itself authorizes
+  anything -- it only declines to reject. Consequently a list with no
+  non-negated subpattern -- including one made up entirely of negated
+  subpatterns that all fail to match -- never matches: `namespaces="!ssh"`
+  does not authorize the `"git"` namespace (or any other), because it
+  contains no non-negated subpattern for `"git"` to match against.
+
+  OpenSSH's `match_pattern_list` copies each subpattern into a fixed
+  1024-byte buffer and, once a subpattern reaches 1023 bytes, aborts the
+  entire list -- discarding even an already-recorded match from an earlier
+  subpattern in the same list. That is a `match.c` buffer-size artifact,
+  not part of the matching semantics, and it is the one place this spec
+  deliberately makes writ *more* permissive than real OpenSSH: conforming
+  verifiers MUST NOT impose any subpattern length limit, and MUST NOT let
+  one subpattern's length affect whether any other subpattern in the same
+  list matches.
 - **Author Timestamp:** When an `allowed_signers` rule specifies validity
   windows (`valid-after` and `valid-before`), the timestamp checked against
   the window MUST be the commit author's timestamp (`author.when`).

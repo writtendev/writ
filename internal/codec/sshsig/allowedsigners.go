@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
 	"strings"
 	"time"
 
@@ -84,7 +83,7 @@ func parseAllowedSignersLine(line string) (*SignerRule, error) {
 	}
 
 	principalsField := fields[0]
-	principals := strings.Split(principalsField, ",")
+	principals := splitPatternList(principalsField)
 
 	var optionsStr string
 	var keyType string
@@ -119,7 +118,7 @@ func parseAllowedSignersLine(line string) (*SignerRule, error) {
 				rule.CertAuthority = true
 			} else if strings.HasPrefix(opt, "namespaces=") {
 				val := strings.Trim(strings.TrimPrefix(opt, "namespaces="), `"`)
-				rule.Namespaces = strings.Split(val, ",")
+				rule.Namespaces = splitPatternList(val)
 			} else if strings.HasPrefix(opt, "valid-after=") {
 				val := strings.Trim(strings.TrimPrefix(opt, "valid-after="), `"`)
 				t, err := parseTimeOpt(val)
@@ -151,6 +150,30 @@ func parseAllowedSignersLine(line string) (*SignerRule, error) {
 	rule.PublicKey = pubKey
 
 	return rule, nil
+}
+
+// splitPatternList splits a comma-separated subpattern list (an
+// allowed_signers Principals or namespaces= field) the way match.c's
+// match_pattern_list walks it, not the way strings.Split does on its
+// own. match_pattern_list's loop condition is `i < len(pattern)`: each
+// subpattern is delimited by a comma or the end of the string, and a
+// comma found is then skipped before the loop re-checks that condition.
+// A leading or interior empty subpattern (from ",x" or "x,,y") is real
+// and gets matched, because the loop still has bytes left after
+// skipping that comma. But when the list ends in a comma, skipping it
+// lands the index exactly at len(pattern), the loop condition is now
+// false, and no further subpattern -- empty or otherwise -- is ever
+// started. strings.Split has no such stopping condition: it always
+// synthesizes one trailing "" for a trailing separator. Left alone,
+// that extra element is a subpattern match_pattern_list never evaluates,
+// and for a Principals field it lets an allowed_signers line ending in
+// a comma authorize an op whose author.email is empty.
+func splitPatternList(s string) []string {
+	parts := strings.Split(s, ",")
+	if len(parts) > 1 && strings.HasSuffix(s, ",") {
+		parts = parts[:len(parts)-1]
+	}
+	return parts
 }
 
 func splitOptions(s string) []string {
@@ -242,63 +265,137 @@ func (ts *TrustStore) IsAuthorized(pubKey ssh.PublicKey, principal, namespace st
 	return false
 }
 
+// matchPrincipal reports whether principal is authorized by rule's
+// Principals list, per matchPatternList's tri-state: a negated subpattern
+// rejects the principal outright regardless of any positive subpattern
+// elsewhere in the list (spec/signing.md "Pattern Matching").
 func matchPrincipal(patterns []string, principal string) bool {
-	principal = strings.TrimSpace(principal)
-	matched := false
+	return matchPatternList(principal, patterns) == 1
+}
 
+// Principal and namespace matching follow OpenSSH sshsig.c's
+// check_allowed_keys_line, which runs match_pattern_list(x, list, 0) over
+// both the principal and the namespaces= option -- the trailing 0 is
+// match.c's dolower, so neither comparison folds case, and both use the
+// same glob-and-negation semantics matchPatternList implements (see
+// spec/signing.md "Pattern Matching"). Do not "fix" this back to
+// case-insensitive or path.Match-style globbing: an allowed_signers file
+// is OpenSSH's format, not writ's, and writ does not get to normalize it
+// the way engine/internal/person deliberately case-folds writ's own
+// person-refs.
+func matchNamespace(allowed []string, ns string) bool {
+	return matchPatternList(ns, allowed) == 1
+}
+
+// matchPatternList runs OpenSSH match.c's match_pattern_list over s: a
+// list of comma-separated matchPattern subpatterns (already split by the
+// allowed_signers line parser), each optionally prefixed with '!' to
+// negate. It returns -1 the moment s matches a negated subpattern (a
+// negative match wins immediately, without considering the rest of the
+// list, exactly as match_pattern_list does), 1 if s matched at least one
+// non-negated subpattern and no negated one matched first, or 0
+// otherwise. Both matchPrincipal and matchNamespace require == 1, the
+// same test sshsig.c's check_allowed_keys_line applies to both lists.
+//
+// OpenSSH's match_pattern_list copies each subpattern into a 1024-byte
+// buffer and aborts the entire list -- discarding even an
+// already-recorded match from an earlier subpattern -- once a subpattern
+// reaches 1023 bytes. That is a match.c buffer-size artifact, not a
+// matching semantic, and this port deliberately does not replicate it:
+// every subpattern is matched in full regardless of length, and one
+// oversized subpattern never voids the rest of the list (spec/signing.md
+// "Pattern Matching" states this divergence normatively; conforming
+// verifiers MUST NOT impose a subpattern length limit). An empty
+// subpattern (from a doubled comma, or an empty Principals/Namespaces
+// element) is not special-cased: it falls out of matchPattern's own base
+// case, which matches only the empty string, exactly as
+// match_pattern_list's C loop does for a zero-length subpattern.
+func matchPatternList(s string, patterns []string) int {
+	ret := 0
 	for _, pat := range patterns {
-		pat = strings.TrimSpace(pat)
-		if pat == "" {
-			continue
-		}
-
 		negated := false
 		if strings.HasPrefix(pat, "!") {
 			negated = true
-			pat = strings.TrimPrefix(pat, "!")
+			pat = pat[1:]
 		}
-
-		m := matchPattern(pat, principal)
-		if m {
+		if matchPattern(s, pat) {
 			if negated {
-				return false
+				return -1
 			}
-			matched = true
+			ret = 1
 		}
 	}
-
-	return matched
+	return ret
 }
 
-// Principal and namespace matching is deliberately case-sensitive, mirroring
-// OpenSSH sshsig.c's check_allowed_keys_line, which calls
-// match_pattern_list(x, list, 0) for both the principal and the namespaces=
-// option -- the trailing 0 is match.c's dolower, so neither comparison folds
-// case. Do not "fix" this back to case-insensitive: an allowed_signers file
-// is OpenSSH's format, not writ's, and writ does not get to normalize it the
-// way engine/internal/person deliberately case-folds writ's own person-refs.
-func matchNamespace(allowed []string, ns string) bool {
-	for _, a := range allowed {
-		a = strings.TrimSpace(a)
-		if a == "*" || a == ns {
-			return true
+// matchPattern reports whether s matches pattern, matching the semantics
+// of the NFA match.c has used for match_pattern since OpenSSH rev 1.46
+// (2026-05-31) -- the algorithm real `ssh-keygen -Y verify` runs today:
+// '*' matches any run of bytes including none, '?' matches exactly one
+// byte, and every other byte -- '[', ']', and '\' included -- compares
+// literally (match.c knows only '*' and '?'; it never enters a character
+// class or an escape). Matching is byte-wise, not rune-wise, mirroring a
+// NUL-terminated C string: '?' consumes one byte of a multi-byte UTF-8
+// sequence, not one rune, and a literal byte in the pattern must match
+// the corresponding byte of s.
+//
+// A run of two or more consecutive '*' is not special-cased; it falls
+// out of trying the star's zero-byte expansion -- matching the rest of
+// the pattern against s unchanged, including when s is already "" --
+// before requiring s to be non-empty to try consuming a byte. That
+// ordering matters: the recursive matcher match.c shipped before rev
+// 1.46 only tried a star's expansion while s was still non-empty, so a
+// residual pattern tail of two or more '*' against an already-exhausted
+// s wrongly failed to match there. This is the one class where the two
+// algorithms diverge (see spec/signing.md "Pattern Matching"); matching
+// s == "" here is what closes it.
+func matchPattern(s, pattern string) bool {
+	for {
+		if pattern == "" {
+			return s == ""
 		}
-	}
-	return false
-}
 
-func matchPattern(pat, val string) bool {
-	if pat == "*" {
-		return true
-	}
-	if pat == val {
-		return true
-	}
-	if strings.ContainsAny(pat, "*?") {
-		matched, err := path.Match(pat, val)
-		if err == nil && matched {
-			return true
+		if pattern[0] == '*' {
+			pattern = pattern[1:]
+			if pattern == "" {
+				return true
+			}
+
+			// Not a semantic requirement (the loop below already tries
+			// every position), only match.c's own optimization: when the
+			// next pattern byte is a fixed literal, skip s ahead to its
+			// first occurrence before recursing at each remaining
+			// position.
+			if pattern[0] != '?' && pattern[0] != '*' {
+				for s != "" && s[0] != pattern[0] {
+					s = s[1:]
+				}
+			}
+
+			// Try the star consuming zero bytes first -- matching
+			// pattern against s as-is, which includes s == "" and is
+			// required for a residual tail that can itself match empty
+			// (i.e. one or more further '*') -- then one byte, two
+			// bytes, and so on until s itself is exhausted.
+			for {
+				if matchPattern(s, pattern) {
+					return true
+				}
+				if s == "" {
+					return false
+				}
+				s = s[1:]
+			}
 		}
+
+		if s == "" {
+			return false
+		}
+		if pattern[0] != '?' && pattern[0] != s[0] {
+			return false
+		}
+
+		s = s[1:]
+		pattern = pattern[1:]
 	}
-	return false
 }

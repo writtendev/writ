@@ -1,0 +1,176 @@
+{
+  "ops": [
+    {
+      "ref": "refs/writ/alice/widget",
+      "commit": "77d9b938033cb6371d06203e22d38cb3ba0595ac",
+      "parents": [],
+      "author": "Alice Example \u003calice/laptop@example.test\u003e",
+      "committer": "Alice Example \u003calice/laptop@example.test\u003e",
+      "timestamp": "2026-01-01T00:00:00Z",
+      "tree_entries": [
+        {
+          "name": "op.json",
+          "mode": "0100644",
+          "sha": "29daae85b25c02e5fb558864a5c6e065baf8e91e"
+        }
+      ],
+      "payload": "{\"body\":{\"title\":\"Wildcard crosses a slash\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"create\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"title\":\"Wildcard crosses a slash\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"create\",\"op_version\":1}",
+      "signed": true,
+      "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
+      "verification_outcome": "valid",
+      "expected_verification": "valid",
+      "expected": {
+        "disposition": "accept"
+      },
+      "observed": {
+        "disposition": "accept"
+      }
+    },
+    {
+      "ref": "refs/writ/alice/widget",
+      "commit": "0912f16f1e7d687476a5dc867ca6be2e4b28f2ea",
+      "parents": [
+        "77d9b938033cb6371d06203e22d38cb3ba0595ac"
+      ],
+      "author": "Alice Example \u003calice@example.test\u003e",
+      "committer": "Alice Example \u003calice@example.test\u003e",
+      "timestamp": "2026-01-01T00:01:00Z",
+      "tree_entries": [
+        {
+          "name": "op.json",
+          "mode": "0100644",
+          "sha": "61266be8cd86d49dea89cd20bf71773071a52857"
+        }
+      ],
+      "payload": "{\"body\":{\"title\":\"Bracket class matched literally\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"title\":\"Bracket class matched literally\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "signed": true,
+      "signature_key_fingerprint": "SHA256:O/tazBDLdOtpewVOG55l3W8ZJOSCXXSbkFws9gBOhYc",
+      "verification_outcome": "wrong-key",
+      "expected_verification": "wrong-key",
+      "expected": {
+        "disposition": "accept"
+      },
+      "observed": {
+        "disposition": "accept"
+      }
+    },
+    {
+      "ref": "refs/writ/alice/widget",
+      "commit": "01e0a4d960fb7a9cf0fc54766dba3d5f662540a6",
+      "parents": [
+        "0912f16f1e7d687476a5dc867ca6be2e4b28f2ea"
+      ],
+      "author": "Alice Example \u003calice@example.test\u003e",
+      "committer": "Alice Example \u003calice@example.test\u003e",
+      "timestamp": "2026-01-01T00:02:00Z",
+      "tree_entries": [
+        {
+          "name": "op.json",
+          "mode": "0100644",
+          "sha": "90229ce7cc730f5cb842d38f1a60c4eb4875d216"
+        }
+      ],
+      "payload": "{\"body\":{\"title\":\"Backslash matched literally\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"title\":\"Backslash matched literally\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "signed": true,
+      "signature_key_fingerprint": "SHA256:O/tazBDLdOtpewVOG55l3W8ZJOSCXXSbkFws9gBOhYc",
+      "verification_outcome": "wrong-key",
+      "expected_verification": "wrong-key",
+      "expected": {
+        "disposition": "accept"
+      },
+      "observed": {
+        "disposition": "accept"
+      }
+    },
+    {
+      "ref": "refs/writ/alice/widget",
+      "commit": "12701dd234fcc4fd8bffe84b98ed0a99209ea3cc",
+      "parents": [
+        "01e0a4d960fb7a9cf0fc54766dba3d5f662540a6"
+      ],
+      "author": "Alice Example \u003cali[cex@example.net\u003e",
+      "committer": "Alice Example \u003cali[cex@example.net\u003e",
+      "timestamp": "2026-01-01T00:03:00Z",
+      "tree_entries": [
+        {
+          "name": "op.json",
+          "mode": "0100644",
+          "sha": "8660be089e268550af9fdee492fd3dd7135b8b8d"
+        }
+      ],
+      "payload": "{\"body\":{\"title\":\"Unbalanced bracket matched literally\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"title\":\"Unbalanced bracket matched literally\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "signed": true,
+      "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
+      "verification_outcome": "valid",
+      "expected_verification": "valid",
+      "expected": {
+        "disposition": "accept"
+      },
+      "observed": {
+        "disposition": "accept"
+      }
+    },
+    {
+      "ref": "refs/writ/alice/widget",
+      "commit": "2719ec948285f211ac551360c485c0d4a7fd0d83",
+      "parents": [
+        "12701dd234fcc4fd8bffe84b98ed0a99209ea3cc"
+      ],
+      "author": "Bob Example \u003cbob@example.test\u003e",
+      "committer": "Bob Example \u003cbob@example.test\u003e",
+      "timestamp": "2026-01-01T00:04:00Z",
+      "tree_entries": [
+        {
+          "name": "op.json",
+          "mode": "0100644",
+          "sha": "a782388e434bed6ee24701859ae834bed696e942"
+        }
+      ],
+      "payload": "{\"body\":{\"title\":\"Globbed namespace\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"title\":\"Globbed namespace\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "signed": true,
+      "signature_key_fingerprint": "SHA256:O/tazBDLdOtpewVOG55l3W8ZJOSCXXSbkFws9gBOhYc",
+      "verification_outcome": "valid",
+      "expected_verification": "valid",
+      "expected": {
+        "disposition": "accept"
+      },
+      "observed": {
+        "disposition": "accept"
+      }
+    },
+    {
+      "ref": "refs/writ/alice/widget",
+      "commit": "b21ff28b894b1926bb02498c8faee058a74a4b3d",
+      "parents": [
+        "2719ec948285f211ac551360c485c0d4a7fd0d83"
+      ],
+      "author": "Alice Example \u003cAlice@Example.TEST\u003e",
+      "committer": "Alice Example \u003cAlice@Example.TEST\u003e",
+      "timestamp": "2026-01-01T00:05:00Z",
+      "tree_entries": [
+        {
+          "name": "op.json",
+          "mode": "0100644",
+          "sha": "828105ba6a4986a048e3a870d98102d7c43132ff"
+        }
+      ],
+      "payload": "{\"body\":{\"title\":\"Negated namespace\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"title\":\"Negated namespace\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "signed": true,
+      "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
+      "verification_outcome": "wrong-key",
+      "expected_verification": "wrong-key",
+      "expected": {
+        "disposition": "accept"
+      },
+      "observed": {
+        "disposition": "accept"
+      }
+    }
+  ]
+}

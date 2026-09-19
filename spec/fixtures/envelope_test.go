@@ -65,7 +65,7 @@ type DispositionState struct {
 func runEnvelopeFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 	t.Helper()
 
-	trustStore, err := fixtures.NewTrustStore()
+	trustStore, err := fixtures.TrustStoreFor(fix.Description)
 	if err != nil {
 		return nil, fmt.Errorf("create trust store: %w", err)
 	}

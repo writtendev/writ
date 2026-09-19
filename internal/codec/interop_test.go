@@ -379,6 +379,190 @@ func TestInterop_PrincipalCaseMismatch(t *testing.T) {
 	}
 }
 
+// TestInterop_MatchPatternSemantics extends TestInterop_PrincipalCaseMismatch's
+// ssh-keygen oracle to every WRIT-302 divergence between writ's pre-fix
+// path.Match-based matcher and OpenSSH's actual match_pattern /
+// match_pattern_list: '*' crossing a '/', a bracket class parsed as a
+// character class, a backslash parsed as an escape, an unbalanced '['
+// silently treated as no-match, namespaces= gaining globbing and negation,
+// and '?' consuming a rune instead of a byte.
+//
+// The oracle is ssh-keygen -Y verify, never git verify-commit, for the same
+// reason TestInterop_PrincipalCaseMismatch's doc comment gives: git derives
+// the checked principal from the signing key itself and never compares it
+// against the commit author's email, so it would pass vacuously regardless
+// of which matcher writ uses. Namespace cases (5, 6) work here too, since
+// -n git is fixed by spec/signing.md and only the namespaces= pattern in
+// the allowed_signers line varies.
+func TestInterop_MatchPatternSemantics(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found on PATH")
+	}
+	if _, err := exec.LookPath("ssh-keygen"); err != nil {
+		t.Skip("ssh-keygen not found on PATH")
+	}
+
+	tmp := t.TempDir()
+	keyDir := filepath.Join(tmp, "keys")
+	if err := os.MkdirAll(keyDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	privPath := filepath.Join(keyDir, "id_signer")
+	pubPath := privPath + ".pub"
+
+	genCmd := exec.Command("ssh-keygen", "-t", "ed25519", "-N", "", "-f", privPath)
+	if out, err := genCmd.CombinedOutput(); err != nil {
+		t.Skipf("ssh-keygen unavailable: %v\n%s", err, out)
+	}
+
+	pubBytes, err := os.ReadFile(pubPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pubLine := strings.TrimSpace(string(pubBytes))
+
+	signer, err := codec.NewSigner(identity.SigningKey{
+		Format: "ssh",
+		Value:  privPath,
+	})
+	if err != nil {
+		t.Fatalf("NewSigner: %v", err)
+	}
+
+	fixedTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	env := codec.Envelope{
+		ObjectID:   "w-01",
+		ObjectType: "widget",
+		OpType:     "create",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"title":"Initial"}`),
+	}
+
+	cases := []struct {
+		name        string
+		principals  string // the allowed_signers line's principal field
+		options     string // e.g. `namespaces="g*"`; empty when unused
+		authorEmail string // author.email, and the -I identity ssh-keygen checks
+		wantValid   bool
+		wantOutcome codec.VerificationOutcome
+	}{
+		{
+			name:        "wildcard crosses slash",
+			principals:  "*@example.test",
+			authorEmail: "alice/laptop@example.test",
+			wantValid:   true,
+			wantOutcome: codec.OutcomeValid,
+		},
+		{
+			name:        "bracket class is literal",
+			principals:  "ali[cd]e@*.test",
+			authorEmail: "alice@example.test",
+			wantValid:   false,
+			wantOutcome: codec.OutcomeWrongKey,
+		},
+		{
+			name:        "backslash is literal",
+			principals:  `alice\@*.test`,
+			authorEmail: "alice@example.test",
+			wantValid:   false,
+			wantOutcome: codec.OutcomeWrongKey,
+		},
+		{
+			name:        "unbalanced bracket is not a parse error",
+			principals:  "ali[ce*@example.test",
+			authorEmail: "ali[cex@example.test",
+			wantValid:   true,
+			wantOutcome: codec.OutcomeValid,
+		},
+		{
+			name:        "namespaces= globs",
+			principals:  "alice@example.test",
+			options:     `namespaces="g*"`,
+			authorEmail: "alice@example.test",
+			wantValid:   true,
+			wantOutcome: codec.OutcomeValid,
+		},
+		{
+			name:        "namespaces= negation",
+			principals:  "alice@example.test",
+			options:     `namespaces="!git,*"`,
+			authorEmail: "alice@example.test",
+			wantValid:   false,
+			wantOutcome: codec.OutcomeWrongKey,
+		},
+		{
+			name:        "byte-wise not rune-wise",
+			principals:  "alic?@example.test",
+			authorEmail: "alicé@example.test",
+			wantValid:   false,
+			wantOutcome: codec.OutcomeWrongKey,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			line := tc.principals
+			if tc.options != "" {
+				line += " " + tc.options
+			}
+			line += " " + pubLine + "\n"
+
+			allowedSignersPath := filepath.Join(t.TempDir(), "allowed_signers")
+			if err := os.WriteFile(allowedSignersPath, []byte(line), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			ts, err := sshsig.ParseAllowedSigners(strings.NewReader(line))
+			if err != nil {
+				t.Fatalf("ParseAllowedSigners: %v", err)
+			}
+
+			author := codec.Identity{
+				Name:  "Alice Example",
+				Email: tc.authorEmail,
+				When:  fixedTime,
+			}
+			c, err := codec.BuildCommit(env, author, nil, widgetVocabulary())
+			if err != nil {
+				t.Fatalf("BuildCommit: %v", err)
+			}
+			if err := codec.SignCommit(context.Background(), signer, c); err != nil {
+				t.Fatalf("SignCommit: %v", err)
+			}
+
+			payloadPath := filepath.Join(t.TempDir(), "payload")
+			if err := os.WriteFile(payloadPath, c.Payload, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			sigPath := filepath.Join(t.TempDir(), "sig")
+			if err := os.WriteFile(sigPath, []byte(c.Signature), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			cmd := exec.Command("ssh-keygen", "-Y", "verify",
+				"-f", allowedSignersPath,
+				"-I", tc.authorEmail,
+				"-n", "git",
+				"-s", sigPath,
+			)
+			f, err := os.Open(payloadPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer f.Close()
+			cmd.Stdin = f
+			gotValid := cmd.Run() == nil
+			if gotValid != tc.wantValid {
+				t.Fatalf("ssh-keygen -Y verify(%q) = %v, want %v", tc.authorEmail, gotValid, tc.wantValid)
+			}
+
+			ver := codec.Verify(*c, ts)
+			if ver.Outcome != tc.wantOutcome {
+				t.Fatalf("codec.Verify(%q) = %+v, want outcome %q", tc.authorEmail, ver, tc.wantOutcome)
+			}
+		})
+	}
+}
+
 // TestDeterminism ensures that signing the same op commit twice with the same ed25519 key
 // produces the exact same commit SHA and payload.
 func TestDeterminism(t *testing.T) {
