@@ -925,11 +925,11 @@ configuration. A present value that parses is reused unchanged; a present
 value that does not parse is a hard error naming the remedy (unset the key,
 then re-run `writ init`) rather than a silent re-mint. An engine reads the
 designator from local repository configuration only — never global or
-system config. This is narrower than the sibling keys `writ.writerId` and
-`writ.personId` (`spec/ref-layout.md` §Sourcing precedence), whose global
-sourcing is deliberate: one person wants one identity across their
-repositories. A repo-id has the opposite requirement — its only job is
-telling repositories apart — so a value inherited from global or system
+system config. This is narrower than the sibling key `writ.writerId`, whose
+global sourcing is deliberate (`spec/ref-layout.md` §Sourcing precedence):
+one device wants one writer-id across the repositories it works on. A
+repo-id has the opposite requirement — its only job is telling
+repositories apart — so a value inherited from global or system
 config would let two repositories silently share one designator and
 `<repo-id>#<object-id>` would stop disambiguating anything. If the key is
 absent from local configuration, the repository has simply never been
