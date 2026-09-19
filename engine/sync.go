@@ -88,18 +88,22 @@ func (e *SyncError) Unwrap() error {
 // Sync ensures fetch refspecs in .git/config, fetches remote operations, pushes local operations,
 // and refreshes the projection cache.
 //
-// On any failure once remote has been validated as non-empty -- whether the
-// remote turns out to be syntactically invalid or unconfigured, or the
-// fetch/push transport itself fails -- Sync still refreshes the projection
-// cache and returns the remaining unsynced count wrapped in a *SyncError.
+// On any failure -- whether the remote turns out to be syntactically invalid
+// or unconfigured, or the fetch/push transport itself fails -- Sync still
+// refreshes the projection cache and returns the remaining unsynced count
+// wrapped in a *SyncError.
 func (s *Store) Sync(ctx context.Context, remote string) (SyncResult, error) {
 	if s == nil {
 		return SyncResult{}, fmt.Errorf("writ: store is nil")
 	}
-	if remote == "" {
-		return SyncResult{}, fmt.Errorf("writ: remote cannot be empty")
-	}
 
+	// An empty remote name gets no guard of its own here: ValidateRemoteName
+	// rejects it with ErrInvalidRemoteName exactly like every other
+	// syntactically unusable name, so it reports the same invalid-name kind
+	// and the same exit 2. A bare error returned ahead of that check (what
+	// this used to do) surfaced as exit 1 / kind "unknown" -- the code a
+	// caller reads as a transport failure and retries.
+	//
 	// A remote that is syntactically invalid, or well-formed but not
 	// configured at all (no remote.<remote>.url or remote.<remote>.pushurl),
 	// is checked once, upfront,
@@ -365,10 +369,9 @@ func (s *Store) SyncStatus(ctx context.Context, remote string) (SyncStatus, erro
 	if s == nil {
 		return SyncStatus{}, fmt.Errorf("writ: store is nil")
 	}
-	if remote == "" {
-		return SyncStatus{}, fmt.Errorf("writ: remote cannot be empty")
-	}
-
+	// As in Sync, an empty remote name is left to ValidateRemoteName below
+	// rather than short-circuited here, so it reports invalid-name like
+	// every other syntactically unusable name.
 	var writerID identity.WriterID
 	if s.hasIdentity {
 		writerID = s.identity.WriterID
