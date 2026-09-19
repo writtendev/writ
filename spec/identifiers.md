@@ -954,11 +954,10 @@ several repositories would need something to replicate them between remotes,
 and there is deliberately no such thing (ARCHITECTURE.md §Object homing,
 WRIT-180; supersedes WRIT-113).
 
-"Repository" here means that one home, not any particular clone of it. Every
-clone of the home repository carries the same `refs/writ/*`, and so the same
-ops, but mints its own designator rather than inheriting the original's (see
-above); one home repository may therefore be known by several designators at
-once — one per participant's clone.
+That home is a single repository, but not necessarily a single designator: a
+clone that runs `writ init` mints its own rather than inheriting the
+source's (§Repository designators above), so a repository with several
+initialized clones has one designator per clone, not one globally.
 
 ## Reference grammar
 
@@ -979,13 +978,13 @@ reference = [ repo-id "#" ] object-id
 | **Bare reference** | `<object-id>` | Points to an object in the **same repository** carrying the referencing operation. | `0123456789abcdef0123456789abcdef` |
 | **Fully-qualified reference** | `<repo-id>#<object-id>` | Points to an object in a repository designated `<repo-id>` — opaque; see the note below. | `a1b2c3d4e5f60718293a4b5c6d7e8f90#0123456789abcdef0123456789abcdef` |
 
-A designator identifies a repository as a participant knows it, not a logical
-repository globally: each clone mints its own (§Repository designators
-above), so two clones of one repository carry two designators for the same
-ops. This section does not say which participant's designator a qualified
-reference carries, and nothing in writ dereferences one — a qualified
-reference is an opaque pointer meaning "this object is not here"
-(ARCHITECTURE.md §"Qualified references stay; resolution goes").
+A designator identifies a repository as a participant knows it, not a
+logical repository globally: a repository's clones need not share one
+(§Repository designators above). This section does not say which
+participant's designator a qualified reference carries, and nothing in writ
+dereferences one — a qualified reference is an opaque pointer meaning "this
+object is not here" (ARCHITECTURE.md §"Qualified references stay; resolution
+goes").
 
 ### Rules
 
