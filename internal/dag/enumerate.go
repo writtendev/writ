@@ -19,17 +19,21 @@ type Rejection struct {
 	Err      string             `json:"error,omitempty"`
 }
 
-// RejectObjectUnavailable reports that a commit, tree, or op.json blob an
-// op-commit chain references is not present in this clone — a partial
-// clone missing an object, most commonly. It is engine-local, not
-// part of spec/op-envelope.md's closed reader-validation rejection set: a
-// reader working from a complete clone never produces it, and whether an
-// engine-local reason like this belongs in the spec instead is a
-// normative question this ticket (WRIT-271) deliberately leaves open for
-// Matt rather than deciding here. Before this reason existed, an absent
-// object was misreported as a malformed op (missing-op-json or
-// non-canonical-payload) — the same category error, for a different
-// commit, that WRIT-255 round 2 review found in packedObjectSize.
+// RejectObjectUnavailable reports that an op-commit chain references an
+// object absent from this clone: either a tree or op.json blob withheld
+// by a partial clone's fetch filter, or a commit — a chain tip, or a
+// parent reached through ParentHashes — missing from this clone's
+// object store. No filter produces the second shape: a partial clone's
+// fetch filter withholds blobs and trees, never commits. It is
+// engine-local, not part of spec/op-envelope.md's closed
+// reader-validation rejection set: a reader working from a complete
+// clone never produces it, and whether an engine-local reason like this
+// belongs in the spec instead is a normative question this ticket
+// (WRIT-271) deliberately leaves open for Matt rather than deciding
+// here. Before this reason existed, an absent object was misreported as
+// a malformed op (missing-op-json or non-canonical-payload) — the same
+// category error, for a different commit, that WRIT-255 round 2 review
+// found in packedObjectSize.
 const RejectObjectUnavailable codec.RejectReason = "object-unavailable"
 
 // EnumerateResult is the output of an enumeration pass across all writers' chains.

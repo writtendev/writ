@@ -181,6 +181,102 @@ func writeCommitWithTreeHashNamingPresentBlob(repo *git.Repository, parent, blob
 	return repo.Storer.SetEncodedObject(commitObj)
 }
 
+// writeCommitWithAbsentParentCommit writes a chain-tip commit that reuses
+// an existing, valid tree (treeHash) — so the tip's own op.json decodes
+// cleanly — but names a parent commit that is never written to repo's
+// object store. This is the other shape a chain can reach past what
+// this clone holds: unlike writeCommitWithMissingOpJSONBlob's withheld
+// tree/blob, no partial-clone fetch filter can produce an absent
+// commit — a filter withholds blobs and trees, never commits.
+func writeCommitWithAbsentParentCommit(repo *git.Repository, treeHash, parent plumbing.Hash) (plumbing.Hash, error) {
+	sig := object.Signature{Name: "Mallory", Email: "mallory@example.test", When: time.Now().UTC()}
+	commit := &object.Commit{
+		Author:       sig,
+		Committer:    sig,
+		Message:      "writ: create widget/absentparent\n",
+		TreeHash:     treeHash,
+		ParentHashes: []plumbing.Hash{parent},
+	}
+	commitObj := repo.Storer.NewEncodedObject()
+	commitObj.SetType(plumbing.CommitObject)
+	if err := commit.Encode(commitObj); err != nil {
+		return plumbing.ZeroHash, err
+	}
+	return repo.Storer.SetEncodedObject(commitObj)
+}
+
+// TestEnumerate_AbsentParentCommitIsObjectUnavailable pins the other of
+// RejectObjectUnavailable's two production sites (WRIT-299): a chain
+// tip whose own op decodes cleanly but whose parent commit — reached
+// through commitObj.ParentHashes rather than the op.json/tree path
+// TestEnumerate_ObjectUnavailableDistinctFromMalformed exercises — is
+// absent from this clone's object store. Before the widened godoc, only
+// the withheld-blob shape was named as RejectObjectUnavailable's cause;
+// this pins that the absent-parent shape classifies the same way, not
+// as a reader-validation reason, even though no partial-clone fetch
+// filter can produce it.
+func TestEnumerate_AbsentParentCommitIsObjectUnavailable(t *testing.T) {
+	dir, repo := initTestRepo(t)
+	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
+	store, err := dag.Open(dir, ident, withVocabularies())
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+
+	env := codec.Envelope{
+		ObjectID:   "w-1",
+		ObjectType: "widget",
+		OpType:     "create",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"title":"Widget 1"}`),
+	}
+	op1, err := store.Append(context.Background(), env, nil)
+	if err != nil {
+		t.Fatalf("Append failed: %v", err)
+	}
+
+	op1Commit, err := object.GetCommit(repo.Storer, plumbing.NewHash(op1.ID))
+	if err != nil {
+		t.Fatalf("GetCommit(op1) failed: %v", err)
+	}
+
+	// A well-formed hash that is never written to repo's object store.
+	absentParent := plumbing.NewHash("abcdef0123456789abcdef0123456789abcdef01")
+	tipHash, err := writeCommitWithAbsentParentCommit(repo, op1Commit.TreeHash, absentParent)
+	if err != nil {
+		t.Fatalf("writeCommitWithAbsentParentCommit failed: %v", err)
+	}
+	refName := plumbing.ReferenceName("refs/writ/0123456789abcdef/widget")
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(refName, tipHash)); err != nil {
+		t.Fatalf("advance ref to tip commit: %v", err)
+	}
+
+	res, err := store.Enumerate()
+	if err != nil {
+		t.Fatalf("Enumerate failed: %v", err)
+	}
+
+	if len(res.Rejections) != 1 {
+		t.Fatalf("rejections = %v, want exactly one", res.Rejections)
+	}
+	rej := res.Rejections[0]
+	if rej.CommitID != absentParent.String() {
+		t.Errorf("rejection commit = %s, want %s (the absent parent, not the tip)", rej.CommitID, absentParent.String())
+	}
+	if rej.Reason != dag.RejectObjectUnavailable {
+		t.Errorf("rejection reason = %q, want %q", rej.Reason, dag.RejectObjectUnavailable)
+	}
+	if rej.Reason == codec.RejectMissingOpJSON {
+		t.Errorf("rejection reason = %q, must not be a reader-validation reason for a merely-absent commit", rej.Reason)
+	}
+
+	// The tip's own op — a distinct commit from op1, decoded off op1's
+	// reused tree — still lands in Ops despite its parent's rejection.
+	if len(res.Ops["w-1"]) != 1 || res.Ops["w-1"][0].ID != tipHash.String() {
+		t.Fatalf("Ops[w-1] = %v, want exactly [%s]", res.Ops["w-1"], tipHash.String())
+	}
+}
+
 // TestEnumerate_ObjectUnavailableDistinctFromMalformed pins WRIT-271's
 // absent-vs-malformed split at the dag layer: a chain whose tip's op.json
 // blob is absent from the object store — the shape a partial

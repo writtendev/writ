@@ -158,15 +158,14 @@ func fromGitCommit(s storage.Storer, commit *object.Commit) (Commit, error) {
 //
 // open, file.Reader, and io.ReadAll failures below are returned, not
 // swallowed: the object.Tree.TreeEntryFile call open closes over reaches
-// s.EncodedObject, which surfaces plumbing.ErrObjectNotFound verbatim
-// when the op.json blob is genuinely absent from this clone (a partial
-// clone, most commonly). Wrapping with %w lets
-// dag.EnumerateSince (WRIT-271) distinguish that case — reason
-// object-unavailable, engine-local, not a reader-validation rejection —
-// from a malformed op. Before WRIT-271 these three failures returned
-// nil, nil, which handed DecodeCommit an empty payload it reported as
-// non-canonical-payload: an absent-object error wearing a
-// malformed-payload's name.
+// s.EncodedObject, which surfaces plumbing.ErrObjectNotFound verbatim when
+// the op.json blob is genuinely absent from this clone (a partial clone,
+// most commonly). Wrapping with %w lets dag.EnumerateSince (WRIT-271)
+// distinguish that case — reason object-unavailable, engine-local, not a
+// reader-validation rejection — from a malformed op. Before WRIT-271 these
+// three failures returned nil, nil, which handed DecodeCommit an empty
+// payload it reported as non-canonical-payload: an absent-object error
+// wearing a malformed-payload's name.
 //
 // open's underlying EncodedObject lookup is typed (it wants a blob), and
 // go-git reports plumbing.ErrObjectNotFound for a type mismatch on a
