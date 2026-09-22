@@ -19,12 +19,15 @@ const OrderByCreatedAtAsc = projection.OrderByCreatedAtAsc
 const OrderByCreatedAtDesc = projection.OrderByCreatedAtDesc
 const OrderByUpdatedAtAsc = projection.OrderByUpdatedAtAsc
 const OrderByUpdatedAtDesc = projection.OrderByUpdatedAtDesc
+const PersonIDKey = identity.PersonIDKey
 const RejectObjectUnavailable = dag.RejectObjectUnavailable
 
 var ErrAuth = writsync.ErrAuth
 var ErrCycle = state.ErrCycle
 var ErrDuplicateOpID = state.ErrDuplicateOpID
+var ErrInvalidConfig = identity.ErrInvalid
 var ErrInvalidRemoteName = writsync.ErrInvalidRemoteName
+var ErrMissingConfig = identity.ErrMissing
 var ErrMixedObjects = state.ErrMixedObjects
 var ErrNetwork = writsync.ErrNetwork
 var ErrNoIdentity = errors.New("identity: no writer identity configured (run 'writ init' to configure)")
@@ -34,12 +37,15 @@ var ErrNotFound = projection.ErrNotFound
 var ErrNotRepository = gitdir.ErrNotRepository
 var ErrRefRejected = writsync.ErrRefRejected
 var ErrRejectedOps = errors.New("this object's absence is not certain")
+var ErrStarterNamespaceRequired = errors.New("writ: a starter writ.schema is due and needs a namespace")
 var ErrStoreOpen = errors.New("writ: cannot open store")
 var ErrUnknownRemote = writsync.ErrUnknownRemote
+var ErrUnsupportedFormat = identity.ErrUnsupportedFormat
 
 func DeriveSchemaObjectID(namespace string) string
 func Fold(ops []codec.Op, rules []Rule) (ObjectState, error)
 func FoldSchema(ops []codec.Op) (Schema, error)
+func Init(ctx context.Context, path string, opts InitOptions) (InitResult, error)
 func NormalizePerson(s string) string
 func Open(path string, opts ...Option) (*Store, error)
 func ParseSchemaSource(name string, src []byte) (*SchemaSource, error)
@@ -61,6 +67,8 @@ type Anchor = resolve.Anchor
 
 type Author = projection.Author
 
+type ConfigError = identity.ConfigError
+
 type Envelope = codec.Envelope
 
 type Event struct {
@@ -77,6 +85,29 @@ type GitDirInfo struct {
 	WorkTree string
 	GitDir string
 	CommonDir string
+}
+
+type InitOptions struct {
+	Remotes []string
+	StarterNamespace string
+}
+
+type InitResult struct {
+	WriterID string
+	WriterIDMinted bool
+	RepoID string
+	RepoIDMinted bool
+	PersonID string
+	PersonIDFromKey bool
+	PersonIDErr error
+	SigningKey string
+	SigningKeyLiteral bool
+	IdentityErr error
+	Remotes []RemoteInit
+	StarterSchemaPath string
+	StarterSchemaWritten bool
+	StarterSchemaExisted bool
+	StarterSchemaErr error
 }
 
 type NewOp struct {
@@ -127,6 +158,15 @@ type RefreshStats = projection.Stats
 type RejectReason = codec.RejectReason
 
 type Rejection = dag.Rejection
+
+type RemoteInit struct {
+	Name string
+	Refspec string
+	Repaired bool
+	Skipped bool
+	NotAttempted bool
+	Err error
+}
 
 type Rule = state.Rule
 

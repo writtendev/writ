@@ -34,6 +34,9 @@ func TestAPIShapeNoGitInternalsLeak(t *testing.T) {
 		writ.SchemaOp{},
 		writ.Writer{},
 		writ.SchemaSource{},
+		writ.InitOptions{},
+		writ.InitResult{},
+		writ.RemoteInit{},
 	}
 
 	report := func(format string, args ...any) { t.Errorf(format, args...) }
