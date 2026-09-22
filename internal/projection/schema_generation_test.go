@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -30,40 +31,43 @@ func TestNoSDLCTypeInGeneratedDDL(t *testing.T) {
 	}
 
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", nil, parser.ParseComments)
+	entries, err := os.ReadDir(".")
 	if err != nil {
-		t.Fatalf("ParseDir: %v", err)
+		t.Fatalf("ReadDir: %v", err)
 	}
 
-	for _, pkg := range pkgs {
-		for filename, file := range pkg.Files {
-			if strings.HasSuffix(filename, "_test.go") {
-				continue
-			}
-			ast.Inspect(file, func(n ast.Node) bool {
-				lit, ok := n.(*ast.BasicLit)
-				if !ok || lit.Kind != token.STRING {
-					return true
-				}
-				val, err := strconv.Unquote(lit.Value)
-				if err != nil {
-					// Raw (backtick) strings unquote fine via strconv too;
-					// anything that fails to unquote isn't a plain string
-					// literal DDL text could live in.
-					return true
-				}
-				if !strings.Contains(strings.ToUpper(val), "CREATE TABLE") {
-					return true
-				}
-				lower := strings.ToLower(val)
-				for _, f := range forbidden {
-					if strings.Contains(lower, f) {
-						t.Errorf("%s: CREATE TABLE string literal mentions SDLC type %q: %.200s", filename, f, val)
-					}
-				}
-				return true
-			})
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
 		}
+		file, err := parser.ParseFile(fset, name, nil, parser.ParseComments)
+		if err != nil {
+			t.Fatalf("ParseFile %s: %v", name, err)
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			lit, ok := n.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				return true
+			}
+			val, err := strconv.Unquote(lit.Value)
+			if err != nil {
+				// Raw (backtick) strings unquote fine via strconv too;
+				// anything that fails to unquote isn't a plain string
+				// literal DDL text could live in.
+				return true
+			}
+			if !strings.Contains(strings.ToUpper(val), "CREATE TABLE") {
+				return true
+			}
+			lower := strings.ToLower(val)
+			for _, f := range forbidden {
+				if strings.Contains(lower, f) {
+					t.Errorf("%s: CREATE TABLE string literal mentions SDLC type %q: %.200s", name, f, val)
+				}
+			}
+			return true
+		})
 	}
 }
 

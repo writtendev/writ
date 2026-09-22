@@ -3,6 +3,7 @@ package anchorshape_test
 import (
 	"go/parser"
 	"go/token"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -25,21 +26,24 @@ var allowedImports = map[string]bool{}
 
 func TestImportsAllowlist(t *testing.T) {
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", nil, parser.ImportsOnly)
+	entries, err := os.ReadDir(".")
 	if err != nil {
-		t.Fatalf("ParseDir: %v", err)
+		t.Fatalf("ReadDir: %v", err)
 	}
 
-	for _, pkg := range pkgs {
-		for filename, file := range pkg.Files {
-			if strings.HasSuffix(filename, "_test.go") {
-				continue
-			}
-			for _, imp := range file.Imports {
-				pathVal := imp.Path.Value
-				if !allowedImports[pathVal] {
-					t.Errorf("%s imports forbidden package %s (anchorshape must stay stdlib-only, per its own doc comment and the fence both engine/internal/value and engine/resolve rely on)", filepath.Base(filename), pathVal)
-				}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, name, nil, parser.ImportsOnly)
+		if err != nil {
+			t.Fatalf("ParseFile %s: %v", name, err)
+		}
+		for _, imp := range file.Imports {
+			pathVal := imp.Path.Value
+			if !allowedImports[pathVal] {
+				t.Errorf("%s imports forbidden package %s (anchorshape must stay stdlib-only, per its own doc comment and the fence both engine/internal/value and engine/resolve rely on)", filepath.Base(name), pathVal)
 			}
 		}
 	}
