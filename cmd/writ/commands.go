@@ -51,7 +51,7 @@ var rootCommand = &command{
 var initCmd = &command{
 	Name:      "init",
 	Short:     "Initialize writ configuration (writer ID and remote fetch refspecs)",
-	UsageLine: "Usage: writ init [-C <dir>] [--namespace <name>] [remote...]",
+	UsageLine: "Usage: writ init [-C <dir>] [--namespace <name>] [--json] [remote...]",
 	Long: "Initialize writ repository configuration by resolving or minting a writer ID,\n" +
 		"verifying SSH signing key configuration, and adding fetch refspecs for git remotes.\n" +
 		"On a work tree with no writ.schema yet, also writes a starter one: --namespace names\n" +
@@ -64,10 +64,16 @@ var initCmd = &command{
 		"the run: every other discovered remote still gets its fetch refspec, and the process still\n" +
 		"exits 0 -- a remote writ merely discovered being unusable is not a failure. A remote named\n" +
 		"explicitly on the command line does not get this treatment -- a bad name the caller typed\n" +
-		"stops the run, same as before.",
+		"stops the run, same as before.\n\n" +
+		"--json reports an init.result envelope (docs/cli-json.md) instead of the lines above,\n" +
+		"with a machine-readable outcome (complete/partial/stopped) and a per-remote status --\n" +
+		"the same distinction exit 0 alone cannot carry. Unlike every other --json verb, a hard\n" +
+		"failure still emits an envelope on stdout once the run has reached git config, since a\n" +
+		"stopped-part-way repository is exactly the state a caller needs to describe.",
 	Flags: []flagSpec{
 		{Name: "C"},
 		{Name: "namespace"},
+		{Name: "json"},
 	},
 	ExitCodes: []string{
 		"0  Success: every remote (explicit, or discovered with none given) was configured, or the\n" +
@@ -80,6 +86,7 @@ var initCmd = &command{
 		"writ init",
 		"writ init origin",
 		"writ init --namespace acme",
+		"writ init --json",
 	},
 }
 
@@ -428,7 +435,7 @@ func renderUsage(w io.Writer, path []string, c *command) {
 
 		if len(path) == 0 {
 			fmt.Fprintln(w, "Plumbing:")
-			fmt.Fprintln(w, "  Every read verb supports --json for machine-readable output.")
+			fmt.Fprintln(w, "  Every verb supports --json for machine-readable output.")
 			fmt.Fprintln(w)
 			fmt.Fprintln(w, "Run 'writ <command> -h' for more information on a command.")
 		} else {

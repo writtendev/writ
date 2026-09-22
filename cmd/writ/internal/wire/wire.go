@@ -26,6 +26,7 @@ const (
 	KindObjectApply  = "object.apply"
 	KindObjectShow   = "object.show"
 	KindObjectList   = "object.list"
+	KindInitResult   = "init.result"
 )
 
 // Envelope wraps all machine-readable output in a single versioned container.
@@ -483,5 +484,184 @@ func FromSchemaTypeInfos(types []writ.SchemaType) []SchemaTypeInfo {
 	for i, t := range types {
 		out[i] = FromSchemaTypeInfo(t)
 	}
+	return out
+}
+
+// InitSkip explains why one remote did not get a writ fetch refspec:
+// either Init discovered it and could not configure it (an InitRemote
+// with Status "skipped"), or Init's one hard failure for the run landed
+// on it (Status "failed"). Code is a closed catalogue, deliberately
+// narrower than Failure's sync-shaped one -- it exists only to make the
+// two things writ.Init's remote gate can produce (writ.ErrUnknownRemote,
+// writ.ErrInvalidRemoteName -- see engine/init.go, engine/errors.go)
+// distinguishable without parsing English, which is the whole point of
+// this ticket (WRIT-304): a url-less remote section never had anything
+// configured for it ("unknown-remote"), while a real, named remote writ
+// genuinely cannot use ("invalid-name") is a different fact for a script
+// to act on. "other" is the honest escape hatch for anything else Ensure
+// can fail with, keeping the catalogue closed rather than speculative.
+type InitSkip struct {
+	Code    string `json:"code"` // unknown-remote | invalid-name | other
+	Message string `json:"message"`
+}
+
+// InitRemote reports one remote's outcome, matching writ.RemoteInit's four
+// meaningful states one-for-one (see that type's godoc in engine/init.go):
+//
+//   - "configured" / "already-configured" -- Refspec is set; the two
+//     statuses distinguish writ.RemoteInit.Repaired (true/false).
+//   - "skipped" -- Init discovered this remote (no explicit remote list)
+//     and could not configure it; Reason names why.
+//   - "not-attempted" -- Init never even tried this remote, because an
+//     earlier remote's hard failure stopped the run first. Reason is nil:
+//     there is nothing wrong with this remote itself, Init simply never
+//     reached it (writ.RemoteInit.NotAttempted).
+//   - "failed" -- the one hard failure that stopped the run. Reason names
+//     the error.
+type InitRemote struct {
+	Remote  string    `json:"remote"`
+	Status  string    `json:"status"` // configured | already-configured | skipped | failed | not-attempted
+	Refspec string    `json:"refspec,omitempty"`
+	Reason  *InitSkip `json:"reason,omitempty"`
+}
+
+// InitStarterSchema reports the starter writ.schema outcome, mirroring
+// writ.InitResult's own StarterSchema* fields.
+type InitStarterSchema struct {
+	Path      string `json:"path"`
+	Namespace string `json:"namespace,omitempty"`
+	Written   bool   `json:"written"`
+	Existed   bool   `json:"existed"`
+	Error     string `json:"error,omitempty"`
+}
+
+// InitResult is the `init.result` JSON payload: the one-time repository
+// setup `writ init` performs, reported the way its porcelain output
+// already does -- every field here traces to a line runInit prints today
+// (docs/cli-json.md's `writ init --json` section has the table).
+//
+// Deliberately absent: the identity/person warnings and their remediation
+// `git config` lines. docs/cli-json.md rule 4 puts diagnostics on stderr
+// as plain text, and the machine-relevant fact is already carried by
+// presence/absence -- no SigningKey means no usable signing key, the same
+// "presence is itself the signal" pattern ObjectSummary.CreatedAtEpoch
+// already uses. There is no Warnings field for the same reason: it would
+// be a second, prose-shaped channel for something the fields already say.
+//
+// Remotes is always non-nil so it serializes as `[]`, never `null`.
+type InitResult struct {
+	Outcome           string             `json:"outcome"` // complete | partial | stopped
+	WriterID          string             `json:"writer_id"`
+	WriterIDMinted    bool               `json:"writer_id_minted"`
+	RepoID            string             `json:"repo_id"`
+	RepoIDMinted      bool               `json:"repo_id_minted"`
+	PersonID          string             `json:"person_id,omitempty"`
+	PersonIDSource    string             `json:"person_id_source,omitempty"` // writ.personId | user.email
+	SigningKey        string             `json:"signing_key,omitempty"`
+	SigningKeyLiteral bool               `json:"signing_key_literal,omitempty"`
+	Remotes           []InitRemote       `json:"remotes"`
+	StarterSchema     *InitStarterSchema `json:"starter_schema,omitempty"`
+}
+
+// classifyInitSkip maps one RemoteInit.Err to the closed InitSkip
+// catalogue: "unknown-remote" for writ.ErrUnknownRemote (a url-less
+// remote section -- nothing was ever configured for it), "invalid-name"
+// for writ.ErrInvalidRemoteName (a real remote writ cannot name), "other"
+// for anything else Ensure can fail with (including the one hard failure
+// that stops the run). err is assumed non-nil -- callers only reach this
+// for a skipped or failed RemoteInit, both of which always carry one.
+func classifyInitSkip(err error) *InitSkip {
+	code := "other"
+	switch {
+	case errors.Is(err, writ.ErrUnknownRemote):
+		code = "unknown-remote"
+	case errors.Is(err, writ.ErrInvalidRemoteName):
+		code = "invalid-name"
+	}
+	return &InitSkip{Code: code, Message: err.Error()}
+}
+
+// FromInitResult converts a writ.InitResult and the error writ.Init
+// returned (nil on success) into the init.result wire payload. namespace
+// is the InitOptions.StarterNamespace the caller passed to the writ.Init
+// call that produced res (from --namespace, or the interactive prompt) --
+// writ.InitResult itself does not carry it back, the same way runInit's
+// own renderStarterSchemaOutcome takes it as a separate parameter.
+// FromInitResult derives Outcome so no caller re-derives it:
+//
+//   - err == nil, no remote "skipped"  -> "complete"
+//   - err == nil, >=1 remote "skipped" -> "partial"
+//   - err != nil                       -> "stopped"
+//
+// A starter-schema write failure (res.StarterSchemaErr) never changes
+// Outcome -- "partial" means "a remote was skipped", not "anything went
+// slightly wrong" -- it is reported only in StarterSchema.Error.
+func FromInitResult(res writ.InitResult, err error, namespace string) InitResult {
+	out := InitResult{
+		WriterID:          res.WriterID,
+		WriterIDMinted:    res.WriterIDMinted,
+		RepoID:            res.RepoID,
+		RepoIDMinted:      res.RepoIDMinted,
+		SigningKey:        res.SigningKey,
+		SigningKeyLiteral: res.SigningKeyLiteral,
+		Remotes:           []InitRemote{},
+	}
+
+	if res.PersonIDErr == nil && res.PersonID != "" {
+		out.PersonID = res.PersonID
+		if res.PersonIDFromKey {
+			out.PersonIDSource = "writ.personId"
+		} else {
+			out.PersonIDSource = "user.email"
+		}
+	}
+	skipped := false
+	for _, r := range res.Remotes {
+		remote := InitRemote{Remote: r.Name}
+		switch {
+		case r.NotAttempted:
+			remote.Status = "not-attempted"
+		case r.Err == nil:
+			remote.Refspec = r.Refspec
+			if r.Repaired {
+				remote.Status = "configured"
+			} else {
+				remote.Status = "already-configured"
+			}
+		case r.Skipped:
+			remote.Status = "skipped"
+			remote.Reason = classifyInitSkip(r.Err)
+			skipped = true
+		default:
+			remote.Status = "failed"
+			remote.Reason = classifyInitSkip(r.Err)
+		}
+		out.Remotes = append(out.Remotes, remote)
+	}
+
+	if res.StarterSchemaPath != "" {
+		s := &InitStarterSchema{
+			Path:    res.StarterSchemaPath,
+			Written: res.StarterSchemaWritten,
+			Existed: res.StarterSchemaExisted,
+		}
+		if res.StarterSchemaWritten {
+			s.Namespace = namespace
+		}
+		if res.StarterSchemaErr != nil {
+			s.Error = res.StarterSchemaErr.Error()
+		}
+		out.StarterSchema = s
+	}
+
+	switch {
+	case err != nil:
+		out.Outcome = "stopped"
+	case skipped:
+		out.Outcome = "partial"
+	default:
+		out.Outcome = "complete"
+	}
+
 	return out
 }

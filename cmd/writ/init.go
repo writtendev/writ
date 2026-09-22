@@ -9,12 +9,14 @@ import (
 	"io"
 	"strings"
 
+	"github.com/writtendev/writ/cmd/writ/internal/wire"
 	"github.com/writtendev/writ/engine"
 )
 
 type initOpts struct {
 	dir       string
 	namespace string
+	jsonMode  bool
 }
 
 func newInitFlagSet(defaultDir string) (*flag.FlagSet, *initOpts) {
@@ -22,6 +24,7 @@ func newInitFlagSet(defaultDir string) (*flag.FlagSet, *initOpts) {
 	opts := &initOpts{}
 	fs.StringVar(&opts.dir, "C", defaultDir, "Run as if writ was started in `<dir>`")
 	fs.StringVar(&opts.namespace, "namespace", "", "Namespace `<name>` for a starter writ.schema (required the first time one is written)")
+	fs.BoolVar(&opts.jsonMode, "json", false, "Output result as JSON")
 	fs.Usage = func() {
 		renderUsage(fs.Output(), []string{"init"}, initCmd)
 	}
@@ -206,13 +209,24 @@ func runInit(ctx context.Context, defaultDir string, args []string, stdin io.Rea
 			fmt.Fprintf(stderr, "writ init: %v\n", nsErr)
 			return 1
 		}
+		namespace = ns
 		result, err = writ.Init(ctx, targetDir, writ.InitOptions{
 			Remotes:          remotes,
 			StarterNamespace: ns,
 		})
 	}
 
-	renderInitResult(stdout, stderr, result)
+	// --json mode: stdout carries the envelope and nothing else
+	// (docs/cli-json.md rule 4), so every porcelain line below that would
+	// otherwise go to stdout is redirected to io.Discard instead. stderr's
+	// warnings and diagnostics are unchanged in both modes -- they are
+	// exactly the information --json mode does not duplicate onto stdout.
+	porcelainStdout := stdout
+	if opts.jsonMode {
+		porcelainStdout = io.Discard
+	}
+
+	renderInitResult(porcelainStdout, stderr, result)
 
 	if err != nil {
 		fmt.Fprintf(stderr, "writ init: %v\n", err)
@@ -236,11 +250,25 @@ func runInit(ctx context.Context, defaultDir string, args []string, stdin io.Rea
 			}
 			reportPartialInit(stderr, result.WriterID, result.RepoID, configured, pending)
 		}
+		// Every existing --json verb emits no envelope on failure
+		// (docs/cli-json.md); writ init departs from that in exactly one
+		// case -- a run that reached git config before stopping, which is
+		// the whole point of this ticket (WRIT-304): a caller cannot tell
+		// "stopped part-way" from "finished, partial" without this. The
+		// rule is "emit iff the run reached git config", and result.WriterID
+		// is the same fact reportPartialInit above already keys on: every
+		// earlier failure (flag parse, non-repo, the namespace refusal)
+		// returns before writ.Init's first write and leaves it empty.
+		if opts.jsonMode && result.WriterID != "" {
+			if jsonErr := emitJSON(stdout, wire.KindInitResult, wire.FromInitResult(result, err, namespace)); jsonErr != nil {
+				fmt.Fprintf(stderr, "writ init: marshal json: %v\n", jsonErr)
+			}
+		}
 		return 1
 	}
 
 	if len(result.Remotes) == 0 {
-		fmt.Fprintln(stdout, "No git remotes configured; fetch refspec will be added when a remote is configured.")
+		fmt.Fprintln(porcelainStdout, "No git remotes configured; fetch refspec will be added when a remote is configured.")
 	}
 	var configured, skippedReasons []string
 	for _, r := range result.Remotes {
@@ -259,7 +287,14 @@ func runInit(ctx context.Context, defaultDir string, args []string, stdin io.Rea
 	// (starter schema) ordering. writ.Init only reaches that step on
 	// success (a hard remote failure returns before it), so this is a
 	// no-op in every path that already returned above.
-	renderStarterSchemaOutcome(stdout, stderr, opts.namespace, result)
+	renderStarterSchemaOutcome(porcelainStdout, stderr, opts.namespace, result)
+
+	if opts.jsonMode {
+		if jsonErr := emitJSON(stdout, wire.KindInitResult, wire.FromInitResult(result, nil, namespace)); jsonErr != nil {
+			fmt.Fprintf(stderr, "writ init: marshal json: %v\n", jsonErr)
+			return 1
+		}
+	}
 
 	return 0
 }

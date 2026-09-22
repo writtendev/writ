@@ -142,7 +142,7 @@ _writ() {
     case "$cmd" in
         init)
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "-C -h -help --help" -- "$cur"))
+                COMPREPLY=($(compgen -W "-C -namespace --namespace -json --json -h -help --help" -- "$cur"))
                 return 0
             fi
             ;;
@@ -302,6 +302,10 @@ _writ() {
                 init)
                     _arguments -s -S \
                         '(-C)-C[Run as if writ was started in <dir>]:directory:_files -/' \
+                        '--namespace[Namespace for a starter writ.schema]:namespace:' \
+                        '-namespace[Namespace for a starter writ.schema]:namespace:' \
+                        '--json[Output result as JSON]' \
+                        '-json[Output result as JSON]' \
                         '(-h -help --help)'{-h,-help,--help}'[Show help]' \
                         '*:remote:_git_remotes'
                     ;;
