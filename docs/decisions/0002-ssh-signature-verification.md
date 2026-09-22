@@ -1,7 +1,7 @@
 # 0002: SSH signature verification approach
 
 Status: decided (WRIT-22). The spec text is `spec/signing.md`, and the
-implementation lives in `engine/codec/sshsig` and `engine/codec/verify.go`.
+implementation lives in `internal/codec/sshsig` and `internal/codec/verify.go`.
 
 ## Problem
 
@@ -28,7 +28,7 @@ via subprocess for each commit.
   and matching localized stderr text from `ssh-keygen`, making normative spec
   conformance brittle across platforms, OpenSSH versions, and locales.
 
-**2. Pure-Go verification (`engine/codec/sshsig`).**
+**2. Pure-Go verification (`internal/codec/sshsig`).**
 Implement wire-format parsing for the OpenSSH armored signature blob
 (`PROTOCOL.sshsig`) and OpenSSH `allowed_signers` trust store format in pure Go,
 verifying cryptographic signatures via `ssh.PublicKey.Verify` and the standard
@@ -40,8 +40,8 @@ library `crypto/sha256` and `crypto/sha512`.
 
 ## Decision
 
-Pure-Go verification implemented in `engine/codec/sshsig` and exposed via
-`engine/codec/verify.go`.
+Pure-Go verification implemented in `internal/codec/sshsig` and exposed via
+`internal/codec/verify.go`.
 
 Reasoning:
 - **Structural classification over string scraping.** The fixture corpus and
@@ -54,7 +54,7 @@ Reasoning:
   containing hundreds of ops requires no process spawning and operates entirely
   in-memory without depending on `ssh-keygen` existing on `PATH` at runtime.
 - **Signing remains subprocess-backed.** While verification is pure Go, signing
-  (`engine/codec/sign.go`) intentionally continues to shell out to
+  (`internal/codec/sign.go`) intentionally continues to shell out to
   `ssh-keygen -Y sign -n git`. This seamlessly supports agent-held, forwarded,
   and hardware-backed (e.g. YubiKey, Secure Enclave) keys via `SSH_AUTH_SOCK`
   without requiring writ to implement the SSH agent client protocol or private key

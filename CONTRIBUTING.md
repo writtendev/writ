@@ -57,7 +57,7 @@ includes:
    (including the concurrent title-edit ops) and the golden folded output
    the new rule produces.
 2. The spec prose describing the rule, updated to match.
-3. The fold reducer in `engine/fold` implementing it.
+3. The fold reducer in `internal/fold` implementing it.
 4. Nothing else. Fold is pure and deterministic — ops in, state out, no
    I/O — so the fixture is a direct, mechanical check on the reducer; keep
    it that way rather than smuggling in unrelated cleanup.
