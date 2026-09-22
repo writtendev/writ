@@ -160,7 +160,13 @@ func Open(path string, opts ...Option) (*Store, error) {
 			// dag.Chains ref walk on every single Append (WRIT-202).
 			// Every other caller of vocabularies — rules,
 			// declaredTypes, and Types/Refresh/Rebuild through them — stays
-			// on the ground-truth path unchanged.
+			// on the ground-truth path unchanged. That bound is the whole
+			// story now (WRIT-238): a derive already in flight when a local
+			// "schema" append or a Sync invalidates the cache can no longer
+			// install its pre-change snapshot over the invalidation after
+			// the fact (Store.vocabularies' generation check), so what is
+			// served here is never staler than the window plus one resolve
+			// this comment already states.
 			return s.vocabulariesForAppend(context.Background())
 		}),
 		// Rolls the vocabularies cache's fingerprint forward after a local
