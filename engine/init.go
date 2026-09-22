@@ -60,10 +60,17 @@ type RemoteInit struct {
 	// Name is the remote's name.
 	Name string
 	// Refspec is the fetch refspec Init expects for this remote
-	// (+refs/writ/*:refs/remotes/<name>/writ/*), set whenever Err is nil.
+	// (+refs/writ/*:refs/remotes/<name>/writ/*). Set for a remote Init
+	// configured, whether repaired or found already correct; empty for a
+	// skipped remote, a not-attempted one (NotAttempted), or the one hard
+	// failure that stopped the run.
 	Refspec string
-	// Repaired reports whether Init had to add or correct the refspec.
-	// False means it was already configured correctly.
+	// Repaired reports whether Init had to add or correct the refspec to
+	// configure this remote. Meaningful only when Refspec is set: false
+	// there means it was already configured correctly. Also false, with
+	// no meaning, for a remote Init never configured -- skipped, not
+	// attempted (NotAttempted), or the one hard failure that stopped the
+	// run.
 	Repaired bool
 	// Skipped reports a remote Init merely discovered
 	// (InitOptions.Remotes was nil) and could not configure -- a url-less

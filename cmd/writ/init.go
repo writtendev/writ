@@ -213,7 +213,7 @@ func runInit(ctx context.Context, defaultDir string, args []string, stdin io.Rea
 		})
 	}
 
-	renderInitResult(stdout, stderr, opts.namespace, result)
+	renderInitResult(stdout, stderr, result)
 
 	if err != nil {
 		fmt.Fprintf(stderr, "writ init: %v\n", err)
@@ -274,9 +274,7 @@ func runInit(ctx context.Context, defaultDir string, args []string, stdin io.Rea
 // after the "no remotes configured" / skipped-remote summary lines it
 // prints itself -- main wrote the starter file only after the remote step
 // had already printed those, and this keeps that order.
-// namespaceFlag is the raw --namespace flag value (possibly empty), used
-// only to report that it was ignored when writ.schema already existed.
-func renderInitResult(stdout, stderr io.Writer, namespaceFlag string, result writ.InitResult) {
+func renderInitResult(stdout, stderr io.Writer, result writ.InitResult) {
 	if result.WriterID != "" {
 		if result.WriterIDMinted {
 			fmt.Fprintf(stdout, "Writer ID: %s (minted)\n", result.WriterID)
