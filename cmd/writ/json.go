@@ -6,7 +6,7 @@ import (
 	"io"
 
 	"github.com/writtendev/writ/cmd/writ/internal/wire"
-	"github.com/writtendev/writ/internal/textsafe"
+	"github.com/writtendev/writ/engine"
 )
 
 // emitJSON formats data into the versioned envelope and writes it as a single
@@ -30,7 +30,7 @@ import (
 //
 // The trailing newline json.Encoder.Encode appends is trimmed before the
 // escape pass and re-appended afterward, unescaped: it is not JSON content
-// at all, and textsafe.Forbidden's C0 range would otherwise misread that
+// at all, and writ.EscapeForbidden's C0 range would otherwise misread that
 // structural line feed as data and rewrite it into a spurious four-byte
 // escape sequence nobody asked for.
 func emitJSON(w io.Writer, kind string, data any) error {
@@ -44,7 +44,7 @@ func emitJSON(w io.Writer, kind string, data any) error {
 		return err
 	}
 	doc := bytes.TrimSuffix(buf.Bytes(), []byte("\n"))
-	if _, err := io.WriteString(w, textsafe.EscapeForbidden(string(doc))); err != nil {
+	if _, err := io.WriteString(w, writ.EscapeForbidden(string(doc))); err != nil {
 		return err
 	}
 	_, err := io.WriteString(w, "\n")

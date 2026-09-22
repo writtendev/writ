@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/writtendev/writ/engine"
+	writsync "github.com/writtendev/writ/internal/sync"
 )
 
 func setupSyncHarness(t *testing.T) (bareDir, aliceDir, bobDir string) {
@@ -764,4 +765,96 @@ type gizmo {
 	if v, declared := after["acme.gizmo"]; !declared || !v.Declared {
 		t.Fatalf("Bob's vocabulariesForAppend does not see acme.gizmo after Sync returned")
 	}
+}
+
+// TestStoreSync_NoGitErrorEscapes is WRIT-311's probe (WRIT-296 plan §1):
+// it asserts that no *writsync.GitError -- the type carrying Args and
+// Stderr, git subprocess plumbing aimed at a caller who did not ask for it
+// -- ever escapes Store.Sync or Store.SyncStatus. If it holds, cmd/writ's
+// exitCodeFor/printSyncError never need their own *sync.GitError arms
+// (deleted by this same ticket) and the engine never needs to export
+// GitError. If it does not hold, wrapSyncError needs a case this test would
+// catch instead.
+//
+// A failing pre-receive hook on the bare remote is the one path in
+// Store.Sync that constructs a real *writsync.GitError from a git
+// subprocess's stderr (internal/sync/git.go:ClassifyGitError, via
+// push.go), rather than a plain Go error -- see
+// TestStoreSync_PreReceiveHookFailureAndRetry, which this reuses. Every
+// other failure wrapSyncError sees (a config-write failure, an
+// unconfigured remote, a syntactically invalid name) is already a plain
+// error with no GitError in its chain, so exercising the hook-rejection
+// path is what actually tests wrapSyncError's `errors.As(err, &gitErr)`
+// branch rather than vacuously passing because nothing in the chain was
+// ever a *GitError to begin with.
+func TestStoreSync_NoGitErrorEscapes(t *testing.T) {
+	bareDir, aliceDir, _ := setupSyncHarness(t)
+	ctx := context.Background()
+
+	hooksDir := filepath.Join(bareDir, "hooks")
+	if err := os.MkdirAll(hooksDir, 0755); err != nil {
+		t.Fatalf("mkdir hooks: %v", err)
+	}
+	hookPath := filepath.Join(hooksDir, "pre-receive")
+	hookScript := "#!/bin/sh\necho \"pre-receive hook declined update\" >&2\nexit 1\n"
+
+	sA, err := writ.Open(aliceDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Open Alice failed: %v", err)
+	}
+	defer sA.Close()
+
+	applyCoreSchema(t, ctx, sA)
+	if _, err := sA.Sync(ctx, "origin"); err != nil {
+		t.Fatalf("Alice Sync of the schema failed: %v", err)
+	}
+
+	if err := os.WriteFile(hookPath, []byte(hookScript), 0755); err != nil {
+		t.Fatalf("write hook: %v", err)
+	}
+
+	if _, err := sA.Objects.Create(ctx, "acme.widget", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Probe Widget"},
+	}); err != nil {
+		t.Fatalf("Alice create widget: %v", err)
+	}
+
+	_, syncErr := sA.Sync(ctx, "origin")
+	if syncErr == nil {
+		t.Fatalf("expected Sync to fail with pre-receive hook, got nil error")
+	}
+
+	var gitErr *writsync.GitError
+	if errors.As(syncErr, &gitErr) {
+		t.Fatalf("Store.Sync returned a *sync.GitError in its error chain: %+v (Args=%v Stderr=%q) -- wrapSyncError must convert every GitError to *SyncError before returning", gitErr, gitErr.Args, gitErr.Stderr)
+	}
+	var se *writ.SyncError
+	if !errors.As(syncErr, &se) {
+		t.Fatalf("expected error to be *writ.SyncError, got %T: %v", syncErr, syncErr)
+	}
+
+	// SyncStatus, exercised here in the same broken-hook state, cannot
+	// construct a *GitError by construction: ComputeStatus
+	// (internal/sync/status.go) walks only this repository's already-open
+	// storer and ValidateRemoteName (internal/sync/refspec.go) is a pure
+	// string check -- neither runs a git subprocess. Checked directly
+	// anyway so the probe covers both methods the ticket names, not just
+	// one by code-reading, and both a syntactically invalid name and an
+	// otherwise-normal call.
+	if _, statusErr := sA.SyncStatus(ctx, "not a valid remote name"); statusErr != nil {
+		if errors.As(statusErr, &gitErr) {
+			t.Fatalf("Store.SyncStatus returned a *sync.GitError in its error chain: %+v", gitErr)
+		}
+	}
+	if _, statusErr := sA.SyncStatus(ctx, "origin"); statusErr != nil {
+		if errors.As(statusErr, &gitErr) {
+			t.Fatalf("Store.SyncStatus returned a *sync.GitError in its error chain: %+v", gitErr)
+		}
+	}
+
+	// Clean up the hook so t.Cleanup's harness teardown (removing bareDir
+	// via t.TempDir) doesn't matter either way; nothing else in this test
+	// depends on the remote being usable again.
+	_ = os.Remove(hookPath)
 }

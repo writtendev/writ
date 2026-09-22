@@ -15,12 +15,28 @@ package writ // github.com/writtendev/writ/engine
 const EventChanged EventKind = "changed"
 const EventCreated EventKind = "created"
 const EventReset EventKind = "reset"
+const FailureKindAuth = writsync.FailureKindAuth
+const FailureKindCanceled = writsync.FailureKindCanceled
+const FailureKindInvalidName = writsync.FailureKindInvalidName
+const FailureKindNetwork = writsync.FailureKindNetwork
+const FailureKindNotFound = writsync.FailureKindNotFound
+const FailureKindRejected = writsync.FailureKindRejected
+const FailureKindUnknown = writsync.FailureKindUnknown
 const OrderByCreatedAtAsc = projection.OrderByCreatedAtAsc
 const OrderByCreatedAtDesc = projection.OrderByCreatedAtDesc
 const OrderByUpdatedAtAsc = projection.OrderByUpdatedAtAsc
 const OrderByUpdatedAtDesc = projection.OrderByUpdatedAtDesc
 const PersonIDKey = identity.PersonIDKey
 const RejectObjectUnavailable = dag.RejectObjectUnavailable
+const RejectSchemaViolation = codec.RejectSchemaViolation
+const TrustStoreOK TrustStoreStatus = "ok"
+const TrustStoreUnconfigured TrustStoreStatus = "unconfigured"
+const TrustStoreUnreadable TrustStoreStatus = "unreadable"
+const VerificationCorruptedSignature = codec.OutcomeCorruptedSignature
+const VerificationPayloadMutated = codec.OutcomePayloadMutated
+const VerificationUnsigned = codec.OutcomeUnsigned
+const VerificationValid = codec.OutcomeValid
+const VerificationWrongKey = codec.OutcomeWrongKey
 
 var ErrAuth = writsync.ErrAuth
 var ErrCycle = state.ErrCycle
@@ -42,7 +58,10 @@ var ErrStoreOpen = errors.New("writ: cannot open store")
 var ErrUnknownRemote = writsync.ErrUnknownRemote
 var ErrUnsupportedFormat = identity.ErrUnsupportedFormat
 
+func CheckTrustStore(ctx context.Context, path string) TrustStoreStatus
 func DeriveSchemaObjectID(namespace string) string
+func EscapeForbidden(s string) string
+func EscapeForbiddenKeepingNewlines(s string) string
 func Fold(ops []codec.Op, rules []Rule) (ObjectState, error)
 func FoldSchema(ops []codec.Op) (Schema, error)
 func Init(ctx context.Context, path string, opts InitOptions) (InitResult, error)
@@ -80,6 +99,8 @@ type Event struct {
 }
 
 type EventKind string
+
+type FailureKind = writsync.FailureKind
 
 type GitDirInfo struct {
 	WorkTree string
@@ -154,6 +175,8 @@ func (*Query) Object(id string) (ObjectResult, error)
 func (*Query) Objects(f ObjectFilter) ([]ObjectResult, error)
 
 type RefreshStats = projection.Stats
+
+type RejectError = codec.RejectError
 
 type RejectReason = codec.RejectReason
 
@@ -242,12 +265,16 @@ type SyncStatus struct {
 	LastSyncedAt *time.Time `json:"last_synced_at,omitempty"`
 }
 
+type TrustStoreStatus string
+
 type TypeUnsynced struct {
 	ObjectType string `json:"object_type"`
 	Unsynced int `json:"unsynced"`
 }
 
 type UnknownOp = state.UnknownOp
+
+type VerificationOutcome = codec.VerificationOutcome
 
 type Vocabularies = codec.Vocabularies
 

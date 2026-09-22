@@ -31,8 +31,6 @@ import (
 
 	"github.com/writtendev/writ/cmd/writ/internal/wire"
 	"github.com/writtendev/writ/engine"
-	"github.com/writtendev/writ/internal/codec"
-	"github.com/writtendev/writ/internal/textsafe"
 )
 
 func runObject(ctx context.Context, defaultDir string, args []string, stdout, stderr io.Writer) int {
@@ -79,7 +77,7 @@ func runObject(ctx context.Context, defaultDir string, args []string, stdout, st
 func declaredTypeNames(types []writ.SchemaType) []string {
 	names := make([]string, 0, len(types))
 	for _, t := range types {
-		names = append(names, textsafe.EscapeForbidden(t.Name))
+		names = append(names, writ.EscapeForbidden(t.Name))
 	}
 	sort.Strings(names)
 	return names
@@ -461,8 +459,8 @@ func parseFieldFlags(fieldRaw, fieldJSONRaw []string, objectType, opType string,
 // literal JSON instead of leaving -field to convert or pass it through.
 func renderObjectMutationErr(w io.Writer, err error) int {
 	code := renderErr(w, err)
-	var rejErr *codec.RejectError
-	if errors.As(err, &rejErr) && rejErr.Reason == codec.RejectSchemaViolation && strings.Contains(rejErr.Error(), "key column") {
+	var rejErr *writ.RejectError
+	if errors.As(err, &rejErr) && rejErr.Reason == writ.RejectSchemaViolation && strings.Contains(rejErr.Error(), "key column") {
 		porcelainln(w, "writ: a keyed-lww key column's value must already be its exact wire encoding -- "+
 			"-field-json <key>=<json> sets it as literal JSON instead of -field's pass-through/conversion")
 	}
@@ -762,7 +760,7 @@ func runObjectShow(ctx context.Context, defaultDir string, args []string, stdout
 		}
 	}
 
-	maybePrintTrustHint(ctx, stderr, targetDir, obj.Verification == "" || obj.Verification == string(codec.OutcomeValid))
+	maybePrintTrustHint(ctx, stderr, targetDir, obj.Verification == "" || obj.Verification == string(writ.VerificationValid))
 
 	return 0
 }
@@ -777,18 +775,18 @@ func runObjectShow(ctx context.Context, defaultDir string, args []string, stdout
 // the original hint fired only for the first reason, leaving "wrong-key on
 // everything, no hint at all" for a typo'd or broken path). allValid
 // short-circuits the hint when every rendered outcome is already valid --
-// the common case, and the one where checkTrustStore's own git-config read
-// would be pure overhead. Porcelain only: --json output carries the
+// the common case, and the one where writ.CheckTrustStore's own git-config
+// read would be pure overhead. Porcelain only: --json output carries the
 // outcome itself, and a script parsing it has no use for a line on stderr
 // it probably discards.
 func maybePrintTrustHint(ctx context.Context, stderr io.Writer, dir string, allValid bool) {
 	if allValid {
 		return
 	}
-	switch checkTrustStore(ctx, dir) {
-	case trustStoreUnconfigured:
+	switch writ.CheckTrustStore(ctx, dir) {
+	case writ.TrustStoreUnconfigured:
 		porcelainln(stderr, "hint: no gpg.ssh.allowedSignersFile configured; signatures cannot be verified as valid")
-	case trustStoreUnreadable:
+	case writ.TrustStoreUnreadable:
 		porcelainln(stderr, "hint: gpg.ssh.allowedSignersFile is set but its file could not be read or parsed; signatures cannot be verified as valid")
 	}
 }
@@ -808,13 +806,13 @@ func maybePrintTrustHint(ctx context.Context, stderr io.Writer, dir string, allV
 // needing the exact bytes reads --json.
 func fieldDisplay(v any) string {
 	if s, ok := v.(string); ok {
-		return textsafe.EscapeForbidden(s)
+		return writ.EscapeForbidden(s)
 	}
 	b, err := json.Marshal(v)
 	if err != nil {
 		return fmt.Sprintf("%v", v)
 	}
-	return textsafe.EscapeForbidden(string(b))
+	return writ.EscapeForbidden(string(b))
 }
 
 type objectListOpts struct {
@@ -949,10 +947,10 @@ func runObjectList(ctx context.Context, defaultDir string, args []string, stdout
 		// is empty for the overwhelmingly common case would just be
 		// trailing whitespace on every row. Tabs stay in the format
 		// string, never inside an escaped %s argument -- porcelainf
-		// escapes U+0009 in data (textsafe.Forbidden), so building this
-		// line by string concatenation first would mangle the very tabs
-		// tabwriter aligns on.
-		if r.Verification != "" && r.Verification != string(codec.OutcomeValid) {
+		// escapes U+0009 in data (writ.EscapeForbidden's table), so
+		// building this line by string concatenation first would mangle
+		// the very tabs tabwriter aligns on.
+		if r.Verification != "" && r.Verification != string(writ.VerificationValid) {
 			allValid = false
 			porcelainf(tw, "%s\t%s\t%s\t%s\t[verification: %s]\n", shortID, r.ObjectType, author, updatedAt, r.Verification)
 		} else {
@@ -977,8 +975,8 @@ func runObjectList(ctx context.Context, defaultDir string, args []string, stdout
 // --json half is already escaped by emitJSON's pass, so leaving this human
 // line raw would be inconsistent within one command for one line of change.
 func authorDisplay(name, email string) string {
-	name = textsafe.EscapeForbidden(strings.TrimSpace(name))
-	email = textsafe.EscapeForbidden(strings.TrimSpace(email))
+	name = writ.EscapeForbidden(strings.TrimSpace(name))
+	email = writ.EscapeForbidden(strings.TrimSpace(email))
 	switch {
 	case name != "" && email != "":
 		return fmt.Sprintf("%s <%s>", name, email)

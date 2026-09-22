@@ -10,9 +10,6 @@ import (
 	"strings"
 
 	"github.com/writtendev/writ/engine"
-	"github.com/writtendev/writ/internal/codec"
-	"github.com/writtendev/writ/internal/identity"
-	"github.com/writtendev/writ/internal/textsafe"
 )
 
 type notFoundError struct {
@@ -39,54 +36,6 @@ func openStore(dir string, opts ...writ.Option) (*writ.Store, error) {
 	return writ.Open(dir, opts...)
 }
 
-// trustStoreHintReason classifies why dir's repository's trust store
-// configuration can't back a "valid" verification outcome, for the object
-// show/list stderr hint (maybePrintTrustHint) that fires when a rendered
-// verification outcome isn't valid.
-type trustStoreHintReason int
-
-const (
-	// trustStoreOK means a gpg.ssh.allowedSignersFile is configured and
-	// its file reads and parses: no hint is warranted for this reason (a
-	// non-valid outcome here is a real wrong-key/unsigned/etc., not an
-	// unconfigured-trust-store artifact).
-	trustStoreOK trustStoreHintReason = iota
-	// trustStoreUnconfigured means no gpg.ssh.allowedSignersFile key is
-	// set at all.
-	trustStoreUnconfigured
-	// trustStoreUnreadable means a gpg.ssh.allowedSignersFile key is set,
-	// but the file it names could not be read or parsed. engine/open.go's
-	// Open treats that the same as unconfigured (ruling 2's extension) —
-	// wrong-key everywhere, for exactly the same underlying reason as the
-	// unconfigured case, just a different cause to name.
-	trustStoreUnreadable
-)
-
-// checkTrustStore classifies dir's repository's trust store configuration
-// for maybePrintTrustHint. It resolves the git directory independently of
-// openStore/writ.Open, the same way engine/open.go itself resolves
-// repoDir before calling identity.AllowedSignersFile — see that
-// function's own doc comment for why this cannot simply read Store's
-// already-loaded identity.
-func checkTrustStore(ctx context.Context, dir string) trustStoreHintReason {
-	gitInfo, err := writ.ResolveGitDir(dir)
-	if err != nil {
-		return trustStoreOK
-	}
-	repoDir := gitInfo.WorkTree
-	if repoDir == "" {
-		repoDir = gitInfo.GitDir
-	}
-	path, err := identity.AllowedSignersFile(ctx, repoDir)
-	if err != nil || path == "" {
-		return trustStoreUnconfigured
-	}
-	if _, err := codec.LoadTrustStore(path); err != nil {
-		return trustStoreUnreadable
-	}
-	return trustStoreOK
-}
-
 // renderErr prints err as the CLI's human error report and returns the
 // exit code that goes with it.
 //
@@ -103,8 +52,8 @@ func checkTrustStore(ctx context.Context, dir string) trustStoreHintReason {
 // that whole class instead of one message of it, and cannot be forgotten
 // by the next error message added anywhere below it. It is a no-op on the
 // fixed strings errLine returns and on any span Go's %q has already
-// escaped (strconv.Quote escapes every textsafe.Forbidden rune), so it
-// costs nothing where there is nothing to escape.
+// escaped (strconv.Quote escapes every code point writ.EscapeForbidden
+// does), so it costs nothing where there is nothing to escape.
 //
 // Escaping inside the engine instead would be the wrong place: that error
 // text is the public API's, shared with callers that are not a terminal.
@@ -166,8 +115,9 @@ func subprocessFailure(err error) bool {
 }
 
 // escapeErrReport returns line -- errLine's assembled error report -- with
-// every textsafe.Forbidden code point escaped as \uXXXX. U+000A is escaped
-// with the rest unless keepLineBreaks, which renderErr sets only for the
+// every forbidden code point (writ.EscapeForbidden's table,
+// spec/identifiers.md §Value character repertoire) escaped as \uXXXX.
+// U+000A is escaped with the rest unless keepLineBreaks, which renderErr sets only for the
 // reports subprocessFailure identifies: there, and only there, a U+000A in
 // the report is a break writ's own format string wrote around a failed
 // subprocess's diagnostic.
@@ -175,8 +125,8 @@ func subprocessFailure(err error) bool {
 // Both halves of that are load-bearing, and each was a round of review.
 //
 // Escaping U+000A unconditionally -- as this did when it was a plain
-// textsafe.EscapeForbidden over the assembled line, Forbidden covering the
-// whole C0 range -- flattens engine/codec/sign.go's ssh-keygen failure onto
+// writ.EscapeForbidden over the assembled line, the C0 range it covers
+// including U+000A -- flattens engine/codec/sign.go's ssh-keygen failure onto
 // one line with a literal escape where the break belonged, losing the
 // diagnostic that capturing the subprocess's combined output exists to
 // surface. A missing, unreadable or passphrase-protected signing key is a
@@ -209,25 +159,10 @@ func subprocessFailure(err error) bool {
 // text is the public API's, shared with callers that are not a terminal.
 // This is writ's own rendering, which is where WRIT-226 puts the escape.
 func escapeErrReport(line string, keepLineBreaks bool) string {
-	escapes := func(r rune) bool {
-		if r == '\n' {
-			return !keepLineBreaks
-		}
-		return textsafe.Forbidden(r)
+	if keepLineBreaks {
+		return writ.EscapeForbiddenKeepingNewlines(line)
 	}
-	if !strings.ContainsFunc(line, escapes) {
-		return line
-	}
-	var b strings.Builder
-	b.Grow(len(line))
-	for _, r := range line {
-		if !escapes(r) {
-			b.WriteRune(r)
-			continue
-		}
-		textsafe.EscapeRune(&b, r)
-	}
-	return b.String()
+	return writ.EscapeForbidden(line)
 }
 
 // errLine is the error report renderErr prints for err, unescaped. Its arms
@@ -237,7 +172,7 @@ func escapeErrReport(line string, keepLineBreaks bool) string {
 // why renderErr escapes what comes back rather than trusting it (see
 // escapeErrReport).
 func errLine(err error) string {
-	var cfgErr *identity.ConfigError
+	var cfgErr *writ.ConfigError
 	if errors.As(err, &cfgErr) {
 		return fmt.Sprintf("writ: %v", cfgErr)
 	}

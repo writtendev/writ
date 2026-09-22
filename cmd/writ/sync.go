@@ -11,7 +11,6 @@ import (
 
 	"github.com/writtendev/writ/cmd/writ/internal/wire"
 	"github.com/writtendev/writ/engine"
-	"github.com/writtendev/writ/internal/sync"
 )
 
 type syncOpts struct {
@@ -184,52 +183,35 @@ func exitCodeFor(err error) int {
 	// the two are different failure modes and the orchestrator plan-gate
 	// decision on WRIT-283 is explicit that code 3's documented meaning
 	// does not widen to cover this.
-	if errors.Is(err, writ.ErrInvalidRemoteName) || errors.Is(err, sync.ErrInvalidRemoteName) {
+	if errors.Is(err, writ.ErrInvalidRemoteName) {
 		return 2
 	}
-	if errors.Is(err, writ.ErrAuth) || errors.Is(err, sync.ErrAuth) {
+	if errors.Is(err, writ.ErrAuth) {
 		return 6
 	}
-	if errors.Is(err, writ.ErrNetwork) || errors.Is(err, sync.ErrNetwork) {
+	if errors.Is(err, writ.ErrNetwork) {
 		return 7
 	}
-	if errors.Is(err, writ.ErrUnknownRemote) || errors.Is(err, sync.ErrUnknownRemote) {
+	if errors.Is(err, writ.ErrUnknownRemote) {
 		return 3
 	}
-	if errors.Is(err, writ.ErrNonFastForward) || errors.Is(err, sync.ErrNonFastForward) {
+	if errors.Is(err, writ.ErrNonFastForward) {
 		return 4
 	}
 
 	var syncErr *writ.SyncError
 	if errors.As(err, &syncErr) {
-		switch syncErr.Kind {
-		case string(sync.FailureKindAuth):
+		switch writ.FailureKind(syncErr.Kind) {
+		case writ.FailureKindAuth:
 			return 6
-		case string(sync.FailureKindNetwork):
+		case writ.FailureKindNetwork:
 			return 7
-		case string(sync.FailureKindInvalidName):
+		case writ.FailureKindInvalidName:
 			return 2
-		case string(sync.FailureKindNotFound):
+		case writ.FailureKindNotFound:
 			return 3
-		case string(sync.FailureKindRejected):
-			if errors.Is(syncErr.Err, writ.ErrNonFastForward) || errors.Is(syncErr.Err, sync.ErrNonFastForward) {
-				return 4
-			}
-			return 1
-		}
-	}
-
-	var gitErr *sync.GitError
-	if errors.As(err, &gitErr) {
-		switch gitErr.Kind {
-		case sync.FailureKindAuth:
-			return 6
-		case sync.FailureKindNetwork:
-			return 7
-		case sync.FailureKindNotFound:
-			return 3
-		case sync.FailureKindRejected:
-			if errors.Is(gitErr.Err, writ.ErrNonFastForward) || errors.Is(gitErr.Err, sync.ErrNonFastForward) {
+		case writ.FailureKindRejected:
+			if errors.Is(syncErr.Err, writ.ErrNonFastForward) {
 				return 4
 			}
 			return 1
@@ -251,19 +233,6 @@ func printSyncError(stderr io.Writer, remote string, err error) {
 		}
 		if syncErr.Unsynced > 0 {
 			porcelainf(stderr, "  %d %s unsynced\n", syncErr.Unsynced, plural(syncErr.Unsynced, "op", "ops"))
-		}
-		return
-	}
-
-	var gitErr *sync.GitError
-	if errors.As(err, &gitErr) {
-		msg := gitErr.Stderr
-		if msg == "" && gitErr.Err != nil {
-			msg = gitErr.Err.Error()
-		}
-		porcelainf(stderr, "writ sync: %s: %s: %s\n", remote, gitErr.Kind, msg)
-		if gitErr.Advice != "" {
-			porcelainf(stderr, "  advice: %s\n", gitErr.Advice)
 		}
 		return
 	}

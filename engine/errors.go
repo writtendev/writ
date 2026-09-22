@@ -3,9 +3,92 @@ package writ
 import (
 	"errors"
 
+	"github.com/writtendev/writ/internal/codec"
 	"github.com/writtendev/writ/internal/gitdir"
 	"github.com/writtendev/writ/internal/projection"
 	writsync "github.com/writtendev/writ/internal/sync"
+)
+
+// RejectError is returned when an op commit or payload fails validation --
+// reader validation of an op that arrived, or producer validation of one
+// about to be signed (spec/op-envelope.md). Its two fields, Reason and
+// Err, leak nothing git-shaped.
+type RejectError = codec.RejectError
+
+// RejectSchemaViolation is the RejectReason a RejectError carries when an
+// op's body violates the type it declares against the schema folded from
+// the log (cmd/writ's renderObjectMutationErr). RejectReason itself, and
+// RejectObjectUnavailable, are already public (see query.go); this is the
+// one further member cmd/writ compares against, not the whole RejectReason
+// catalogue -- unlike FailureKind and VerificationOutcome below, this is
+// not one of the two closed catalogues the WRIT-296 plan's orchestrator
+// decision widened to a complete export.
+const RejectSchemaViolation = codec.RejectSchemaViolation
+
+// VerificationOutcome classifies the result of verifying an op commit's
+// signature (codec.Verify, surfaced as Object.Verification and
+// ObjectResult.Verification, both plain strings). Exported as a complete
+// catalogue, not only VerificationValid -- the one member cmd/writ
+// compares against -- per WRIT-296's orchestrator decision 2: docs/cli-json.md
+// already publishes every member in --json, so a consumer branching on
+// e.g. "wrong-key" hardcodes a string either way, and a partial enum is a
+// worse promise than a complete one.
+type VerificationOutcome = codec.VerificationOutcome
+
+const (
+	// VerificationValid indicates the signature is cryptographically
+	// valid and the key is authorized in the trust store.
+	VerificationValid = codec.OutcomeValid
+
+	// VerificationUnsigned indicates the commit has no signature header.
+	VerificationUnsigned = codec.OutcomeUnsigned
+
+	// VerificationWrongKey indicates the signature is cryptographically
+	// valid, but the key is not authorized for the author.
+	VerificationWrongKey = codec.OutcomeWrongKey
+
+	// VerificationPayloadMutated indicates the signature does not match
+	// the commit payload bytes.
+	VerificationPayloadMutated = codec.OutcomePayloadMutated
+
+	// VerificationCorruptedSignature indicates the signature header is
+	// malformed or unparseable.
+	VerificationCorruptedSignature = codec.OutcomeCorruptedSignature
+)
+
+// FailureKind classifies a SyncError's Kind field -- a git transport or
+// remote operation failure. Exported as a complete catalogue, not only the
+// five members cmd/writ compares against, for the same reason
+// VerificationOutcome is: docs/cli-json.md already publishes every member
+// in --json.
+type FailureKind = writsync.FailureKind
+
+const (
+	// FailureKindAuth indicates authentication rejection.
+	FailureKindAuth = writsync.FailureKindAuth
+
+	// FailureKindNetwork indicates a network or connectivity failure.
+	FailureKindNetwork = writsync.FailureKindNetwork
+
+	// FailureKindRejected indicates the remote rejected a ref update
+	// (non-fast-forward, hook decline).
+	FailureKindRejected = writsync.FailureKindRejected
+
+	// FailureKindNotFound indicates the remote or repository was not
+	// found.
+	FailureKindNotFound = writsync.FailureKindNotFound
+
+	// FailureKindInvalidName indicates the remote name itself is
+	// syntactically unusable, distinct from FailureKindNotFound, which
+	// means the name is well-formed but not configured.
+	FailureKindInvalidName = writsync.FailureKindInvalidName
+
+	// FailureKindCanceled indicates the operation was canceled or timed
+	// out.
+	FailureKindCanceled = writsync.FailureKindCanceled
+
+	// FailureKindUnknown indicates an unclassified failure.
+	FailureKindUnknown = writsync.FailureKindUnknown
 )
 
 var (

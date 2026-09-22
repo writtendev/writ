@@ -37,6 +37,10 @@ func TestAPIShapeNoGitInternalsLeak(t *testing.T) {
 		writ.InitOptions{},
 		writ.InitResult{},
 		writ.RemoteInit{},
+		writ.TrustStoreStatus(""),
+		writ.RejectError{},
+		writ.VerificationOutcome(""),
+		writ.FailureKind(""),
 	}
 
 	report := func(format string, args ...any) { t.Errorf(format, args...) }

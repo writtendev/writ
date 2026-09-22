@@ -16,7 +16,6 @@ import (
 	"github.com/writtendev/writ/cmd/writ/internal/wire"
 	"github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/internal/textdiff"
-	"github.com/writtendev/writ/internal/textsafe"
 )
 
 // schemaSourceFileName is the one working-tree file this command family
@@ -202,7 +201,7 @@ func runSchemaApply(ctx context.Context, defaultDir string, args []string, stdou
 		// pass.
 		display := make([]string, len(planRes.namespaces))
 		for i, ns := range planRes.namespaces {
-			display[i] = textsafe.EscapeForbidden(ns)
+			display[i] = writ.EscapeForbidden(ns)
 		}
 		porcelainf(stdout, "This repository now declares %d %s: %s.\n", len(planRes.namespaces), word, strings.Join(display, ", "))
 	} else {
@@ -696,7 +695,7 @@ func conflictKey(c writ.SchemaConflict) string {
 // returns a string rather than printing one — a second caller need not be
 // a terminal.
 func describeSchemaConflict(c writ.SchemaConflict) string {
-	reason := textsafe.EscapeForbidden(c.Reason)
+	reason := writ.EscapeForbidden(c.Reason)
 	switch {
 	case c.ObjectType != "":
 		return fmt.Sprintf("object_type %q: %s (schema object(s): %s)", c.ObjectType, reason, strings.Join(c.ObjectIDs, ", "))
@@ -1251,8 +1250,9 @@ func renderSchemaPlanPorcelain(w io.Writer, r *schemaPlanResult) {
 }
 
 // escapeRenderedSchemaSource returns src -- schemasrc.Render's output --
-// with every textsafe.Forbidden code point escaped as \uXXXX, except
-// U+000A. It exists only for renderSchemaPlanPorcelain's local diff-display
+// with every forbidden code point (writ.EscapeForbidden's table) escaped
+// as \uXXXX, except U+000A. It exists only for renderSchemaPlanPorcelain's
+// local diff-display
 // copy of currentSource/plannedSource: buildSchemaPlan calls Render on the
 // unescaped schema deliberately, so r.currentSource and r.plannedSource
 // themselves -- what toWirePlan hands emitJSON for --json -- stay Render's
@@ -1294,21 +1294,5 @@ func renderSchemaPlanPorcelain(w io.Writer, r *schemaPlanResult) {
 // pass turns into a single backslash followed by u202e. One backslash
 // versus two keeps the renderings visibly distinct.
 func escapeRenderedSchemaSource(src []byte) string {
-	s := string(src)
-	hasForbidden := strings.ContainsFunc(s, func(r rune) bool {
-		return r != '\n' && textsafe.Forbidden(r)
-	})
-	if !hasForbidden {
-		return s
-	}
-	var b strings.Builder
-	b.Grow(len(s))
-	for _, r := range s {
-		if r == '\n' || !textsafe.Forbidden(r) {
-			b.WriteRune(r)
-			continue
-		}
-		textsafe.EscapeRune(&b, r)
-	}
-	return b.String()
+	return writ.EscapeForbiddenKeepingNewlines(string(src))
 }
