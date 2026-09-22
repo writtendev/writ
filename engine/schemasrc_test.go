@@ -48,3 +48,34 @@ func TestValidateNamespace(t *testing.T) {
 		})
 	}
 }
+
+// TestSchemaSourceZeroValueAndNil pins the non-panicking treatment that
+// SchemaSource.Namespace's and SchemaSource.Compile's godoc both promise
+// for a nil *SchemaSource and for the zero value writ.SchemaSource{} —
+// neither of which ParseSchemaSource ever produces, but both of which the
+// `s == nil || s.file == nil` guards in engine/schemasrc.go exist to
+// handle. Without this test, narrowing those guards to `s == nil` leaves
+// go test ./engine/... ./cmd/... fully green: nothing else calls a method
+// on an unparsed SchemaSource, and api_test.go's writ.SchemaSource{} entry
+// only reflects over the type.
+func TestSchemaSourceZeroValueAndNil(t *testing.T) {
+	t.Run("zero value", func(t *testing.T) {
+		var s writ.SchemaSource
+		if got := s.Namespace(); got != "" {
+			t.Errorf("Namespace() = %q, want \"\"", got)
+		}
+		if _, err := s.Compile("obj"); err == nil {
+			t.Error("Compile() = nil error, want a non-nil error")
+		}
+	})
+
+	t.Run("nil pointer", func(t *testing.T) {
+		var s *writ.SchemaSource
+		if got := s.Namespace(); got != "" {
+			t.Errorf("Namespace() = %q, want \"\"", got)
+		}
+		if _, err := s.Compile("obj"); err == nil {
+			t.Error("Compile() = nil error, want a non-nil error")
+		}
+	})
+}
