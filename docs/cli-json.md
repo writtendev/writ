@@ -145,7 +145,7 @@ Parses `writ.schema`, folds the schema objects already in the repository, and re
 | `conflicts[].object_type` | string | Set for an `object_type` collision between two schema objects; omitted for a namespace-only collision. |
 | `conflicts[].namespace` | string | Set for a namespace collision, and echoed on an `object_type` collision when known. |
 | `conflicts[].object_ids` | array | The schema object ids involved. |
-| `conflicts[].reason` | string | Human-readable explanation. |
+| `conflicts[].reason` | string | Human-readable explanation. Ends `: invariant <token>` only when the reason reports one field rule failing `spec.ValidateFieldRule` on its own, before it is ever checked against a sibling (e.g. `field rule (set-kind, 1, kind) is invalid and was not installed: ...: invariant enum-no-values`) — `spec/schema-ops.md` §9 documents the token vocabulary. A reason from a cross-rule agreement check (two rules disagreeing over a shared target or a keyed-lww key column) also starts `field rule (op_type, op_version, field) ...` but never carries a token (e.g. `field rule (configure, 2, mode) reuses target "mode" already bound by (configure, 1, mode), but they disagree on strategy ...`); a consumer must check for the suffix itself, not infer it from the shared `field rule (...)` prefix. |
 
 A refused plan (an invalid file, or an edit that would remove a declaration) exits `1` and writes plain-text diagnostics to `stderr`; no `SchemaPlan` JSON is emitted.
 

@@ -54,12 +54,12 @@ producer would have refused. A blank cell means the split does not apply
 | `testdata/ref-names/vectors.json` | Normative | producer | Ref-naming test vectors (valid/invalid) and pinned refspecs |
 | `testdata/envelopes/` | Normative | producer | Envelope payload instances, valid and invalid; `invalid/index.json` records each expected rejection |
 | `testdata/forward-compat/` | Normative | reader | Forward-compatibility instances (unknown types, future versions, unknown fields) and synthetic reader profile (+ index.json) |
-| `testdata/anchors/valid/`, `testdata/anchors/invalid/` | Normative | producer | Anchor instances; `invalid/index.json` records each expected rejection and whether the schema or an invariant catches it |
+| `testdata/anchors/valid/`, `testdata/anchors/invalid/` | Normative | producer | Anchor instances; `invalid/index.json` records each expected rejection and whether the schema or an invariant catches it, and, for an invariant, which one in a sibling `invariant_rule` field |
 | `testdata/anchors/github/` | Informative | | GitHub-position conversion vectors, illustrating a mapping whose enforcement lives in whatever imports these comments, not here |
 | `testdata/fold/order/`, `testdata/fold/merge/` | Normative | reader | Fold test vectors: deterministic total order test vectors and merge strategy vectors |
 | `testdata/value-types/valid/`, `testdata/value-types/invalid/` | Normative | producer | A valid and invalid instance per catalogue value type; `invalid/index.json` records each expected rejection |
 | `testdata/references/valid/`, `testdata/references/invalid/` | Normative | producer | Reference instances; `invalid/index.json` records each expected rejection |
-| `testdata/schema-ops/valid/`, `testdata/schema-ops/invalid/` | Normative | producer | Schema operation payload instances; `invalid/index.json` records each expected rejection (schema, invariant, or canonicalization) |
+| `testdata/schema-ops/valid/`, `testdata/schema-ops/invalid/` | Normative | producer | Schema operation payload instances; `invalid/index.json` records each expected rejection (schema, invariant, or canonicalization), and, for an invariant, which one in a sibling `invariant_rule` field |
 | `testdata/schema-ops/field-rules.json` | Normative | reader | The bootstrap field merge rules for the schema vocabulary itself — the one rule table that never comes from the log |
 | `testdata/schema-rules/matrix.json` | Normative | reader | The rule-validation matrix (axis D of the schema-parametric corpus): every (strategy, value type) cell, including untyped, asserted against `spec.ValidateFieldRule` — the gate `engine/schema.go`'s `RulesFromSchemas` applies to every rule sourced from the log, since a reader has no producer step to lean on |
 | `testdata/resolution/` | Normative | reader | Resolution test vectors (`cases/*.json`) and outcome index (`index.json`) |

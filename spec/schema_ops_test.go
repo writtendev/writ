@@ -3,6 +3,7 @@ package spec_test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -172,6 +173,90 @@ func TestValidSchemaOpsVectors(t *testing.T) {
 	}
 }
 
+// fieldRuleSentinelInventory accounts for every token in
+// spec.FieldRuleSentinels that no testdata/schema-ops/invalid/index.json
+// vector names, one line each saying why -- so a sentinel with neither a
+// vector nor an inventory entry fails TestFieldRuleSentinelInventoryComplete
+// below by name, instead of the gap sitting unnoticed. Every reason is one
+// of two shapes:
+//
+//   - "schema": the JSON Schema rejects such a body before
+//     schemaOpsInvariants ever calls spec.ValidateFieldRule, so an
+//     "invariant"-kind vector -- which the harness requires to be
+//     schema-*accepted* -- could not exist for it. Most of these already
+//     have a "schema"-kind vector proving the schema-level rejection by a
+//     different route (named below where one exists).
+//   - "pinned": schemaOpsInvariants hardcodes the field itself
+//     (OpVersion: 1), so no vector's body could vary it.
+//   - "deferred": reachable from a schema-valid define-field body, and
+//     covered by a spec/fieldrules_test.go unit case
+//     (TestValidateFieldRuleSentinelCoverage), but minting a conformance
+//     vector for it is out of scope here -- see WRIT-306 §F, a question
+//     left for a human ruling rather than settled in this diff. The corpus
+//     is NOT a complete statement of every schema-vocabulary producer
+//     invariant for this reason; this inventory is what makes that gap
+//     visible instead of silent.
+var fieldRuleSentinelInventory = map[string]string{
+	"empty-op-type":                "schema: body.op_type is required and $ref's op_type_name, a non-empty grammar",
+	"invalid-op-version":           "pinned: schemaOpsInvariants hardcodes FieldRule.OpVersion to 1 (the outer op's own op_version >= 1 requirement, unrelated to body.op_version's decimal-string encoding)",
+	"empty-field":                  "schema: body.field is required and $ref's field_name, a non-empty grammar",
+	"invalid-field-identifier":     "schema: body.field is $ref's field_name; a schema-valid field is already a valid identifier",
+	"invalid-target-identifier":    "schema: body.target is $ref's target_name; define-field-target-grammar.json (kind: schema) already exercises this grammar",
+	"invalid-key-identifier":       "schema: body.key items are $ref's key_column_name; define-field-key-column-grammar.json (kind: schema) already exercises this grammar",
+	"unknown-strategy":             "schema: body.strategy is $ref's strategy, the closed catalogue enum; define-field-unknown-strategy.json (kind: schema) already exercises this",
+	"unknown-value-type":           "schema: body.value_type is $ref's value_type, the closed catalogue enum; define-field-unknown-value-type.json (kind: schema) already exercises this",
+	"key-types-unknown-value-type": "schema: body.key_types' additionalProperties is $ref's value_type, the same closed catalogue enum a key_types entry cannot escape",
+	"enum-no-values":               "deferred: value_type enum with an absent enum array is schema-valid (enum's own minItems:1 only bounds a *present* array)",
+	"tombstone-value-type":         "deferred: tombstone with a declared non-bool value_type is schema-valid",
+	"lattice-value-type":           "deferred: lattice with a declared non-enum value_type is schema-valid",
+	"lattice-element-not-in-enum":  "deferred: a lattice element outside its own enum is schema-valid (lattice and enum are just two string arrays to the schema)",
+	"key-types-missing-column":     "deferred: key_types with the right cardinality but the wrong column names is schema-valid",
+	"key-types-non-keyed-lww":      "deferred: key_types declared on a non-keyed-lww strategy is schema-valid",
+}
+
+// TestFieldRuleSentinelInventoryComplete asserts fieldRuleSentinelInventory
+// and testdata/schema-ops/invalid/index.json between them account for every
+// token in spec.FieldRuleSentinels exactly once: a sentinel named by
+// neither is an invariant nobody has decided anything about, and a sentinel
+// named by both would make the inventory's "no vector names this" claim
+// false.
+func TestFieldRuleSentinelInventoryComplete(t *testing.T) {
+	rawIndex, err := spec.FS.ReadFile("testdata/schema-ops/invalid/index.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var index []struct {
+		Rejects       string `json:"rejects"`
+		InvariantRule string `json:"invariant_rule,omitempty"`
+	}
+	if err := json.Unmarshal(rawIndex, &index); err != nil {
+		t.Fatalf("decoding index.json: %v", err)
+	}
+	namedByVector := make(map[string]bool)
+	for _, entry := range index {
+		if entry.Rejects == "invariant" && entry.InvariantRule != "" {
+			namedByVector[entry.InvariantRule] = true
+		}
+	}
+
+	for token := range fieldRuleSentinelInventory {
+		if _, ok := spec.FieldRuleSentinels[token]; !ok {
+			t.Errorf("fieldRuleSentinelInventory names %q, which is not a key of spec.FieldRuleSentinels", token)
+		}
+		if namedByVector[token] {
+			t.Errorf("fieldRuleSentinelInventory names %q, but a testdata/schema-ops/invalid/index.json vector also names it as its invariant_rule -- remove it from the inventory", token)
+		}
+	}
+	for token := range spec.FieldRuleSentinels {
+		if namedByVector[token] {
+			continue
+		}
+		if _, ok := fieldRuleSentinelInventory[token]; !ok {
+			t.Errorf("sentinel %q has neither a testdata/schema-ops/invalid/index.json vector naming it nor a fieldRuleSentinelInventory entry explaining why not", token)
+		}
+	}
+}
+
 func TestInvalidSchemaOpsVectors(t *testing.T) {
 	_, schSch := compileSchemaOpsSchemas(t)
 
@@ -183,7 +268,17 @@ func TestInvalidSchemaOpsVectors(t *testing.T) {
 		File     string `json:"file"`
 		Rejects  string `json:"rejects"`
 		Category string `json:"category,omitempty"`
-		Reason   string `json:"reason"`
+		// InvariantRule names, for a "rejects": "invariant" entry, the token
+		// spec.FieldRuleSentinels is keyed by -- the sentinel
+		// schemaOpsInvariants' error must wrap for this vector to bind to
+		// the rule its "reason" actually claims. Deliberately its own field
+		// rather than reusing Category: Category is already bound to
+		// spec/canonicalization.md's rejection-category vocabulary
+		// ("not-canonical", "duplicate-key"), and overloading one field
+		// with two closed vocabularies in one file is the exact trap this
+		// binds shut (WRIT-306).
+		InvariantRule string `json:"invariant_rule,omitempty"`
+		Reason        string `json:"reason"`
 	}
 	if err := json.Unmarshal(rawIndex, &index); err != nil {
 		t.Fatalf("decoding index.json: %v", err)
@@ -216,6 +311,9 @@ func TestInvalidSchemaOpsVectors(t *testing.T) {
 			if err != nil {
 				t.Fatalf("reading instance: %v", err)
 			}
+			if entry.Rejects != "invariant" && entry.InvariantRule != "" {
+				t.Fatalf("%s: rejects %q does not take invariant_rule, but index.json sets it to %q", entry.File, entry.Rejects, entry.InvariantRule)
+			}
 			switch entry.Rejects {
 			case "schema":
 				inst, err := jsonschema.UnmarshalJSON(bytes.NewReader(raw))
@@ -233,12 +331,27 @@ func TestInvalidSchemaOpsVectors(t *testing.T) {
 				if err := schSch.Validate(inst); err != nil {
 					t.Errorf("schema rejected an invariant-kind vector (%v); expected only invariant to fail: %s", err, entry.Reason)
 				}
+				sentinel, ok := spec.FieldRuleSentinels[entry.InvariantRule]
+				if !ok {
+					t.Fatalf("%s: index.json names unknown or missing invariant_rule %q", entry.File, entry.InvariantRule)
+				}
 				var p map[string]any
 				if err := json.Unmarshal(raw, &p); err != nil {
 					t.Fatal(err)
 				}
-				if err := schemaOpsInvariants(p); err == nil {
+				// schemaOpsInvariants returns at most one error --
+				// ValidateFieldRule's branches return on the first
+				// violation -- so a match against the named sentinel here
+				// already means no other branch fired first; there is no
+				// second call to make with every other rule held to
+				// "accept", unlike the anchors and persons tables, because
+				// there is no way to invoke one ValidateFieldRule branch in
+				// isolation from the others.
+				err = schemaOpsInvariants(p)
+				if err == nil {
 					t.Errorf("invariant accepted the instance; expected rejection: %s", entry.Reason)
+				} else if !errors.Is(err, sentinel) {
+					t.Errorf("invariant rejected the instance for a different reason than invariant_rule %q names (got %v); expected: %s", entry.InvariantRule, err, entry.Reason)
 				}
 			case "canonicalization":
 				switch entry.Category {
