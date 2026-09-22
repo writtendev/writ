@@ -40,9 +40,11 @@ func ParseSchemaSource(name string, src []byte) (*SchemaSource, error) {
 }
 
 // Namespace returns the namespace this source file declares
-// (spec/schema-ops.md §2's bare-form grammar).
+// (spec/schema-ops.md §2's bare-form grammar). A nil *SchemaSource or the
+// zero value writ.SchemaSource{} — neither of which ParseSchemaSource
+// ever produces — both report "" rather than panicking.
 func (s *SchemaSource) Namespace() string {
-	if s == nil {
+	if s == nil || s.file == nil {
 		return ""
 	}
 	return s.file.Namespace
@@ -50,12 +52,16 @@ func (s *SchemaSource) Namespace() string {
 
 // Compile compiles s into the canonical spec/schema-ops.md v1 op sequence
 // that would bring a schema object identified by objectID in line with
-// what s declares — every create/define-type/define-op/define-field op a
-// fresh apply of s would need, in canonical order. It performs no I/O and
-// appends nothing; a caller compares the result against a schema object's
-// already-folded state to compute what, if anything, to append.
+// what s declares — the op sequence a fresh apply of s would need, in
+// canonical order. It performs no I/O and appends nothing; a caller
+// compares the result against a schema object's already-folded state to
+// compute what, if anything, to append.
+//
+// A nil *SchemaSource or the zero value writ.SchemaSource{} — neither of
+// which ParseSchemaSource ever produces — both report an error rather
+// than panicking, the same treatment Namespace gives them.
 func (s *SchemaSource) Compile(objectID string) ([]Envelope, error) {
-	if s == nil {
+	if s == nil || s.file == nil {
 		return nil, fmt.Errorf("writ: schema source is nil")
 	}
 	return schemasrc.Compile(s.file, objectID)
@@ -80,13 +86,12 @@ func RenderSchemaSource(s Schema) ([]byte, error) {
 // ValidateNamespace reports whether name satisfies the same namespace
 // grammar a `namespace` declaration enforces at parse time
 // (spec/schema-ops.md §2: non-empty, at most 64 characters, matching
-// ^[a-z][a-z0-9-]*$, and not a reserved word), without a source file to
-// parse it from. cmd/writ's `writ init` uses this to validate a namespace
-// a human supplies for a starter writ.schema before writing it; see
-// schemasrc.ValidateNamespace's own doc comment for why synthesizing a
-// one-line source file and parsing it back is not a safe substitute (a
-// namespace containing a newline would inject further declarations
-// instead of being rejected).
+// ^[a-z][a-z0-9-]*$, and not a reserved word), for a caller that has a
+// namespace string before there is any writ.schema source to parse it
+// from. See schemasrc.ValidateNamespace's own doc comment for why
+// synthesizing a one-line source file and parsing it back is not a safe
+// substitute (a namespace containing a newline would inject further
+// declarations instead of being rejected).
 func ValidateNamespace(name string) error {
 	return schemasrc.ValidateNamespace(name)
 }
