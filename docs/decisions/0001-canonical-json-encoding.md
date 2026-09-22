@@ -40,7 +40,7 @@ implemented directly against `encoding/json`, `unicode/utf16`, and
 
 ## Decision
 
-Bespoke, implemented in `engine/codec/canonicaljson`. Reasoning:
+Bespoke, implemented in `internal/codec/canonicaljson`. Reasoning:
 
 - **House rule is stdlib-first, and this algorithm doesn't strain the
   standard library.** `encoding/json` with `UseNumber()` gives a
@@ -95,7 +95,7 @@ Bespoke, implemented in `engine/codec/canonicaljson`. Reasoning:
 
 ## Prototype and test vectors
 
-`engine/codec/canonicaljson/canonicaljson.go`, with vectors covering key ordering
+`internal/codec/canonicaljson/canonicaljson.go`, with vectors covering key ordering
 (ASCII, nested, duplicate keys, prefix-key tie-breaks, the UTF-16-vs-UTF-8
 surrogate-pair case), string escaping (all five shorthand escapes, other
 control characters, unescaped forward slash, raw non-ASCII passthrough),
