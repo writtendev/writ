@@ -11,21 +11,30 @@ import (
 
 func TestDocCompleteness(t *testing.T) {
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", func(fi os.FileInfo) bool {
-		return !strings.HasSuffix(fi.Name(), "_test.go")
-	}, parser.ParseComments)
+	entries, err := os.ReadDir(".")
 	if err != nil {
-		t.Fatalf("parser.ParseDir failed: %v", err)
+		t.Fatalf("ReadDir: %v", err)
 	}
 
-	pkg, ok := pkgs["writ"]
-	if !ok {
-		t.Fatal("package writ not found in directory")
+	files := map[string]*ast.File{}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, name, nil, parser.ParseComments)
+		if err != nil {
+			t.Fatalf("ParseFile %s: %v", name, err)
+		}
+		files[name] = file
+	}
+	if len(files) == 0 {
+		t.Fatal("no non-test .go files found in directory")
 	}
 
 	// Check package level doc in at least one file
 	hasPkgDoc := false
-	for _, file := range pkg.Files {
+	for _, file := range files {
 		if file.Doc != nil && strings.TrimSpace(file.Doc.Text()) != "" {
 			hasPkgDoc = true
 			break
@@ -36,7 +45,7 @@ func TestDocCompleteness(t *testing.T) {
 	}
 
 	// Inspect all AST declarations across all files
-	for filename, file := range pkg.Files {
+	for filename, file := range files {
 		for _, decl := range file.Decls {
 			switch d := decl.(type) {
 			case *ast.FuncDecl:

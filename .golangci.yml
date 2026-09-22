@@ -1,0 +1,36 @@
+version: "2"
+
+linters:
+  settings:
+    staticcheck:
+      # staticcheck's own defaults, not golangci-lint's superset of them:
+      # golangci-lint additionally enables the QF* quickfix/refactor prompts
+      # (not defect reports — QF1001's De Morgan rewrite and QF1012's
+      # WriteString(Sprintf(...))->Fprintf trade would each make the tree
+      # harder to read or grow a new errcheck exclusion) and drops ST1023
+      # from upstream staticcheck's own default exclusion list.
+      checks:
+        - all
+        - -QF*
+        - -ST1000
+        - -ST1003
+        - -ST1016
+        - -ST1020
+        - -ST1021
+        - -ST1022
+        - -ST1023 # in upstream staticcheck's default exclusions
+  exclusions:
+    presets:
+      # v1's default exclusion set (EXC0001), which v2 dropped as a default
+      # rather than a judgment. EXC0001 covers unchecked Close, Flush,
+      # os.Remove(All)?, os.(Un)?Setenv, and fmt.Fprint*/Fprintln errors, not
+      # only Close. Every non-test site behind it today is a read path (a
+      # file or git-object reader's Close, a CLI Fprint*) or disposable
+      # cleanup (a test-fixture scratch dir's RemoveAll, a subprocess env
+      # var's Setenv), so there is no write-path failure hiding behind this
+      # exclusion. Cost, accepted: the pattern is broad enough that a future
+      # Close on a file opened for writing, or a future Flush/RemoveAll/
+      # Setenv failure anywhere, would also go unchecked, rather than the
+      # 402 hand-written suppressions the alternative would need for sites
+      # that do not exist.
+      - std-error-handling
