@@ -8,15 +8,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
-	"github.com/writtendev/writ/internal/dag"
-	"github.com/writtendev/writ/internal/gitdir"
-	"github.com/writtendev/writ/internal/identity"
+	"github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/internal/schemasrc"
-	"github.com/writtendev/writ/internal/sync"
 )
 
 type initOpts struct {
@@ -41,32 +37,23 @@ func newInitFlagSet(defaultDir string) (*flag.FlagSet, *initOpts) {
 const namespaceGrammar = "^[a-z][a-z0-9-]*$, at most 64 characters, not a writ.schema reserved word"
 
 // resolveNamespace decides the namespace for the starter writ.schema this
-// run is about to write. It is called only when the caller has determined
-// one is actually due — a work tree with no writ.schema yet — and it must
-// be called before EnsureWriterID's first git-config write, so that a
-// refusal here leaves the repository untouched rather than
-// half-configured (dispatch decision on WRIT-220's plan).
+// run is about to write. It is called only once writ.Init has reported one
+// is due and no --namespace flag supplied one
+// (writ.ErrStarterNamespaceRequired) -- which writ.Init only returns
+// before its own first git-config write, so a refusal here leaves the
+// repository exactly as writ.Init already left it: untouched.
 //
-// writ init never derives a namespace from anything: a bare directory
-// name is not a public package name anyone chose, and since WRIT-199 and
-// WRIT-217 the namespace is exactly that — baked into the schema object's
+// writ init never derives a namespace from anything: a bare directory name
+// is not a public package name anyone chose, and since WRIT-199 and
+// WRIT-217 the namespace is exactly that -- baked into the schema object's
 // id and into every wire type the schema declares, permanently.
 //
-//   - flagValue supplied: validated, or refused naming the flag.
-//   - flagValue absent, interactive: prompted once on stderr with no
-//     suggested default; an empty answer, EOF, or an invalid answer
-//     refuses immediately, with no retry loop.
-//   - flagValue absent, non-interactive: refused outright, naming
-//     --namespace. This is the failure WRIT-220 exists to produce instead
-//     of a silent default.
-func resolveNamespace(flagValue string, stdin io.Reader, interactive bool, stderr io.Writer) (string, error) {
-	if flagValue != "" {
-		if err := schemasrc.ValidateNamespace(flagValue); err != nil {
-			return "", fmt.Errorf("--namespace: %w (must match %s)", err, namespaceGrammar)
-		}
-		return flagValue, nil
-	}
-
+//   - interactive: prompted once on stderr with no suggested default; an
+//     empty answer, EOF, or an invalid answer refuses immediately, with no
+//     retry loop.
+//   - non-interactive: refused outright, naming --namespace. This is the
+//     failure WRIT-220 exists to produce instead of a silent default.
+func resolveNamespace(stdin io.Reader, interactive bool, stderr io.Writer) (string, error) {
 	if !interactive {
 		return "", fmt.Errorf("writ.schema does not exist yet and no --namespace was given; pass --namespace <name>, matching %s", namespaceGrammar)
 	}
@@ -75,24 +62,24 @@ func resolveNamespace(flagValue string, stdin io.Reader, interactive bool, stder
 	line, err := bufio.NewReader(stdin).ReadString('\n')
 	if line == "" && errors.Is(err, io.EOF) {
 		// interactive is isTerminal(stdin) && isTerminal(stderr)
-		// (cmd/writ/main.go), so every non-terminal stdin — a pipe,
+		// (cmd/writ/main.go), so every non-terminal stdin -- a pipe,
 		// /dev/null, or whatever cron, systemd, `docker run` without
-		// `-i`, and GitHub Actions `run:` steps attach — already took the
-		// !interactive branch above and never reaches this prompt at all.
-		// The only way to land here with line == "" and an immediate EOF
-		// is a human pressing Ctrl-D at the prompt above on a real
-		// terminal: input ended without the human answering. That is a
-		// different fact from the human pressing enter on an empty line
-		// (err == nil, line == "\n", handled below), so it gets the same
-		// message a non-interactive run would have produced instead of
-		// "no namespace entered", which would blame a human who did
-		// answer — by declining.
+		// `-i`, and GitHub Actions `run:` steps attach -- already took
+		// the !interactive branch above and never reaches this prompt at
+		// all. The only way to land here with line == "" and an
+		// immediate EOF is a human pressing Ctrl-D at the prompt above on
+		// a real terminal: input ended without the human answering. That
+		// is a different fact from the human pressing enter on an empty
+		// line (err == nil, line == "\n", handled below), so it gets the
+		// same message a non-interactive run would have produced instead
+		// of "no namespace entered", which would blame a human who did
+		// answer -- by declining.
 		//
 		// The prompt above deliberately has no trailing newline (the
 		// answer is meant to be typed right after it), and Ctrl-D is the
 		// only refusal path that returns with nothing having echoed one
 		// (the empty-answer and invalid-answer paths below both follow a
-		// human's own Return keypress) — so without this Fprintln, a
+		// human's own Return keypress) -- so without this Fprintln, a
 		// Ctrl-D would run the prompt and this refusal together on one
 		// line (WRIT-220 review round 2).
 		fmt.Fprintln(stderr)
@@ -108,15 +95,16 @@ func resolveNamespace(flagValue string, stdin io.Reader, interactive bool, stder
 	return line, nil
 }
 
-// initMessage renders err for writ init's own output. An identity.ConfigError
-// signs its message with "(run 'writ init' to configure)", which is the right
-// advice from every other command and the wrong advice from this one: it tells
-// the reader to run what they are already running, and implies init failed at
-// something it never attempts. writ does not write signing configuration for
-// anyone — it prints the git config lines and expects the user to run them,
-// which is what the reader sees directly below each of these warnings.
+// initMessage renders err for writ init's own output. A *writ.ConfigError
+// signs its message with "(run 'writ init' to configure)", which is the
+// right advice from every other command and the wrong advice from this
+// one: it tells the reader to run what they are already running, and
+// implies init failed at something it never attempts. writ does not write
+// signing configuration for anyone -- it prints the git config lines and
+// expects the user to run them, which is what the reader sees directly
+// below each of these warnings.
 func initMessage(err error) string {
-	var cfgErr *identity.ConfigError
+	var cfgErr *writ.ConfigError
 	if errors.As(err, &cfgErr) {
 		return cfgErr.Message()
 	}
@@ -136,10 +124,10 @@ func initMessage(err error) string {
 // stopped giving: that told a reader init had failed to configure signing,
 // which init never attempts. This is a run that genuinely stopped half-way,
 // and re-running genuinely finishes it. Re-running is also safe, which is the
-// part worth stating out loud — EnsureWriterID and EnsureRepoID reuse what is
+// part worth stating out loud -- writ.Init reuses whatever identity is
 // already in config, so a second run never mints a second writer-id for this
 // device. That would split one device's ops across two ref namespaces.
-func reportPartialInit(stderr io.Writer, writerID identity.WriterID, repoID identity.RepoID, done, pending []string) {
+func reportPartialInit(stderr io.Writer, writerID, repoID string, done, pending []string) {
 	fmt.Fprintf(stderr, "writ init: stopped part-way; the repository is half-configured\n")
 	fmt.Fprintf(stderr, "  in git config now: writ.writerId %s, writ.repoId %s\n", writerID, repoID)
 	if len(done) > 0 {
@@ -155,12 +143,12 @@ func reportPartialInit(stderr io.Writer, writerID identity.WriterID, repoID iden
 // configure, at the end of a run that otherwise finished: unlike
 // reportPartialInit, nothing here stopped -- every other remote got its
 // fetch refspec, and identity and the starter schema file (if due) ran to
-// completion. This is what step 6 prints instead of aborting when Ensure's
-// existence/name gate rejects a *discovered* remote (a url-less section, or
-// a "-"-leading name) rather than one the caller asked for by name -- see
-// that step's comment. A remote writ merely discovered being unusable is
-// reported here, not remedied: writ was never asked to touch it, so there
-// is no advice to give about it.
+// completion. This is what runInit prints instead of aborting when a
+// discovered remote's existence/name gate rejects it (a url-less section,
+// or a "-"-leading name) rather than one the caller asked for by name. A
+// remote writ merely discovered being unusable is reported here, not
+// remedied: writ was never asked to touch it, so there is no advice to
+// give about it.
 func reportSkippedRemotes(stderr io.Writer, configured, skippedReasons []string) {
 	fmt.Fprintf(stderr, "writ init: %d of %d discovered remote(s) could not be configured\n", len(skippedReasons), len(configured)+len(skippedReasons))
 	if len(configured) > 0 {
@@ -185,313 +173,212 @@ func runInit(ctx context.Context, defaultDir string, args []string, stdin io.Rea
 		targetDir = "."
 	}
 
-	// 1. Resolve repo root via git rev-parse
-	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel")
-	cmd.Dir = targetDir
-	out, err := cmd.Output()
-	var repoRoot string
-	if err == nil {
-		repoRoot = strings.TrimSpace(string(out))
-	} else {
-		// Check if target directory is a bare repository
-		cmdBare := exec.CommandContext(ctx, "git", "rev-parse", "--is-bare-repository")
-		cmdBare.Dir = targetDir
-		outBare, errBare := cmdBare.Output()
-		if errBare == nil && strings.TrimSpace(string(outBare)) == "true" {
-			cmdGitDir := exec.CommandContext(ctx, "git", "rev-parse", "--absolute-git-dir")
-			cmdGitDir.Dir = targetDir
-			outGitDir, errGitDir := cmdGitDir.Output()
-			if errGitDir == nil {
-				repoRoot = strings.TrimSpace(string(outGitDir))
-			}
+	// A --namespace flag is validated against the exact grammar a
+	// `namespace` declaration enforces at parse time as soon as it is
+	// given, before writ.Init is even called: an invalid flag should
+	// never reach it. Validating unconditionally -- rather than only once
+	// a starter file turns out to be due -- is a small, deliberate
+	// widening: it costs nothing when a starter file is due, and catches a
+	// typo immediately rather than only on a repository that happens to
+	// have none yet.
+	namespace := ""
+	if opts.namespace != "" {
+		if err := schemasrc.ValidateNamespace(opts.namespace); err != nil {
+			fmt.Fprintf(stderr, "writ init: --namespace: %v (must match %s)\n", err, namespaceGrammar)
+			return 1
 		}
+		namespace = opts.namespace
 	}
 
-	if repoRoot == "" {
-		fmt.Fprintf(stderr, "writ init: not a git repository (or any of the parent directories)\n")
-		return 1
+	// explicit remotes (positional args) keep the original abort-on-first-
+	// error behaviour; nil tells writ.Init to discover them via `git
+	// remote`, which is also what selects lenient treatment of an unusable
+	// one (WRIT-283) -- see writ.InitOptions.Remotes.
+	var remotes []string
+	if fs.NArg() > 0 {
+		remotes = fs.Args()
 	}
 
-	// 2. Open the repository, and work out which remotes this run is for.
-	//
-	// Both happen before anything is written. git config has no transaction,
-	// so the only defence against a half-configured repository is to do the
-	// steps that can fail while there is still nothing to undo. Opening the
-	// repository is a precondition, not a later step: one writ cannot open is
-	// one writ init cannot finish. This open used to happen at the end, inside
-	// sync.Open, which is exactly where WRIT-93's extensions.worktreeConfig
-	// failure landed — after both IDs were already persisted.
-	gitInfo, err := gitdir.Resolve(repoRoot)
+	result, err := writ.Init(ctx, targetDir, writ.InitOptions{
+		Remotes:          remotes,
+		StarterNamespace: namespace,
+	})
+	if errors.Is(err, writ.ErrStarterNamespaceRequired) {
+		ns, nsErr := resolveNamespace(stdin, interactive, stderr)
+		if nsErr != nil {
+			fmt.Fprintf(stderr, "writ init: %v\n", nsErr)
+			return 1
+		}
+		result, err = writ.Init(ctx, targetDir, writ.InitOptions{
+			Remotes:          remotes,
+			StarterNamespace: ns,
+		})
+	}
+
+	renderInitResult(stdout, stderr, opts.namespace, result)
+
 	if err != nil {
 		fmt.Fprintf(stderr, "writ init: %v\n", err)
-		return 1
-	}
-	storer, err := gitdir.OpenStorage(gitInfo)
-	if err != nil {
-		fmt.Fprintf(stderr, "writ init: %v\n", err)
-		return 1
-	}
-
-	// 2.5. Decide whether a starter writ.schema is due, and if so, resolve
-	// its namespace now — before anything below writes to git config, so
-	// that a refusal leaves the repository untouched rather than
-	// half-configured. Only a work tree with no writ.schema yet ever
-	// writes one (step 7): a bare repository has no working tree to put
-	// one in, and an already-initialized repository has nothing left for
-	// a namespace to name. Neither needs one, and neither is asked for
-	// one non-interactively (dispatch decision on WRIT-220's plan).
-	var starterNamespace string
-	starterFileDue := false
-	if gitInfo.WorkTree != "" {
-		switch _, statErr := os.Stat(filepath.Join(gitInfo.WorkTree, schemaSourceFileName)); {
-		case statErr == nil:
-			// Exists; step 7 reports this and, if --namespace was passed
-			// anyway, that it was ignored.
-		case os.IsNotExist(statErr):
-			starterFileDue = true
-		default:
-			fmt.Fprintf(stderr, "writ init: writ.schema: %v\n", statErr)
-			return 1
-		}
-	}
-	if starterFileDue {
-		ns, err := resolveNamespace(opts.namespace, stdin, interactive, stderr)
-		if err != nil {
-			fmt.Fprintf(stderr, "writ init: %v\n", err)
-			return 1
-		}
-		starterNamespace = ns
-	}
-
-	// explicitRemotes distinguishes a name the caller typed from one writ
-	// init discovered on its own via `git remote` below: a bad *explicit*
-	// name is the caller's mistake to fix, and the existing abort-on-first-
-	// error behaviour stays exactly as it is for that case (see
-	// TestInit_NoSuchRemoteWritesNoPhantomSection). A bad *discovered* name
-	// is not something the caller asked writ to touch -- see step 6.
-	explicitRemotes := len(fs.Args()) > 0
-
-	remotes := fs.Args()
-	if len(remotes) == 0 {
-		cmdRemote := exec.CommandContext(ctx, "git", "remote")
-		cmdRemote.Dir = repoRoot
-		outRemote, err := cmdRemote.Output()
-		if err != nil {
-			fmt.Fprintf(stderr, "writ init: list remotes: %v\n", err)
-			return 1
-		}
-		for _, line := range strings.Split(strings.TrimSpace(string(outRemote)), "\n") {
-			if trimmed := strings.TrimSpace(line); trimmed != "" {
-				remotes = append(remotes, trimmed)
-			}
-		}
-	}
-
-	// Existing chains, for writer-id collision avoidance. Best effort by
-	// design: a listing that fails costs a collision check, not the run.
-	var taken func(identity.WriterID) bool
-	if chains, err := dag.Chains(storer); err == nil {
-		existing := make(map[identity.WriterID]struct{}, len(chains))
-		for _, chain := range chains {
-			existing[chain.Ref.WriterID] = struct{}{}
-		}
-		taken = func(id identity.WriterID) bool {
-			_, ok := existing[id]
-			return ok
-		}
-	}
-
-	// 3. From here on the command writes to git config.
-	writerID, minted, err := identity.EnsureWriterID(ctx, repoRoot, taken)
-	if err != nil {
-		fmt.Fprintf(stderr, "writ init: ensure writer ID: %v\n", err)
-		return 1
-	}
-
-	if minted {
-		fmt.Fprintf(stdout, "Writer ID: %s (minted)\n", writerID)
-	} else {
-		fmt.Fprintf(stdout, "Writer ID: %s (already configured)\n", writerID)
-	}
-
-	repoID, repoMinted, err := identity.EnsureRepoID(ctx, repoRoot)
-	if err != nil {
-		fmt.Fprintf(stderr, "writ init: ensure repo ID: %v\n", err)
-		return 1
-	}
-
-	if repoMinted {
-		fmt.Fprintf(stdout, "Repo ID: %s (minted)\n", repoID)
-	} else {
-		fmt.Fprintf(stdout, "Repo ID: %s (already configured)\n", repoID)
-	}
-
-	// 4. Report the person identifier this repo will write into op payloads.
-	// It is derived, not minted: writ.personId when set, else email:<user.email>.
-	// Reported separately from the identity load below because a repo with no
-	// signing key configured still has a person identifier, and because
-	// "which person am I?" is the question a new user asks first.
-	if gitCfg, cfgErr := identity.ReadGitConfig(ctx, repoRoot); cfgErr == nil {
-		personID, personErr := identity.DerivePersonID(gitCfg)
-		switch {
-		case personErr != nil:
-			fmt.Fprintf(stderr, "warning: no person identifier: %s\n", initMessage(personErr))
-			fmt.Fprintf(stderr, "Configure one of:\n")
-			fmt.Fprintf(stderr, "  git config %s user:<handle>\n", identity.PersonIDKey)
-			fmt.Fprintf(stderr, "  git config user.email <address>\n")
-		case gitCfg["writ.personid"] != "":
-			fmt.Fprintf(stdout, "Person ID: %s (from %s)\n", personID, identity.PersonIDKey)
-		default:
-			fmt.Fprintf(stdout, "Person ID: %s (derived from user.email)\n", personID)
-		}
-	}
-
-	// 5. Load identity to report author and key state.
-	//
-	// A missing key gets the remediation for that key. The signing block used
-	// to catch every key beginning "user.", which swept user.name and
-	// user.email into it: a repo with no user.email was told its SSH signing
-	// was misconfigured and shown three git config lines, none of them the
-	// one it needed.
-	ident, err := identity.Load(ctx, repoRoot)
-	if err != nil {
-		var cfgErr *identity.ConfigError
-		if errors.As(err, &cfgErr) {
-			switch {
-			case errors.Is(cfgErr.Problem, identity.ErrMissing) || errors.Is(cfgErr.Problem, identity.ErrUnsupportedFormat) || errors.Is(cfgErr.Problem, identity.ErrInvalid):
-				switch cfgErr.Key {
-				case "gpg.format", "user.signingKey":
-					fmt.Fprintf(stderr, "warning: SSH signing key not fully configured (%s)\n", initMessage(cfgErr))
-					fmt.Fprintf(stderr, "To configure SSH signing for Writ and Git:\n")
-					fmt.Fprintf(stderr, "  git config gpg.format ssh\n")
-					fmt.Fprintf(stderr, "  git config user.signingKey ~/.ssh/id_ed25519.pub\n")
-					fmt.Fprintf(stderr, "Optionally configure verification allowed signers:\n")
-					fmt.Fprintf(stderr, "  git config gpg.ssh.allowedSignersFile ~/.ssh/allowed_signers\n")
-				case "user.name", "user.email":
-					fmt.Fprintf(stderr, "warning: author identity not fully configured (%s)\n", initMessage(cfgErr))
-					fmt.Fprintf(stderr, "To configure the identity Writ and Git author commits with:\n")
-					fmt.Fprintf(stderr, "  git config user.name \"Your Name\"\n")
-					fmt.Fprintf(stderr, "  git config user.email you@example.com\n")
-				default:
-					fmt.Fprintf(stderr, "warning: identity configuration: %s\n", initMessage(cfgErr))
+		// A hard remote failure is the one case with real partial state to
+		// report: identity already in config, one or more refspecs not.
+		// Every other failure kind returns before writ.Init attempts any
+		// remote, so result.Remotes is empty for them.
+		if n := len(result.Remotes); n > 0 && result.Remotes[n-1].Err != nil && !result.Remotes[n-1].Skipped {
+			var configured, pending []string
+			for _, r := range result.Remotes {
+				if r.Err == nil {
+					configured = append(configured, r.Name)
+				} else {
+					pending = append(pending, r.Name)
 				}
-			default:
-				fmt.Fprintf(stderr, "warning: identity configuration: %s\n", initMessage(err))
 			}
-		} else {
-			fmt.Fprintf(stderr, "warning: identity configuration: %s\n", initMessage(err))
+			reportPartialInit(stderr, result.WriterID, result.RepoID, configured, pending)
 		}
-	} else {
-		if ident.Key.Literal {
-			fmt.Fprintf(stdout, "Signing key: key::%s (ssh)\n", ident.Key.Value)
-		} else {
-			fmt.Fprintf(stdout, "Signing key: %s (ssh)\n", ident.Key.Value)
-		}
+		return 1
 	}
 
-	// 6. Configure fetch refspecs for the remotes resolved in step 2. The
-	// repository is already open, so the client is built from that storer
-	// rather than opening it a second time — the second open is where a
-	// failure used to arrive too late to matter.
-	//
-	// Explicit remotes (the caller typed a name) keep the original
-	// abort-on-first-error behaviour: Ensure's existence/name gate rejecting
-	// a name the caller chose is the caller's problem to fix before the run
-	// can mean anything (TestInit_NoSuchRemoteWritesNoPhantomSection pins
-	// this).
-	//
-	// Discovered remotes (no positional args -- `git remote` supplied the
-	// list) do not get that treatment: `git remote` lists a url-less
-	// "[remote "x"]" section (e.g. a global remote.<name>.prune creates one
-	// in every repository on the machine) and a "-"-leading name
-	// ("git remote add -- -x <url>" succeeds) exactly as happily as it
-	// lists a good remote, and neither is a name the user passed to writ --
-	// init merely found it. Letting either one abort the whole run turns an
-	// unrelated config key into a repository writ refuses to initialize at
-	// all, stranding the fetch refspec of every OTHER, perfectly good
-	// remote right alongside it (WRIT-283). So for this path, writ init
-	// configures every remote it can, reports on stderr the ones Ensure's
-	// existence/name gate rejected -- whether because the section is
-	// url-less (ErrUnknownRemote) or because the name is invalid
-	// (ErrInvalidRemoteName) -- and keeps going: everything else in this
-	// function (identity, starter-schema) still runs, and the process exit
-	// code stays 0. A remote writ merely discovered being unusable is not a
-	// failure of the run; there is no remedy to print, since writ was never
-	// asked to touch that remote in the first place.
-	//
-	// Any *other* error (e.g. a locked .git/config) still aborts the run
-	// immediately: it is not a gate this PR added, has nothing to do with
-	// which remote happened to be named, and is likely to recur on every
-	// remaining remote too.
-	if len(remotes) == 0 {
+	if len(result.Remotes) == 0 {
 		fmt.Fprintln(stdout, "No git remotes configured; fetch refspec will be added when a remote is configured.")
-	} else {
-		client, err := sync.OpenStorage(storer, repoRoot, identity.Identity{WriterID: writerID})
-		if err != nil {
-			// Not reachable from here: OpenStorage rejects only a nil storer,
-			// and storer came back non-nil in step 2. Checked rather than
-			// discarded so it stays honest if that ever changes.
-			fmt.Fprintf(stderr, "writ init: open sync client: %v\n", err)
-			return 1
-		}
-
-		var configured, skippedNames []string
-		var skippedReasons []string
-		for i, remote := range remotes {
-			status, err := client.Ensure(ctx, remote)
-			if err != nil {
-				if !explicitRemotes && (errors.Is(err, sync.ErrUnknownRemote) || errors.Is(err, sync.ErrInvalidRemoteName)) {
-					fmt.Fprintf(stderr, "writ init: remote %q: %v (skipped; not one you asked for)\n", remote, err)
-					skippedNames = append(skippedNames, remote)
-					skippedReasons = append(skippedReasons, fmt.Sprintf("%s (%v)", remote, err))
-					continue
-				}
-				fmt.Fprintf(stderr, "writ init: remote %q: %v\n", remote, err)
-				pending := append(append([]string{}, skippedNames...), remotes[i:]...)
-				reportPartialInit(stderr, writerID, repoID, configured, pending)
-				return 1
-			}
-			configured = append(configured, remote)
-			if status.Repaired {
-				fmt.Fprintf(stdout, "Configured fetch refspec for remote %q (%s)\n", remote, status.Expected)
-			} else {
-				fmt.Fprintf(stdout, "Fetch refspec for remote %q is already configured (%s)\n", remote, status.Expected)
-			}
-		}
-		if len(skippedNames) > 0 {
-			reportSkippedRemotes(stderr, configured, skippedReasons)
+	}
+	var configured, skippedReasons []string
+	for _, r := range result.Remotes {
+		if r.Skipped {
+			skippedReasons = append(skippedReasons, fmt.Sprintf("%s (%v)", r.Name, r.Err))
+		} else {
+			configured = append(configured, r.Name)
 		}
 	}
-
-	// 7. Write a starter writ.schema, working-tree repositories only. A
-	// bare repository has no working tree to put a source file in
-	// (gitInfo.WorkTree is "" for one — resolved in step 2, not repoRoot
-	// itself, which the earlier `--is-bare-repository` branch already set
-	// to the git dir); an existing writ.schema is never overwritten, no
-	// matter its content. The namespace, if this run needed one, was
-	// already resolved (and validated) in step 2.5, before anything above
-	// was written.
-	if gitInfo.WorkTree != "" {
-		if err := writeStarterSchemaFile(gitInfo.WorkTree, starterNamespace, opts.namespace, stdout, stderr); err != nil {
-			fmt.Fprintf(stderr, "writ init: writ.schema: %v\n", err)
-		}
+	if len(skippedReasons) > 0 {
+		reportSkippedRemotes(stderr, configured, skippedReasons)
 	}
 
 	return 0
 }
 
+// renderInitResult prints writ.Init's result exactly as runInit's own
+// former inline steps did, in the same order: writer id, repo id, person
+// id, signing key, one line per remote, then the starter writ.schema
+// outcome. It runs regardless of whether Init succeeded, since a partial
+// result is exactly what a partial-failure report needs to name.
+// namespaceFlag is the raw --namespace flag value (possibly empty), used
+// only to report that it was ignored when writ.schema already existed.
+func renderInitResult(stdout, stderr io.Writer, namespaceFlag string, result writ.InitResult) {
+	if result.WriterID != "" {
+		if result.WriterIDMinted {
+			fmt.Fprintf(stdout, "Writer ID: %s (minted)\n", result.WriterID)
+		} else {
+			fmt.Fprintf(stdout, "Writer ID: %s (already configured)\n", result.WriterID)
+		}
+	}
+
+	if result.RepoID != "" {
+		if result.RepoIDMinted {
+			fmt.Fprintf(stdout, "Repo ID: %s (minted)\n", result.RepoID)
+		} else {
+			fmt.Fprintf(stdout, "Repo ID: %s (already configured)\n", result.RepoID)
+		}
+	}
+
+	switch {
+	case result.PersonIDErr != nil:
+		fmt.Fprintf(stderr, "warning: no person identifier: %s\n", initMessage(result.PersonIDErr))
+		fmt.Fprintf(stderr, "Configure one of:\n")
+		fmt.Fprintf(stderr, "  git config %s user:<handle>\n", writ.PersonIDKey)
+		fmt.Fprintf(stderr, "  git config user.email <address>\n")
+	case result.PersonIDFromKey:
+		fmt.Fprintf(stdout, "Person ID: %s (from %s)\n", result.PersonID, writ.PersonIDKey)
+	case result.PersonID != "":
+		fmt.Fprintf(stdout, "Person ID: %s (derived from user.email)\n", result.PersonID)
+	}
+
+	renderIdentityState(stdout, stderr, result)
+
+	for _, r := range result.Remotes {
+		switch {
+		case r.Err == nil:
+			if r.Repaired {
+				fmt.Fprintf(stdout, "Configured fetch refspec for remote %q (%s)\n", r.Name, r.Refspec)
+			} else {
+				fmt.Fprintf(stdout, "Fetch refspec for remote %q is already configured (%s)\n", r.Name, r.Refspec)
+			}
+		case r.Skipped:
+			fmt.Fprintf(stderr, "writ init: remote %q: %v (skipped; not one you asked for)\n", r.Name, r.Err)
+		default:
+			// The one hard-failing remote, if any, is always the last
+			// entry (writ.Init returns as soon as it hits one) and is
+			// reported by runInit itself via the returned error, not
+			// here -- printing it here too would duplicate the line.
+		}
+	}
+
+	switch {
+	case result.StarterSchemaWritten:
+		fmt.Fprintf(stdout, "Wrote starter %s\n", result.StarterSchemaPath)
+	case result.StarterSchemaExisted:
+		if namespaceFlag != "" {
+			fmt.Fprintf(stdout, "writ.schema already exists; leaving it unchanged (--namespace %q ignored)\n", namespaceFlag)
+		} else {
+			fmt.Fprintf(stdout, "writ.schema already exists; leaving it unchanged\n")
+		}
+	case result.StarterSchemaErr != nil:
+		fmt.Fprintf(stderr, "writ init: writ.schema: %v\n", result.StarterSchemaErr)
+	}
+}
+
+// renderIdentityState prints writ.Init's signing-identity result exactly as
+// runInit's own former step did: a missing key gets the remediation for
+// that key, and gpg.format/user.signingKey are kept separate from
+// user.name/user.email so a repository missing only one is not shown the
+// other's advice.
+func renderIdentityState(stdout, stderr io.Writer, result writ.InitResult) {
+	err := result.IdentityErr
+	if err == nil {
+		if result.SigningKeyLiteral {
+			fmt.Fprintf(stdout, "Signing key: key::%s (ssh)\n", result.SigningKey)
+		} else {
+			fmt.Fprintf(stdout, "Signing key: %s (ssh)\n", result.SigningKey)
+		}
+		return
+	}
+
+	var cfgErr *writ.ConfigError
+	if !errors.As(err, &cfgErr) {
+		fmt.Fprintf(stderr, "warning: identity configuration: %s\n", initMessage(err))
+		return
+	}
+	if !errors.Is(cfgErr.Problem, writ.ErrMissingConfig) && !errors.Is(cfgErr.Problem, writ.ErrUnsupportedFormat) && !errors.Is(cfgErr.Problem, writ.ErrInvalidConfig) {
+		fmt.Fprintf(stderr, "warning: identity configuration: %s\n", initMessage(err))
+		return
+	}
+	switch cfgErr.Key {
+	case "gpg.format", "user.signingKey":
+		fmt.Fprintf(stderr, "warning: SSH signing key not fully configured (%s)\n", initMessage(err))
+		fmt.Fprintf(stderr, "To configure SSH signing for Writ and Git:\n")
+		fmt.Fprintf(stderr, "  git config gpg.format ssh\n")
+		fmt.Fprintf(stderr, "  git config user.signingKey ~/.ssh/id_ed25519.pub\n")
+		fmt.Fprintf(stderr, "Optionally configure verification allowed signers:\n")
+		fmt.Fprintf(stderr, "  git config gpg.ssh.allowedSignersFile ~/.ssh/allowed_signers\n")
+	case "user.name", "user.email":
+		fmt.Fprintf(stderr, "warning: author identity not fully configured (%s)\n", initMessage(err))
+		fmt.Fprintf(stderr, "To configure the identity Writ and Git author commits with:\n")
+		fmt.Fprintf(stderr, "  git config user.name \"Your Name\"\n")
+		fmt.Fprintf(stderr, "  git config user.email you@example.com\n")
+	default:
+		fmt.Fprintf(stderr, "warning: identity configuration: %s\n", initMessage(err))
+	}
+}
+
 // writeStarterSchemaFile writes a namespace-only writ.schema at the work
 // tree root when one is not already there. Writ declares no types of its
 // own (spec/schema-source.md; AGENTS.md), so the starter file is a
-// namespace line and nothing else — no types, no vocabulary — and never
-// overwrites a file that already exists. namespace is the value step 2.5
-// already resolved and validated when a starter file was due; it is empty
-// (and unused) when one was not, which is exactly the case where the file
-// already exists here too — enforced below, since step 2.5's stat and this
-// function's own stat are two different moments and nothing stops the file
-// from being removed in between. flagValue is the raw --namespace the user
-// passed, if any, purely to report that it was ignored when there was
-// nothing for it to name.
+// namespace line and nothing else -- no types, no vocabulary -- and never
+// overwrites a file that already exists. namespace is the value to write;
+// it is empty (and unused) exactly when the file already exists, which is
+// enforced below since a caller's own due-check and this function's own
+// stat are two different moments and nothing stops the file from being
+// removed in between. flagValue is the raw --namespace the user passed, if
+// any, purely to report that it was ignored when there was nothing for it
+// to name.
 func writeStarterSchemaFile(workTree, namespace, flagValue string, stdout, stderr io.Writer) error {
 	path := filepath.Join(workTree, schemaSourceFileName)
 	if _, err := os.Stat(path); err == nil {
@@ -505,12 +392,11 @@ func writeStarterSchemaFile(workTree, namespace, flagValue string, stdout, stder
 		return err
 	}
 
-	// namespace is only ever empty when a starter file was not due (the
-	// stat above would then have found the file step 2.5 also saw and
-	// already returned). Reaching here with an empty namespace means the
-	// file was removed between step 2.5's stat and this one — a
+	// namespace is only ever empty when the file above was found to exist.
+	// Reaching here with an empty namespace means the file was removed
+	// between a caller's own due-check and this function's stat -- a
 	// concurrent `git checkout`, `clean`, or `stash` in the same work
-	// tree — and writing it anyway would produce a writ.schema with an
+	// tree -- and writing it anyway would produce a writ.schema with an
 	// empty namespace that every later `schema plan`/`apply` refuses.
 	// That is a programming error, not a user error one more validation
 	// message would help with, so it fails loudly instead of printing
