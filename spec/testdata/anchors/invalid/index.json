@@ -9,6 +9,7 @@
   },
   "context-length-mismatch.json": {
     "kind": "invariant",
+    "invariant_rule": "context-length",
     "reason": "when omitted is absent, len(context.lines) must equal the range size"
   },
   "context-without-range.json": {
@@ -17,6 +18,7 @@
   },
   "dotdot-path.json": {
     "kind": "invariant",
+    "invariant_rule": "path-segments",
     "reason": "paths must not contain . or .. segments"
   },
   "empty-lines-array.json": {
@@ -29,6 +31,7 @@
   },
   "end-before-start.json": {
     "kind": "invariant",
+    "invariant_rule": "range-order",
     "reason": "range.end must be >= range.start"
   },
   "line-over-limit-multibyte.json": {
@@ -57,6 +60,7 @@
   },
   "long-range-missing-omitted.json": {
     "kind": "invariant",
+    "invariant_rule": "context-length",
     "reason": "a 65-line range with 64 stored lines must carry omitted = 1"
   },
   "long-range-not-elided.json": {
@@ -77,6 +81,7 @@
   },
   "mixed-oid-lengths.json": {
     "kind": "invariant",
+    "invariant_rule": "oid-length-agreement",
     "reason": "all OIDs within one anchor must use the same length; the containing repo has one object format"
   },
   "no-sides.json": {
@@ -93,10 +98,12 @@
   },
   "omitted-arithmetic-wrong.json": {
     "kind": "invariant",
+    "invariant_rule": "omitted-arithmetic",
     "reason": "omitted must equal (end - start + 1) - 64; a 100-line range omits 36"
   },
   "omitted-with-short-lines.json": {
     "kind": "invariant",
+    "invariant_rule": "elided-lines-count",
     "reason": "when omitted is present, context.lines must hold exactly 64 entries (first 32 + last 32)"
   },
   "range-without-context.json": {
@@ -105,6 +112,7 @@
   },
   "trailing-slash-path.json": {
     "kind": "invariant",
+    "invariant_rule": "path-segments",
     "reason": "paths must not contain empty segments (no trailing slash)"
   },
   "unsupported-version.json": {

@@ -19,3 +19,12 @@ var SplitPerson = splitPerson
 // the normalization rule is pinned to, so the test binding it to the tables
 // x/text actually compiled in can live beside the drift test.
 const PersonUnicodeVersion = personUnicodeVersion
+
+// FieldRuleSentinels exposes fieldrules.go's unexported token-to-sentinel
+// table to spec_test on the same terms as NormalizePerson above: the
+// schema-ops conformance harness (schema_ops_test.go) needs to bind an
+// "invariant"-kind vector's invariant_rule token to the exact sentinel
+// ValidateFieldRule wraps its error with, and that binding has to reach
+// into the one table fieldrules.go itself maintains rather than duplicate
+// it as a second spelling of the same map.
+var FieldRuleSentinels = fieldRuleSentinels

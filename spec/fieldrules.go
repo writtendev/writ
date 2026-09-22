@@ -2,6 +2,7 @@ package spec
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"path"
@@ -125,62 +126,132 @@ func validIdentifier(s string) bool {
 	return s != "" && len(s) <= identifierMaxLength && identifierGrammar.MatchString(s)
 }
 
+// Sentinels for ValidateFieldRule's violation branches, one per branch, each
+// wrapped with %w onto the branch's existing fmt.Errorf message rather than
+// replacing it -- the prose prefix a caller might already match against
+// (spec/fieldrules_test.go's wantErr substrings, historically) stays
+// byte-identical, and errors.Is(err, errFoo) is now also available to a
+// caller that wants the branch's identity rather than its text.
+//
+// spec/foldrendering_test.go makes the whole spec package a fold value
+// path: fmt.Errorf is the only fmt symbol a file here may name, and
+// .Error() may not be called. That rules out a violation type with its own
+// Error() method delegating to a wrapped error; errors.New and %w are
+// clear of both restrictions, which is why the sentinels are built that
+// way rather than as a custom error type.
+var (
+	errEmptyOpType              = errors.New("invariant empty-op-type")
+	errInvalidOpVersion         = errors.New("invariant invalid-op-version")
+	errEmptyField               = errors.New("invariant empty-field")
+	errInvalidFieldIdentifier   = errors.New("invariant invalid-field-identifier")
+	errInvalidTargetIdentifier  = errors.New("invariant invalid-target-identifier")
+	errInvalidKeyIdentifier     = errors.New("invariant invalid-key-identifier")
+	errUnknownStrategy          = errors.New("invariant unknown-strategy")
+	errKeyedLWWNoKey            = errors.New("invariant keyed-lww-no-key")
+	errLatticeNoElements        = errors.New("invariant lattice-no-elements")
+	errUnknownValueType         = errors.New("invariant unknown-value-type")
+	errEnumNoValues             = errors.New("invariant enum-no-values")
+	errEnumOnNonEnum            = errors.New("invariant enum-on-non-enum")
+	errMaxLengthValueType       = errors.New("invariant max-length-value-type")
+	errTombstoneValueType       = errors.New("invariant tombstone-value-type")
+	errLatticeValueType         = errors.New("invariant lattice-value-type")
+	errLatticeElementNotInEnum  = errors.New("invariant lattice-element-not-in-enum")
+	errKeyTypesCount            = errors.New("invariant key-types-count")
+	errKeyTypesMissingColumn    = errors.New("invariant key-types-missing-column")
+	errKeyTypesUnknownValueType = errors.New("invariant key-types-unknown-value-type")
+	errKeyTypesNonKeyedLWW      = errors.New("invariant key-types-non-keyed-lww")
+)
+
+// fieldRuleSentinels maps the token spec/testdata/schema-ops/invalid/index.json's
+// invariant_rule field names a violation with to the sentinel
+// ValidateFieldRule wraps into that violation's error, re-exported to
+// spec_test through export_test.go exactly as NormalizePerson and
+// SplitPerson already are (this file cannot use spec_test's package name,
+// and the conformance harness in schema_ops_test.go lives there). Every
+// sentinel above has exactly one entry here, and
+// TestValidateFieldRuleSentinelCoverage (spec/fieldrules_test.go) requires
+// at least one test case per entry -- a branch added above with no entry
+// here, or an entry with no covering case, fails a test by name instead of
+// shipping untested.
+var fieldRuleSentinels = map[string]error{
+	"empty-op-type":                errEmptyOpType,
+	"invalid-op-version":           errInvalidOpVersion,
+	"empty-field":                  errEmptyField,
+	"invalid-field-identifier":     errInvalidFieldIdentifier,
+	"invalid-target-identifier":    errInvalidTargetIdentifier,
+	"invalid-key-identifier":       errInvalidKeyIdentifier,
+	"unknown-strategy":             errUnknownStrategy,
+	"keyed-lww-no-key":             errKeyedLWWNoKey,
+	"lattice-no-elements":          errLatticeNoElements,
+	"unknown-value-type":           errUnknownValueType,
+	"enum-no-values":               errEnumNoValues,
+	"enum-on-non-enum":             errEnumOnNonEnum,
+	"max-length-value-type":        errMaxLengthValueType,
+	"tombstone-value-type":         errTombstoneValueType,
+	"lattice-value-type":           errLatticeValueType,
+	"lattice-element-not-in-enum":  errLatticeElementNotInEnum,
+	"key-types-count":              errKeyTypesCount,
+	"key-types-missing-column":     errKeyTypesMissingColumn,
+	"key-types-unknown-value-type": errKeyTypesUnknownValueType,
+	"key-types-non-keyed-lww":      errKeyTypesNonKeyedLWW,
+}
+
 // ValidateFieldRule validates an individual field rule definition.
 func ValidateFieldRule(r FieldRule) error {
 	if r.OpType == "" {
-		return fmt.Errorf("rule with empty op_type")
+		return fmt.Errorf("rule with empty op_type: %w", errEmptyOpType)
 	}
 	if r.OpVersion < 1 {
-		return fmt.Errorf("rule with invalid op_version: %d", r.OpVersion)
+		return fmt.Errorf("rule with invalid op_version: %d: %w", r.OpVersion, errInvalidOpVersion)
 	}
 	if r.Field == "" {
-		return fmt.Errorf("rule with empty field")
+		return fmt.Errorf("rule with empty field: %w", errEmptyField)
 	}
 	if !validIdentifier(r.Field) {
-		return fmt.Errorf("rule declares field %q, which is not a valid identifier (must match %s, max %d chars)", r.Field, identifierGrammar.String(), identifierMaxLength)
+		return fmt.Errorf("rule declares field %q, which is not a valid identifier (must match %s, max %d chars): %w", r.Field, identifierGrammar.String(), identifierMaxLength, errInvalidFieldIdentifier)
 	}
 	if r.Target != "" && !validIdentifier(r.Target) {
-		return fmt.Errorf("rule for (%s, %s) declares target %q, which is not a valid identifier (must match %s, max %d chars)", r.OpType, r.Field, r.Target, identifierGrammar.String(), identifierMaxLength)
+		return fmt.Errorf("rule for (%s, %s) declares target %q, which is not a valid identifier (must match %s, max %d chars): %w", r.OpType, r.Field, r.Target, identifierGrammar.String(), identifierMaxLength, errInvalidTargetIdentifier)
 	}
 	for _, k := range r.Key {
 		if !validIdentifier(k) {
-			return fmt.Errorf("rule for (%s, %s) declares key column %q, which is not a valid identifier (must match %s, max %d chars)", r.OpType, r.Field, k, identifierGrammar.String(), identifierMaxLength)
+			return fmt.Errorf("rule for (%s, %s) declares key column %q, which is not a valid identifier (must match %s, max %d chars): %w", r.OpType, r.Field, k, identifierGrammar.String(), identifierMaxLength, errInvalidKeyIdentifier)
 		}
 	}
 	if !KnownCatalogueStrategies[r.Strategy] {
-		return fmt.Errorf("rule for (%s, %s) has unknown strategy %q", r.OpType, r.Field, r.Strategy)
+		return fmt.Errorf("rule for (%s, %s) has unknown strategy %q: %w", r.OpType, r.Field, r.Strategy, errUnknownStrategy)
 	}
 	if r.Strategy == "keyed-lww" && len(r.Key) == 0 {
-		return fmt.Errorf("rule for (%s, %s) uses keyed-lww but declares no key", r.OpType, r.Field)
+		return fmt.Errorf("rule for (%s, %s) uses keyed-lww but declares no key: %w", r.OpType, r.Field, errKeyedLWWNoKey)
 	}
 	if r.Strategy == "lattice" && len(r.Lattice) == 0 {
-		return fmt.Errorf("rule for (%s, %s) uses lattice but defines no elements", r.OpType, r.Field)
+		return fmt.Errorf("rule for (%s, %s) uses lattice but defines no elements: %w", r.OpType, r.Field, errLatticeNoElements)
 	}
 
 	// value_type is optional (spec/value-types.md): a rule declaring none is
 	// untyped, mirroring the "no declared strategy" idiom of spec/fold.md §5.
 	// A declared one must be a member of the closed catalogue.
 	if r.ValueType != "" && !KnownValueTypes[r.ValueType] {
-		return fmt.Errorf("rule for (%s, %s) declares unknown value_type %q", r.OpType, r.Field, r.ValueType)
+		return fmt.Errorf("rule for (%s, %s) declares unknown value_type %q: %w", r.OpType, r.Field, r.ValueType, errUnknownValueType)
 	}
 
 	// enum is required iff value_type == "enum", forbidden otherwise.
 	if r.ValueType == "enum" && len(r.Enum) == 0 {
-		return fmt.Errorf("rule for (%s, %s) declares value_type enum but no enum values", r.OpType, r.Field)
+		return fmt.Errorf("rule for (%s, %s) declares value_type enum but no enum values: %w", r.OpType, r.Field, errEnumNoValues)
 	}
 	if r.ValueType != "enum" && len(r.Enum) > 0 {
-		return fmt.Errorf("rule for (%s, %s) declares enum values on non-enum value_type %q", r.OpType, r.Field, r.ValueType)
+		return fmt.Errorf("rule for (%s, %s) declares enum values on non-enum value_type %q: %w", r.OpType, r.Field, r.ValueType, errEnumOnNonEnum)
 	}
 
 	// max_length only parameterises string and text.
 	if r.MaxLength != 0 && r.ValueType != "string" && r.ValueType != "text" {
-		return fmt.Errorf("rule for (%s, %s) declares max_length on value_type %q; only string and text take one", r.OpType, r.Field, r.ValueType)
+		return fmt.Errorf("rule for (%s, %s) declares max_length on value_type %q; only string and text take one: %w", r.OpType, r.Field, r.ValueType, errMaxLengthValueType)
 	}
 
 	// tombstone's accumulator tests val == true / val == false and nothing
 	// else, so any value_type other than bool is a rule that can never fire.
 	if r.Strategy == "tombstone" && r.ValueType != "" && r.ValueType != "bool" {
-		return fmt.Errorf("rule for (%s, %s) uses tombstone with value_type %q; only bool typechecks", r.OpType, r.Field, r.ValueType)
+		return fmt.Errorf("rule for (%s, %s) uses tombstone with value_type %q; only bool typechecks: %w", r.OpType, r.Field, r.ValueType, errTombstoneValueType)
 	}
 
 	// lattice's semilattice elements and the field's legal values must be the
@@ -188,7 +259,7 @@ func ValidateFieldRule(r FieldRule) error {
 	// the declared enum.
 	if r.Strategy == "lattice" {
 		if r.ValueType != "" && r.ValueType != "enum" {
-			return fmt.Errorf("rule for (%s, %s) uses lattice with value_type %q; only enum typechecks", r.OpType, r.Field, r.ValueType)
+			return fmt.Errorf("rule for (%s, %s) uses lattice with value_type %q; only enum typechecks: %w", r.OpType, r.Field, r.ValueType, errLatticeValueType)
 		}
 		if r.ValueType == "enum" {
 			for _, le := range r.Lattice {
@@ -200,7 +271,7 @@ func ValidateFieldRule(r FieldRule) error {
 					}
 				}
 				if !found {
-					return fmt.Errorf("rule for (%s, %s) declares lattice element %q not a member of its enum %v", r.OpType, r.Field, le, r.Enum)
+					return fmt.Errorf("rule for (%s, %s) declares lattice element %q not a member of its enum %v: %w", r.OpType, r.Field, le, r.Enum, errLatticeElementNotInEnum)
 				}
 			}
 		}
@@ -210,19 +281,19 @@ func ValidateFieldRule(r FieldRule) error {
 	// declares, and forbidden everywhere else.
 	if r.Strategy == "keyed-lww" {
 		if len(r.KeyTypes) != len(r.Key) {
-			return fmt.Errorf("rule for (%s, %s) declares key_types covering %d column(s), want exactly the %d in key %v", r.OpType, r.Field, len(r.KeyTypes), len(r.Key), r.Key)
+			return fmt.Errorf("rule for (%s, %s) declares key_types covering %d column(s), want exactly the %d in key %v: %w", r.OpType, r.Field, len(r.KeyTypes), len(r.Key), r.Key, errKeyTypesCount)
 		}
 		for _, k := range r.Key {
 			kt, ok := r.KeyTypes[k]
 			if !ok {
-				return fmt.Errorf("rule for (%s, %s) declares no key_types entry for key column %q", r.OpType, r.Field, k)
+				return fmt.Errorf("rule for (%s, %s) declares no key_types entry for key column %q: %w", r.OpType, r.Field, k, errKeyTypesMissingColumn)
 			}
 			if !KnownValueTypes[kt] {
-				return fmt.Errorf("rule for (%s, %s) declares unknown key_types value_type %q for column %q", r.OpType, r.Field, kt, k)
+				return fmt.Errorf("rule for (%s, %s) declares unknown key_types value_type %q for column %q: %w", r.OpType, r.Field, kt, k, errKeyTypesUnknownValueType)
 			}
 		}
 	} else if len(r.KeyTypes) > 0 {
-		return fmt.Errorf("rule for (%s, %s) declares key_types on non-keyed-lww strategy %q", r.OpType, r.Field, r.Strategy)
+		return fmt.Errorf("rule for (%s, %s) declares key_types on non-keyed-lww strategy %q: %w", r.OpType, r.Field, r.Strategy, errKeyTypesNonKeyedLWW)
 	}
 
 	return nil

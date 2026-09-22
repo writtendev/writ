@@ -2,6 +2,7 @@ package spec_test
 
 import (
 	"bytes"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -49,253 +50,391 @@ func TestFieldRulesSchemaValidation(t *testing.T) {
 	}
 }
 
-func TestValidateFieldRule(t *testing.T) {
-	tests := []struct {
-		name    string
-		rule    spec.FieldRule
-		wantErr string
-	}{
-		{
-			name: "valid scalar lww with person-ref value type",
-			rule: spec.FieldRule{
-				OpType:    "resolve",
-				OpVersion: 1,
-				Field:     "resolved_by",
-				Strategy:  "lww",
-				ValueType: "person-ref",
-			},
+// fieldRuleValidationCases is package-level so both TestValidateFieldRule
+// (which runs each case) and TestValidateFieldRuleSentinelCoverage (which
+// checks every sentinel is named by at least one case) share the one table
+// rather than each keeping its own copy of which case exercises what.
+var fieldRuleValidationCases = []struct {
+	name string
+	rule spec.FieldRule
+	// wantSentinel is the token spec.FieldRuleSentinels is keyed by
+	// (spec/fieldrules.go), naming the one violation branch this case must
+	// trip -- empty means ValidateFieldRule must accept the rule. Checking
+	// sentinel identity (errors.Is) rather than a message substring is what
+	// TestValidateFieldRuleSentinelCoverage below can hold to account: every
+	// sentinel in the table must be named by at least one case here.
+	wantSentinel string
+}{
+	{
+		name: "valid scalar lww with person-ref value type",
+		rule: spec.FieldRule{
+			OpType:    "resolve",
+			OpVersion: 1,
+			Field:     "resolved_by",
+			Strategy:  "lww",
+			ValueType: "person-ref",
 		},
-		{
-			name: "valid set-observed-remove with person-ref item type",
-			rule: spec.FieldRule{
-				OpType:    "assign",
-				OpVersion: 1,
-				Field:     "add",
-				Strategy:  "set-observed-remove",
-				ValueType: "person-ref",
-			},
+	},
+	{
+		name: "valid set-observed-remove with person-ref item type",
+		rule: spec.FieldRule{
+			OpType:    "assign",
+			OpVersion: 1,
+			Field:     "add",
+			Strategy:  "set-observed-remove",
+			ValueType: "person-ref",
 		},
-		{
-			name: "valid keyed-lww with person-ref key and value type",
-			rule: spec.FieldRule{
-				OpType:    "approval",
-				OpVersion: 1,
-				Field:     "subject",
-				Strategy:  "keyed-lww",
-				Key:       []string{"subject", "revision"},
-				ValueType: "person-ref",
-				KeyTypes:  map[string]string{"subject": "person-ref", "revision": "git-oid"},
-			},
+	},
+	{
+		name: "valid keyed-lww with person-ref key and value type",
+		rule: spec.FieldRule{
+			OpType:    "approval",
+			OpVersion: 1,
+			Field:     "subject",
+			Strategy:  "keyed-lww",
+			Key:       []string{"subject", "revision"},
+			ValueType: "person-ref",
+			KeyTypes:  map[string]string{"subject": "person-ref", "revision": "git-oid"},
 		},
-		{
-			name: "untyped rule (no value_type) is legal",
-			rule: spec.FieldRule{
-				OpType:    "create",
-				OpVersion: 1,
-				Field:     "subject",
-				Strategy:  "create-once",
-			},
+	},
+	{
+		name: "untyped rule (no value_type) is legal",
+		rule: spec.FieldRule{
+			OpType:    "create",
+			OpVersion: 1,
+			Field:     "subject",
+			Strategy:  "create-once",
 		},
-		{
-			name: "unknown value_type",
-			rule: spec.FieldRule{
-				OpType:    "create",
-				OpVersion: 1,
-				Field:     "title",
-				Strategy:  "lww",
-				ValueType: "unknown",
-			},
-			wantErr: "unknown value_type",
+	},
+	{
+		name: "empty op_type",
+		rule: spec.FieldRule{
+			OpType:    "",
+			OpVersion: 1,
+			Field:     "title",
+			Strategy:  "lww",
+			ValueType: "string",
 		},
-		{
-			name: "enum value_type with no enum values",
-			rule: spec.FieldRule{
-				OpType:    "set-status",
-				OpVersion: 1,
-				Field:     "status",
-				Strategy:  "lww",
-				ValueType: "enum",
-			},
-			wantErr: "value_type enum but no enum values",
+		wantSentinel: "empty-op-type",
+	},
+	{
+		name: "op_version below 1",
+		rule: spec.FieldRule{
+			OpType:    "create",
+			OpVersion: 0,
+			Field:     "title",
+			Strategy:  "lww",
+			ValueType: "string",
 		},
-		{
-			name: "enum values on a non-enum value_type",
-			rule: spec.FieldRule{
-				OpType:    "create",
-				OpVersion: 1,
-				Field:     "title",
-				Strategy:  "lww",
-				ValueType: "string",
-				Enum:      []string{"a", "b"},
-			},
-			wantErr: "declares enum values on non-enum value_type",
+		wantSentinel: "invalid-op-version",
+	},
+	{
+		name: "empty field",
+		rule: spec.FieldRule{
+			OpType:    "create",
+			OpVersion: 1,
+			Field:     "",
+			Strategy:  "lww",
+			ValueType: "string",
 		},
-		{
-			name: "max_length on a non-string, non-text value_type",
-			rule: spec.FieldRule{
-				OpType:    "create",
-				OpVersion: 1,
-				Field:     "priority",
-				Strategy:  "lww",
-				ValueType: "int",
-				MaxLength: 10,
-			},
-			wantErr: "declares max_length on value_type",
+		wantSentinel: "empty-field",
+	},
+	{
+		name: "unknown value_type",
+		rule: spec.FieldRule{
+			OpType:    "create",
+			OpVersion: 1,
+			Field:     "title",
+			Strategy:  "lww",
+			ValueType: "unknown",
 		},
-		{
-			name: "tombstone with a value_type other than bool",
-			rule: spec.FieldRule{
-				OpType:    "delete",
-				OpVersion: 1,
-				Field:     "deleted",
-				Strategy:  "tombstone",
-				ValueType: "string",
-			},
-			wantErr: "uses tombstone with value_type",
+		wantSentinel: "unknown-value-type",
+	},
+	{
+		name: "unknown strategy",
+		rule: spec.FieldRule{
+			OpType:    "create",
+			OpVersion: 1,
+			Field:     "title",
+			Strategy:  "counter",
+			ValueType: "string",
 		},
-		{
-			name: "lattice with a value_type other than enum",
-			rule: spec.FieldRule{
-				OpType:    "ci-status",
-				OpVersion: 1,
-				Field:     "state",
-				Strategy:  "lattice",
-				Lattice:   []string{"pending", "success"},
-				ValueType: "string",
-			},
-			wantErr: "uses lattice with value_type",
+		wantSentinel: "unknown-strategy",
+	},
+	{
+		name: "keyed-lww declares no key",
+		rule: spec.FieldRule{
+			OpType:    "approval",
+			OpVersion: 1,
+			Field:     "verdict",
+			Strategy:  "keyed-lww",
+			ValueType: "person-ref",
 		},
-		{
-			name: "lattice elements not a subset of its enum",
-			rule: spec.FieldRule{
-				OpType:    "ci-status",
-				OpVersion: 1,
-				Field:     "state",
-				Strategy:  "lattice",
-				Lattice:   []string{"pending", "success"},
-				ValueType: "enum",
-				Enum:      []string{"pending", "failure"},
-			},
-			wantErr: "not a member of its enum",
+		wantSentinel: "keyed-lww-no-key",
+	},
+	{
+		name: "lattice defines no elements",
+		rule: spec.FieldRule{
+			OpType:    "ci-status",
+			OpVersion: 1,
+			Field:     "state",
+			Strategy:  "lattice",
+			ValueType: "enum",
+			Enum:      []string{"pending", "success"},
 		},
-		{
-			name: "keyed-lww key_types missing a key column",
-			rule: spec.FieldRule{
-				OpType:    "approval",
-				OpVersion: 1,
-				Field:     "subject",
-				Strategy:  "keyed-lww",
-				Key:       []string{"subject", "revision"},
-				ValueType: "person-ref",
-				KeyTypes:  map[string]string{"subject": "person-ref"},
-			},
-			wantErr: "key_types covering",
+		wantSentinel: "lattice-no-elements",
+	},
+	{
+		name: "enum value_type with no enum values",
+		rule: spec.FieldRule{
+			OpType:    "set-status",
+			OpVersion: 1,
+			Field:     "status",
+			Strategy:  "lww",
+			ValueType: "enum",
 		},
-		{
-			name: "keyed-lww key_types covering a column outside key",
-			rule: spec.FieldRule{
-				OpType:    "approval",
-				OpVersion: 1,
-				Field:     "subject",
-				Strategy:  "keyed-lww",
-				Key:       []string{"subject"},
-				ValueType: "person-ref",
-				KeyTypes:  map[string]string{"subject": "person-ref", "revision": "git-oid"},
-			},
-			wantErr: "key_types covering",
+		wantSentinel: "enum-no-values",
+	},
+	{
+		name: "enum values on a non-enum value_type",
+		rule: spec.FieldRule{
+			OpType:    "create",
+			OpVersion: 1,
+			Field:     "title",
+			Strategy:  "lww",
+			ValueType: "string",
+			Enum:      []string{"a", "b"},
 		},
-		{
-			name: "key_types on a non-keyed-lww strategy",
-			rule: spec.FieldRule{
-				OpType:    "create",
-				OpVersion: 1,
-				Field:     "title",
-				Strategy:  "lww",
-				ValueType: "string",
-				KeyTypes:  map[string]string{"subject": "person-ref"},
-			},
-			wantErr: "declares key_types on non-keyed-lww strategy",
+		wantSentinel: "enum-on-non-enum",
+	},
+	{
+		name: "max_length on a non-string, non-text value_type",
+		rule: spec.FieldRule{
+			OpType:    "create",
+			OpVersion: 1,
+			Field:     "priority",
+			Strategy:  "lww",
+			ValueType: "int",
+			MaxLength: 10,
 		},
-		{
-			// field, target, and key columns share one identifier grammar
-			// (WRIT-203, spec/schema-ops.md §4.3): a schema-declared target
-			// or key component becomes a generated SQL identifier once a
-			// consumer's projection reads it, exactly as field already does.
-			name: "field is not a valid identifier",
-			rule: spec.FieldRule{
-				OpType:    "create",
-				OpVersion: 1,
-				Field:     "Title",
-				Strategy:  "lww",
-				ValueType: "string",
-			},
-			wantErr: "not a valid identifier",
+		wantSentinel: "max-length-value-type",
+	},
+	{
+		name: "tombstone with a value_type other than bool",
+		rule: spec.FieldRule{
+			OpType:    "delete",
+			OpVersion: 1,
+			Field:     "deleted",
+			Strategy:  "tombstone",
+			ValueType: "string",
 		},
-		{
-			name: "field exceeds the identifier length limit",
-			rule: spec.FieldRule{
-				OpType:    "create",
-				OpVersion: 1,
-				Field:     "a" + strings.Repeat("b", 64),
-				Strategy:  "lww",
-				ValueType: "string",
-			},
-			wantErr: "not a valid identifier",
+		wantSentinel: "tombstone-value-type",
+	},
+	{
+		name: "lattice with a value_type other than enum",
+		rule: spec.FieldRule{
+			OpType:    "ci-status",
+			OpVersion: 1,
+			Field:     "state",
+			Strategy:  "lattice",
+			Lattice:   []string{"pending", "success"},
+			ValueType: "string",
 		},
-		{
-			name: "target is not a valid identifier",
-			rule: spec.FieldRule{
-				OpType:    "create",
-				OpVersion: 1,
-				Field:     "title",
-				Target:    "bad-target",
-				Strategy:  "lww",
-				ValueType: "string",
-			},
-			wantErr: "declares target",
+		wantSentinel: "lattice-value-type",
+	},
+	{
+		name: "lattice elements not a subset of its enum",
+		rule: spec.FieldRule{
+			OpType:    "ci-status",
+			OpVersion: 1,
+			Field:     "state",
+			Strategy:  "lattice",
+			Lattice:   []string{"pending", "success"},
+			ValueType: "enum",
+			Enum:      []string{"pending", "failure"},
 		},
-		{
-			name: "empty target is legal (defaults to field via TargetKey)",
-			rule: spec.FieldRule{
-				OpType:    "create",
-				OpVersion: 1,
-				Field:     "title",
-				Target:    "",
-				Strategy:  "lww",
-				ValueType: "string",
-			},
+		wantSentinel: "lattice-element-not-in-enum",
+	},
+	{
+		name: "keyed-lww key_types missing a key column",
+		rule: spec.FieldRule{
+			OpType:    "approval",
+			OpVersion: 1,
+			Field:     "subject",
+			Strategy:  "keyed-lww",
+			Key:       []string{"subject", "revision"},
+			ValueType: "person-ref",
+			KeyTypes:  map[string]string{"subject": "person-ref"},
 		},
-		{
-			name: "keyed-lww key column is not a valid identifier",
-			rule: spec.FieldRule{
-				OpType:    "approval",
-				OpVersion: 1,
-				Field:     "subject",
-				Strategy:  "keyed-lww",
-				Key:       []string{"Subject"},
-				ValueType: "person-ref",
-				KeyTypes:  map[string]string{"Subject": "person-ref"},
-			},
-			wantErr: "declares key column",
+		wantSentinel: "key-types-count",
+	},
+	{
+		name: "keyed-lww key_types covering a column outside key",
+		rule: spec.FieldRule{
+			OpType:    "approval",
+			OpVersion: 1,
+			Field:     "subject",
+			Strategy:  "keyed-lww",
+			Key:       []string{"subject"},
+			ValueType: "person-ref",
+			KeyTypes:  map[string]string{"subject": "person-ref", "revision": "git-oid"},
 		},
-	}
+		wantSentinel: "key-types-count",
+	},
+	{
+		// Distinct from the two key-types-count cases above: there the
+		// *count* of KeyTypes disagrees with the count of Key. Here the
+		// counts agree (both 2), so that check passes, but one Key entry
+		// ("revision") has no matching KeyTypes entry -- the per-column
+		// lookup is what actually fires.
+		name: "keyed-lww key_types has the right count but the wrong column",
+		rule: spec.FieldRule{
+			OpType:    "approval",
+			OpVersion: 1,
+			Field:     "subject",
+			Strategy:  "keyed-lww",
+			Key:       []string{"subject", "revision"},
+			ValueType: "person-ref",
+			KeyTypes:  map[string]string{"subject": "person-ref", "other": "git-oid"},
+		},
+		wantSentinel: "key-types-missing-column",
+	},
+	{
+		name: "keyed-lww key_types names an unknown value_type for a column",
+		rule: spec.FieldRule{
+			OpType:    "approval",
+			OpVersion: 1,
+			Field:     "subject",
+			Strategy:  "keyed-lww",
+			Key:       []string{"subject"},
+			ValueType: "person-ref",
+			KeyTypes:  map[string]string{"subject": "bogus"},
+		},
+		wantSentinel: "key-types-unknown-value-type",
+	},
+	{
+		name: "key_types on a non-keyed-lww strategy",
+		rule: spec.FieldRule{
+			OpType:    "create",
+			OpVersion: 1,
+			Field:     "title",
+			Strategy:  "lww",
+			ValueType: "string",
+			KeyTypes:  map[string]string{"subject": "person-ref"},
+		},
+		wantSentinel: "key-types-non-keyed-lww",
+	},
+	{
+		// field, target, and key columns share one identifier grammar
+		// (WRIT-203, spec/schema-ops.md §4.3): a schema-declared target
+		// or key component becomes a generated SQL identifier once a
+		// consumer's projection reads it, exactly as field already does.
+		name: "field is not a valid identifier",
+		rule: spec.FieldRule{
+			OpType:    "create",
+			OpVersion: 1,
+			Field:     "Title",
+			Strategy:  "lww",
+			ValueType: "string",
+		},
+		wantSentinel: "invalid-field-identifier",
+	},
+	{
+		name: "field exceeds the identifier length limit",
+		rule: spec.FieldRule{
+			OpType:    "create",
+			OpVersion: 1,
+			Field:     "a" + strings.Repeat("b", 64),
+			Strategy:  "lww",
+			ValueType: "string",
+		},
+		wantSentinel: "invalid-field-identifier",
+	},
+	{
+		name: "target is not a valid identifier",
+		rule: spec.FieldRule{
+			OpType:    "create",
+			OpVersion: 1,
+			Field:     "title",
+			Target:    "bad-target",
+			Strategy:  "lww",
+			ValueType: "string",
+		},
+		wantSentinel: "invalid-target-identifier",
+	},
+	{
+		name: "empty target is legal (defaults to field via TargetKey)",
+		rule: spec.FieldRule{
+			OpType:    "create",
+			OpVersion: 1,
+			Field:     "title",
+			Target:    "",
+			Strategy:  "lww",
+			ValueType: "string",
+		},
+	},
+	{
+		name: "keyed-lww key column is not a valid identifier",
+		rule: spec.FieldRule{
+			OpType:    "approval",
+			OpVersion: 1,
+			Field:     "subject",
+			Strategy:  "keyed-lww",
+			Key:       []string{"Subject"},
+			ValueType: "person-ref",
+			KeyTypes:  map[string]string{"Subject": "person-ref"},
+		},
+		wantSentinel: "invalid-key-identifier",
+	},
+}
 
-	for _, tc := range tests {
+func TestValidateFieldRule(t *testing.T) {
+	for _, tc := range fieldRuleValidationCases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := spec.ValidateFieldRule(tc.rule)
-			if tc.wantErr == "" {
+			if tc.wantSentinel == "" {
 				if err != nil {
 					t.Fatalf("unexpected error: %v", err)
 				}
-			} else {
-				if err == nil {
-					t.Fatalf("expected error containing %q, got nil", tc.wantErr)
-				}
-				if !strings.Contains(err.Error(), tc.wantErr) {
-					t.Fatalf("error %q does not contain %q", err.Error(), tc.wantErr)
-				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("expected an error wrapping sentinel %q, got nil", tc.wantSentinel)
+			}
+			sentinel, ok := spec.FieldRuleSentinels[tc.wantSentinel]
+			if !ok {
+				t.Fatalf("test bug: %q is not a key of spec.FieldRuleSentinels", tc.wantSentinel)
+			}
+			if !errors.Is(err, sentinel) {
+				t.Fatalf("error %q does not wrap sentinel %q", err, tc.wantSentinel)
 			}
 		})
+	}
+}
+
+// TestValidateFieldRuleSentinelCoverage asserts every sentinel
+// spec.FieldRuleSentinels names is tripped by at least one case in
+// fieldRuleValidationCases above -- the real coverage backstop for
+// ValidateFieldRule's violation branches: a branch added to
+// spec/fieldrules.go with a new sentinel but no covering case here fails
+// this test by name. This is narrower than, and does not replace,
+// TestInvalidSchemaOpsVectors' coverage check in schema_ops_test.go: that
+// one only requires every token a testdata/schema-ops/invalid/index.json
+// entry names to exist in spec.FieldRuleSentinels, which is a strict
+// subset -- six of this table's tokens have no conformance vector at all
+// (see the declared inventory in schema_ops_test.go) and are covered only
+// here.
+func TestValidateFieldRuleSentinelCoverage(t *testing.T) {
+	named := make(map[string]bool)
+	for _, tc := range fieldRuleValidationCases {
+		if tc.wantSentinel != "" {
+			named[tc.wantSentinel] = true
+		}
+	}
+	for token := range spec.FieldRuleSentinels {
+		if !named[token] {
+			t.Errorf("no case in fieldRuleValidationCases names sentinel token %q; it is untested", token)
+		}
 	}
 }
 

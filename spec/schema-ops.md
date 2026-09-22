@@ -1089,7 +1089,12 @@ than restating the precedence itself (WRIT-188).
 - `spec/schemas/schema-ops.schema.json` — the payload schema.
 - `spec/testdata/schema-ops/valid/`, `spec/testdata/schema-ops/invalid/` —
   payload instances; `invalid/index.json` records each expected rejection
-  (`schema`, `invariant`, or `canonicalization`).
+  (`schema`, `invariant`, or `canonicalization`), and, for an `invariant`
+  entry, which cross-field rule in a sibling `invariant_rule` field — the
+  categorized-rejection discipline
+  [`spec/canonicalization.md`](canonicalization.md)
+  §[Test vectors](canonicalization.md#test-vectors) already asks of a
+  conformance harness, applied here.
 - `spec/testdata/schema-ops/field-rules.json` — the bootstrap table,
   normative, byte-for-byte the published form of `state.SchemaRules()`.
 - `spec/testdata/fold/merge/schema-*.json` — fold vectors: a bootstrap

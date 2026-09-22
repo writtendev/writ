@@ -1,7 +1,13 @@
 # Anchors — content-based positions in code (v1)
 
 Status: normative. Schema: [`schemas/anchor.schema.json`](schemas/anchor.schema.json).
-Vectors: [`testdata/anchors/`](testdata/anchors/).
+Vectors: [`testdata/anchors/`](testdata/anchors/); `invalid/index.json`
+records each expected rejection and, for a `kind: "invariant"` entry, which
+cross-field rule in a sibling `invariant_rule` field — the
+categorized-rejection discipline
+[`spec/canonicalization.md`](canonicalization.md)
+§[Test vectors](canonicalization.md#test-vectors) already asks of a
+conformance harness, applied here.
 
 An **anchor** records *where in the code* an object points — a value type
 ([`spec/value-types.md`](value-types.md)) any schema-declared object can

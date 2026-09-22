@@ -92,26 +92,31 @@
   {
     "file": "define-field-enum-without-enum-value-type.json",
     "rejects": "invariant",
+    "invariant_rule": "enum-on-non-enum",
     "reason": "enum values declared on value_type 'string', which is not 'enum' (spec.ValidateFieldRule)"
   },
   {
     "file": "define-field-keyed-lww-missing-key.json",
     "rejects": "invariant",
+    "invariant_rule": "keyed-lww-no-key",
     "reason": "strategy 'keyed-lww' declares no key (spec.ValidateFieldRule)"
   },
   {
     "file": "define-field-key-types-mismatch.json",
     "rejects": "invariant",
+    "invariant_rule": "key-types-count",
     "reason": "key_types covers only 'subject', not the 'revision' column key also declares (spec.ValidateFieldRule)"
   },
   {
     "file": "define-field-lattice-missing-elements.json",
     "rejects": "invariant",
+    "invariant_rule": "lattice-no-elements",
     "reason": "strategy 'lattice' declares no lattice elements (spec.ValidateFieldRule)"
   },
   {
     "file": "define-field-max-length-on-bool.json",
     "rejects": "invariant",
+    "invariant_rule": "max-length-value-type",
     "reason": "max_length declared on value_type 'bool'; only string and text take one (spec.ValidateFieldRule)"
   },
   {

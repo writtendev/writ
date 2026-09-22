@@ -94,7 +94,7 @@
     "file": "lattice-element-outside-enum.schema",
     "line": 5,
     "col": 5,
-    "message": "rule for (create, state) declares lattice element \"closed\" not a member of its enum [open done]",
+    "message": "rule for (create, state) declares lattice element \"closed\" not a member of its enum [open done]: invariant lattice-element-not-in-enum",
     "reason": "a lattice element must be a member of the field's declared enum (spec.ValidateFieldRule); caught at Compile time, not Parse time"
   },
   {
