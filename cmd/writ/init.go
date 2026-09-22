@@ -358,7 +358,33 @@ func renderStarterSchemaOutcome(stdout, stderr io.Writer, namespaceFlag string, 
 // that key, and gpg.format/user.signingKey are kept separate from
 // user.name/user.email so a repository missing only one is not shown the
 // other's advice.
+//
+// result.IdentityErr's zero value (nil) is ambiguous on its own: it means
+// both "identity loaded cleanly" and "writ.Init never reached the identity
+// step at all". Every early return in writ.Init before step 6 --
+// resolveRepoRoot, gitdir.Resolve/OpenStorage, the writ.schema due-check,
+// discoverRemotes, EnsureWriterID, EnsureRepoID -- leaves IdentityErr nil
+// and SigningKey "" without step 6 (identity.Load) ever having run.
+// Rendering that pair unconditionally printed a fabricated
+// "Signing key:  (ssh)" for every one of those failures, not just the
+// non-repo case that surfaced it (round-3 finding).
+//
+// result.RepoID is what disambiguates the two: writ.Init sets it in step 4,
+// immediately before steps 5 and 6 run unconditionally to completion --
+// neither can fail the call, so whatever they determine lands on
+// PersonIDErr/IdentityErr rather than on a return -- and every early return
+// before step 4 finishes leaves RepoID "". So RepoID != "" is true exactly
+// when step 6 ran, which is what makes IdentityErr's nil trustworthy.
+// WriterID alone would not do: EnsureWriterID can succeed and set WriterID
+// while the very next call, EnsureRepoID, fails and returns before RepoID
+// is set -- and before step 6 ever runs.
 func renderIdentityState(stdout, stderr io.Writer, result writ.InitResult) {
+	if result.RepoID == "" {
+		// writ.Init never reached the identity step: nothing was
+		// determined, so there is nothing honest to print.
+		return
+	}
+
 	err := result.IdentityErr
 	if err == nil {
 		if result.SigningKeyLiteral {

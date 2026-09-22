@@ -164,3 +164,129 @@ func TestInit_SkippedRemoteSummaryPrecedesStarterSchemaLine(t *testing.T) {
 		t.Errorf("output = %q, want %q before %q, matching main's order", out, summaryLine, starterLine)
 	}
 }
+
+// The three tests below pin the round-3 medium finding: renderInitResult
+// ran renderIdentityState unconditionally on every writ.Init result, and a
+// zero-valued InitResult (IdentityErr == nil, SigningKey == "") -- exactly
+// what every early return in writ.Init leaves behind, since none of them
+// reach step 6 (identity.Load) -- read as "identity determined, no key",
+// printing a fabricated "Signing key:  (ssh)" line main never printed. The
+// fix guards renderIdentityState on result.RepoID != "", the field writ.Init
+// sets immediately before steps 5 and 6 run unconditionally to completion
+// (cmd/writ/init.go's renderIdentityState godoc walks the reasoning).
+//
+// Each test below was confirmed to fail -- with a "Signing key:  (ssh)"
+// line appearing where the assertion says it must not -- by temporarily
+// reverting renderIdentityState to drop the RepoID guard, then reverted
+// back once confirmed.
+
+// TestInit_NonRepoPrintsNoFabricatedIdentityLine pins the finding's own
+// reported repro: a directory that is not a git repository at all. writ.Init
+// returns before ever resolving a repository, so nothing is determined --
+// stdout must be completely empty, matching main exactly (verified by
+// running a main binary against the same scenario: main's stdout is also
+// empty).
+func TestInit_NonRepoPrintsNoFabricatedIdentityLine(t *testing.T) {
+	requireGit(t)
+	nonRepoDir := t.TempDir()
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"init", "-C", nonRepoDir}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("init on non-repo exited with %d, want 1", code)
+	}
+	if stdout.String() != "" {
+		t.Errorf("stdout = %q, want empty -- writ.Init never resolved a repository, so nothing was determined to print", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "not a git repository") {
+		t.Errorf("stderr does not mention not a git repo: %s", stderr.String())
+	}
+}
+
+// TestInit_WriterIDMintFailurePrintsNoFabricatedIdentityLine pins a second,
+// distinct early-return path: writ.Init opens the repository, discovers no
+// remotes, and only then fails -- at step 4, minting and persisting a writer
+// ID -- because .git itself is not writable. This is a different return
+// site than the non-repo case (identity.EnsureWriterID's own git config
+// write, not resolveRepoRoot), reached only once discoverRemotes has
+// already succeeded, so it exercises a materially different InitResult
+// zero-state (Remotes considered, WriterID/RepoID both still unset).
+func TestInit_WriterIDMintFailurePrintsNoFabricatedIdentityLine(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: file permissions do not block writes")
+	}
+	env := setupTestCLIEnv(t)
+
+	// No writ.writerId configured yet, so EnsureWriterID must mint one and
+	// persist it via `git config --local` -- the write that a read-only
+	// .git turns into a permission-denied failure. `git config --add`
+	// writes via lock-and-rename, which needs write permission on the
+	// containing directory, not the file it replaces, so .git itself (not
+	// just .git/config) has to be restricted.
+	gitDir := filepath.Join(env.repoDir, ".git")
+	if err := os.Chmod(gitDir, 0o555); err != nil {
+		t.Fatalf("chmod .git read-only: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(gitDir, 0o755) })
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr)
+
+	if err := os.Chmod(gitDir, 0o755); err != nil {
+		t.Fatalf("restore .git permissions: %v", err)
+	}
+
+	if code != 1 {
+		t.Fatalf("init with a read-only .git exited with %d, want 1; stdout: %s stderr: %s", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "ensure writer ID") {
+		t.Fatalf("stderr = %q, want it to name the writer-ID step as where writ.Init stopped", stderr.String())
+	}
+	if stdout.String() != "" {
+		t.Errorf("stdout = %q, want empty -- writ.Init never minted a writer ID, so nothing about identity was determined to print", stdout.String())
+	}
+}
+
+// TestInit_RepoIDMintFailurePrintsWriterIDButNoFabricatedIdentityLine is the
+// test that rules out the simpler fix of guarding renderIdentityState on
+// WriterID != "" instead of RepoID != "": with writ.writerId already
+// configured, EnsureWriterID succeeds and sets result.WriterID without
+// writing anything (step 4's first half), and only the very next call,
+// EnsureRepoID, fails to mint and persist a repo ID against the same
+// read-only .git (step 4's second half) -- returning before step 5 or 6
+// ever runs. A WriterID-only guard would treat this InitResult as "identity
+// determined" and print the fabricated line anyway; the fix must still
+// suppress it here even though WriterID is genuinely known and printed.
+func TestInit_RepoIDMintFailurePrintsWriterIDButNoFabricatedIdentityLine(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: file permissions do not block writes")
+	}
+	env := setupTestCLIEnv(t)
+	setGitConfig(t, env.repoDir, "writ.writerId", "aaaaaaaaaaaaaaaa")
+
+	gitDir := filepath.Join(env.repoDir, ".git")
+	if err := os.Chmod(gitDir, 0o555); err != nil {
+		t.Fatalf("chmod .git read-only: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(gitDir, 0o755) })
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr)
+
+	if err := os.Chmod(gitDir, 0o755); err != nil {
+		t.Fatalf("restore .git permissions: %v", err)
+	}
+
+	if code != 1 {
+		t.Fatalf("init with a read-only .git exited with %d, want 1; stdout: %s stderr: %s", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "ensure repo ID") {
+		t.Fatalf("stderr = %q, want it to name the repo-ID step as where writ.Init stopped", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Writer ID: aaaaaaaaaaaaaaaa (already configured)") {
+		t.Errorf("stdout = %q, want the already-configured writer ID reported -- that much writ.Init genuinely determined", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "Signing key:") {
+		t.Errorf("stdout = %q, want no Signing key line -- writ.Init never reached the identity step", stdout.String())
+	}
+}
