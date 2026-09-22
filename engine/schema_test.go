@@ -3243,6 +3243,127 @@ type gizmo {
 	}
 }
 
+// TestVocabularies_WriteBackRaceCannotInstallAPreChangeSnapshot pins the
+// WRIT-238 fix: a vocabularies() derive that read dag.Chains before a local
+// "schema" append invalidated the cache must not, on reaching its own
+// write-back afterward, overwrite that invalidation with its own pre-change
+// snapshot — freshness stamp included, which would re-arm
+// vocabulariesForAppend's window over stale data and let this handle's own
+// append-path pre-flight refuse an op against a type this same handle's own
+// ApplySchema just declared.
+//
+// The interleaving is forced, not raced. StoreParkNextChainsScan cannot
+// reach the gap this needs: it parks only the ref scan at the top of
+// vocabularies, before the fold, and a scan released there re-folds the
+// post-change log correctly, reproducing nothing (see its own doc comment
+// and WRIT-238's ticket for why). The seam this test uses instead is
+// SetStoreClock, in the gap WRIT-238 moved the write-back's s.clock() read
+// into: a one-shot closure fires exactly once, from that read, and
+// synchronously runs handle B's own ApplySchema declaring acme.gizmo —
+// outside vocabMu, so no deadlock, and guarded against the re-entrant clock
+// reads ApplySchema's own append and auto-refresh perform on the same
+// goroutine. Handle A's own, unrelated schema append runs first and plainly
+// (not through the closure) to move the real chains behind handle B's
+// back, which is what makes handle B's own subsequent vocabularies() call
+// take the full-resolve branch honestly: the fingerprint-hit branch stamps
+// under vocabMu, and firing the closure from inside that branch would
+// deadlock against ApplySchema's own noteAppend.
+func TestVocabularies_WriteBackRaceCannotInstallAPreChangeSnapshot(t *testing.T) {
+	dir, _ := setupConfiguredRepo(t)
+	ctx := context.Background()
+
+	handleA, err := writ.Open(dir, writ.WithSigner(dummySigner()), writ.WithCacheDir(t.TempDir()))
+	if err != nil {
+		t.Fatalf("Open handle A failed: %v", err)
+	}
+	defer handleA.Close()
+
+	// Auto-refresh stays on for handle B (WRIT-238's plan is explicit about
+	// this): the point of this test is that the racing derive's stale
+	// write-back beats a ground-truth refresh that already ran and got it
+	// right, not that refresh never got a chance to run.
+	handleB, err := writ.Open(dir, writ.WithSigner(dummySigner()), writ.WithCacheDir(t.TempDir()))
+	if err != nil {
+		t.Fatalf("Open handle B failed: %v", err)
+	}
+	defer handleB.Close()
+
+	frozen := time.Now()
+	writ.SetStoreClock(handleB, func() time.Time { return frozen })
+
+	// Warm handle B's cache against the log as it stands before either
+	// handle writes anything schema-related below.
+	if _, err := writ.StoreVocabularies(handleB, ctx); err != nil {
+		t.Fatalf("StoreVocabularies (warm) failed: %v", err)
+	}
+
+	// Handle A moves the real chains behind handle B's back: an ordinary,
+	// complete, synchronous schema append that handle B's own noteAppend
+	// never hears about, since that chain-observer wiring is per-Store.
+	if err := handleA.ApplySchema(ctx, compileTestSchema(t, "schema:peer", `namespace peer
+description "unrelated change that moves handle B's chains behind its back"
+
+type widget {
+  op create 1 {
+    title string(200) lww
+  }
+}
+`)); err != nil {
+		t.Fatalf("handle A ApplySchema failed: %v", err)
+	}
+
+	// The one-shot closure: on its first call it declares acme.gizmo on
+	// handle B, synchronously, then guards against re-entry so it does not
+	// recurse when ApplySchema's own append and auto-refresh read the clock
+	// again on their way through.
+	var firing bool
+	writ.SetStoreClock(handleB, func() time.Time {
+		if firing {
+			return frozen
+		}
+		firing = true
+		if err := handleB.ApplySchema(ctx, compileTestSchema(t, "schema:acme", `namespace acme
+description "declared while a derive of the pre-change log is mid-flight"
+
+type gizmo {
+  op create 1 {
+    title string(200) lww
+  }
+}
+`)); err != nil {
+			t.Fatalf("handle B ApplySchema (racing) failed: %v", err)
+		}
+		return frozen
+	})
+
+	// The racing derive: dag.Chains here reads the post-peer.widget,
+	// pre-gizmo log (handle A's append already landed; the closure above
+	// has not fired yet), which misses handle B's own cached fingerprint
+	// and takes the full-resolve branch — folding that same pre-gizmo log —
+	// before the closure fires mid-flight, inside this call's own
+	// write-back gap, and moves the log again underneath it.
+	stale, err := writ.StoreVocabularies(handleB, ctx)
+	if err != nil {
+		t.Fatalf("StoreVocabularies (racing derive) failed: %v", err)
+	}
+	if v, ok := stale["acme.gizmo"]; ok && v.Declared {
+		t.Fatalf("the racing derive's own return value already sees acme.gizmo: it did not read the log before the racing ApplySchema landed, so this test is not exercising the interleaving it claims to")
+	}
+
+	// The append-path pre-flight, with an explicit Version so
+	// Objects.Create does not resolve it through Store.Types first —
+	// Store.Types would repair the cache via its own ground-truth
+	// vocabularies() call before this ever reached the append's own
+	// producer check, passing regardless of the fix under test (WRIT-238's
+	// plan flags this as the trap: the same test written against Version 0
+	// passes without the fix).
+	if _, err := handleB.Objects.Create(ctx, "acme.gizmo", writ.NewOp{
+		Type: "create", Version: 1, Fields: map[string]any{"title": "T"},
+	}); err != nil {
+		t.Fatalf("handle B Objects.Create(acme.gizmo) failed: a derive that read the log before this handle's own ApplySchema declared acme.gizmo overwrote that declaration's correctly-refreshed cache with its own pre-change snapshot, re-arming the append-path freshness window over stale data: %v", err)
+	}
+}
+
 // TestTypes_AlwaysSeesAnotherHandlesSchemaChange pins WRIT-202 item 4's
 // conservative split: Store.Types (through Store.declaredTypes and
 // Store.vocabularies) must keep re-deriving ground truth on every call,

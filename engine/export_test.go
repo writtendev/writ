@@ -25,9 +25,16 @@ func StoreProjection(s *Store) *projection.DB {
 // StoreVocabularies exposes Store.vocabularies for testing and benchmarking
 // the producer-vocabularies cache directly (its hit/miss cost, and that a
 // hit returns the exact same map instance rather than a freshly resolved
-// one), without needing a real Append to exercise it.
+// one), without needing a real Append to exercise it. Store.vocabularies
+// itself returns a vocabSnapshot (WRIT-238); this wrapper keeps returning
+// just the vocabulary, its historical shape, so every caller of this seam
+// predating that change stays unmodified.
 func StoreVocabularies(s *Store, ctx context.Context) (codec.Vocabularies, error) {
-	return s.vocabularies(ctx)
+	snap, err := s.vocabularies(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return snap.vocab, nil
 }
 
 // StoreVocabulariesForAppend exposes Store.vocabulariesForAppend (WRIT-202)

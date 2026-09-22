@@ -143,6 +143,24 @@ func (s *Store) Schema(ctx context.Context) ([]Schema, error) {
 // ticket driven by that caller's own measurement.
 const vocabFreshnessWindow = 100 * time.Millisecond
 
+// vocabSnapshot is one derive's three co-resolved views of the schemas in
+// the log at the instant it read them: the producer vocabulary
+// (VocabulariesFromSchemas), the fold-rule index (RulesFromSchemas), and
+// resolveSchemaTypes' own result — everything Store.rules, Store.declaredTypes,
+// and Store.vocabulariesForAppend need, from one fold of one schemas slice.
+// Store.vocabularies returns this directly rather than writing it to the
+// cache and having callers read the cache back (WRIT-238): the write-back
+// below is conditional on the generation check, so a caller that read the
+// cache back after a skipped write-back could see a stale table, or — on a
+// store whose cache had never been populated at all — nil, silently handing
+// Refresh an empty rule set. Returning what was just derived, regardless of
+// whether it was also installed, has neither failure mode.
+type vocabSnapshot struct {
+	vocab codec.Vocabularies
+	rules map[string][]Rule
+	types resolvedSchemaTypes
+}
+
 // vocabularies resolves the log-sourced producer vocabularies
 // (VocabulariesFromSchemas), memoised behind a fingerprint over the repo's
 // discovered chains (dag.Chains): a fetch or a local "schema" append moves
@@ -203,20 +221,28 @@ const vocabFreshnessWindow = 100 * time.Millisecond
 // (~301ms/op, against ~295ms with the window disabled and ~0.84ms stamping
 // here). The bound is documented honestly instead; do not "tighten" it by
 // moving these reads earlier.
-func (s *Store) vocabularies(ctx context.Context) (codec.Vocabularies, error) {
+func (s *Store) vocabularies(ctx context.Context) (vocabSnapshot, error) {
 	if s == nil {
-		return nil, fmt.Errorf("writ: store is nil")
+		return vocabSnapshot{}, fmt.Errorf("writ: store is nil")
 	}
+
+	// Read before dag.Chains below, not after: this generation must cover
+	// an invalidation landing anywhere from this instant through the
+	// write-back at the bottom, including one that lands during the ref
+	// scan itself (WRIT-238).
+	s.vocabMu.Lock()
+	gen := s.vocabGen
+	s.vocabMu.Unlock()
 
 	chains, err := dag.Chains(s.storer)
 	if err != nil {
-		return nil, fmt.Errorf("writ: resolve vocabularies: chains: %w", err)
+		return vocabSnapshot{}, fmt.Errorf("writ: resolve vocabularies: chains: %w", err)
 	}
 	fp := fingerprintChains(chains)
 
 	s.vocabMu.Lock()
 	if s.vocabCache != nil && fp == s.vocabFingerprint {
-		cached := s.vocabCache
+		cached := vocabSnapshot{vocab: s.vocabCache, rules: s.ruleCache, types: s.typesCache}
 		s.vocabObservedAt = s.clock()
 		s.vocabMu.Unlock()
 		return cached, nil
@@ -225,31 +251,52 @@ func (s *Store) vocabularies(ctx context.Context) (codec.Vocabularies, error) {
 
 	schemas, err := s.Schema(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("writ: resolve vocabularies: %w", err)
+		return vocabSnapshot{}, fmt.Errorf("writ: resolve vocabularies: %w", err)
 	}
 	vocabularies, _ := VocabulariesFromSchemas(schemas)
 	rules, _ := RulesFromSchemas(schemas)
 	res := resolveSchemaTypes(schemas)
+	snap := vocabSnapshot{vocab: vocabularies, rules: rules, types: res}
 
-	// This write-back is unconditional, so a derive already in flight when a
-	// concurrent noteAppend("schema") or invalidateVocabularies lands installs
-	// its own pre-change snapshot over the invalidation, stamp included — the
-	// one residual the round-5 fingerprint clear in noteAppend does not close,
-	// and the reason ARCHITECTURE.md §Producer validation states what is
-	// enforced rather than an absolute. It is bounded by the same window and
-	// stays inside WRIT-202's accepted risk; closing it needs a cache
-	// generation counter checked here, which is a wider change than the bound
-	// it would buy and is deliberately not made.
+	// The stamp is read here, one line before vocabMu is taken for the
+	// write-back, rather than inside the critical section below (WRIT-238).
+	// This is a change to production ordering made to expose a test seam:
+	// SetStoreClock (engine/export_test.go) is the only way to control what
+	// this derive observes as "now", and a test reproducing the race this
+	// generation check closes needs to run code at the exact instant between
+	// this fold finishing and the write-back taking the lock — the one gap
+	// nothing else pins deterministically. Moving the read one line earlier
+	// puts that gap at a call this package already makes on purpose, instead
+	// of adding a hook to the write path purely for tests (which
+	// StoreParkNextChainsScan's own doc comment holds itself above). It does
+	// not change what is measured: the stamp still lands at derive
+	// completion, a handful of instructions before the old call site, so the
+	// "armed at completion, not before the ref walk" invariant above holds
+	// exactly as documented.
+	now := s.clock()
+
 	s.vocabMu.Lock()
-	s.vocabCache = vocabularies
-	s.ruleCache = rules
-	s.typesCache = res
-	s.vocabChains = chains
-	s.vocabFingerprint = fp
-	s.vocabObservedAt = s.clock()
+	// Installed only if nothing invalidated the cache since gen was read
+	// above (WRIT-238): a concurrent noteAppend("schema") or
+	// invalidateVocabularies that landed anywhere in this derive's read-fold
+	// window already bumped s.vocabGen, and installing this derive's result
+	// over that would silently undo the invalidation — pre-change data,
+	// freshness stamp included, re-armed as if it were current. On a
+	// mismatch this installs nothing and leaves whatever the invalidation
+	// (or a concurrent derive that did match) already put in place standing;
+	// snap, derived from this call's own read of the log, is returned to
+	// this call's own caller either way.
+	if s.vocabGen == gen {
+		s.vocabCache = vocabularies
+		s.ruleCache = rules
+		s.typesCache = res
+		s.vocabChains = chains
+		s.vocabFingerprint = fp
+		s.vocabObservedAt = now
+	}
 	s.vocabMu.Unlock()
 
-	return vocabularies, nil
+	return snap, nil
 }
 
 // vocabulariesForAppend is Store.vocabularies' append-path sibling
@@ -314,7 +361,11 @@ func (s *Store) vocabulariesForAppend(ctx context.Context) (codec.Vocabularies, 
 	// window Append behind whatever dag.Chains and the resolve underneath
 	// it cost, for no benefit — the lock only ever needs to guard the
 	// cache fields themselves, not the derivation that populates them.
-	return s.vocabularies(ctx)
+	snap, err := s.vocabularies(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return snap.vocab, nil
 }
 
 // invalidateVocabularies drops the entire producer-vocabularies cache —
@@ -333,6 +384,7 @@ func (s *Store) invalidateVocabularies() {
 	s.vocabChains = nil
 	s.vocabFingerprint = ""
 	s.vocabObservedAt = time.Time{}
+	s.vocabGen++
 }
 
 // rules resolves the fold-rule index a projection ApplySchema/Refresh/Rebuild
@@ -342,13 +394,11 @@ func (s *Store) invalidateVocabularies() {
 // fingerprint, same invalidation via noteAppend), so calling this on every
 // Refresh costs one Chains pass and a fingerprint comparison, not a fold.
 func (s *Store) rules(ctx context.Context) (map[string][]Rule, error) {
-	if _, err := s.vocabularies(ctx); err != nil {
+	snap, err := s.vocabularies(ctx)
+	if err != nil {
 		return nil, err
 	}
-	s.vocabMu.Lock()
-	cached := s.ruleCache
-	s.vocabMu.Unlock()
-	return cached, nil
+	return snap.rules, nil
 }
 
 // declaredTypes resolves resolveSchemaTypes's own result — the type-level
@@ -358,13 +408,11 @@ func (s *Store) rules(ctx context.Context) (map[string][]Rule, error) {
 // noteAppend). A call here costs whatever a Store.vocabularies cache hit
 // already costs, never a second Schema/Enumerate fold.
 func (s *Store) declaredTypes(ctx context.Context) (resolvedSchemaTypes, error) {
-	if _, err := s.vocabularies(ctx); err != nil {
+	snap, err := s.vocabularies(ctx)
+	if err != nil {
 		return resolvedSchemaTypes{}, err
 	}
-	s.vocabMu.Lock()
-	cached := s.typesCache
-	s.vocabMu.Unlock()
-	return cached, nil
+	return snap.types, nil
 }
 
 // noteAppend rolls the cached producer-vocabularies fingerprint forward
@@ -416,9 +464,11 @@ func (s *Store) declaredTypes(ctx context.Context) (resolvedSchemaTypes, error) 
 // clear only works because fingerprintChains never returns "" (see its
 // marker below): a repository with no writ chains would otherwise
 // fingerprint to the same value this writes and match it. Both lines are
-// netted by TestNoteAppend_SchemaAppendLeavesNoFingerprintForAParkedReader;
-// for the residual neither closes, see Store.vocabularies' write-back above
-// and ARCHITECTURE.md §Producer validation.
+// netted by TestNoteAppend_SchemaAppendLeavesNoFingerprintForAParkedReader.
+// This branch also bumps vocabGen, alongside invalidateVocabularies (WRIT-238):
+// that closes the one gap the fingerprint clear above does not, a derive
+// already in flight when this branch runs — see vocabGen's field comment in
+// engine/store.go and Store.vocabularies' write-back.
 func (s *Store) noteAppend(objectType string, newTip plumbing.Hash) {
 	s.vocabMu.Lock()
 	defer s.vocabMu.Unlock()
@@ -427,6 +477,7 @@ func (s *Store) noteAppend(objectType string, newTip plumbing.Hash) {
 		s.vocabChains = nil
 		s.vocabFingerprint = ""
 		s.vocabObservedAt = time.Time{}
+		s.vocabGen++
 		return
 	}
 	if s.vocabChains == nil {

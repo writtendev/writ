@@ -80,11 +80,11 @@ type Store struct {
 	// when the file's content actually changed.
 	trustCache trustCacheEntry
 
-	// vocabMu guards vocabCache/vocabChains/vocabFingerprint/vocabObservedAt,
-	// the memoised resolution of VocabulariesFromSchemas behind a dag.Chains
-	// fingerprint (see Store.vocabularies and Store.noteAppend). Separate
-	// from mu: resolving vocabularies must not contend with Refresh/
-	// Rebuild's projection lock.
+	// vocabMu guards vocabCache/vocabChains/vocabFingerprint/vocabObservedAt/
+	// vocabGen, the memoised resolution of VocabulariesFromSchemas behind a
+	// dag.Chains fingerprint (see Store.vocabularies and Store.noteAppend).
+	// Separate from mu: resolving vocabularies must not contend with
+	// Refresh/Rebuild's projection lock.
 	vocabMu    sync.Mutex
 	vocabCache codec.Vocabularies
 	// vocabChains is the exact dag.Chains snapshot vocabCache was resolved
@@ -106,7 +106,11 @@ type Store struct {
 	// consequence, documented everywhere the bound is stated rather than
 	// engineered away: on the full-resolve branch this stamp trails the ref
 	// read by a whole Schema()/Enumerate fold, so what the append path
-	// enforces is the window plus at most one ground-truth resolve.
+	// enforces is the window plus at most one ground-truth resolve. Since
+	// WRIT-238, a derive only ever reaches this assignment when its
+	// write-back's vocabGen check passed, so this stamp and the cache it
+	// accompanies are never a pre-invalidation snapshot re-armed after the
+	// fact — see vocabGen below.
 	// Store.noteAppend's non-"schema" branch
 	// rolls the chain snapshot forward without ever calling dag.Chains, so
 	// it must never update this stamp; only vocabularies' own two branches
@@ -115,6 +119,23 @@ type Store struct {
 	// whether the append path may skip dag.Chains entirely for a short,
 	// documented window (vocabFreshnessWindow in schema.go).
 	vocabObservedAt time.Time
+	// vocabGen counts invalidations of the vocabulary cache: Store.noteAppend's
+	// "schema" branch and Store.invalidateVocabularies each increment it
+	// (both already hold vocabMu when they do). Store.vocabularies reads it
+	// before starting a derive and compares against the current value at its
+	// write-back (WRIT-238): reading dag.Chains and folding the log take no
+	// lock, so a concurrent local "schema" append or a Store.invalidateVocabularies
+	// (from Store.Sync) can land in that gap, and a derive that started
+	// before it would otherwise install a snapshot of state the invalidation
+	// already superseded. The write-back installs only on a generation
+	// match; on a mismatch it installs nothing, leaving whatever the
+	// invalidation (or a later derive that did match) already put in place
+	// standing. This closes the one gap the fingerprint clear in
+	// noteAppend's "schema" branch does not: that clear stops a *later*
+	// reader from matching a stale fingerprint, but does nothing about a
+	// derive already past its own fingerprint check when the invalidation
+	// lands.
+	vocabGen uint64
 	// now is the clock Store.vocabularies/vocabulariesForAppend read
 	// through the s.clock() helper below. nil means time.Now; a test
 	// injects a fake one via the export_test.go SetStoreClock seam so
