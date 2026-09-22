@@ -506,8 +506,40 @@ func TestInit_SigningKeyGuidance(t *testing.T) {
 	if !strings.Contains(errStr, "git config user.signingKey") {
 		t.Errorf("stderr does not advise 'git config user.signingKey': %s", errStr)
 	}
-	if !strings.Contains(errStr, "git config gpg.ssh.allowedSignersFile") {
-		t.Errorf("stderr does not mention allowedSignersFile: %s", errStr)
+	// The allowedSignersFile hint moved to stdout (WRIT-307): it is
+	// guidance printed on every run that reaches the identity step, not
+	// part of this warning's remediation.
+	if !strings.Contains(stdout.String(), "git config gpg.ssh.allowedSignersFile") {
+		t.Errorf("stdout does not mention allowedSignersFile: %s", stdout.String())
+	}
+}
+
+// TestInit_AllowedSignersHintAlwaysPrinted pins WRIT-307: the
+// allowedSignersFile hint prints unconditionally, including for a
+// repository whose signing is fully configured -- the case the ticket is
+// about, since the hint used to print only inside the gpg.format/
+// user.signingKey warning arm and a fully-configured repository never took
+// that branch. Both halves matter: stdout carrying the hint is the bug
+// fix, and stderr staying empty is what keeps this a hint rather than a
+// warning -- TestInit_AlreadyInitialisedIsACleanNoOp depends on exactly
+// that split.
+func TestInit_AllowedSignersHintAlwaysPrinted(t *testing.T) {
+	env := setupTestCLIEnv(t)
+	setupSigningKey(t, env.repoDir)
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("init exited with %d; stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Optionally configure verification allowed signers:") {
+		t.Errorf("stdout does not carry the allowed-signers hint on a fully-configured repo:\n%s", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "git config gpg.ssh.allowedSignersFile ~/.ssh/allowed_signers") {
+		t.Errorf("stdout does not carry the allowedSignersFile remediation:\n%s", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("a fully-configured repo's init warned about something (the hint must not be a warning):\n%s", stderr.String())
 	}
 }
 

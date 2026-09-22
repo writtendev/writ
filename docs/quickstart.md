@@ -62,6 +62,8 @@ Writer ID: 0123456789abcdef (minted)
 Repo ID: a1b2c3d4e5f60718293a4b5c6d7e8f90 (minted)
 Person ID: email:alice@example.com (derived from user.email)
 Signing key: ~/.ssh/id_ed25519.pub (ssh)
+Optionally configure verification allowed signers:
+  git config gpg.ssh.allowedSignersFile ~/.ssh/allowed_signers
 No git remotes configured; fetch refspec will be added when a remote is configured.
 Wrote starter /path/to/repo/writ.schema
 ```
