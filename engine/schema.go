@@ -203,24 +203,42 @@ type vocabSnapshot struct {
 // exactly what vocabulariesForAppend's window needs to measure freshness
 // against.
 //
-// Both stamp at the point of assignment — when the derive they are part of
-// finished — not a clock read taken before the dag.Chains call below. On
-// the fingerprint-hit branch the two are the same instant for practical
-// purposes (one Chains pass and a mutex acquire apart). On the
-// full-resolve branch the assignment trails the ref read by a whole
-// Schema()/Enumerate fold, so vocabulariesForAppend's window runs from the
-// end of that fold and the staleness bound it buys is the window *plus* at
-// most one ground-truth resolve. That is what every prose site states, on
-// purpose: round 3 of this ticket's review moved these reads before the
-// walk so the enforced bound would be the window alone, and round 4
-// measured what that costs. Arming the window at t_start when the derive
-// only finishes at t_start+D leaves W-D of window, so the amortisation
-// this ticket exists for shrinks as D — the ref walk, the exact cost being
-// amortised — grows, and vanishes once one walk exceeds W. At 8,000 refs
-// that made Append indistinguishable from having no window at all
-// (~301ms/op, against ~295ms with the window disabled and ~0.84ms stamping
-// here). The bound is documented honestly instead; do not "tighten" it by
-// moving these reads earlier.
+// The fingerprint-hit branch still stamps at the point of assignment: the
+// compare and the s.vocabObservedAt write below both run inside the same
+// vocabMu critical section, one instant apart in practice (a mutex acquire),
+// so that half of this invariant is exactly as it always was.
+//
+// The full-resolve branch is different since WRIT-238. Its stamp is now a
+// clock read taken one line *before* vocabMu.Lock() for the write-back, not
+// an assignment inside that critical section (see the comment at that read,
+// below, for why) — so the value installed can be a handful of instructions
+// older than the instant it is actually installed, never younger. That
+// bound only ever shortens the window vocabulariesForAppend enforces, never
+// lengthens it: the ref walk (dag.Chains, plus the Schema()/Enumerate fold a
+// miss pays for) still completes entirely before this read, exactly as
+// before, so the staleness bound stays the window *plus* at most one
+// ground-truth resolve, precisely as documented on vocabulariesForAppend
+// above and everywhere else this bound is stated. What changed is not that
+// bound but what guards it: installation — this stamp included — now also
+// requires s.vocabGen to still match the generation read at the top of this
+// call. A "schema" append or an invalidateVocabularies landing in the gap
+// this read now sits inside bumps that counter, and the install below is
+// skipped outright, so a stamp read a few instructions early can never
+// re-arm the window over a snapshot an invalidation already superseded —
+// that is a separate, independent guard, not a relaxation of this one.
+//
+// Round 3 of this ticket's original review moved these reads before the ref
+// walk, and round 4 measured what that costs: arming the window at
+// t_start when the derive only finishes at t_start+D leaves W-D of window,
+// so the amortisation this cache exists for shrinks as D — the ref walk,
+// the exact cost being amortised — grows, and vanishes once one walk
+// exceeds W. At 8,000 refs that made Append indistinguishable from having
+// no window at all (~301ms/op, against ~295ms with the window disabled and
+// ~0.84ms stamping here). That verdict still holds for the reads this
+// invariant governs: do not "tighten" the bound by moving either stamp back
+// before the ref walk itself. The one-line move WRIT-238 made stays inside
+// the derive's own tail, after the walk and the fold, where this reasoning
+// already accounted for it.
 func (s *Store) vocabularies(ctx context.Context) (vocabSnapshot, error) {
 	if s == nil {
 		return vocabSnapshot{}, fmt.Errorf("writ: store is nil")

@@ -45,6 +45,37 @@ func StoreVocabulariesForAppend(s *Store, ctx context.Context) (codec.Vocabulari
 	return s.vocabulariesForAppend(ctx)
 }
 
+// StoreRules exposes Store.rules for testing that it hands back the
+// vocabSnapshot a derive just produced rather than reading the cache back
+// (WRIT-238 round 1, item 4): a derive whose write-back the generation
+// check skips must still return its own freshly resolved rule table to
+// this call's caller, never a cache a skipped write-back left stale or, on
+// a store whose cache had never been populated, nil.
+func StoreRules(s *Store, ctx context.Context) (map[string][]Rule, error) {
+	return s.rules(ctx)
+}
+
+// StoreInvalidateVocabularies exposes Store.invalidateVocabularies for
+// testing the Store.Sync half of the WRIT-238 generation-counter fix
+// directly — that it bumps vocabGen so a derive already in flight when it
+// runs cannot install a pre-invalidation snapshot over it — without needing
+// a real fetch to drive Store.Sync.
+func StoreInvalidateVocabularies(s *Store) {
+	s.invalidateVocabularies()
+}
+
+// StoreVocabGen exposes Store.vocabGen for testing (WRIT-238): the
+// generation counter Store.noteAppend's "schema" branch and
+// Store.invalidateVocabularies increment, and that Store.vocabularies'
+// write-back compares against before installing a derive's result.
+// Test-only seam for pinning exactly which call sites bump it, and that no
+// others do.
+func StoreVocabGen(s *Store) uint64 {
+	s.vocabMu.Lock()
+	defer s.vocabMu.Unlock()
+	return s.vocabGen
+}
+
 // SetStoreClock injects a fake clock for Store.vocabularies/
 // vocabulariesForAppend to read via Store.clock (WRIT-202), so a test can
 // freeze or advance time deterministically rather than racing
