@@ -339,6 +339,23 @@ func renderInitResult(stdout, stderr io.Writer, result writ.InitResult) {
 
 	renderIdentityState(stdout, stderr, result)
 
+	// Printed on every run that reached the identity step, configured or
+	// not: an absent trust store is a legitimate configuration --
+	// verification never gates fold (spec/signing.md) -- so this is a hint
+	// on stdout beside the rest of the report, not a warning tied to
+	// whichever signing errors (if any) renderIdentityState just printed.
+	// It used to print only inside the gpg.format/user.signingKey arm
+	// above, which showed it to exactly the readers who did not yet need
+	// it and hid it from everyone who went on to hit `verification
+	// wrong-key` on their first op (WRIT-307). Gated on the same
+	// result.RepoID != "" condition renderIdentityState uses, for the same
+	// reason: a run that never reached the identity step has nothing
+	// honest to hint about.
+	if result.RepoID != "" {
+		fmt.Fprintf(stdout, "Optionally configure verification allowed signers:\n")
+		fmt.Fprintf(stdout, "  git config gpg.ssh.allowedSignersFile ~/.ssh/allowed_signers\n")
+	}
+
 	for _, r := range result.Remotes {
 		switch {
 		case r.NotAttempted:
@@ -442,8 +459,6 @@ func renderIdentityState(stdout, stderr io.Writer, result writ.InitResult) {
 		fmt.Fprintf(stderr, "To configure SSH signing for Writ and Git:\n")
 		fmt.Fprintf(stderr, "  git config gpg.format ssh\n")
 		fmt.Fprintf(stderr, "  git config user.signingKey ~/.ssh/id_ed25519.pub\n")
-		fmt.Fprintf(stderr, "Optionally configure verification allowed signers:\n")
-		fmt.Fprintf(stderr, "  git config gpg.ssh.allowedSignersFile ~/.ssh/allowed_signers\n")
 	case "user.name", "user.email":
 		fmt.Fprintf(stderr, "warning: author identity not fully configured (%s)\n", initMessage(err))
 		fmt.Fprintf(stderr, "To configure the identity Writ and Git author commits with:\n")
