@@ -93,8 +93,6 @@ type InitOptions struct {
 }
 
 type InitResult struct {
-	WorkTree string
-	GitDir string
 	WriterID string
 	WriterIDMinted bool
 	RepoID string
@@ -166,6 +164,7 @@ type RemoteInit struct {
 	Refspec string
 	Repaired bool
 	Skipped bool
+	NotAttempted bool
 	Err error
 }
 

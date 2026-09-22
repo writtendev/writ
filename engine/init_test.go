@@ -146,9 +146,6 @@ func TestInitBareRepoNeedsNoNamespace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Init on a bare repository: %v", err)
 	}
-	if result.WorkTree != "" {
-		t.Errorf("WorkTree = %q, want empty for a bare repository", result.WorkTree)
-	}
 	if result.StarterSchemaPath != "" {
 		t.Errorf("StarterSchemaPath = %q, want empty -- a bare repository has no work tree to put one in", result.StarterSchemaPath)
 	}
@@ -177,6 +174,32 @@ func TestInitExplicitBadRemoteAborts(t *testing.T) {
 	// state, not rolled back.
 	if result.WriterID == "" {
 		t.Errorf("WriterID unset after a remote failure, want identity to have already been persisted")
+	}
+}
+
+// TestInitExplicitRemoteFailureMarksLaterRemotesNotAttempted pins the
+// round-1 major finding: a hard failure on an explicit remote list must not
+// silently drop the remotes after the failing one from InitResult.Remotes
+// -- Init lists every remote it was asked to configure, marking the ones it
+// never reached NotAttempted, so a caller can still name all of them.
+func TestInitExplicitRemoteFailureMarksLaterRemotesNotAttempted(t *testing.T) {
+	dir := setupBareInitRepo(t)
+
+	result, err := writ.Init(context.Background(), dir, writ.InitOptions{
+		Remotes:          []string{"nosuchremote", "origin"},
+		StarterNamespace: "acme",
+	})
+	if err == nil {
+		t.Fatal("Init with an explicit, unconfigured remote succeeded, want an error")
+	}
+	if len(result.Remotes) != 2 {
+		t.Fatalf("Remotes = %+v, want exactly 2 entries: the hard failure and the remote never reached", result.Remotes)
+	}
+	if result.Remotes[0].Name != "nosuchremote" || result.Remotes[0].Err == nil || result.Remotes[0].NotAttempted {
+		t.Errorf("Remotes[0] = %+v, want the hard-failed nosuchremote entry (Err set, NotAttempted false)", result.Remotes[0])
+	}
+	if result.Remotes[1].Name != "origin" || result.Remotes[1].Err != nil || !result.Remotes[1].NotAttempted {
+		t.Errorf("Remotes[1] = %+v, want origin reported NotAttempted with a nil Err -- Init never called Ensure for it", result.Remotes[1])
 	}
 }
 

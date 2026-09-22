@@ -7,8 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/writtendev/writ/engine"
@@ -222,11 +220,16 @@ func runInit(ctx context.Context, defaultDir string, args []string, stdin io.Rea
 		// A hard remote failure is the one case with real partial state to
 		// report: identity already in config, one or more refspecs not.
 		// Every other failure kind returns before writ.Init attempts any
-		// remote, so result.Remotes is empty for them.
-		if n := len(result.Remotes); n > 0 && result.Remotes[n-1].Err != nil && !result.Remotes[n-1].Skipped {
+		// remote, so result.Remotes is empty for them -- a non-empty
+		// Remotes here means exactly the remote-failure case. pending
+		// includes both the remote that failed and every remote after it
+		// writ.Init never got to (RemoteInit.NotAttempted): main named all
+		// of them, and reconstructing that list is exactly what
+		// NotAttempted exists for.
+		if len(result.Remotes) > 0 {
 			var configured, pending []string
 			for _, r := range result.Remotes {
-				if r.Err == nil {
+				if r.Err == nil && !r.NotAttempted {
 					configured = append(configured, r.Name)
 				} else {
 					pending = append(pending, r.Name)
@@ -295,6 +298,11 @@ func renderInitResult(stdout, stderr io.Writer, namespaceFlag string, result wri
 
 	for _, r := range result.Remotes {
 		switch {
+		case r.NotAttempted:
+			// writ.Init never reached this remote -- an earlier one's hard
+			// failure stopped the run first. Nothing to say about it here;
+			// runInit's reportPartialInit names it among what is not
+			// configured.
 		case r.Err == nil:
 			if r.Repaired {
 				fmt.Fprintf(stdout, "Configured fetch refspec for remote %q (%s)\n", r.Name, r.Refspec)
@@ -304,10 +312,11 @@ func renderInitResult(stdout, stderr io.Writer, namespaceFlag string, result wri
 		case r.Skipped:
 			fmt.Fprintf(stderr, "writ init: remote %q: %v (skipped; not one you asked for)\n", r.Name, r.Err)
 		default:
-			// The one hard-failing remote, if any, is always the last
-			// entry (writ.Init returns as soon as it hits one) and is
-			// reported by runInit itself via the returned error, not
-			// here -- printing it here too would duplicate the line.
+			// The one hard-failing remote, if any, is always the entry
+			// right before the first NotAttempted one (writ.Init returns
+			// as soon as it hits one) and is reported by runInit itself
+			// via the returned error, not here -- printing it here too
+			// would duplicate the line.
 		}
 	}
 
@@ -366,49 +375,4 @@ func renderIdentityState(stdout, stderr io.Writer, result writ.InitResult) {
 	default:
 		fmt.Fprintf(stderr, "warning: identity configuration: %s\n", initMessage(err))
 	}
-}
-
-// writeStarterSchemaFile writes a namespace-only writ.schema at the work
-// tree root when one is not already there. Writ declares no types of its
-// own (spec/schema-source.md; AGENTS.md), so the starter file is a
-// namespace line and nothing else -- no types, no vocabulary -- and never
-// overwrites a file that already exists. namespace is the value to write;
-// it is empty (and unused) exactly when the file already exists, which is
-// enforced below since a caller's own due-check and this function's own
-// stat are two different moments and nothing stops the file from being
-// removed in between. flagValue is the raw --namespace the user passed, if
-// any, purely to report that it was ignored when there was nothing for it
-// to name.
-func writeStarterSchemaFile(workTree, namespace, flagValue string, stdout, stderr io.Writer) error {
-	path := filepath.Join(workTree, schemaSourceFileName)
-	if _, err := os.Stat(path); err == nil {
-		if flagValue != "" {
-			fmt.Fprintf(stdout, "writ.schema already exists; leaving it unchanged (--namespace %q ignored)\n", flagValue)
-		} else {
-			fmt.Fprintf(stdout, "writ.schema already exists; leaving it unchanged\n")
-		}
-		return nil
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-
-	// namespace is only ever empty when the file above was found to exist.
-	// Reaching here with an empty namespace means the file was removed
-	// between a caller's own due-check and this function's stat -- a
-	// concurrent `git checkout`, `clean`, or `stash` in the same work
-	// tree -- and writing it anyway would produce a writ.schema with an
-	// empty namespace that every later `schema plan`/`apply` refuses.
-	// That is a programming error, not a user error one more validation
-	// message would help with, so it fails loudly instead of printing
-	// "Wrote starter" over a file the caller cannot read back.
-	if namespace == "" {
-		panic("writ init: writeStarterSchemaFile: namespace must not be empty when a starter file is due")
-	}
-
-	content := "namespace " + namespace + "\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		return err
-	}
-	fmt.Fprintf(stdout, "Wrote starter %s\n", path)
-	return nil
 }

@@ -70,8 +70,19 @@ type RemoteInit struct {
 	// section or a "-"-leading name -- and therefore left alone rather
 	// than treating as a failure of the run.
 	Skipped bool
-	// Err is non-nil when Init could not configure this remote, whether
-	// skipped or fatal to the run.
+	// NotAttempted reports a remote Init never even tried to configure,
+	// because an earlier remote's hard failure stopped the run first.
+	// Init lists every remote it discovered or was asked to configure,
+	// not only the ones it got to, so a caller rendering a partial-
+	// failure report can name all of them -- omitting the unattempted
+	// ones would silently drop a remote that genuinely has no writ fetch
+	// refspec from that report. Err is nil for a NotAttempted entry:
+	// there is nothing wrong with this remote itself, Init simply never
+	// reached it.
+	NotAttempted bool
+	// Err is non-nil when Init could not configure this remote -- whether
+	// skipped or fatal to the run -- and nil when the remote was
+	// configured successfully or was never attempted (NotAttempted).
 	Err error
 }
 
@@ -79,10 +90,6 @@ type RemoteInit struct {
 // point of any failure, so a caller can render a partial-failure report
 // naming exactly what is now configured and what is not.
 type InitResult struct {
-	// WorkTree and GitDir are the resolved repository paths (WorkTree is
-	// empty for a bare repository).
-	WorkTree, GitDir string
-
 	// WriterID is this device's writer id: read from existing git config,
 	// or minted and persisted to local config when absent. WriterIDMinted
 	// reports which.
@@ -113,13 +120,15 @@ type InitResult struct {
 	SigningKeyLiteral bool
 	IdentityErr       error
 
-	// Remotes reports the outcome for each remote Init attempted to
-	// configure, in the order attempted. Empty means no remotes were
+	// Remotes reports the outcome for each remote Init discovered or was
+	// asked to configure, in that order -- including any it never
+	// attempted because an earlier remote's hard failure stopped the run
+	// first (RemoteInit.NotAttempted). Empty means no remotes were
 	// configured, discovered, or requested.
 	Remotes []RemoteInit
 
 	// StarterSchemaPath is the working-tree writ.schema path Init
-	// considered, set whenever WorkTree is non-empty.
+	// considered, set whenever the repository has a work tree.
 	StarterSchemaPath string
 	// StarterSchemaWritten reports whether Init wrote a starter
 	// writ.schema (namespace-only, InitOptions.StarterNamespace).
@@ -178,8 +187,6 @@ func Init(ctx context.Context, path string, opts InitOptions) (InitResult, error
 	if err != nil {
 		return result, fmt.Errorf("open git repo %s: %w", repoRoot, err)
 	}
-	result.WorkTree = gitInfo.WorkTree
-	result.GitDir = gitInfo.GitDir
 
 	// 2.5. Decide whether a starter writ.schema is due. Only a work tree
 	// with no writ.schema yet ever gets one: a bare repository has no
@@ -192,7 +199,7 @@ func Init(ctx context.Context, path string, opts InitOptions) (InitResult, error
 		starterPath := filepath.Join(gitInfo.WorkTree, starterSchemaFileName)
 		switch _, statErr := os.Stat(starterPath); {
 		case statErr == nil:
-			// Exists; not due. Step 7 below reports this.
+			// Exists; not due. Step 8 below reports this.
 		case os.IsNotExist(statErr):
 			starterDue = true
 		default:
@@ -201,6 +208,25 @@ func Init(ctx context.Context, path string, opts InitOptions) (InitResult, error
 	}
 	if starterDue && opts.StarterNamespace == "" {
 		return result, ErrStarterNamespaceRequired
+	}
+
+	// 3. Discover the remotes this run is for, before anything below
+	// writes to git config: a `git remote` failure aborts here, with the
+	// repository untouched, rather than after identity is already
+	// persisted. explicit distinguishes a caller-supplied list from one
+	// Init discovered on its own: a bad *explicit* name is the caller's
+	// mistake to fix, and aborts the run (step 7); a bad *discovered*
+	// name is not something the caller asked Init to touch, so it is
+	// skipped and reported instead of stranding every other remote
+	// (WRIT-283).
+	explicit := opts.Remotes != nil
+	remotes := opts.Remotes
+	if !explicit {
+		discovered, err := discoverRemotes(ctx, repoRoot)
+		if err != nil {
+			return result, fmt.Errorf("list remotes: %w", err)
+		}
+		remotes = discovered
 	}
 
 	// Existing chains, for writer-id collision avoidance. Best effort by
@@ -217,7 +243,7 @@ func Init(ctx context.Context, path string, opts InitOptions) (InitResult, error
 		}
 	}
 
-	// 3. From here on Init writes to git config.
+	// 4. From here on Init writes to git config.
 	writerID, writerMinted, err := identity.EnsureWriterID(ctx, repoRoot, taken)
 	if err != nil {
 		return result, fmt.Errorf("ensure writer ID: %w", err)
@@ -232,7 +258,7 @@ func Init(ctx context.Context, path string, opts InitOptions) (InitResult, error
 	result.RepoID = string(repoID)
 	result.RepoIDMinted = repoMinted
 
-	// 4. The person identifier this repo will write into op payloads:
+	// 5. The person identifier this repo will write into op payloads:
 	// writ.personId when set, else derived from user.email. Not fatal --
 	// reads need no person identifier -- so a derivation failure is
 	// reported on PersonIDErr rather than returned.
@@ -251,7 +277,7 @@ func Init(ctx context.Context, path string, opts InitOptions) (InitResult, error
 		result.PersonIDErr = cfgErr
 	}
 
-	// 5. Load identity to report author and key state. Also not fatal: a
+	// 6. Load identity to report author and key state. Also not fatal: a
 	// repository can be read, and partially configured, without a signing
 	// key.
 	if ident, err := identity.Load(ctx, repoRoot); err != nil {
@@ -261,22 +287,7 @@ func Init(ctx context.Context, path string, opts InitOptions) (InitResult, error
 		result.SigningKeyLiteral = ident.Key.Literal
 	}
 
-	// 6. Configure fetch refspecs for the requested remotes. explicit
-	// distinguishes a caller-supplied list from one Init discovered on its
-	// own via `git remote`: a bad *explicit* name is the caller's mistake
-	// to fix, and aborts the run; a bad *discovered* name is not something
-	// the caller asked Init to touch, so it is skipped and reported
-	// instead of stranding every other remote (WRIT-283).
-	explicit := opts.Remotes != nil
-	remotes := opts.Remotes
-	if !explicit {
-		discovered, err := discoverRemotes(ctx, repoRoot)
-		if err != nil {
-			return result, fmt.Errorf("list remotes: %w", err)
-		}
-		remotes = discovered
-	}
-
+	// 7. Configure fetch refspecs for the remotes discovered in step 3.
 	if len(remotes) > 0 {
 		client, err := writsync.OpenStorage(storer, repoRoot, identity.Identity{WriterID: writerID})
 		if err != nil {
@@ -287,7 +298,7 @@ func Init(ctx context.Context, path string, opts InitOptions) (InitResult, error
 			return result, fmt.Errorf("open sync client: %w", err)
 		}
 
-		for _, remote := range remotes {
+		for i, remote := range remotes {
 			status, err := client.Ensure(ctx, remote)
 			if err != nil {
 				if !explicit && (errors.Is(err, writsync.ErrUnknownRemote) || errors.Is(err, writsync.ErrInvalidRemoteName)) {
@@ -295,6 +306,17 @@ func Init(ctx context.Context, path string, opts InitOptions) (InitResult, error
 					continue
 				}
 				result.Remotes = append(result.Remotes, RemoteInit{Name: remote, Err: err})
+				// Every remote after this one was never attempted: Ensure
+				// is never called for it, so nothing above would otherwise
+				// record it at all, and a caller naming "what's not
+				// configured" from result.Remotes would silently drop it
+				// (round-1 major finding). Recording it here, rather than
+				// leaving the gap for the caller to reconstruct, is the
+				// only place Init itself knows the full discovered/
+				// requested list.
+				for _, unattempted := range remotes[i+1:] {
+					result.Remotes = append(result.Remotes, RemoteInit{Name: unattempted, NotAttempted: true})
+				}
 				return result, fmt.Errorf("remote %q: %w", remote, err)
 			}
 			result.Remotes = append(result.Remotes, RemoteInit{
@@ -305,7 +327,7 @@ func Init(ctx context.Context, path string, opts InitOptions) (InitResult, error
 		}
 	}
 
-	// 7. Write a starter writ.schema, working-tree repositories only. An
+	// 8. Write a starter writ.schema, working-tree repositories only. An
 	// existing writ.schema is never overwritten, no matter its content.
 	// The namespace, if a starter file is due, was already validated by
 	// the caller (opts.StarterNamespace) and refused above (step 2.5) if a
