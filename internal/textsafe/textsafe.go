@@ -5,11 +5,15 @@
 // and more), at Unicode 17.0.0, plus four named Default_Ignorable code
 // points that render invisible but are not Cf (see Forbidden's doc comment
 // for the full accounting). Two call sites need this exact table and must
-// never disagree on it — engine/internal/person.Check, which refuses the
-// code points at the producer, and cmd/writ's emitJSON/fieldDisplay, which
-// escape them at display — and Go's internal-package rule makes
-// engine/internal/... unreachable from cmd/writ, so the table lives here, at
-// the module root, reachable from both. One table, one owner.
+// never disagree on it — internal/person.Check, which refuses the code
+// points at the producer, and engine/textsafe.go's EscapeForbidden /
+// EscapeForbiddenKeepingNewlines, which escape them at display — and Go's
+// internal-package rule makes internal/... unreachable from cmd/writ (or
+// any other consumer outside this module), so the table lives here, at the
+// module root, reachable from both. cmd/writ no longer imports this
+// package directly (WRIT-311): its porcelain and --json rendering go
+// through the engine's two wrappers instead, the same as any other
+// consumer of the public API. One table, one owner.
 //
 // Producer rejection is hygiene, not the security boundary: spec/fold.md
 // §7.1 makes fold total by design, so a hostile writer's op reaches the log

@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/writtendev/writ/engine"
-	"github.com/writtendev/writ/internal/schemasrc"
 )
 
 type initOpts struct {
@@ -87,7 +86,7 @@ func resolveNamespace(stdin io.Reader, interactive bool, stderr io.Writer) (stri
 	if line == "" {
 		return "", fmt.Errorf("no namespace entered; pass --namespace <name>, matching %s", namespaceGrammar)
 	}
-	if err := schemasrc.ValidateNamespace(line); err != nil {
+	if err := writ.ValidateNamespace(line); err != nil {
 		return "", fmt.Errorf("%w (must match %s)", err, namespaceGrammar)
 	}
 	return line, nil
@@ -181,7 +180,7 @@ func runInit(ctx context.Context, defaultDir string, args []string, stdin io.Rea
 	// have none yet.
 	namespace := ""
 	if opts.namespace != "" {
-		if err := schemasrc.ValidateNamespace(opts.namespace); err != nil {
+		if err := writ.ValidateNamespace(opts.namespace); err != nil {
 			fmt.Fprintf(stderr, "writ init: --namespace: %v (must match %s)\n", err, namespaceGrammar)
 			return 1
 		}
