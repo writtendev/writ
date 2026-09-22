@@ -3452,6 +3452,24 @@ type gizmo {
 // auto-refresh runs afterward to paper over a stale cache by repopulating
 // it, so what Store.rules/Store.declaredTypes return here is entirely
 // their own doing, not a side effect of the fix's other half.
+//
+// The gap is forced twice, once per call below, not once: a single
+// skipped write-back leaves ruleCache/typesCache merely uninstalled-into,
+// not cleared, and StoreInvalidateVocabularies drops vocabFingerprint
+// along with them, so the very next vocabularies call is guaranteed a
+// fingerprint miss -- a full resolve that, absent a second invalidation,
+// installs cleanly and repopulates typesCache with the correct answer
+// before Types ever reads it back. A mutant that reverts
+// Store.declaredTypes alone to a cache read-back would pass against a
+// single-fire version of this test for exactly that reason: the Types
+// call's own fresh resolve papers over the stale cache on its way to a
+// correct answer, the same way a second handle's ApplySchema plus an
+// auto-refresh papers over it on the append path in
+// TestVocabularies_WriteBackRaceCannotInstallAPreChangeSnapshot. Firing
+// again on the Types call's own write-back closes that gap, so ruleCache
+// and typesCache alike stay exactly as stale as the first invalidation
+// left them (pre-gizmo, from the warm call below) through both
+// assertions.
 func TestRulesAndDeclaredTypes_SkippedWriteBackStillReturnsTheFreshDerive(t *testing.T) {
 	dir, _ := setupConfiguredRepo(t)
 	ctx := context.Background()
@@ -3494,20 +3512,23 @@ type gizmo {
 		t.Fatalf("handle A ApplySchema failed: %v", err)
 	}
 
-	// One-shot: fires only from its first call, which lands from the
-	// write-back's clock read, forcing an invalidation into handle B's own
-	// write-back gap. StoreInvalidateVocabularies takes vocabMu itself,
-	// which cannot deadlock against that first call because WRIT-238 moved
-	// the write-back's clock read outside vocabMu specifically so a
-	// callback from it never contends against it — but Store.vocabularies'
-	// fingerprint-hit branch reads the clock again later, from inside
-	// vocabMu, once this same invalidation lets a later call in this test
-	// take that branch; without the guard, firing on that call too would
-	// self-deadlock.
-	var fired bool
+	// Fires from each of its first two calls, not just the first: the
+	// StoreRules call below needs one invalidation to force its write-back
+	// gap, and the Types call after it needs a second, independent one, or
+	// its own full resolve installs cleanly and repopulates typesCache
+	// with the correct answer before a read-back could ever see it stale
+	// (see the doc comment above). Both calls land from the write-back's
+	// clock read on Store.vocabularies' full-resolve branch, outside
+	// vocabMu, which is why StoreInvalidateVocabularies (it takes vocabMu
+	// itself) cannot deadlock against either of them; capped at two calls
+	// so this closure never fires from Store.vocabularies' fingerprint-hit
+	// branch instead, which reads the clock from inside vocabMu and would
+	// self-deadlock against StoreInvalidateVocabularies taking the same
+	// lock.
+	var fires int
 	writ.SetStoreClock(handleB, func() time.Time {
-		if !fired {
-			fired = true
+		if fires < 2 {
+			fires++
 			writ.StoreInvalidateVocabularies(handleB)
 		}
 		return frozen
@@ -3524,16 +3545,26 @@ type gizmo {
 	if err != nil {
 		t.Fatalf("StoreRules (racing derive) failed: %v", err)
 	}
-	if !fired {
+	if fires < 1 {
 		t.Fatalf("the clock closure never fired: this derive took the fingerprint-hit branch instead of a full resolve, so it never reached the write-back gap this test needs")
 	}
 	if _, ok := rules["acme.gizmo"]; !ok {
 		t.Fatalf("Store.rules returned a table without acme.gizmo even though this call's own fold read the log after handle A's ApplySchema landed: it must hand back what it just derived, not read a cache a skipped write-back left stale (or, on a cache never populated, nil)")
 	}
 
+	// The second racing derive, forced the same way: StoreInvalidateVocabularies
+	// cleared vocabFingerprint along with the cache above, so this call is
+	// also guaranteed a fingerprint miss and a full resolve — and the
+	// closure's second fire invalidates that resolve's write-back too,
+	// keeping typesCache exactly as stale as the first invalidation left
+	// it (pre-gizmo) rather than letting this call's own successful
+	// install repopulate it with the correct answer first.
 	types, err := handleB.Types(ctx)
 	if err != nil {
 		t.Fatalf("Types failed: %v", err)
+	}
+	if fires < 2 {
+		t.Fatalf("the clock closure fired only once: the Types call took the fingerprint-hit branch instead of a second full resolve, so it never reached the write-back gap this test needs for Store.declaredTypes")
 	}
 	found := false
 	for _, ty := range types {
@@ -3542,7 +3573,7 @@ type gizmo {
 		}
 	}
 	if !found {
-		t.Fatalf("Types (via Store.declaredTypes) did not see acme.gizmo even though the racing derive's own fold read the log after handle A's ApplySchema landed: the same read-back hazard as Store.rules, on the declaredTypes side")
+		t.Fatalf("Types (via Store.declaredTypes) did not see acme.gizmo even though this call's own fold read the log after handle A's ApplySchema landed: it must hand back what this call just derived, not read a cache its own skipped write-back left stale")
 	}
 }
 
