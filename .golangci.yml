@@ -22,14 +22,15 @@ linters:
   exclusions:
     presets:
       # v1's default exclusion set (EXC0001), which v2 dropped as a default
-      # rather than a judgment. Every non-test Close in the tree reads a
-      # file opened for reading (internal/codec/packsize.go,
-      # internal/codec/sshsig/allowedsigners.go,
-      # internal/cmd/apisurface/main.go, defer rows.Close() in
-      # internal/projection, defer store.Close() in cmd/writ) or writes to a
-      # CLI io.Writer (fmt.Fprint*), so there is no write-path Close hiding
-      # behind this exclusion today. Cost, accepted: this pattern is broad
-      # enough that a future Close on a file opened for writing would also
-      # go unchecked, rather than the 402 hand-written suppressions the
-      # alternative would need for sites that do not exist.
+      # rather than a judgment. EXC0001 covers unchecked Close, Flush,
+      # os.Remove(All)?, os.(Un)?Setenv, and fmt.Fprint*/Fprintln errors, not
+      # only Close. Every non-test site behind it today is a read path (a
+      # file or git-object reader's Close, a CLI Fprint*) or disposable
+      # cleanup (a test-fixture scratch dir's RemoveAll, a subprocess env
+      # var's Setenv), so there is no write-path failure hiding behind this
+      # exclusion. Cost, accepted: the pattern is broad enough that a future
+      # Close on a file opened for writing, or a future Flush/RemoveAll/
+      # Setenv failure anywhere, would also go unchecked, rather than the
+      # 402 hand-written suppressions the alternative would need for sites
+      # that do not exist.
       - std-error-handling

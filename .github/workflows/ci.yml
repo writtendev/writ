@@ -137,5 +137,6 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
+            ~/.cache/golangci-lint
           key: golangci-lint-goinstall-v2.13.2-${{ runner.os }}
       - run: make lint
