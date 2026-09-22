@@ -1,6 +1,6 @@
 # CLI JSON Plumbing Interface (`--json`)
 
-The `--json` flag turns `writ` into a machine-readable plumbing tool for scripts, automation, and AI agents. Every read verb supports `--json` and emits a versioned, schema-stable JSON envelope on standard output.
+The `--json` flag turns `writ` into a machine-readable plumbing tool for scripts, automation, and AI agents. Every verb supports `--json` and emits a versioned, schema-stable JSON envelope on standard output.
 
 **Trust model:** folded state includes ops whose signature did not verify. Both `object.show` and `object.list` carry a `verification` field reporting the worst outcome among an object's ops (see that field below), but nothing here filters on it: the engine reports verification rather than enforcing it, because fold must stay pure and deterministic and a locally-resolved trust store cannot be allowed to change what state an object folds to. A consumer that treats this data as authentic is responsible for checking `verification == "valid"` itself.
 
@@ -23,7 +23,7 @@ All plumbing commands emit a single top-level JSON document on `stdout` adhering
 | Field | Type | Description |
 |---|---|---|
 | `schema_version` | integer | Envelope schema version (currently `1`). Bumps only on breaking changes. |
-| `kind` | string | Discriminator for the payload schema (`sync.status`, `sync.result`, `schema.plan`, `schema.apply`, `schema.show`, `object.create`, `object.apply`, `object.show`, `object.list`). |
+| `kind` | string | Discriminator for the payload schema (`sync.status`, `sync.result`, `schema.plan`, `schema.apply`, `schema.show`, `object.create`, `object.apply`, `object.show`, `object.list`, `init.result`). |
 | `data` | object or array | Verb-specific payload structure. |
 
 ---
@@ -49,6 +49,87 @@ All plumbing commands emit a single top-level JSON document on `stdout` adhering
 ---
 
 ## 3. Supported Verbs & Schema Reference
+
+### `writ init --json [-C <dir>] [--namespace <name>] [remote...]`
+
+Runs the same one-time repository setup as `writ init` — resolving or minting the writer ID and repo ID, reporting local person and signing identity, configuring a writ fetch refspec for each remote, and writing a starter `writ.schema` when one is due — and reports the outcome as a versioned envelope instead of the porcelain lines above.
+
+`writ init` is a *write* verb, like `object create`/`object apply`, not a read verb — this section is why §1's opening line above says "every verb," not "every read verb."
+
+**Emit-on-failure departure.** Every other `--json` verb emits no envelope at all on a failed run (see, e.g., `schema plan`'s "no `SchemaPlan` JSON is emitted" above). `writ init` is the one exception, and deliberately so: git config has no transaction, so a run that stops part-way (an explicit remote's name rejected, or a config write failing) can leave identity minted but a fetch refspec never written — exactly the half-configured state a caller needs to describe, not merely fail on. **The rule: an envelope is emitted iff the run reached git config — i.e. `writer_id` is non-empty.** A run that never got that far (a bad flag, not a git repository, the interactive-namespace refusal) writes nothing to stdout, same as every other verb; a run that stopped after minting identity emits the envelope with `outcome: "stopped"` and exits `1`.
+
+- **Envelope `kind`**: `"init.result"`
+- **`data` Type**: `InitResult` object
+
+#### `InitResult` Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `outcome` | string | One of `complete` (every remote configured, nothing skipped), `partial` (the run finished but skipped ≥1 discovered remote it could not configure), `stopped` (the run stopped part-way; re-run to finish). The exit code does **not** distinguish `complete` from `partial` — both exit `0` — so a caller that needs the difference reads this field instead of parsing stderr. |
+| `writer_id`, `writer_id_minted` | string, bool | This device's writer id, and whether this run minted it. |
+| `repo_id`, `repo_id_minted` | string, bool | This repository's designator, and whether this run minted it. |
+| `person_id` | string, optional | The local writer's person identifier. Omitted when neither `writ.personId` nor `user.email` yields one. |
+| `person_id_source` | string, optional | `writ.personId` or `user.email`, naming where `person_id` came from. Omitted along with it. |
+| `signing_key` | string, optional | The configured SSH signing key (a path, or a literal key when `signing_key_literal` is `true`). Omitted when signing is not fully configured — presence is the signal, there is no separate ok/not-ok flag. |
+| `signing_key_literal` | bool, optional | `true` when `signing_key` is a literal key (`user.signingKey`'s `key::` form) rather than a path. |
+| `remotes` | array | One `InitRemote` entry per remote this run discovered or was asked to configure, in that order — including any it never attempted because an earlier remote's hard failure stopped the run first. `[]` when none. |
+| `starter_schema` | object, optional | The starter `writ.schema` outcome. Omitted only for a bare repository (no work tree to put one in). |
+
+Deliberately absent: the identity/person *warnings* and their remediation `git config` lines that the porcelain form prints to stderr. The machine-relevant fact is already carried by presence/absence — no `signing_key` means no usable signing key — the same "presence is itself the signal" pattern `ObjectSummary.CreatedAtEpoch` uses elsewhere in this document. There is no `warnings` array; it would be a second, prose-shaped channel for something the fields above already say.
+
+#### `InitRemote` Fields
+
+`remotes[]` expresses the same four states the underlying Go API's `RemoteInit` type carries (configured, with `Repaired` true or false; skipped; not attempted; the one hard failure), as five wire statuses (`configured`/`already-configured` split out `Repaired`):
+
+| `status` | Meaning | `refspec` | `reason` |
+|---|---|---|---|
+| `configured` | This run added or corrected the fetch refspec. | set | absent |
+| `already-configured` | The fetch refspec was already correct; nothing changed. | set | absent |
+| `skipped` | This run *discovered* the remote (no explicit remote list given) and could not configure it — a url-less remote section, or a `"-"`-leading name. Not a failure of the run: every other remote still got configured. | absent | set |
+| `not-attempted` | This run never even tried the remote, because an earlier remote's hard failure stopped the run first. Listed so a caller can name every remote lacking a refspec, not only the one that failed. | absent | absent |
+| `failed` | The one hard failure that stopped the run (`outcome: "stopped"`) — an explicit remote's name rejected, or any remote's config write failing. | absent | set |
+
+| Field | Type | Description |
+|---|---|---|
+| `remote` | string | The remote's name. |
+| `status` | string | One of the five values above. |
+| `refspec` | string, optional | The writ fetch refspec (`+refs/writ/*:refs/remotes/<name>/writ/*`). Set on `configured`/`already-configured`. |
+| `reason` | object, optional | `{code, message}`, set on `skipped`/`failed`. `code` is a closed catalogue: `unknown-remote` (a url-less remote section — nothing was ever configured for it), `invalid-name` (a real remote writ cannot name), `other` (any other failure, including a config write failure). |
+
+#### `starter_schema` Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `path` | string | The working-tree `writ.schema` path this run considered. |
+| `namespace` | string, optional | The namespace written, present only when `written` is `true` (from `--namespace`, or the interactive prompt). |
+| `written` | bool | `true` iff this run wrote a starter file. |
+| `existed` | bool | `true` iff a `writ.schema` was already present, left unchanged. |
+| `error` | string, optional | Set if the write failed. Never changes `outcome` — by the point this step runs, the rest of setup already completed. |
+
+#### Example Output
+
+A partial run — `origin` configured, a discovered `ghost` remote (a url-less remote section) skipped:
+
+```json
+{
+  "schema_version": 1,
+  "kind": "init.result",
+  "data": {
+    "outcome": "partial",
+    "writer_id": "a1b2c3d4e5f60718",
+    "writer_id_minted": true,
+    "repo_id": "0123456789abcdef0123456789abcdef",
+    "repo_id_minted": true,
+    "remotes": [
+      { "remote": "origin", "status": "configured", "refspec": "+refs/writ/*:refs/remotes/origin/writ/*" },
+      { "remote": "ghost", "status": "skipped", "reason": { "code": "unknown-remote", "message": "remote \"ghost\": unknown remote" } }
+    ],
+    "starter_schema": { "path": "/repo/writ.schema", "namespace": "acme", "written": true, "existed": false }
+  }
+}
+```
+
+---
 
 ### `writ sync --status --json [remote...]`
 
@@ -449,6 +530,17 @@ Lists collaborative objects across every schema-declared type, or within one, fr
 ---
 
 ## 4. Worked `jq` Examples
+
+### Check whether `writ init` finished cleanly, and why not
+```bash
+writ init --json | jq -r '.data.outcome'
+```
+`complete`, `partial`, or `stopped` — the same distinction exit `0` alone
+cannot carry (`complete` and `partial` both exit `0`). Naming which
+remote a `partial` or `stopped` run left unconfigured, and why:
+```bash
+writ init --json | jq -r '.data.remotes[] | select(.status=="skipped" or .status=="failed") | "\(.remote): \(.reason.code)"'
+```
 
 ### List every object of one type
 ```bash

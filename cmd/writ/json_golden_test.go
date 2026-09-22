@@ -46,6 +46,20 @@ func maskGoldenObjectID(data []byte, id string) []byte {
 	return bytes.ReplaceAll(data, []byte(id), []byte("0123456789abcdef0123456789abcdef"))
 }
 
+// maskGoldenInitIDs replaces the writer id and repo id `writ init` mints
+// (identity.EnsureWriterID/EnsureRepoID -- both freshly random per run),
+// and the repoDir prefix of the starter_schema.path's t.TempDir()-rooted
+// absolute path, with fixed placeholders -- the same way maskGoldenObjectID
+// pins a freshly minted object id -- so TestGolden_InitResult stays
+// byte-for-byte stable across machines and runs. Masking repoDir as a
+// prefix, rather than replacing the whole path value with a regex, keeps
+// the "/writ.schema" suffix itself pinned by the golden.
+func maskGoldenInitIDs(data []byte, writerID, repoID, repoDir string) []byte {
+	data = bytes.ReplaceAll(data, []byte(writerID), []byte("0000000000000000"))
+	data = bytes.ReplaceAll(data, []byte(repoID), []byte("00000000000000000000000000000000"))
+	return bytes.ReplaceAll(data, []byte(repoDir), []byte("/repo"))
+}
+
 func compareOrUpdateGolden(t *testing.T, goldenName string, got []byte) {
 	t.Helper()
 	goldenPath := filepath.Join("testdata", "golden", goldenName)
@@ -338,6 +352,36 @@ func TestDeterminism_AllReadVerbs(t *testing.T) {
 			t.Fatalf("determinism violation for command %v:\nrun 1: %s\nrun 2: %s", cmd, out1.String(), out2.String())
 		}
 	}
+}
+
+// TestGolden_InitResult pins `writ init --json`'s init.result envelope.
+// The writer id and repo id are freshly minted (crypto/rand) every run, so
+// both are masked before comparison, the same way object ids are masked
+// for the object.* goldens above.
+func TestGolden_InitResult(t *testing.T) {
+	env := setupTestCLIEnv(t)
+	addRemote(t, env.repoDir, "origin", "https://example.com/origin.git")
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "acme", "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("init --json failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	var result wire.InitResult
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindInitResult, &result)
+
+	// writ.Init resolves the repo root via `git rev-parse --show-toplevel`,
+	// which on macOS returns the /private-prefixed, symlink-resolved form
+	// of env.repoDir (under /var, itself a symlink to /private/var) -- so
+	// the prefix masked out of starter_schema.path has to match that
+	// resolved form, not env.repoDir's own spelling.
+	resolvedRepoDir, err := filepath.EvalSymlinks(env.repoDir)
+	if err != nil {
+		t.Fatalf("resolve repo dir: %v", err)
+	}
+
+	compareOrUpdateGolden(t, "init_result.json", maskGoldenInitIDs(stdout.Bytes(), result.WriterID, result.RepoID, resolvedRepoDir))
 }
 
 func TestEveryReadVerbHasJSON(t *testing.T) {

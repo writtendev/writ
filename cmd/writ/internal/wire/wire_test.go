@@ -2,6 +2,8 @@ package wire_test
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -171,6 +173,180 @@ func TestWire_FromObjectResultSummary_ClampsOutOfRangeTimestamps(t *testing.T) {
 		want := `{"object_id":"0123456789abcdef0123456789abcdef","object_type":"acme.ticket","author":{"name":"Alice","email":"alice@example.com"},"created_at":"9999-12-31T23:59:59Z","created_at_epoch":9223372036854775807,"updated_at":"9999-12-31T23:59:59Z","updated_at_epoch":9223372036854775807,"op_count":3,"verification":"valid"}`
 		if string(got) != want {
 			t.Errorf("json.Marshal(clamped upward beyond overflow boundary) =\n%s\nwant\n%s", got, want)
+		}
+	})
+}
+
+// TestWire_FromInitResult_OutcomeAndRemoteStatus is WRIT-304's unit-level
+// coverage of FromInitResult's derivation logic, isolated from the CLI:
+// outcome derivation (complete/partial/stopped), every InitRemote status
+// including the two not directly reachable through a single `writ init`
+// invocation (not-attempted, and a "failed" remote classified "other"),
+// and the reason-code catalogue for skipped/failed remotes.
+func TestWire_FromInitResult_OutcomeAndRemoteStatus(t *testing.T) {
+	t.Run("complete: no remotes, no error", func(t *testing.T) {
+		got := wire.FromInitResult(writ.InitResult{WriterID: "w", RepoID: "r"}, nil, "")
+		if got.Outcome != "complete" {
+			t.Errorf("Outcome = %q, want complete", got.Outcome)
+		}
+		if got.Remotes == nil || len(got.Remotes) != 0 {
+			t.Errorf("Remotes = %#v, want a non-nil empty slice", got.Remotes)
+		}
+	})
+
+	t.Run("partial: a discovered remote skipped, classified by sentinel", func(t *testing.T) {
+		res := writ.InitResult{
+			WriterID: "w", RepoID: "r",
+			Remotes: []writ.RemoteInit{
+				{Name: "origin", Refspec: "+refs/writ/*:refs/remotes/origin/writ/*", Repaired: true},
+				{Name: "ghost", Skipped: true, Err: fmt.Errorf("remote %q: %w", "ghost", writ.ErrUnknownRemote)},
+				{Name: "-x", Skipped: true, Err: fmt.Errorf("remote %q: %w", "-x", writ.ErrInvalidRemoteName)},
+			},
+		}
+		got := wire.FromInitResult(res, nil, "")
+		if got.Outcome != "partial" {
+			t.Fatalf("Outcome = %q, want partial", got.Outcome)
+		}
+		if len(got.Remotes) != 3 {
+			t.Fatalf("Remotes = %#v, want 3 entries", got.Remotes)
+		}
+		if r := got.Remotes[0]; r.Status != "configured" || r.Refspec == "" || r.Reason != nil {
+			t.Errorf("Remotes[0] = %+v, want configured with a refspec and no reason", r)
+		}
+		if r := got.Remotes[1]; r.Status != "skipped" || r.Reason == nil || r.Reason.Code != "unknown-remote" {
+			t.Errorf("Remotes[1] = %+v, want skipped/unknown-remote", r)
+		}
+		if r := got.Remotes[2]; r.Status != "skipped" || r.Reason == nil || r.Reason.Code != "invalid-name" {
+			t.Errorf("Remotes[2] = %+v, want skipped/invalid-name", r)
+		}
+	})
+
+	t.Run("already-configured: Repaired false", func(t *testing.T) {
+		res := writ.InitResult{
+			WriterID: "w", RepoID: "r",
+			Remotes: []writ.RemoteInit{
+				{Name: "origin", Refspec: "+refs/writ/*:refs/remotes/origin/writ/*", Repaired: false},
+			},
+		}
+		got := wire.FromInitResult(res, nil, "")
+		if got.Remotes[0].Status != "already-configured" {
+			t.Errorf("Status = %q, want already-configured", got.Remotes[0].Status)
+		}
+	})
+
+	t.Run("stopped: a failed remote classified other, plus a not-attempted one", func(t *testing.T) {
+		runErr := errors.New("remote \"origin\": config write failed")
+		res := writ.InitResult{
+			WriterID: "w", RepoID: "r",
+			Remotes: []writ.RemoteInit{
+				{Name: "origin", Err: runErr},
+				{Name: "upstream", NotAttempted: true},
+			},
+		}
+		got := wire.FromInitResult(res, runErr, "")
+		if got.Outcome != "stopped" {
+			t.Fatalf("Outcome = %q, want stopped", got.Outcome)
+		}
+		if r := got.Remotes[0]; r.Status != "failed" || r.Reason == nil || r.Reason.Code != "other" || r.Reason.Message != runErr.Error() {
+			t.Errorf("Remotes[0] = %+v, want failed/other with the run error's message", r)
+		}
+		if r := got.Remotes[1]; r.Status != "not-attempted" || r.Reason != nil || r.Refspec != "" {
+			t.Errorf("Remotes[1] = %+v, want not-attempted with no reason and no refspec", r)
+		}
+	})
+
+	t.Run("stopped: no remotes reached yet still reports stopped", func(t *testing.T) {
+		runErr := errors.New("boom")
+		got := wire.FromInitResult(writ.InitResult{WriterID: "w", RepoID: "r"}, runErr, "")
+		if got.Outcome != "stopped" {
+			t.Errorf("Outcome = %q, want stopped", got.Outcome)
+		}
+	})
+}
+
+// TestWire_FromInitResult_IdentityAndStarterSchema covers the
+// person/signing-identity and starter_schema field derivation, including
+// the namespace parameter (which writ.InitResult itself does not carry
+// back -- see FromInitResult's own doc comment) and the omitted-vs-present
+// cases for each optional field.
+func TestWire_FromInitResult_IdentityAndStarterSchema(t *testing.T) {
+	t.Run("person id from writ.personId", func(t *testing.T) {
+		got := wire.FromInitResult(writ.InitResult{
+			WriterID: "w", RepoID: "r",
+			PersonID: "user:alice", PersonIDFromKey: true,
+		}, nil, "")
+		if got.PersonID != "user:alice" || got.PersonIDSource != "writ.personId" {
+			t.Errorf("PersonID/PersonIDSource = %q/%q, want user:alice/writ.personId", got.PersonID, got.PersonIDSource)
+		}
+	})
+
+	t.Run("person id derived from user.email", func(t *testing.T) {
+		got := wire.FromInitResult(writ.InitResult{
+			WriterID: "w", RepoID: "r",
+			PersonID: "email:alice@example.com",
+		}, nil, "")
+		if got.PersonID != "email:alice@example.com" || got.PersonIDSource != "user.email" {
+			t.Errorf("PersonID/PersonIDSource = %q/%q, want email:alice@example.com/user.email", got.PersonID, got.PersonIDSource)
+		}
+	})
+
+	t.Run("person id omitted on error", func(t *testing.T) {
+		got := wire.FromInitResult(writ.InitResult{
+			WriterID: "w", RepoID: "r",
+			PersonIDErr: errors.New("no person identifier"),
+		}, nil, "")
+		if got.PersonID != "" || got.PersonIDSource != "" {
+			t.Errorf("PersonID/PersonIDSource = %q/%q, want both empty on PersonIDErr", got.PersonID, got.PersonIDSource)
+		}
+	})
+
+	t.Run("signing key literal", func(t *testing.T) {
+		got := wire.FromInitResult(writ.InitResult{
+			WriterID: "w", RepoID: "r",
+			SigningKey: "AAAA...", SigningKeyLiteral: true,
+		}, nil, "")
+		if got.SigningKey != "AAAA..." || !got.SigningKeyLiteral {
+			t.Errorf("SigningKey/SigningKeyLiteral = %q/%v, want AAAA.../true", got.SigningKey, got.SigningKeyLiteral)
+		}
+	})
+
+	t.Run("starter schema written carries the namespace passed in", func(t *testing.T) {
+		got := wire.FromInitResult(writ.InitResult{
+			WriterID: "w", RepoID: "r",
+			StarterSchemaPath: "/repo/writ.schema", StarterSchemaWritten: true,
+		}, nil, "acme")
+		if got.StarterSchema == nil || !got.StarterSchema.Written || got.StarterSchema.Namespace != "acme" {
+			t.Errorf("StarterSchema = %+v, want written with namespace acme", got.StarterSchema)
+		}
+	})
+
+	t.Run("starter schema existed carries no namespace even when one was passed", func(t *testing.T) {
+		got := wire.FromInitResult(writ.InitResult{
+			WriterID: "w", RepoID: "r",
+			StarterSchemaPath: "/repo/writ.schema", StarterSchemaExisted: true,
+		}, nil, "acme")
+		if got.StarterSchema == nil || !got.StarterSchema.Existed || got.StarterSchema.Namespace != "" {
+			t.Errorf("StarterSchema = %+v, want existed with no namespace", got.StarterSchema)
+		}
+	})
+
+	t.Run("starter schema write failure reports the error but does not touch outcome", func(t *testing.T) {
+		got := wire.FromInitResult(writ.InitResult{
+			WriterID: "w", RepoID: "r",
+			StarterSchemaPath: "/repo/writ.schema", StarterSchemaErr: errors.New("permission denied"),
+		}, nil, "")
+		if got.StarterSchema == nil || got.StarterSchema.Error != "permission denied" {
+			t.Errorf("StarterSchema = %+v, want error permission denied", got.StarterSchema)
+		}
+		if got.Outcome != "complete" {
+			t.Errorf("Outcome = %q, want complete -- a starter-schema write failure must not change it", got.Outcome)
+		}
+	})
+
+	t.Run("starter schema omitted for a bare repository", func(t *testing.T) {
+		got := wire.FromInitResult(writ.InitResult{WriterID: "w", RepoID: "r"}, nil, "")
+		if got.StarterSchema != nil {
+			t.Errorf("StarterSchema = %+v, want nil (no work tree, StarterSchemaPath left empty)", got.StarterSchema)
 		}
 	})
 }
