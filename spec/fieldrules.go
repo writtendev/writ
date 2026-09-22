@@ -196,7 +196,12 @@ var fieldRuleSentinels = map[string]error{
 	"key-types-non-keyed-lww":      errKeyTypesNonKeyedLWW,
 }
 
-// ValidateFieldRule validates an individual field rule definition.
+// ValidateFieldRule validates an individual field rule definition. Each
+// violation's error ends ": invariant <token>" (one of fieldRuleSentinels'
+// keys above); spec/schema-ops.md §9 documents that suffix and the full
+// twenty-token vocabulary it can carry, since the suffix reaches a schema
+// author directly through writ schema plan/apply and schemasrc diagnostics,
+// not just a test.
 func ValidateFieldRule(r FieldRule) error {
 	if r.OpType == "" {
 		return fmt.Errorf("rule with empty op_type: %w", errEmptyOpType)

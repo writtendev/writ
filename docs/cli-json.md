@@ -145,7 +145,7 @@ Parses `writ.schema`, folds the schema objects already in the repository, and re
 | `conflicts[].object_type` | string | Set for an `object_type` collision between two schema objects; omitted for a namespace-only collision. |
 | `conflicts[].namespace` | string | Set for a namespace collision, and echoed on an `object_type` collision when known. |
 | `conflicts[].object_ids` | array | The schema object ids involved. |
-| `conflicts[].reason` | string | Human-readable explanation. |
+| `conflicts[].reason` | string | Human-readable explanation. For a field-rule conflict, ends `: invariant <token>` naming the specific rule `spec.ValidateFieldRule` rejected the rule for — `spec/schema-ops.md` §9 documents the token vocabulary. |
 
 A refused plan (an invalid file, or an edit that would remove a declaration) exits `1` and writes plain-text diagnostics to `stderr`; no `SchemaPlan` JSON is emitted.
 

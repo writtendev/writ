@@ -55,8 +55,8 @@ type anchorInvariantRule func(a map[string]any) error
 
 // anchorInvariantTable enforces the cross-field rules of spec/anchors.md,
 // keyed by the token spec/testdata/anchors/invalid/index.json's
-// invariant_rule field names each one with (spec/anchors.md's "Conformance
-// data" section documents the same six tokens).
+// invariant_rule field names each one with (spec/anchors.md's opening
+// paragraph names the same six tokens and where each rule is stated).
 //
 // Three rules are deliberately guarded on another rule's precondition, so
 // that a vector tripping more than one raw condition still names exactly

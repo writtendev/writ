@@ -1013,6 +1013,29 @@ never handed to `Fold`. This is why the resolver lives in package
 
 ---
 
+`ValidateFieldRule`'s error for a rejected rule ends `: invariant <token>`,
+naming which of its twenty violation branches rejected the rule. The
+suffix reaches a schema author directly, not just a test: `writ schema
+plan`/`apply` porcelain, the `--json` `conflicts[].reason` field
+(`docs/cli-json.md`), and `schemasrc` compile diagnostics all format this
+same error verbatim. The vocabulary: `empty-op-type`,
+`invalid-op-version`, `empty-field`, `invalid-field-identifier`,
+`invalid-target-identifier`, `invalid-key-identifier`, `unknown-strategy`,
+`keyed-lww-no-key`, `lattice-no-elements`, `unknown-value-type`,
+`enum-no-values`, `enum-on-non-enum`, `max-length-value-type`,
+`tombstone-value-type`, `lattice-value-type`,
+`lattice-element-not-in-enum`, `key-types-count`,
+`key-types-missing-column`, `key-types-unknown-value-type`, and
+`key-types-non-keyed-lww` — one per branch above. Five of the twenty are
+exercised as `rejects: "invariant"` conformance vectors, each naming the
+one it pins in a sibling `invariant_rule` field (§Conformance Data); the
+rest are unreachable from a schema-valid `define-field` body, unreachable
+because the reference harness pins the field itself, or reachable but not
+yet given a vector — `spec/schema_ops_test.go`'s
+`fieldRuleSentinelInventory` states which, and why, for each.
+
+---
+
 ## 10. Forward Compatibility
 
 - **Unknown body fields:** Conforming implementations MUST preserve and

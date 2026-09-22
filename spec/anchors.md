@@ -7,7 +7,15 @@ cross-field rule in a sibling `invariant_rule` field — the
 categorized-rejection discipline
 [`spec/canonicalization.md`](canonicalization.md)
 §[Test vectors](canonicalization.md#test-vectors) already asks of a
-conformance harness, applied here.
+conformance harness, applied here. `invariant_rule` takes one of six
+tokens, each naming a cross-field rule stated elsewhere in this document:
+`path-segments` ([Paths](#paths)), `oid-length-agreement` ([OIDs](#oids)),
+`range-order` (`range.end` not less than `range.start`, [The side
+anchor](#the-side-anchor)), and three from the long-range arithmetic in
+[Context capture](#context-capture) — `context-length` (`context.lines`'
+count matching the range size when `omitted` is absent),
+`elided-lines-count` (`context.lines`' fixed 64-entry count when `omitted`
+is present), and `omitted-arithmetic` (`omitted`'s value).
 
 An **anchor** records *where in the code* an object points — a value type
 ([`spec/value-types.md`](value-types.md)) any schema-declared object can
