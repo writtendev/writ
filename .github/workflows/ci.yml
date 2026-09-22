@@ -123,29 +123,19 @@ jobs:
 
 
 
-  # golangci-lint v1.64.8 cannot read Go 1.26+ export data, so this job pins
-  # Go 1.25. GOTOOLCHAIN=local keeps it from auto-switching to go.mod's
-  # toolchain, and --go=1.25 aligns the targeted version with the runtime
-  # version. `make lint` pins the same version and args.
   lint:
     name: lint
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      GOTOOLCHAIN: local
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.25"
+          go-version: "1.27"
       - uses: actions/cache@v6
         with:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: golangci-lint-goinstall-v1.64.8-${{ runner.os }}
-      - uses: golangci/golangci-lint-action@v6
-        with:
-          version: v1.64.8
-          install-mode: goinstall
-          args: --go=1.25 --timeout=5m
+          key: golangci-lint-goinstall-v2.13.2-${{ runner.os }}
+      - run: make lint
