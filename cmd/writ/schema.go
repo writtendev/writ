@@ -15,8 +15,6 @@ import (
 
 	"github.com/writtendev/writ/cmd/writ/internal/wire"
 	"github.com/writtendev/writ/engine"
-	"github.com/writtendev/writ/internal/schemasrc"
-	"github.com/writtendev/writ/internal/state"
 	"github.com/writtendev/writ/internal/textdiff"
 	"github.com/writtendev/writ/internal/textsafe"
 )
@@ -284,14 +282,14 @@ func renderSchemaError(w io.Writer, err error) int {
 		}
 		return 1
 	}
-	var synErrs schemasrc.ErrorList
+	var synErrs writ.SchemaErrorList
 	if errors.As(err, &synErrs) {
 		for _, e := range synErrs {
 			porcelainln(w, escapeErrReport(e.Error(), false))
 		}
 		return 1
 	}
-	var synErr *schemasrc.SyntaxError
+	var synErr *writ.SchemaSyntaxError
 	if errors.As(err, &synErr) {
 		porcelainln(w, escapeErrReport(synErr.Error(), false))
 		return 1
@@ -352,7 +350,7 @@ func buildSchemaPlan(ctx context.Context, store *writ.Store, dir string) (*schem
 		return nil, fmt.Errorf("writ schema: read %s: %w", path, err)
 	}
 
-	f, err := schemasrc.Parse(schemaSourceFileName, src)
+	f, err := writ.ParseSchemaSource(schemaSourceFileName, src)
 	if err != nil {
 		return nil, err
 	}
@@ -363,7 +361,7 @@ func buildSchemaPlan(ctx context.Context, store *writ.Store, dir string) (*schem
 	}
 	_, conflicts := writ.RulesFromSchemas(schemas)
 
-	objectID, err := resolveSchemaTarget(schemas, f)
+	objectID, err := resolveSchemaTarget(schemas, f.Namespace())
 	if err != nil {
 		return nil, &schemaError{msgs: []string{err.Error()}}
 	}
@@ -371,7 +369,7 @@ func buildSchemaPlan(ctx context.Context, store *writ.Store, dir string) (*schem
 	current := schemaByObjectID(schemas, objectID)
 	created := current.ObjectID == ""
 
-	compiled, err := schemasrc.Compile(f, objectID)
+	compiled, err := f.Compile(objectID)
 	if err != nil {
 		return nil, err
 	}
@@ -471,20 +469,20 @@ func buildSchemaPlan(ctx context.Context, store *writ.Store, dir string) (*schem
 	// quoted every description -- immediately before diffing them.
 	var currentSource []byte
 	if !created {
-		currentSource, err = schemasrc.Render(current)
+		currentSource, err = writ.RenderSchemaSource(current)
 		if err != nil {
 			return nil, fmt.Errorf("writ schema: render current schema: %w", err)
 		}
 	}
-	plannedSource, err := schemasrc.Render(planned)
+	plannedSource, err := writ.RenderSchemaSource(planned)
 	if err != nil {
 		return nil, fmt.Errorf("writ schema: render planned schema: %w", err)
 	}
 
 	return &schemaPlanResult{
 		objectID:      objectID,
-		namespace:     f.Namespace,
-		namespaces:    schemaNamespaces(schemas, f.Namespace),
+		namespace:     f.Namespace(),
+		namespaces:    schemaNamespaces(schemas, f.Namespace()),
 		created:       created,
 		upToDate:      len(delta) == 0,
 		ops:           delta,
@@ -504,7 +502,7 @@ func buildSchemaPlan(ctx context.Context, store *writ.Store, dir string) (*schem
 func schemaNamespaces(schemas []writ.Schema, extra string) []string {
 	set := make(map[string]bool, len(schemas)+1)
 	for _, s := range schemas {
-		// state.SchemaInstallable is the one predicate engine/schema.go's
+		// writ.SchemaInstallable is the one predicate engine/schema.go's
 		// resolveSchemaTypes gates the whole-object drop on (WRIT-291): a
 		// schema object failing it -- an ungrammatical namespace (WRIT-253)
 		// or an object id disagreeing with its own derived form (WRIT-254)
@@ -517,7 +515,7 @@ func schemaNamespaces(schemas []writ.Schema, extra string) []string {
 		// reporting" -- an object with an empty namespace passes the
 		// grammar half of SchemaInstallable vacuously (see its doc
 		// comment) but plainly has no namespace to add to this set.
-		if s.Namespace != "" && state.SchemaInstallable(s) {
+		if s.Namespace != "" && writ.SchemaInstallable(s) {
 			set[s.Namespace] = true
 		}
 	}
@@ -541,7 +539,7 @@ func schemaNamespaces(schemas []writ.Schema, extra string) []string {
 //
 // A match requires both the namespace and the derived-id agreement WRIT-254
 // change 2 requires of every schema object the read-side resolver
-// (engine/schema.go's resolveSchemaTypes) installs: state.SchemaInstallable(s)
+// (engine/schema.go's resolveSchemaTypes) installs: writ.SchemaInstallable(s)
 // (WRIT-291 factored the exact conjunction resolveSchemaTypes gates on —
 // the namespace-grammar check and this derived-id check — into that one
 // shared predicate; this call site used to spell out just the derived-id
@@ -558,22 +556,22 @@ func schemaNamespaces(schemas []writ.Schema, extra string) []string {
 // earlier revision needed here is gone, not weakened: it is unreachable
 // now, not merely rarer.
 //
-// An earlier revision also refused case 0 and case 1 when f's own
+// An earlier revision also refused case 0 and case 1 when the file's own
 // declared types collided with some *other* schema object's already-bound
 // object_type — sensible while object_type was bare, when that really was
 // one wire type bound twice, but WRIT-217 namespace-qualifies object_type
 // precisely so two schema objects *can* bind the identical bare type name
 // under different namespaces with zero collision (spec/schema-ops.md §2,
 // TestSchemaCLI_DifferentNamespacesSameBareTypeBothInstall). Once that
-// guarantee holds, "f's bare type overlaps some other object's bare type"
-// can no longer tell a genuine collision apart from that exact, sanctioned
-// case: editing `namespace acme` to `namespace acme2` in an already-
-// applied writ.schema is observably identical, from this function's
-// inputs, to a brand-new file that coincidentally reuses another
-// namespace's type name — both are zero namespace matches, and the
-// file's own type names are the only other data here. There is no way to
-// refuse one without also refusing the other, so the guard is gone, not
-// weakened: editing a namespace mints an independent schema object
+// guarantee holds, "the file's bare type overlaps some other object's bare
+// type" can no longer tell a genuine collision apart from that exact,
+// sanctioned case: editing `namespace acme` to `namespace acme2` in an
+// already-applied writ.schema is observably identical, from this
+// function's inputs, to a brand-new file that coincidentally reuses
+// another namespace's type name — both are zero namespace matches, and
+// the file's own type names are the only other data here. There is no way
+// to refuse one without also refusing the other, so the guard is gone,
+// not weakened: editing a namespace mints an independent schema object
 // (TestSchemaCLI_NamespaceChangeMintsIndependentObject). The old object
 // is untouched — namespace is create-once (§3.1) and this function never
 // writes to an existing object's namespace field — and the new one is no
@@ -583,30 +581,34 @@ func schemaNamespaces(schemas []writ.Schema, extra string) []string {
 // resolveSchemaTarget always succeeds now (error stays in the signature
 // rather than being dropped, to keep every call site's shape stable) —
 // there is no remaining case that refuses.
-func resolveSchemaTarget(schemas []writ.Schema, f *schemasrc.File) (string, error) {
+//
+// Takes the file's namespace directly rather than the parsed
+// *writ.SchemaSource: namespace is the only field this function ever
+// read, even before SchemaSource existed to opaquely wrap it (WRIT-310).
+func resolveSchemaTarget(schemas []writ.Schema, namespace string) (string, error) {
 	for _, s := range schemas {
-		if s.Namespace == f.Namespace && state.SchemaInstallable(s) {
+		if s.Namespace == namespace && writ.SchemaInstallable(s) {
 			return s.ObjectID, nil
 		}
 	}
-	return deriveSchemaObjectID(f.Namespace), nil
+	return deriveSchemaObjectID(namespace), nil
 }
 
 // deriveSchemaObjectID returns the schema object id for namespace:
 // "schema:" + namespace, per spec/identifiers.md's schema carve-out. Thin
-// wrapper over state.DeriveSchemaObjectID (WRIT-291), kept here for its
-// own doc comment and its call sites' local, unqualified name. A schema
-// object's identity is its namespace, so two writers bootstrapping the
-// same namespace offline derive the same id and converge on the same
-// object instead of minting two that both bind the same object_type(s) —
-// the collision RulesFromSchemas has no way to resolve. namespacePattern
-// (engine/schemasrc/parse.go) constrains namespace to
-// ^[a-z][a-z0-9-]*$, maxLength 64, so the result is always 8-71 characters
-// of printable non-space ASCII: envelope-legal for every legal namespace,
-// and never confusable with a minted id, since ^[0-9a-f]{32}$ admits no
-// colon.
+// wrapper over writ.DeriveSchemaObjectID (WRIT-291, re-exported by
+// WRIT-310), kept here for its own doc comment and its call sites' local,
+// unqualified name. A schema object's identity is its namespace, so two
+// writers bootstrapping the same namespace offline derive the same id and
+// converge on the same object instead of minting two that both bind the
+// same object_type(s) — the collision RulesFromSchemas has no way to
+// resolve. namespacePattern (internal/schemasrc/parse.go) constrains
+// namespace to ^[a-z][a-z0-9-]*$, maxLength 64, so the result is always
+// 8-71 characters of printable non-space ASCII: envelope-legal for every
+// legal namespace, and never confusable with a minted id, since
+// ^[0-9a-f]{32}$ admits no colon.
 func deriveSchemaObjectID(namespace string) string {
-	return state.DeriveSchemaObjectID(namespace)
+	return writ.DeriveSchemaObjectID(namespace)
 }
 
 // conflictsIntroducedByApply computes which of RulesFromSchemas' conflicts

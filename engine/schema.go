@@ -1592,3 +1592,39 @@ func VocabulariesFromSchemas(schemas []Schema) (codec.Vocabularies, []SchemaConf
 
 	return vocabularies, res.conflicts
 }
+
+// SchemaInstallable reports whether s survives the two whole-object drop
+// gates resolveSchemaTypes applies, in order: the namespace-grammar gate
+// (WRIT-253) and the derived-id gate (WRIT-254). This mirrors the
+// resolver's *drop* decision byte for byte; it is not an "installs
+// something" predicate. In particular, an empty namespace does NOT trip
+// the grammar gate here, exactly as resolveSchemaTypes' own gate is
+// guarded by s.Namespace != "": a schema object with an empty namespace
+// and object id "schema:" is not dropped by this predicate — it simply
+// declares nothing installable downstream, since every type name it might
+// declare fails the resolver's separate namespace-qualification check
+// regardless. A caller that instead needs "does this object install
+// anything" must add that check itself (cmd/writ/schema.go's
+// schemaNamespaces is the example: it additionally requires
+// s.Namespace != "").
+//
+// A package-level function, not a method on Schema: Schema is a type
+// alias for state.Schema (WRIT-287), so an exported method reachable
+// through it would surface in api/engine.txt as a promise on the
+// internal type itself (WRIT-310 plan §5, "the alias trap").
+func SchemaInstallable(s Schema) bool {
+	return state.SchemaInstallable(s)
+}
+
+// DeriveSchemaObjectID returns the schema object id for namespace:
+// "schema:" + namespace, per spec/identifiers.md's schema carve-out. A
+// schema object's identity is its namespace, so two writers bootstrapping
+// the same namespace offline derive the same id and converge on the same
+// object instead of minting two that both bind the same object_type(s) —
+// the collision RulesFromSchemas has no way to resolve.
+//
+// Package-level, not a method, for the same alias-trap reason as
+// SchemaInstallable above.
+func DeriveSchemaObjectID(namespace string) string {
+	return state.DeriveSchemaObjectID(namespace)
+}

@@ -16,8 +16,6 @@ import (
 
 	"github.com/writtendev/writ/cmd/writ/internal/wire"
 	"github.com/writtendev/writ/engine"
-	"github.com/writtendev/writ/internal/schemasrc"
-	"github.com/writtendev/writ/internal/state"
 )
 
 // writeSchemaFile overwrites the working-tree writ.schema in dir.
@@ -811,7 +809,7 @@ type widget {
 // state.FoldSchema's create-once quarantine admits it) while the
 // resolver's grammar gate still drops it, so the porcelain count and the
 // --json namespaces field used to disagree with what the engine actually
-// installs. schemaNamespaces now gates on state.SchemaInstallable, the
+// installs. schemaNamespaces now gates on writ.SchemaInstallable, the
 // same two-gate predicate resolveSchemaTypes itself uses, so the hostile
 // object is excluded from both surfaces.
 func TestSchemaApply_GrammarInvalidNamespaceNotCountedOrRendered(t *testing.T) {
@@ -1094,29 +1092,22 @@ func runSchemaSyncOrFatal(t *testing.T, dir string) {
 // — is gone rather than patched again: resolveSchemaTarget resolves on
 // namespace alone now, and these two tests continue to pin that a squat
 // occupying an unrelated ObjectID never perturbs that resolution, for
-// whatever reason. These call resolveSchemaTarget directly with
-// hand-built []state.Schema — no CLI, no repo — so the squat's shape
-// needs no schemasrc producibility.
+// whatever reason. These call resolveSchemaTarget directly with a
+// hand-built []writ.Schema and a bare namespace string — no CLI, no
+// repo, no writ.schema source to parse.
 func TestResolveSchemaTarget_SquattedForeignTypeDoesNotBlockReuse(t *testing.T) {
-	target := state.Schema{
+	target := writ.Schema{
 		ObjectID:  "schema:acme",
 		Namespace: "acme",
-		Types:     []state.SchemaType{{Name: "acme.standup"}},
+		Types:     []writ.SchemaType{{Name: "acme.standup"}},
 	}
-	squat := state.Schema{
+	squat := writ.Schema{
 		ObjectID:  "schema:evil",
 		Namespace: "evil",
-		Types:     []state.SchemaType{{Name: "acme.retro"}},
-	}
-	f := &schemasrc.File{
-		Namespace: "acme",
-		Types: []*schemasrc.Type{
-			{Name: "standup"},
-			{Name: "retro"}, // qualifies to "acme.retro" — the squatted name
-		},
+		Types:     []writ.SchemaType{{Name: "acme.retro"}},
 	}
 
-	got, err := resolveSchemaTarget([]state.Schema{target, squat}, f)
+	got, err := resolveSchemaTarget([]writ.Schema{target, squat}, "acme")
 	if err != nil {
 		t.Fatalf("expected the squat to be ignored and the reuse to succeed, got error: %v", err)
 	}
@@ -1126,17 +1117,13 @@ func TestResolveSchemaTarget_SquattedForeignTypeDoesNotBlockReuse(t *testing.T) 
 }
 
 func TestResolveSchemaTarget_SquattedForeignTypeDoesNotBlockFreshMint(t *testing.T) {
-	squat := state.Schema{
+	squat := writ.Schema{
 		ObjectID:  "schema:evil",
 		Namespace: "evil",
-		Types:     []state.SchemaType{{Name: "acme.standup"}},
-	}
-	f := &schemasrc.File{
-		Namespace: "acme",
-		Types:     []*schemasrc.Type{{Name: "standup"}},
+		Types:     []writ.SchemaType{{Name: "acme.standup"}},
 	}
 
-	got, err := resolveSchemaTarget([]state.Schema{squat}, f)
+	got, err := resolveSchemaTarget([]writ.Schema{squat}, "acme")
 	if err != nil {
 		t.Fatalf("expected the squat to be ignored and a fresh mint to succeed, got error: %v", err)
 	}
@@ -1161,11 +1148,10 @@ func TestResolveSchemaTarget_SquattedForeignTypeDoesNotBlockFreshMint(t *testing
 // of them is: this is the write-side twin of that read-side drop, not a
 // weakening of the old refusal.
 func TestResolveSchemaTarget_NonDerivedIDObjectsIgnoredFreshMint(t *testing.T) {
-	a := state.Schema{ObjectID: "schema:acme-a", Namespace: "acme"}
-	b := state.Schema{ObjectID: "schema:acme-b", Namespace: "acme"}
-	f := &schemasrc.File{Namespace: "acme", Types: []*schemasrc.Type{{Name: "standup"}}}
+	a := writ.Schema{ObjectID: "schema:acme-a", Namespace: "acme"}
+	b := writ.Schema{ObjectID: "schema:acme-b", Namespace: "acme"}
 
-	got, err := resolveSchemaTarget([]state.Schema{a, b}, f)
+	got, err := resolveSchemaTarget([]writ.Schema{a, b}, "acme")
 	if err != nil {
 		t.Fatalf("expected both non-derived-id siblings ignored and a fresh mint to succeed, got error: %v", err)
 	}
@@ -1193,15 +1179,14 @@ func TestResolveSchemaTarget_NonDerivedIDObjectsIgnoredFreshMint(t *testing.T) {
 // hijacked sibling like this — so with it first, reverting the gate
 // must turn this test red.
 func TestResolveSchemaTarget_DerivedIDMatchResolvesWithDroppedSiblingPresent(t *testing.T) {
-	dropped := state.Schema{ObjectID: "acme-rogue", Namespace: "acme"}
-	target := state.Schema{
+	dropped := writ.Schema{ObjectID: "acme-rogue", Namespace: "acme"}
+	target := writ.Schema{
 		ObjectID:  "schema:acme",
 		Namespace: "acme",
-		Types:     []state.SchemaType{{Name: "acme.standup"}},
+		Types:     []writ.SchemaType{{Name: "acme.standup"}},
 	}
-	f := &schemasrc.File{Namespace: "acme", Types: []*schemasrc.Type{{Name: "standup"}}}
 
-	got, err := resolveSchemaTarget([]state.Schema{dropped, target}, f)
+	got, err := resolveSchemaTarget([]writ.Schema{dropped, target}, "acme")
 	if err != nil {
 		t.Fatalf("expected the dropped sibling ignored and reuse to succeed, got error: %v", err)
 	}
