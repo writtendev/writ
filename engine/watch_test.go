@@ -505,10 +505,9 @@ func TestWatchSlowConsumerOverflowAndReset(t *testing.T) {
 		case ev := <-events:
 			if ev.Kind == writ.EventReset {
 				resetReceived = true
-				break
 			}
 		case <-time.After(2 * time.Second):
-			break
+			t.Fatal("timed out waiting for EventReset")
 		}
 		if resetReceived {
 			break
