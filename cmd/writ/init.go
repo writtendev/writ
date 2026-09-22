@@ -255,14 +255,25 @@ func runInit(ctx context.Context, defaultDir string, args []string, stdin io.Rea
 		reportSkippedRemotes(stderr, configured, skippedReasons)
 	}
 
+	// The starter writ.schema outcome renders last, after the remote
+	// summary above -- matching main's step 6 (remotes) then step 7
+	// (starter schema) ordering. writ.Init only reaches that step on
+	// success (a hard remote failure returns before it), so this is a
+	// no-op in every path that already returned above.
+	renderStarterSchemaOutcome(stdout, stderr, opts.namespace, result)
+
 	return 0
 }
 
 // renderInitResult prints writ.Init's result exactly as runInit's own
 // former inline steps did, in the same order: writer id, repo id, person
-// id, signing key, one line per remote, then the starter writ.schema
-// outcome. It runs regardless of whether Init succeeded, since a partial
-// result is exactly what a partial-failure report needs to name.
+// id, signing key, then one line per remote. It runs regardless of whether
+// Init succeeded, since a partial result is exactly what a partial-failure
+// report needs to name. The starter writ.schema outcome is rendered
+// separately, by renderStarterSchemaOutcome, so that runInit can place it
+// after the "no remotes configured" / skipped-remote summary lines it
+// prints itself -- main wrote the starter file only after the remote step
+// had already printed those, and this keeps that order.
 // namespaceFlag is the raw --namespace flag value (possibly empty), used
 // only to report that it was ignored when writ.schema already existed.
 func renderInitResult(stdout, stderr io.Writer, namespaceFlag string, result writ.InitResult) {
@@ -319,7 +330,15 @@ func renderInitResult(stdout, stderr io.Writer, namespaceFlag string, result wri
 			// would duplicate the line.
 		}
 	}
+}
 
+// renderStarterSchemaOutcome prints the starter writ.schema outcome from
+// writ.Init's result: written, already existed (naming a discarded
+// --namespace flag if one was given), or failed. Split out of
+// renderInitResult so runInit can call it after the remote summary lines
+// it prints itself, matching the order writ.Init's own steps run in --
+// remotes (step 6) before the starter schema (step 7).
+func renderStarterSchemaOutcome(stdout, stderr io.Writer, namespaceFlag string, result writ.InitResult) {
 	switch {
 	case result.StarterSchemaWritten:
 		fmt.Fprintf(stdout, "Wrote starter %s\n", result.StarterSchemaPath)

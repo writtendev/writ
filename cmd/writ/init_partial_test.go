@@ -96,3 +96,71 @@ func TestInit_ExplicitRemoteFailureNamesEveryUnconfiguredRemote(t *testing.T) {
 		}
 	}
 }
+
+// TestInit_NoRemotesMessagePrecedesStarterSchemaLine pins main's ordering
+// between the "no remotes configured" line and the starter writ.schema
+// outcome (round-2 medium finding): both are stdout, so this is a real
+// reorder to catch, not stream interleaving. The round-1 fix pass moved
+// the starter-schema render into renderInitResult, which runs before
+// runInit prints the remote summary -- inverting main's step 6 (remotes)
+// then step 7 (starter schema) order. Verified by reverting the fix
+// (calling renderStarterSchemaOutcome from inside renderInitResult again,
+// ahead of the remote summary): this test fails with the starter-schema
+// line first.
+func TestInit_NoRemotesMessagePrecedesStarterSchemaLine(t *testing.T) {
+	env := setupTestCLIEnv(t)
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("init exited with %d, want 0; stdout: %s stderr: %s", code, stdout.String(), stderr.String())
+	}
+
+	out := stdout.String()
+	remotesLine := "No git remotes configured; fetch refspec will be added when a remote is configured."
+	starterLine := "Wrote starter "
+	remotesIdx := strings.Index(out, remotesLine)
+	starterIdx := strings.Index(out, starterLine)
+	if remotesIdx < 0 {
+		t.Fatalf("stdout = %q, want it to contain %q", out, remotesLine)
+	}
+	if starterIdx < 0 {
+		t.Fatalf("stdout = %q, want it to contain %q", out, starterLine)
+	}
+	if remotesIdx > starterIdx {
+		t.Errorf("stdout = %q, want %q before %q, matching main's order", out, remotesLine, starterLine)
+	}
+}
+
+// TestInit_SkippedRemoteSummaryPrecedesStarterSchemaLine pins the same
+// ordering for the skipped-remote summary (round-2 medium finding, second
+// half): a discovered url-less remote is skipped and reportSkippedRemotes
+// names it on stderr, and on main that always printed before the starter
+// writ.schema line on stdout. stdout and stderr are combined into one
+// writer here, as the round-2 review did, so the assertion is about
+// program order, not which stream a line lands on.
+func TestInit_SkippedRemoteSummaryPrecedesStarterSchemaLine(t *testing.T) {
+	env := setupTestCLIEnv(t)
+	setGitConfig(t, env.repoDir, "remote.ghost.prune", "true")
+
+	var combined bytes.Buffer
+	code := run(context.Background(), []string{"init", "-C", env.repoDir, "--namespace", "testns"}, &combined, &combined)
+	if code != 0 {
+		t.Fatalf("init exited with %d, want 0; output: %s", code, combined.String())
+	}
+
+	out := combined.String()
+	summaryLine := "discovered remote(s) could not be configured"
+	starterLine := "Wrote starter "
+	summaryIdx := strings.Index(out, summaryLine)
+	starterIdx := strings.Index(out, starterLine)
+	if summaryIdx < 0 {
+		t.Fatalf("output = %q, want it to contain %q", out, summaryLine)
+	}
+	if starterIdx < 0 {
+		t.Fatalf("output = %q, want it to contain %q", out, starterLine)
+	}
+	if summaryIdx > starterIdx {
+		t.Errorf("output = %q, want %q before %q, matching main's order", out, summaryLine, starterLine)
+	}
+}
