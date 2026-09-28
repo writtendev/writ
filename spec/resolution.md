@@ -308,7 +308,7 @@ operates as follows:
 - **Search Scope:**
   - If `anchor.path` exists in the target tree: search **only** within `anchor.path`.
   - If `anchor.path` is absent from the target tree: search across all paths in
-    the target tree, evaluated in lexicographical order.
+    the target tree, evaluated in UTF-8 byte order.
 - **Window Matching:**
   Let $N = \text{anchor.range.end} - \text{anchor.range.start} + 1$ be the
   length of the anchored range.
@@ -350,7 +350,7 @@ operates as follows:
 - **Search Scope:**
   - If `anchor.path` exists in the target tree: search **only** within `anchor.path`.
   - If `anchor.path` is absent from the target tree: search across all paths in
-    the target tree, evaluated in lexicographical order.
+    the target tree, evaluated in UTF-8 byte order.
 - **Scoring Function:**
   For each candidate window of length $N$ starting at line $s$ in candidate file $p$:
   - **Anchored lines score ($2$ points per match):**

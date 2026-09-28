@@ -348,7 +348,7 @@
     "outcome": "resolved"
   },
   "context-exact-cross-file-tiebreak.json": {
-    "description": "Rung 3 cross-file tiebreak with five matching windows across three files: exercises all four tiebreak keys (collar score, distance, start, path) in fixed order -- the winner is last by every single key alone",
+    "description": "Rung 3 cross-file tiebreak with five matching windows across three files: exercises all four tiebreak keys (collar score, distance, start, path) in fixed order -- the winner is neither the smallest-distance, the earliest-start, nor the smallest-path window",
     "match": "context-exact",
     "outcome": "resolved"
   },

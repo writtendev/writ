@@ -46,6 +46,24 @@ func TestOrderingVectors(t *testing.T) {
 				if err == nil {
 					t.Fatalf("spec.TotalOrder: expected an error for a cyclic restricted DAG, got nil")
 				}
+
+				// spec/fold.md §9 pins the reference Fold, not only
+				// spec.TotalOrder, as one of the harnesses a cycle vector
+				// must fail: Fold orders its input before ever consulting
+				// its rule table, so an empty rule table still reaches the
+				// same rejection.
+				mergeOps := make([]spec.MergeOp, len(vec.Ops))
+				for i, op := range vec.Ops {
+					mergeOps[i] = spec.MergeOp{
+						ID:       op.ID,
+						Parents:  op.Parents,
+						Time:     op.Time,
+						ObjectID: op.ObjectID,
+					}
+				}
+				if _, err := spec.Fold(mergeOps, nil); err == nil {
+					t.Fatalf("spec.Fold: expected an error for a cyclic restricted DAG, got nil")
+				}
 				return
 			}
 			if err != nil {

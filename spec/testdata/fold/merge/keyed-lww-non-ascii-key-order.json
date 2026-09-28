@@ -11,14 +11,14 @@
       "parents": [],
       "time": 100,
       "object_id": "obj-1",
-      "body": { "subject": "Z", "verdict": "1" }
+      "body": { "subject": "😀", "verdict": "5" }
     },
     {
       "id": "op-2",
       "parents": ["op-1"],
       "time": 200,
       "object_id": "obj-1",
-      "body": { "subject": "f", "verdict": "2" }
+      "body": { "subject": "Ａ", "verdict": "4" }
     },
     {
       "id": "op-3",
@@ -32,14 +32,14 @@
       "parents": ["op-3"],
       "time": 400,
       "object_id": "obj-1",
-      "body": { "subject": "Ａ", "verdict": "4" }
+      "body": { "subject": "f", "verdict": "2" }
     },
     {
       "id": "op-5",
       "parents": ["op-4"],
       "time": 500,
       "object_id": "obj-1",
-      "body": { "subject": "😀", "verdict": "5" }
+      "body": { "subject": "Z", "verdict": "1" }
     }
   ],
   "expected_state": {
