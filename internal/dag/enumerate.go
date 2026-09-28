@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/storage"
 	"github.com/writtendev/writ/internal/codec"
@@ -53,34 +54,34 @@ type EnumerateResult struct {
 	// validation — isAncestor's walk stops there exactly as EnumerateSince's
 	// own Step 3 does, so the cursor is no longer found even though the old
 	// SHA is still, technically, a git ancestor. A tip advanced across an
-	// object-unavailable commit whose root tree names a top-level op.json
-	// entry with only that entry's own blob absent is not, by itself, a
+	// object-unavailable commit whose root tree passes every tree-shape
+	// rule and is missing only its own op.json blob is not, by itself, a
 	// reason to report Rewound: isAncestor keeps walking through exactly
 	// that shape, the same as Step 3 (see decodeOpCommit,
 	// RejectObjectUnavailable, and rootOpJSONBlobAbsent). Every other
-	// object-unavailable shape — an absent root tree, or one present
-	// without a top-level op.json entry — stops isAncestor's walk there too,
-	// so a tip advanced across one of those does report Rewound.
+	// object-unavailable shape — an absent root tree, a root tree present
+	// without a top-level op.json entry, or a root tree that already fails
+	// a tree-shape rule on what this reader can see — stops isAncestor's
+	// walk there too, so a tip advanced across one of those does report
+	// Rewound.
 	Rewound []string `json:"rewound,omitempty"`
 
 	// Rejections records commits that failed reader validation, or whose
 	// root tree or op.json object this clone could not read (WRIT-289, and
 	// the orchestrator decision on top of it — see decodeOpCommit,
 	// RejectObjectUnavailable, and rootOpJSONBlobAbsent). A rejection ends
-	// the walk along that path — so it contributes at most one rejection
-	// per distinct such commit adjacent to a tip or a held op's parent
-	// edge, not one per commit in the code history behind it — with one
-	// narrow exception: a commit whose root tree is present, names a
-	// top-level op.json entry, and is missing only that entry's own blob is
-	// not known to be a non-op, so its own parents are still followed; a
-	// run of several such commits in a row adds one rejection each, bounded
-	// by how many op.json blobs this clone's own fetch actually left out,
-	// not by an attacker-chosen depth. A ref pointed at ordinary code
-	// history produces exactly one rejection regardless of clone shape: an
-	// unfiltered or blob-filtered clone rejects the tip missing-op-json (a
-	// reader-validation failure, root tree present with no op.json entry);
-	// a tree-filtered clone rejects it object-unavailable with an absent
-	// root tree, which does not expand either.
+	// the walk along that path, with one narrow exception: a commit whose
+	// root tree passes every op-envelope tree-shape rule this reader can
+	// check without the blob's own bytes (exactly one entry, named
+	// op.json, a regular-file blob at mode 100644) and is missing only
+	// that entry's own blob is not known to be a non-op, so its parents
+	// are still followed, and each such commit reached this way
+	// contributes its own rejection. Walking past a run of these costs
+	// exactly what walking an equally long chain of valid ops costs — and
+	// any push-capable peer can already produce a valid-op chain with no
+	// depth bound of its own — so this exception adds no attacker leverage
+	// beyond what the format already allows; see rootOpJSONBlobAbsent for
+	// why the exception is this narrow and no narrower.
 	Rejections []Rejection `json:"rejections,omitempty"`
 
 	// DecodedCommits is the total number of commits decodeOpCommit was
@@ -90,8 +91,8 @@ type EnumerateResult struct {
 	// a rejection that stops the walk along that path (WRIT-289), or one
 	// object.GetCommit itself failed to fetch. A commit behind an
 	// object-unavailable rejection is reached and counted only for the one
-	// shape that does not stop the walk — root tree present, a top-level
-	// op.json entry named, only that entry's own blob absent (see
+	// shape that does not stop the walk — root tree passing every
+	// tree-shape rule, missing only its own op.json blob (see
 	// rootOpJSONBlobAbsent); every other object-unavailable shape stops the
 	// walk exactly like a reader-validation rejection.
 	DecodedCommits int `json:"decoded_commits"`
@@ -214,18 +215,28 @@ func WithLiveTrustStore(ts codec.TrustStore) EnumerateOption {
 // what ops records. What the walk reaches from a given commit is fixed by
 // decodeOpCommit's verdict on every commit along the way, and that verdict
 // never changes after the fact for a commit whose op.json this clone
-// already had. Only one shape of object-unavailable commit has an outcome
-// that can change later: root tree present, a top-level op.json entry
-// named, only that entry's own blob absent — and its parents were already
-// being followed either way (see rootOpJSONBlobAbsent), so nothing about
-// repairing that blob later reopens a gap in an op already recorded.
-// Every other object-unavailable shape — an absent root tree,
-// or one present without a top-level op.json entry — never expands its
-// parents to begin with, exactly like a reader-validation rejection, so a
-// later repair of it cannot reopen a gap either: there was nothing behind
-// it to have recorded. A caller that cannot make the same guarantee (a
-// partial fetch with no rebuild-on-gap path, a hand-rolled cache) must
-// not pass this option.
+// already had. One shape of object-unavailable commit has an outcome that
+// can change later: root tree passing every tree-shape rule, missing only
+// its own op.json blob — and its parents were already being followed
+// either way (see rootOpJSONBlobAbsent), so repairing that blob later does
+// not reopen a gap in an op already recorded.
+//
+// A different shape does reopen a gap, and this is a known residual
+// (WRIT-366), not something this option's caller can guard against: an
+// absent root tree stops the walk without expanding parents, exactly like
+// a reader-validation rejection — but unlike a reader-validation
+// rejection, that verdict is not permanent. When the tree is later
+// repaired, a fresh walk that reaches the same commit again may find it
+// op-shaped after all and follow its parents, decoding ops an earlier
+// pass — stopped at that same commit — never reached. The stored cursor
+// for the chain does not move on its own, so an incremental pass gains no
+// trigger to revisit that region, and stays behind what a cold walk would
+// now produce there. A root tree present without a top-level op.json
+// entry does not have this problem — rule 1 already settles that verdict
+// from what this reader can see, permanently, independent of whatever
+// else in the tree might later arrive. A caller that cannot tolerate the
+// root-tree residual (a partial fetch with no rebuild-on-gap path, a
+// hand-rolled cache) must not pass this option.
 func WithSeen(match func(opID string) bool) EnumerateOption {
 	return func(c *enumerateConfig) { c.seen = match }
 }
@@ -378,20 +389,29 @@ func (s *Store) EnumerateSince(cursors CursorSet, opts ...EnumerateOption) (*Enu
 		// break is still enumerated if some other path of valid ops reaches
 		// it (e.g. a causal parent edge from a different chain). The one
 		// exception is a RejectObjectUnavailable commit whose root tree
-		// names a top-level op.json entry with only that entry's own blob
-		// absent — the shape a blob-filtered clone's fetch filter leaves
-		// behind (orchestrator decision, WRIT-289 round 1 review): this
-		// commit's own object and root tree were read fine, so it is not
-		// known to be a non-op, and its parents are already known from
-		// commitObj (fetched above, independent of the tree), so the walk
-		// still enqueues them below. Every other RejectObjectUnavailable
-		// commit — an absent root tree, or one present without a top-level
-		// op.json entry, even if some other object it names is also absent
-		// — stops here exactly like a reader-validation rejection
-		// (orchestrator decision, WRIT-289 round 2 review: the round 1 cut
-		// applied the exception to every ErrObjectNotFound, which let a
-		// tree-filtered clone's ref tip walk unbounded into ordinary code
-		// history — see rootOpJSONBlobAbsent).
+		// passes every op-envelope tree-shape rule this reader can check
+		// without the blob's own bytes — exactly one entry, named op.json,
+		// a regular-file blob at mode 100644 — and is missing only that
+		// entry's own blob: the shape a blob-filtered clone's fetch filter
+		// leaves behind. This commit's own object and root tree were read
+		// fine, so it is not known to be a non-op, and its parents are
+		// already known from commitObj (fetched above, independent of the
+		// tree), so the walk still enqueues them below (see
+		// rootOpJSONBlobAbsent). Every other RejectObjectUnavailable
+		// commit stops here exactly like a reader-validation rejection: an
+		// absent root tree; a root tree present without a top-level
+		// op.json entry, even if some other object it names is also
+		// absent; or a root tree that already fails a tree-shape rule on
+		// what this reader can see — an extra entry beside op.json
+		// whatever its own blob holds, op.json present as a directory, or
+		// op.json at some mode other than 100644 — which already settles
+		// the verdict without needing the blob at all (orchestrator
+		// decision, WRIT-289 round 3 review, narrowing round 2's cut
+		// further: round 2 only checked that an op.json entry existed and
+		// its blob was absent, so a tree with one of these other visible
+		// defects still returned true, walking unbounded into ordinary
+		// code history that happened to carry a root-level op.json under a
+		// --filter=blob:none or --filter=tree:1 clone).
 		result.DecodedCommits++
 		pure, op, rej := decodeOpCommit(cachedStorer, commitObj)
 		if rej == nil {
@@ -627,33 +647,54 @@ func objectAbsent(s storage.Storer, hash plumbing.Hash) bool {
 
 // rootOpJSONBlobAbsent is the narrow test that decides whether a
 // RejectObjectUnavailable commit's parents are still worth expanding
-// (orchestrator decision, WRIT-289 round 2 review, narrowing the round 1
-// exception): true only when commitObj's root tree itself is readable and
-// names a top-level entry called "op.json" whose own blob is what this
-// clone does not have. That shape is not known to be a non-op — the same
-// commit read through a complete clone might decode cleanly — so a caller
+// (orchestrator decision, WRIT-289 round 3 review, narrowing the round 2
+// exception further): true only when commitObj's root tree is itself
+// readable and passes every one of spec/op-envelope.md §Reader
+// validation rule 1's tree-shape checks — the checks that do not need the
+// blob's own bytes — against what this clone can see:
+//   - the tree has exactly one entry;
+//   - that entry is named "op.json";
+//   - that entry's mode is a regular file, 100644 (not a directory, not
+//     executable, not a symlink);
+//
+// and, beyond the tree-shape rules themselves, that entry's own blob is
+// the one and only thing locally absent. A tree meeting all of this is
+// not known to be a non-op — the same commit read through a complete
+// clone might decode cleanly, and its payload's byte-equality and schema
+// rules simply cannot be checked without the blob — so a caller
 // enumerating ancestry may still expand its parents, already known from
 // commitObj's own ParentHashes independent of the tree.
 //
-// False for every other RejectObjectUnavailable cause, each of which is
-// already known to be a non-op, or unknowable, from what this clone can
-// read:
+// Because the tree has exactly one entry whenever this returns true,
+// "that entry's own blob is the only thing locally absent" follows for
+// free: there is nothing else in the tree left to be absent or present.
+//
+// False for every other RejectObjectUnavailable cause, each of which the
+// tree alone already proves is not an op, or which this clone cannot even
+// read enough of to tell:
 //   - the root tree itself is absent: a reader that cannot read a tree
-//     cannot tell whether it would have named an op.json entry at all — the
-//     shape a tree-filtered clone's ref tip has on ordinary code history,
-//     at every commit in that history were the walk to keep going (the
-//     round 1 cut's bug: it returned true here too, so a --filter=tree:0/
-//     tree:1 clone walked the whole history behind such a ref, decoding
-//     and rejecting every commit instead of stopping at the tip);
-//   - the root tree is present but names no top-level "op.json" entry,
+//     cannot tell whether it would have named an op.json entry at all —
+//     the shape a tree-filtered clone's ref tip has on ordinary code
+//     history, at every commit in that history were the walk to keep
+//     going;
+//   - the tree already fails a tree-shape rule on what this reader can
+//     see — an extra entry beside op.json (however that entry's own blob
+//     reads, present or absent), op.json present as a directory instead
+//     of a blob, or op.json present at some mode other than 100644 — a
+//     reader-validation rejection (extra-tree-entry, op-json-subdirectory,
+//     or invalid-op-json-mode) waiting only on the blob read that never
+//     gets to run; the tree already settles the verdict without it (round
+//     3 review: the round 2 cut only checked that an entry named op.json
+//     existed and its blob was absent, so a tree with other visible
+//     defects — an extra entry, op.json as a directory, or the wrong mode
+//     — still returned true here, walking unbounded into code history
+//     that happens to carry a root-level op.json under a
+//     --filter=blob:none or --filter=tree:1 clone);
+//   - the tree is present but names no top-level "op.json" entry at all,
 //     even when some other object it names (a subtree, most commonly) is
-//     also locally absent: spec/op-envelope.md §Reader validation rule 1
-//     already rejects that shape as missing-op-json on the entries this
-//     reader can see, so there is nothing left to learn by reading
-//     further;
-//   - the root tree names a top-level "op.json" entry whose own blob is
-//     present, but some other object the tree names is what is absent:
-//     the missing object is not the one this exception exists for.
+//     also locally absent: rule 1 already rejects that shape as
+//     missing-op-json on the entries this reader can see, so there is
+//     nothing left to learn by reading further.
 //
 // commitObj.Tree() re-reads the root tree object decodeOpCommit's own
 // codec.FromGitCommit call already read moments earlier; both go through
@@ -664,12 +705,14 @@ func rootOpJSONBlobAbsent(st storage.Storer, commitObj *object.Commit) bool {
 	if err != nil {
 		return false
 	}
-	for _, entry := range tree.Entries {
-		if entry.Name == "op.json" {
-			return objectAbsent(st, entry.Hash)
-		}
+	if len(tree.Entries) != 1 {
+		return false
 	}
-	return false
+	entry := tree.Entries[0]
+	if entry.Name != "op.json" || entry.Mode != filemode.Regular {
+		return false
+	}
+	return objectAbsent(st, entry.Hash)
 }
 
 // isAncestor reports whether candidate is reachable from tip by walking
@@ -681,11 +724,11 @@ func rootOpJSONBlobAbsent(st storage.Storer, commitObj *object.Commit) bool {
 // chain is a fast-forward. tip == candidate is always true, even when tip
 // itself is not an op — the trivial "the cursor hasn't moved" case needs
 // no decode. Beyond that, a commit's parents are examined once that commit
-// itself passes decodeOpCommit, or is RejectObjectUnavailable with its root
-// tree present and missing only its own top-level op.json blob (see
-// rootOpJSONBlobAbsent — the same shape Step 3's walk still expands); any
-// other rejection stops the walk on that path, tip included, exactly like
-// Step 3's walk. candidate itself need not be an op: reaching it as some
+// itself passes decodeOpCommit, or is RejectObjectUnavailable with its
+// root tree passing every tree-shape rule and missing only its own
+// op.json blob (see rootOpJSONBlobAbsent — the same shape Step 3's walk
+// still expands); any other rejection stops the walk on that path, tip
+// included, exactly like Step 3's walk. candidate itself need not be an op: reaching it as some
 // kept commit's parent is enough, the same way a stopBoundary cursor need
 // not itself have been re-decoded by this call.
 func isAncestor(s storage.Storer, tip, candidate plumbing.Hash) (bool, error) {

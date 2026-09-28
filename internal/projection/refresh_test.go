@@ -906,10 +906,10 @@ func TestRefresh_NonOpTipOverCursorRebuilds(t *testing.T) {
 // restored.
 //
 // Under the orchestrator decision on top of the WRIT-289 ruling — a
-// RejectObjectUnavailable commit whose root tree is present and names a
-// top-level op.json entry, with only that entry's own blob absent, does
-// not stop the walk, because op2's commit and root tree were both read
-// fine and its parents are known — the first Refresh already reaches op1
+// RejectObjectUnavailable commit whose root tree passes every tree-shape
+// rule and is missing only its own op.json blob does not stop the walk,
+// because op2's commit and root tree were both read fine and its parents
+// are known — the first Refresh already reaches op1
 // through the rejected op2, so w-a is never behind the break in the first
 // place: it holds op1 and op3 (OpCount 2) from the very first pass, and a
 // repair afterward changes nothing about it. That is what this PR
@@ -1050,6 +1050,160 @@ func TestRefresh_ObjectUnavailableRepairResidualDivergence(t *testing.T) {
 	}
 	if _, err := freshDB.Object("w-b"); err != nil {
 		t.Errorf("fresh Rebuild Object(w-b) after repair = %v, want no error (a cold walk re-decodes op2 from scratch and finds it valid now)", err)
+	}
+}
+
+// TestRefresh_ObjectUnavailableRootTreeRepairResidualDivergence is
+// TestRefresh_ObjectUnavailableRepairResidualDivergence's sibling for the
+// other repairable object-unavailable shape: op2's root tree deleted
+// (instead of its op.json blob) and later restored. Round 3 review found
+// this widens the incremental-vs-cold divergence beyond what
+// TestRefresh_ObjectUnavailableRepairResidualDivergence pins, because an
+// absent root tree stops the walk (round 2's narrowing of
+// rootOpJSONBlobAbsent, WRIT-289) where a merely-absent op.json blob does
+// not. This is the known residual WithSeen's doc comment now names and
+// routes to WRIT-366 — pinned here explicitly, not left to bit rot.
+//
+// Chain: op1(w-a create) <- op2(w-b create) <- op3(w-a update). Deleting
+// op2's root tree makes op2's own op-shape unknowable, so the first
+// Refresh already stops at op2 without reaching op1 — unlike the
+// blob-only-absent sibling, where op1 is reached on the very first pass.
+// w-a therefore starts this test one op behind (OpCount 1, just op3), not
+// caught up the way the blob-only-absent case is.
+//
+// After the tree is restored, op2 decodes cleanly (its own blob was never
+// touched), so a cold Rebuild finds op1 through it and reports w-a
+// OpCount 2. An incremental Refresh does not: op3, the chain's tip, has
+// not moved, so the stored cursor is still op3 and there is nothing new
+// for an incremental pass to walk back through — w-a stays at OpCount 1,
+// diverging from the cold rebuild where TestRefresh_ObjectUnavailable-
+// RepairResidualDivergence's w-a does not. This is WRIT-366's fix to make
+// (re-attempt object-unavailable commits on the next Refresh), not this
+// ticket's — the test pins the residual as known, not as fixed.
+func TestRefresh_ObjectUnavailableRootTreeRepairResidualDivergence(t *testing.T) {
+	ctx := context.Background()
+	repo, store := createTestStore(t, "0123456789abcdef")
+
+	ms, ok := repo.Storer.(*memory.Storage)
+	if !ok {
+		t.Fatalf("repo.Storer = %T, want *memory.Storage", repo.Storer)
+	}
+
+	db, err := projection.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open projection failed: %v", err)
+	}
+	defer db.Close()
+
+	env1 := makeWidgetEnv("w-a", "create", map[string]any{"title": "A1"})
+	if _, err := store.Append(ctx, env1, nil); err != nil {
+		t.Fatalf("store.Append op1 failed: %v", err)
+	}
+	env2 := makeWidgetEnv("w-b", "create", map[string]any{"title": "B1"})
+	op2, err := store.Append(ctx, env2, nil)
+	if err != nil {
+		t.Fatalf("store.Append op2 failed: %v", err)
+	}
+	env3 := makeWidgetEnv("w-a", "update", map[string]any{"title": "A2"})
+	if _, err := store.Append(ctx, env3, nil); err != nil {
+		t.Fatalf("store.Append op3 failed: %v", err)
+	}
+
+	// Delete op2's root TREE from the object store directly — unlike
+	// TestRefresh_ObjectUnavailableRepairResidualDivergence, which deletes
+	// only the op.json blob a fetch filter would withhold, this leaves
+	// op2's own commit object present but its tree unreadable, the shape
+	// a --filter=tree:0/tree:1 clone's fetch would leave behind for a
+	// commit that happens to sit on a writ chain.
+	op2Commit, err := object.GetCommit(repo.Storer, plumbing.NewHash(op2.ID))
+	if err != nil {
+		t.Fatalf("GetCommit(op2) failed: %v", err)
+	}
+	treeHash := op2Commit.TreeHash
+	treeObj, ok := ms.Objects[treeHash]
+	if !ok {
+		t.Fatalf("op2's root tree %s not present before deletion", treeHash)
+	}
+	delete(ms.Objects, treeHash)
+	delete(ms.Trees, treeHash)
+
+	stats1, err := db.Refresh(store, projection.WithSchema(testRules()))
+	if err != nil {
+		t.Fatalf("first Refresh failed: %v", err)
+	}
+	if len(stats1.Rejections) != 1 || stats1.Rejections[0].CommitID != op2.ID || stats1.Rejections[0].Reason != dag.RejectObjectUnavailable {
+		t.Fatalf("first Refresh Rejections = %v, want exactly one for %s reason %q", stats1.Rejections, op2.ID, dag.RejectObjectUnavailable)
+	}
+
+	wa1, err := db.Object("w-a")
+	if err != nil {
+		t.Fatalf("Object(w-a) after first Refresh: %v", err)
+	}
+	if wa1.OpCount != 1 {
+		t.Fatalf("Object(w-a).OpCount after first Refresh = %d, want 1 (op3 only; op2's absent root tree stops the walk before it reaches op1, unlike the blob-only-absent shape)", wa1.OpCount)
+	}
+	if _, err := db.Object("w-b"); err != projection.ErrNotFound {
+		t.Fatalf("Object(w-b) after first Refresh = %v, want projection.ErrNotFound (op2 itself is the rejected commit)", err)
+	}
+
+	// Repair: put the tree back, exactly as a later unfiltered fetch (or
+	// `git fetch --refetch --no-filter`) would for a real tree-filtered
+	// clone.
+	ms.Objects[treeHash] = treeObj
+	ms.Trees[treeHash] = treeObj
+
+	stats2, err := db.Refresh(store, projection.WithSchema(testRules()))
+	if err != nil {
+		t.Fatalf("second Refresh failed: %v", err)
+	}
+	if stats2.Rebuilt {
+		t.Fatalf("second Refresh Rebuilt = true, want false: the chain tip (op3) has not moved, so there is nothing new for an incremental pass to walk")
+	}
+
+	waIncremental, err := db.Object("w-a")
+	if err != nil {
+		t.Fatalf("Object(w-a) after repair: %v", err)
+	}
+	if waIncremental.OpCount != 1 {
+		t.Fatalf("Object(w-a).OpCount after repair (incremental) = %d, want 1 (unchanged: the stored cursor is still op3, so the incremental pass has no trigger to revisit op2 or reach op1 behind it — this is the residual, WRIT-366)", waIncremental.OpCount)
+	}
+
+	// A fresh cold Rebuild after the repair now reaches op1 through op2,
+	// whose tree — and own op.json blob, never touched — both read fine.
+	freshDB, err := projection.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open fresh projection failed: %v", err)
+	}
+	defer freshDB.Close()
+	if _, err := freshDB.Rebuild(store, projection.WithSchema(testRules())); err != nil {
+		t.Fatalf("fresh Rebuild failed: %v", err)
+	}
+	waRebuilt, err := freshDB.Object("w-a")
+	if err != nil {
+		t.Fatalf("fresh Rebuild Object(w-a): %v", err)
+	}
+	if waRebuilt.OpCount != 2 {
+		t.Fatalf("fresh Rebuild Object(w-a).OpCount = %d, want 2 (op1 and op3; a cold walk re-decodes op2 from scratch and finds it valid now that its tree is back)", waRebuilt.OpCount)
+	}
+
+	// The divergence this test exists to pin: incremental and cold now
+	// disagree about w-a, where TestRefresh_ObjectUnavailableRepairResidual-
+	// Divergence's blob-only-absent sibling shows them agreeing. Both are
+	// the same underlying gap (WRIT-366) — this row is just wider than
+	// that one, because the walk never reached op1 on the first pass here.
+	if waIncremental.OpCount == waRebuilt.OpCount {
+		t.Fatalf("w-a incremental OpCount (%d) unexpectedly matches cold Rebuild OpCount (%d): this test exists to pin that they diverge (WRIT-366) — if they now agree, the residual this test names may have been closed, and this test (and its doc comment) should be updated or removed instead of left stating a gap that no longer exists", waIncremental.OpCount, waRebuilt.OpCount)
+	}
+
+	freshWB, err := freshDB.Object("w-b")
+	if err != nil {
+		t.Fatalf("fresh Rebuild Object(w-b): %v", err)
+	}
+	if freshWB.OpCount != 1 {
+		t.Errorf("fresh Rebuild Object(w-b).OpCount = %d, want 1", freshWB.OpCount)
+	}
+	if _, err := db.Object("w-b"); err != projection.ErrNotFound {
+		t.Errorf("Object(w-b) from the incremental pass after repair = %v, want projection.ErrNotFound (same residual: the incremental pass never revisits op2)", err)
 	}
 }
 
