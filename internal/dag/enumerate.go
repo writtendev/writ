@@ -18,6 +18,17 @@ type Rejection struct {
 	CommitID string             `json:"commit_id"`
 	Reason   codec.RejectReason `json:"reason"`
 	Err      string             `json:"error,omitempty"`
+
+	// Expands reports whether the walk that produced this Rejection went on
+	// to enqueue CommitID's parents anyway — true only when Reason is
+	// RejectObjectUnavailable and rootOpJSONBlobAbsent said so (see
+	// EnumerateSince's Step 3). Always false for every other reason, where
+	// a rejection ends the walk on that path. Reason alone is not the
+	// walk's whole verdict on a RejectObjectUnavailable commit: the same
+	// reason can persist while Expands flips, in either direction, once a
+	// withheld object arrives — StillObjectUnavailable compares both, not
+	// Reason alone, for exactly that reason (WRIT-289 round 5).
+	Expands bool `json:"expands,omitempty"`
 }
 
 // RejectObjectUnavailable reports that an op-commit chain references an
@@ -217,33 +228,44 @@ func WithLiveTrustStore(ts codec.TrustStore) EnumerateOption {
 // never changes after the fact for a commit whose op.json this clone
 // already had.
 //
-// A RejectObjectUnavailable commit's verdict is the one exception: it can
-// change later, in either direction, when the object this clone was
-// missing arrives (a partial clone's later unfiltered fetch, most
-// commonly):
+// A RejectObjectUnavailable commit's verdict is the one exception: it has
+// two parts — the reject reason itself, and whether the walk expanded the
+// commit's parents anyway (rootOpJSONBlobAbsent; see Rejection.Expands) —
+// and either part can change later, independently of the other, when the
+// object this clone was missing arrives (a partial clone's later
+// unfiltered fetch, most commonly). For example:
 //   - the commit was walked past — root tree passing every tree-shape
-//     rule, missing only its own op.json blob (see rootOpJSONBlobAbsent)
-//     — and ops behind it were recorded, but the blob that arrives turns
-//     out to fail reader validation itself (non-canonical, wrong schema,
-//     a committer mismatch); a cold walk now stops at that commit, so
-//     those recorded ops are no longer something a cold walk would hold;
-//   - the commit stopped the walk — an absent root tree, an unknowable
-//     op-shape — and nothing behind it was recorded, but the tree that
-//     arrives turns out op-shaped after all; a cold walk now reaches ops
-//     behind it that no earlier pass ever recorded.
+//     rule, missing only its own op.json blob — and ops behind it were
+//     recorded, but the blob that arrives turns out to fail reader
+//     validation itself (non-canonical, wrong schema, a committer
+//     mismatch); a cold walk now stops at that commit, so those recorded
+//     ops are no longer something a cold walk would hold (the reason
+//     changes away from RejectObjectUnavailable);
+//   - the commit stopped the walk — an absent root tree — and nothing
+//     behind it was recorded, but the tree that arrives turns out
+//     op-shaped, with its own op.json blob now also present; a cold walk
+//     now reaches ops behind it that no earlier pass ever recorded (the
+//     reason changes away from RejectObjectUnavailable);
+//   - the commit stopped the walk — an absent root tree, or a present one
+//     this reader could not yet expand — and the tree (or commit object)
+//     that arrives turns out op-shaped with only its own op.json blob
+//     still absent; the reject reason stays RejectObjectUnavailable, but a
+//     cold walk now expands this commit's parents where an earlier pass's
+//     recorded verdict did not (WRIT-289 round 5).
 //
-// Either way is a real gap against this option's invariant, and neither
-// is something WithSeen's predicate can detect by itself — it only ever
-// answers "already recorded", never "recorded under a verdict that has
-// since changed". projection.Refresh closes both directions (WRIT-366)
-// by persisting the set of commits a pass recorded as
-// RejectObjectUnavailable and, before every incremental pass, rechecking
-// each one against the store's current object availability
-// (Store.StillObjectUnavailable): a changed verdict routes that pass to a
+// Every one of these is a real gap against this option's invariant, and
+// none is something WithSeen's predicate can detect by itself — it only
+// ever answers "already recorded", never "recorded under a verdict that
+// has since changed". projection.Refresh (WRIT-366, extended WRIT-289
+// round 5) persists, for every commit a pass recorded as
+// RejectObjectUnavailable, both the reason and the Expands bit it recorded
+// for it, and before every incremental pass rechecks each one against the
+// store's current object availability (Store.StillObjectUnavailable,
+// ObjectUnavailableVerdict): a change in either part routes that pass to a
 // full Rebuild instead of trusting the stored cursors past it, so the
 // invariant holds again by the next call. A caller of this option that
-// does not perform an equivalent recheck must not treat the invariant as
-// holding across an object-unavailable repair.
+// does not perform an equivalent recheck of both parts must not treat the
+// invariant as holding across an object-unavailable repair.
 func WithSeen(match func(opID string) bool) EnumerateOption {
 	return func(c *enumerateConfig) { c.seen = match }
 }
@@ -424,8 +446,10 @@ func (s *Store) EnumerateSince(cursors CursorSet, opts ...EnumerateOption) (*Enu
 		if rej == nil {
 			decoded = append(decoded, decodedCommit{pure: pure, op: op})
 		} else {
+			expands := rej.Reason == RejectObjectUnavailable && rootOpJSONBlobAbsent(cachedStorer, commitObj)
+			rej.Expands = expands
 			result.Rejections = append(result.Rejections, *rej)
-			if rej.Reason != RejectObjectUnavailable || !rootOpJSONBlobAbsent(cachedStorer, commitObj) {
+			if !expands {
 				continue
 			}
 		}
@@ -568,49 +592,75 @@ func verifyCommitByID(s storage.Storer, id string, ts codec.TrustStore) codec.Ve
 	return codec.Verify(pureCommit, ts)
 }
 
+// ObjectUnavailableVerdict is StillObjectUnavailable's per-commit answer.
+// Unavailable is decodeOpCommit's verdict, re-run against the store's
+// current object availability: still exactly RejectObjectUnavailable, or
+// not (the commit itself could not even be fetched at all any more, which
+// counts as still unavailable). Expands is only meaningful when Unavailable
+// is true — it is rootOpJSONBlobAbsent's answer for the same commit, the
+// same expand/stop decision EnumerateSince's Step 3 and isAncestor make
+// during a walk (see Rejection.Expands) — and is always false when
+// Unavailable is false or when the commit could not be fetched at all
+// (nothing to expand into without ParentHashes).
+type ObjectUnavailableVerdict struct {
+	Unavailable bool
+	Expands     bool
+}
+
 // StillObjectUnavailable re-decodes each commit in ids against s's current
-// object store and reports, per commit, whether decodeOpCommit's verdict
-// for it is still exactly RejectObjectUnavailable — the same predicate
-// EnumerateSince's Step 3 and isAncestor apply during a walk, run here
-// against a caller-supplied list of commits outside one (WRIT-366).
-// projection.Refresh calls this, before its incremental pass, on the
-// commits a prior pass recorded as object-unavailable: unlike every other
-// rejection reason, that verdict is not permanent (a blob or tree a
-// partial clone's fetch filter withheld can arrive later), and an
-// incremental pass that never re-decodes a commit sitting behind its
-// stored cursor would otherwise hold whatever it decided about that
-// commit's shape the first time it saw it, forever (see WithSeen's doc
-// comment for the two directions this can go wrong).
+// object store and reports, per commit, the same (Unavailable, Expands)
+// classification EnumerateSince's Step 3 and isAncestor compute for it
+// during a walk, run here against a caller-supplied list of commits outside
+// one (WRIT-366, extended WRIT-289 round 5). projection.Refresh calls this,
+// before its incremental pass, on the commits a prior pass recorded as
+// object-unavailable, together with what that pass recorded for each one's
+// Expands: unlike every other rejection reason, RejectObjectUnavailable is
+// not a permanent verdict, and neither is the expand/stop decision made
+// alongside it — a blob or tree a partial clone's fetch filter withheld can
+// arrive later, changing either one independently of the other. An
+// incremental pass that never re-decodes a commit sitting behind its stored
+// cursor would otherwise hold whatever it decided about that commit's shape
+// the first time it saw it, forever (see WithSeen's doc comment for the
+// ways this can go wrong).
 //
-// A commit reported true is unchanged: either this clone still cannot
-// read whatever object was missing, or it cannot even fetch the commit at
-// all any more — either way, not a reason to trust the stored cursors
-// past it. A commit reported false has a different verdict now: it
-// decodes as a valid op, or it fails reader validation for some other
-// reason (a repaired blob that turns out malformed, say) — either way,
-// the caller must fall back to a full Rebuild rather than keep treating
-// that commit, and everything reachable from it, the way an earlier pass
-// did.
+// A commit whose returned verdict still matches what was recorded for it —
+// same Unavailable, same Expands — is unchanged: not a reason to trust the
+// stored cursors past it. Any other outcome — Unavailable now false (the
+// commit decodes as a valid op, or fails reader validation for some other
+// reason, such as a repaired blob that turns out malformed), or Unavailable
+// still true but Expands now different — is a changed verdict, and the
+// caller must fall back to a full Rebuild rather than keep treating that
+// commit, and everything reachable from it, the way an earlier pass did.
+// Comparing Unavailable alone is not enough: Expands can flip while
+// Unavailable stays true, for example when a RejectObjectUnavailable
+// commit's root tree arrives while its own op.json blob is still absent.
 //
 // One packidx cache is shared across every id in ids (see EnumerateSince's
 // cachedStorer comment for why this matters — WRIT-255 round 2): this is
 // meant to be called with a whole batch of recorded commits, not one at a
 // time.
-func (s *Store) StillObjectUnavailable(ids []string) (map[string]bool, error) {
+func (s *Store) StillObjectUnavailable(ids []string) (map[string]ObjectUnavailableVerdict, error) {
 	cachedStorer := packidx.WithCache(s.storer)
-	result := make(map[string]bool, len(ids))
+	result := make(map[string]ObjectUnavailableVerdict, len(ids))
 	for _, id := range ids {
 		hash := plumbing.NewHash(id)
 		commitObj, err := object.GetCommit(cachedStorer, hash)
 		if err != nil {
 			if errors.Is(err, plumbing.ErrObjectNotFound) {
-				result[id] = true
+				result[id] = ObjectUnavailableVerdict{Unavailable: true}
 				continue
 			}
 			return nil, fmt.Errorf("dag: recheck object-unavailable commit %s: %w", id, err)
 		}
 		_, _, rej := decodeOpCommit(cachedStorer, commitObj)
-		result[id] = rej != nil && rej.Reason == RejectObjectUnavailable
+		if rej != nil && rej.Reason == RejectObjectUnavailable {
+			result[id] = ObjectUnavailableVerdict{
+				Unavailable: true,
+				Expands:     rootOpJSONBlobAbsent(cachedStorer, commitObj),
+			}
+			continue
+		}
+		result[id] = ObjectUnavailableVerdict{}
 	}
 	return result, nil
 }
