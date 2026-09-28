@@ -117,11 +117,18 @@ type SchemaConflict struct {
 	// before any of its declared types is looked at (spec/schema-ops.md
 	// §6's per-kind table).
 	ObjectType string `json:"object_type,omitempty"`
-	// Namespace is set only on the five declaration-level kinds --
+	// Namespace is assigned only on the five declaration-level kinds --
 	// SchemaConflictNamespaceUngrammatical, SchemaConflictObjectIDMismatch,
 	// SchemaConflictSchemaRedefined, SchemaConflictTypeUngrammatical, and
 	// SchemaConflictTypeUnqualified -- never on a per-rule or per-target
-	// kind (spec/schema-ops.md §6's per-kind table).
+	// kind (spec/schema-ops.md §6's per-kind table). Assigned is not the
+	// same as present on the wire: the schema object's own folded
+	// namespace can itself be empty (a create that never set one, or was
+	// quarantined for disagreeing with a derived object id --
+	// spec/schema-ops.md §3.4), and omitempty drops that the same as any
+	// other zero value. SchemaConflictNamespaceUngrammatical is the one
+	// exception -- its own gate never fires with an empty namespace -- so
+	// it alone is guaranteed non-empty here.
 	Namespace string `json:"namespace,omitempty"`
 	// ObjectIDs names the schema objects involved: two for a collision
 	// between schema objects, one for a single object's own invalid rule or

@@ -612,17 +612,21 @@ A v0.1 reader never emits a `kind` outside this table; a future kind is a
 new spec version's business, not something this one's resolver produces.
 
 Which of `object_type` and `namespace` a conflict carries, and what
-`object_ids` holds, is itself a function of `kind` alone — pinned by the
-conformance corpus exactly as `kind`'s own value is, not left to each
-implementation's discretion:
+`object_ids` holds, follows from `kind` — pinned by the conformance
+corpus exactly as `kind`'s own value is, not left to each
+implementation's discretion. `object_type` and `object_ids` are a
+function of `kind` alone. `namespace` is not: the table below states
+which kinds *carry* it — set it on the conflict at all — but carried is
+not the same as present on the wire, and the paragraph after the table
+states the difference precisely.
 
 | `kind` | `object_type` | `namespace` | `object_ids` |
 | --- | --- | --- | --- |
-| `namespace-ungrammatical` | absent | present | one: the schema object |
-| `object-id-mismatch` | absent | present | one: the schema object |
-| `schema-redefined` | present (`"schema"`) | present | one: the schema object |
-| `type-ungrammatical` | present | present | one: the schema object |
-| `type-unqualified` | present | present | one: the schema object |
+| `namespace-ungrammatical` | absent | carried, always present | one: the schema object |
+| `object-id-mismatch` | absent | carried, present iff non-empty | one: the schema object |
+| `schema-redefined` | present (`"schema"`) | carried, present iff non-empty | one: the schema object |
+| `type-ungrammatical` | present | carried, present iff non-empty | one: the schema object |
+| `type-unqualified` | present | carried, present iff non-empty | one: the schema object |
 | `type-contested` | present | absent | two: `[owner, collider]` |
 | `op-type-ungrammatical` | present | absent | one: the schema object |
 | `rule-invalid` | present | absent | one: the schema object |
@@ -630,16 +634,34 @@ implementation's discretion:
 | `target-disagreement` | present | absent | one: the schema object |
 | `value-type-unknown` | present | absent | one: the schema object |
 
-`namespace` is present on exactly the five declaration-level kinds above —
-the ones a schema object's own namespace is known and relevant for before
-any per-type or per-rule question is reached — and absent on the other
-six, where only the owning schema object's id, not its namespace, is
-named. `object_type` is absent only on the two kinds that drop a whole
-schema object before any of its declared types is looked at
-(`namespace-ungrammatical`, `object-id-mismatch`); present on every other
-kind. `object_ids` holds exactly one schema object id except for
-`type-contested`, whose two ids are the type's original owner followed by
-the colliding schema object.
+`namespace` is carried on exactly the five declaration-level kinds
+above — the ones a schema object's own namespace is known and relevant
+for before any per-type or per-rule question is reached — and never
+carried on the other six, where only the owning schema object's id, not
+its namespace, is named. Carried is not the same as present on the wire:
+like every other optional field in this shape, an empty `namespace` is
+omitted, and a schema object's own folded namespace can itself be
+empty — nothing requires a `create` to set one, and a `create` on a
+derived id (`schema:<namespace>`) that disagrees with the id's own
+suffix, including one that never sets `namespace` at all, is quarantined
+instead (§3.4) rather than assigning one. `object-id-mismatch`,
+`schema-redefined`, `type-ungrammatical`, and `type-unqualified` can each
+fire against a schema object whose folded namespace is empty this way,
+and then carry no `namespace` field on the wire at all — for example,
+`schema:acme` whose own `create` never sets `namespace` folds with an
+empty namespace, whose derived form is `schema:`, not `schema:acme`; the
+mismatch is reported as `object-id-mismatch` with
+`object_ids: ["schema:acme"]` and no `namespace`. `namespace-ungrammatical`
+is the one exception among the five: it only ever fires when the schema
+object's folded namespace is already non-empty (shape 3 below, gated on
+§4.1's grammar) — a grammar check has nothing to reject in the empty
+string — so every conflict of that kind carries a present, non-empty
+`namespace`. `object_type` is absent only on the two kinds that drop a
+whole schema object before any of its declared types is looked at
+(`namespace-ungrammatical`, `object-id-mismatch`); present on every
+other kind. `object_ids` holds exactly one schema object id except for
+`type-contested`, whose two ids are the type's original owner followed
+by the colliding schema object.
 
 Seven of the ten withholding kinds share one of the five shapes below; the
 other three — `op-type-ungrammatical` (§11), `rule-invalid` (§9), and

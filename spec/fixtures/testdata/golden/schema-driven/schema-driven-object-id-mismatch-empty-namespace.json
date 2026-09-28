@@ -1,0 +1,63 @@
+{
+  "schemas": [
+    {
+      "object_id": "schema:acme",
+      "schema": {
+        "object_id": "schema:acme",
+        "types": [
+          {
+            "type": "acme.gadget",
+            "fields": [
+              {
+                "field": "title",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              }
+            ]
+          }
+        ],
+        "unknown_ops": [
+          {
+            "commit": "320fda1d7f9b7435f77a0e8f135bcbc9d86ae1d3",
+            "object_type": "schema",
+            "op_type": "create",
+            "op_version": 1,
+            "verification": "wrong-key"
+          }
+        ]
+      }
+    }
+  ],
+  "conflicts": [
+    {
+      "kind": "object-id-mismatch",
+      "object_ids": [
+        "schema:acme"
+      ]
+    }
+  ],
+  "objects": [
+    {
+      "object_id": "gadget-1",
+      "object_type": "acme.gadget",
+      "total_order": [
+        {
+          "commit": "d0220b5663fc894d5db01c1ba84ce5710a265bba",
+          "t_star": 1767225780
+        }
+      ],
+      "state": {},
+      "unknown_ops": [
+        {
+          "commit": "d0220b5663fc894d5db01c1ba84ce5710a265bba",
+          "object_type": "acme.gadget",
+          "op_type": "create",
+          "op_version": 1,
+          "verification": "wrong-key"
+        }
+      ]
+    }
+  ]
+}

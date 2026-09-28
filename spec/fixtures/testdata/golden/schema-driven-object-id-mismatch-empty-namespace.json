@@ -1,0 +1,66 @@
+{
+  "refs": [
+    {
+      "name": "refs/writ/0123456789abcdef/schema",
+      "commit": "6675c99ffc1a7b1f026d0c627166e79d6d34ba25"
+    },
+    {
+      "name": "refs/writ/0123456789abcdef/gadget",
+      "commit": "d0220b5663fc894d5db01c1ba84ce5710a265bba"
+    }
+  ],
+  "generations": [
+    {
+      "ref": "refs/writ/0123456789abcdef/schema",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "320fda1d7f9b7435f77a0e8f135bcbc9d86ae1d3",
+          "tree": "7e15392bec1c76836f0a96917dde14df88c8c7ea",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "message": "writ: create schema/schema:acme\n",
+          "signed": true
+        },
+        {
+          "sha": "22115cddb666d98df4e46375497d5b57dff724c8",
+          "tree": "ebb82b68a989d50eb19dfef8475674e8f4925927",
+          "parents": [
+            "320fda1d7f9b7435f77a0e8f135bcbc9d86ae1d3"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:01:00Z",
+          "message": "writ: define-type schema/schema:acme\n",
+          "signed": true
+        },
+        {
+          "sha": "6675c99ffc1a7b1f026d0c627166e79d6d34ba25",
+          "tree": "bb8b4ccbfa5cdfcbf55337061029c0215aa318a3",
+          "parents": [
+            "22115cddb666d98df4e46375497d5b57dff724c8"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:02:00Z",
+          "message": "writ: define-field schema/schema:acme\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/gadget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "d0220b5663fc894d5db01c1ba84ce5710a265bba",
+          "tree": "c2f9da959e6f1662704962fcac2108076abc9b72",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:03:00Z",
+          "message": "writ: create acme.gadget/gadget-1\n",
+          "signed": true
+        }
+      ]
+    }
+  ]
+}
