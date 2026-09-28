@@ -62,10 +62,10 @@ producer would have refused. A blank cell means the split does not apply
 | `testdata/references/valid/`, `testdata/references/invalid/` | Normative | producer | Reference instances; `invalid/index.json` records each expected rejection |
 | `testdata/schema-ops/valid/`, `testdata/schema-ops/invalid/` | Normative | producer | Schema operation payload instances; `invalid/index.json` records each expected rejection (schema, invariant, or canonicalization), and, for an invariant, which one in a sibling `invariant_rule` field |
 | `testdata/schema-ops/field-rules.json` | Normative | reader | The bootstrap field merge rules for the schema vocabulary itself — the one rule table that never comes from the log |
-| `testdata/schema-rules/matrix.json` | Normative | reader | The rule-validation matrix (axis D of the schema-parametric corpus): every (strategy, value type) cell, including untyped, asserted against `spec.ValidateFieldRule` — the gate `engine/schema.go`'s `RulesFromSchemas` applies to every rule sourced from the log, since a reader has no producer step to lean on |
+| `testdata/schema-rules/matrix.json` | Normative | reader | The rule-validation matrix (axis D of the schema-parametric corpus): every (strategy, value type) cell, including untyped, asserted against `spec.ValidateFieldRule` — the gate `engine/schema.go`'s `RulesFromSchemas` applies to every rule sourced from the log, since a reader has no producer step to lean on — plus one `demote` cell per strategy, an out-of-catalogue `value_type` `ValidateFieldRule` accepts rather than rejects (WRIT-334) |
 | `testdata/resolution/` | Normative | reader | Resolution test vectors (`cases/*.json`) and outcome index (`index.json`) |
 | `fixtures/testdata/golden/schema/` | Normative | reader | Signed-fixture golden family driving the typed `writ.FoldSchema` reducer directly (`spec/fixtures/schema_test.go`): bootstrap, the §3.1 non-canonical `op_version` quarantine, multi-writer concurrent declarations, independent offline bootstrap of the same namespace folding to one object (§1.1, §3's derived `object_id`), deprecate/redeclare, and schema-level forward compatibility |
-| `fixtures/testdata/golden/schema-driven/` | Normative | reader | Signed-fixture golden family (`spec/fixtures/schemadriven_test.go`) folding ordinary objects through rules resolved from the log itself (`writ.FoldSchema` → `writ.RulesFromSchemas` → `writ.Fold`): absent/uninterpretable, object_type/namespace/redefine-schema conflicts, version-bump target remedy (both halves), a version bump that changes only value_type, a cross-op-type value_type collision on a shared target, a cross-op-type lattice-ordering collision on a shared target, a version-bump lattice-ordering collision on a shared target, a version-bump key-arity collision on a shared `keyed-lww` target withheld as a whole regardless of declaration order, a target shared by more than one version-bump class rejected as a whole regardless of declaration order, a mixed op writing both a withheld target's field and a surviving target's field staying known, a `keyed-lww` key column two rules disagree about withheld as a whole regardless of declaration order, a dual-role `tombstone` field and key column refused where the schema resolves, person-ref normalization across every strategy, invalid-rule dropping, and body-vocabulary tolerance |
+| `fixtures/testdata/golden/schema-driven/` | Normative | reader | Signed-fixture golden family (`spec/fixtures/schemadriven_test.go`) folding ordinary objects through rules resolved from the log itself (`writ.FoldSchema` → `writ.RulesFromSchemas` → `writ.Fold`): absent/uninterpretable, object_type/namespace/redefine-schema conflicts, version-bump target remedy (both halves), a version bump that changes only value_type, a cross-op-type value_type collision on a shared target, a cross-op-type lattice-ordering collision on a shared target, a version-bump lattice-ordering collision on a shared target, a version-bump key-arity collision on a shared `keyed-lww` target withheld as a whole regardless of declaration order, a target shared by more than one version-bump class rejected as a whole regardless of declaration order, a mixed op writing both a withheld target's field and a surviving target's field staying known, a `keyed-lww` key column two rules disagree about withheld as a whole regardless of declaration order, a dual-role `tombstone` field and key column refused where the schema resolves, person-ref normalization across every strategy, invalid-rule dropping, body-vocabulary tolerance, and an out-of-catalogue `value_type`/`key_types` entry demoted per position rather than withheld, including as the sole rule of its `op_type` (WRIT-334) |
 | `spec.go` | Informative | | Go embedding of `schemas/` and `testdata/` so every consumer reads the one committed copy |
 | `foldvectors.go` | Informative | | Go loader and structural validation for fold ordering and merge test vectors |
 | `resolutionvectors.go` | Informative | | Go loader and structural validation for resolution test cases |
@@ -312,12 +312,16 @@ apart (see the **Pins** column in the file table above):
 
 On the read path, `value_type` is consulted for exactly one purpose —
 `person-ref` normalization (`spec/value-types.md` §Producer-side and
-reader-tolerant) — so most of the 117-cell (strategy × value type,
-including untyped) cross-product folds byte-identically to its untyped
-twin. That is why the cross-product is covered as a **rule-validation
-matrix** (`testdata/schema-rules/matrix.json`, asserted against
+reader-tolerant) — so most of the 126-cell (strategy × value type,
+including untyped and one out-of-catalogue `demote` cell per strategy,
+WRIT-334) cross-product folds byte-identically to its untyped twin. That
+is why the cross-product is covered as a **rule-validation matrix**
+(`testdata/schema-rules/matrix.json`, asserted against
 `spec.ValidateFieldRule`) rather than as one fold fixture per cell: the
 matrix pins the 22 cells that are actually illegal (`tombstone` with a
-non-`bool` type, `lattice` with a non-`enum` type) and the 95 that are
-legal, while the fold corpus stays behavioural — pinning what a legal
-combination folds *to*, not merely that it's legal.
+non-`bool` type, `lattice` with a non-`enum` type), the 95 that are
+legal, and the 9 `demote` cells — one per strategy — where an
+out-of-catalogue `value_type` is accepted by `ValidateFieldRule` but
+installed untyped rather than as the declared type, while the fold
+corpus stays behavioural — pinning what a legal combination folds *to*,
+not merely that it's legal.

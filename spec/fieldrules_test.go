@@ -140,7 +140,11 @@ var fieldRuleValidationCases = []struct {
 		wantSentinel: "empty-field",
 	},
 	{
-		name: "unknown value_type",
+		// WRIT-334: an out-of-catalogue value_type is no longer rejected
+		// here -- it is a candidate for the resolver to demote
+		// (engine/schema.go's RulesFromSchemas), not a drop at this layer.
+		// unknown-value-type and its sentinel were deleted, not bridged to.
+		name: "unknown value_type is tolerated (demoted downstream, not rejected here)",
 		rule: spec.FieldRule{
 			OpType:    "create",
 			OpVersion: 1,
@@ -148,7 +152,52 @@ var fieldRuleValidationCases = []struct {
 			Strategy:  "lww",
 			ValueType: "unknown",
 		},
-		wantSentinel: "unknown-value-type",
+	},
+	{
+		// The four checks that presuppose knowing the type -- enum-on-non-enum,
+		// max-length-value-type, tombstone-value-type, lattice-value-type --
+		// are skipped, not tripped, when value_type itself is unrecognized.
+		name: "unknown value_type tolerates enum values alongside it",
+		rule: spec.FieldRule{
+			OpType:    "create",
+			OpVersion: 1,
+			Field:     "title",
+			Strategy:  "lww",
+			ValueType: "unknown",
+			Enum:      []string{"a", "b"},
+		},
+	},
+	{
+		name: "unknown value_type tolerates max_length alongside it",
+		rule: spec.FieldRule{
+			OpType:    "create",
+			OpVersion: 1,
+			Field:     "title",
+			Strategy:  "lww",
+			ValueType: "unknown",
+			MaxLength: 10,
+		},
+	},
+	{
+		name: "unknown value_type tolerates tombstone strategy",
+		rule: spec.FieldRule{
+			OpType:    "delete",
+			OpVersion: 1,
+			Field:     "deleted",
+			Strategy:  "tombstone",
+			ValueType: "unknown",
+		},
+	},
+	{
+		name: "unknown value_type tolerates lattice strategy",
+		rule: spec.FieldRule{
+			OpType:    "ci-status",
+			OpVersion: 1,
+			Field:     "state",
+			Strategy:  "lattice",
+			Lattice:   []string{"pending", "success"},
+			ValueType: "unknown",
+		},
 	},
 	{
 		name: "unknown strategy",
@@ -300,7 +349,11 @@ var fieldRuleValidationCases = []struct {
 		wantSentinel: "key-types-missing-column",
 	},
 	{
-		name: "keyed-lww key_types names an unknown value_type for a column",
+		// WRIT-334: an out-of-catalogue key_types entry is likewise
+		// tolerated here -- the resolver demotes that one key column rather
+		// than this function rejecting the whole rule. key-types-unknown-value-type
+		// and its sentinel were deleted, not bridged to.
+		name: "keyed-lww key_types names an unknown value_type for a column (demoted downstream, not rejected here)",
 		rule: spec.FieldRule{
 			OpType:    "approval",
 			OpVersion: 1,
@@ -310,7 +363,6 @@ var fieldRuleValidationCases = []struct {
 			ValueType: "person-ref",
 			KeyTypes:  map[string]string{"subject": "bogus"},
 		},
-		wantSentinel: "key-types-unknown-value-type",
 	},
 	{
 		name: "key_types on a non-keyed-lww strategy",

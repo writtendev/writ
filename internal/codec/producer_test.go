@@ -318,6 +318,113 @@ func TestBuildCommitRejectsKeyedLWWKeyColumns(t *testing.T) {
 	}
 }
 
+// unrecognizedTypeVocabulary declares one recognized sibling field
+// ("title", string) and one field whose own value_type is outside
+// spec.KnownValueTypes ("code", x-uuid), both under "create" -- the direct
+// codec.Vocabularies shape a resolver installs (demoted, at the fold layer)
+// for exactly this rule (WRIT-334): Vocabulary.Fields keeps the raw,
+// undemoted declaration on purpose (see that field's own doc comment), so
+// this is what a caller building Vocabularies directly, without going
+// through engine/schema.go's resolver at all, would also construct.
+func unrecognizedTypeVocabulary() codec.Vocabularies {
+	return declareVocabulary("widget",
+		spec.FieldRule{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
+		spec.FieldRule{OpType: "create", OpVersion: 1, Field: "code", Strategy: "lww", ValueType: "x-uuid"},
+	)
+}
+
+// TestBuildCommitRefusesFieldWithUnrecognizedValueType pins WRIT-334's
+// producer-side refusal (spec/op-envelope.md §Producer validation rule 3,
+// extended): a body writing a field whose own rule's value_type is outside
+// spec.KnownValueTypes is refused, because this producer cannot validate a
+// value against a type it does not recognize -- distinct from, but the same
+// shape as, the "undeclared field" refusal rule 3 already gives an
+// altogether-absent rule.
+func TestBuildCommitRefusesFieldWithUnrecognizedValueType(t *testing.T) {
+	_, err := codec.BuildCommit(codec.Envelope{
+		ObjectID:   "w-1",
+		ObjectType: "widget",
+		OpType:     "create",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"code":"not-yet-a-real-uuid"}`),
+	}, testAuthor(), nil, unrecognizedTypeVocabulary())
+	if err == nil {
+		t.Fatal("BuildCommit accepted a write to a field whose declared value_type is unrecognized")
+	}
+	var rejErr *codec.RejectError
+	if !errors.As(err, &rejErr) {
+		t.Fatalf("error is not a *codec.RejectError: %v", err)
+	}
+	if rejErr.Reason != codec.RejectSchemaViolation {
+		t.Errorf("reason = %q, want %q", rejErr.Reason, codec.RejectSchemaViolation)
+	}
+	if !strings.Contains(rejErr.Error(), "not recognized") {
+		t.Errorf("error should say the value_type is not recognized by this writer, got %q", rejErr.Error())
+	}
+}
+
+// TestBuildCommitAcceptsRecognizedSiblingDespiteUnrecognizedFieldInSameOp is
+// the positive control: a body that writes only the recognized sibling
+// field ("title") is accepted even though the same op's rule set also
+// carries a field with an unrecognized value_type ("code") that the body
+// never touches -- the refusal is scoped per field, not per op.
+func TestBuildCommitAcceptsRecognizedSiblingDespiteUnrecognizedFieldInSameOp(t *testing.T) {
+	if _, err := codec.BuildCommit(codec.Envelope{
+		ObjectID:   "w-1",
+		ObjectType: "widget",
+		OpType:     "create",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"title":"Initial"}`),
+	}, testAuthor(), nil, unrecognizedTypeVocabulary()); err != nil {
+		t.Fatalf("BuildCommit rejected a body writing only the recognized sibling field: %v", err)
+	}
+}
+
+// unrecognizedKeyTypesVocabulary declares one keyed-lww field, "verdict",
+// whose own value_type is the recognized "string" but whose one key_types
+// entry ("subject") is outside spec.KnownValueTypes -- the key-column half
+// of WRIT-334's producer refusal, independent of whether the field's own
+// value_type is itself recognized.
+func unrecognizedKeyTypesVocabulary() codec.Vocabularies {
+	return declareVocabulary("widget",
+		spec.FieldRule{
+			OpType: "approve", OpVersion: 1, Field: "verdict", Strategy: "keyed-lww",
+			Key: []string{"subject"}, KeyTypes: map[string]string{"subject": "x-handle"},
+			ValueType: "string",
+		},
+	)
+}
+
+// TestBuildCommitRefusesKeyColumnWithUnrecognizedKeyTypesEntry pins the
+// key-column half of WRIT-334's producer refusal: a body writing a
+// keyed-lww key column whose own key_types entry is outside
+// spec.KnownValueTypes is refused, whether or not the same name also
+// carries a field rule of its own (here it does not -- "subject" is a
+// key-column-only name, exactly the shape rule 3's own key-column
+// exception already covers).
+func TestBuildCommitRefusesKeyColumnWithUnrecognizedKeyTypesEntry(t *testing.T) {
+	_, err := codec.BuildCommit(codec.Envelope{
+		ObjectID:   "w-1",
+		ObjectType: "widget",
+		OpType:     "approve",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"verdict":"approve","subject":"alice"}`),
+	}, testAuthor(), nil, unrecognizedKeyTypesVocabulary())
+	if err == nil {
+		t.Fatal("BuildCommit accepted a write to a key column whose declared key_types entry is unrecognized")
+	}
+	var rejErr *codec.RejectError
+	if !errors.As(err, &rejErr) {
+		t.Fatalf("error is not a *codec.RejectError: %v", err)
+	}
+	if rejErr.Reason != codec.RejectSchemaViolation {
+		t.Errorf("reason = %q, want %q", rejErr.Reason, codec.RejectSchemaViolation)
+	}
+	if !strings.Contains(rejErr.Error(), "not recognized") {
+		t.Errorf("error should say the key column's value_type is not recognized by this writer, got %q", rejErr.Error())
+	}
+}
+
 // TestBuildCommitRejectsKeyColumnAbsentDespiteSynthesizedNoKeyRuleForSameField
 // pins the WRIT-219 round-2 review finding on validateFieldsAgainstRules's
 // rule-5 presence check: reading Key straight off each rule with Strategy

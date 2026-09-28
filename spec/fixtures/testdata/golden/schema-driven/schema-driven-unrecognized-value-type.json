@@ -1,0 +1,136 @@
+{
+  "schemas": [
+    {
+      "object_id": "schema:acme",
+      "schema": {
+        "object_id": "schema:acme",
+        "namespace": "acme",
+        "types": [
+          {
+            "type": "acme.widget",
+            "fields": [
+              {
+                "field": "title",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              },
+              {
+                "field": "grade",
+                "op_type": "set-grade",
+                "op_version": 1,
+                "value_type": "x-rating",
+                "enum": [
+                  "a",
+                  "b"
+                ],
+                "strategy": "lww"
+              },
+              {
+                "field": "ident",
+                "op_type": "set-ident",
+                "op_version": 1,
+                "value_type": "x-uuid",
+                "strategy": "lww"
+              },
+              {
+                "field": "score",
+                "op_type": "set-score",
+                "op_version": 1,
+                "value_type": "person-ref",
+                "strategy": "keyed-lww",
+                "key": [
+                  "who"
+                ],
+                "key_types": {
+                  "who": "x-handle"
+                }
+              },
+              {
+                "field": "size",
+                "op_type": "set-size",
+                "op_version": 1,
+                "value_type": "x-duration",
+                "max_length": 8,
+                "strategy": "lww"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "conflicts": [
+    {
+      "object_type": "acme.widget",
+      "object_ids": [
+        "schema:acme"
+      ],
+      "reason": "field rule (set-grade, 1, grade) declares value_type \"x-rating\", not in this reader's value-type catalogue; installed untyped at that position (spec/schema-ops.md §10)"
+    },
+    {
+      "object_type": "acme.widget",
+      "object_ids": [
+        "schema:acme"
+      ],
+      "reason": "field rule (set-ident, 1, ident) declares value_type \"x-uuid\", not in this reader's value-type catalogue; installed untyped at that position (spec/schema-ops.md §10)"
+    },
+    {
+      "object_type": "acme.widget",
+      "object_ids": [
+        "schema:acme"
+      ],
+      "reason": "field rule (set-score, 1, score) declares key_types[\"who\"] = \"x-handle\", not in this reader's value-type catalogue; installed untyped at that position (spec/schema-ops.md §10)"
+    },
+    {
+      "object_type": "acme.widget",
+      "object_ids": [
+        "schema:acme"
+      ],
+      "reason": "field rule (set-size, 1, size) declares value_type \"x-duration\", not in this reader's value-type catalogue; installed untyped at that position (spec/schema-ops.md §10)"
+    }
+  ],
+  "objects": [
+    {
+      "object_id": "widget-1",
+      "object_type": "acme.widget",
+      "total_order": [
+        {
+          "commit": "280651cf6d2b704f95be8dec987f6ae59d69e52a",
+          "t_star": 1767226020
+        },
+        {
+          "commit": "303133ad330ddd56403b91fec77c0b89cff2c6a9",
+          "t_star": 1767226080
+        },
+        {
+          "commit": "750c235c951bc4dc1fb4568691e9dabbeb84d653",
+          "t_star": 1767226140
+        },
+        {
+          "commit": "6d6cdbd5b087842df54250f90a8659c168ae6ab5",
+          "t_star": 1767226200
+        },
+        {
+          "commit": "87a42b4c2b581c59427ca0366c91752eb7435f71",
+          "t_star": 1767226260
+        }
+      ],
+      "state": {
+        "grade": "gold",
+        "ident": "not-yet-a-real-uuid",
+        "score": [
+          {
+            "key": [
+              "ALiCE"
+            ],
+            "value": "email:alice@example.com"
+          }
+        ],
+        "size": "PT1H30M",
+        "title": "Widget"
+      }
+    }
+  ]
+}

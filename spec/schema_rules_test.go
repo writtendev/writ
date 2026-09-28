@@ -39,11 +39,13 @@ func loadSchemaRuleMatrix(t *testing.T) []matrixEntry {
 // every (strategy, value_type) cell in the closed cross-product: the 9
 // merge strategies (spec/fold.md §5) times the 12 value types plus the
 // untyped ("no value_type declared") cell (spec/value-types.md), for 9*13
-// = 117 cells total. This is axis D of the schema-parametric conformance
-// corpus: the cross-product is covered exhaustively and cheaply here, as a
-// rule-validation matrix, rather than as ~95 new fold fixtures pinning
-// byte-identical output (the read path consults value_type for exactly one
-// purpose — person-ref normalization, spec/value-types.md
+// = 117 cells, plus one further `demote` cell per strategy (9 total, WRIT-334)
+// naming an out-of-catalogue value_type ValidateFieldRule accepts rather
+// than rejects -- 126 cells in all. This is axis D of the schema-parametric
+// conformance corpus: the cross-product is covered exhaustively and cheaply
+// here, as a rule-validation matrix, rather than as ~95 new fold fixtures
+// pinning byte-identical output (the read path consults value_type for
+// exactly one purpose — person-ref normalization, spec/value-types.md
 // §Producer-side and reader-tolerant — so almost every typed cell folds
 // identically to its untyped twin; a fold fixture per cell would pin the
 // corpus generator, not the format).
@@ -52,34 +54,44 @@ func loadSchemaRuleMatrix(t *testing.T) []matrixEntry {
 // way TestUntypedRulesAreNamed binds its exception list: a strategy or
 // value type added to spec.KnownCatalogueStrategies or spec.KnownValueTypes
 // without a matching matrix row fails this test by the missing cell's own
-// name, and a stale or duplicate row fails it too.
+// name, and a stale or duplicate row fails it too. It is also bound to
+// exactly one `demote` row per strategy: a demote row's value_type is
+// deliberately not a spec.KnownValueTypes member (that is the point of the
+// cell), so it is checked separately from the catalogue-membership loop
+// below rather than folded into it.
 func TestSchemaRuleMatrix(t *testing.T) {
 	entries := loadSchemaRuleMatrix(t)
 
-	wantCells := len(spec.KnownCatalogueStrategies) * (len(spec.KnownValueTypes) + 1)
+	wantCells := len(spec.KnownCatalogueStrategies) * (len(spec.KnownValueTypes) + 1 + 1)
 	if len(entries) != wantCells {
-		t.Fatalf("matrix.json has %d cells, want %d (%d strategies * (%d value types + 1 untyped))",
+		t.Fatalf("matrix.json has %d cells, want %d (%d strategies * (%d value types + 1 untyped + 1 demote))",
 			len(entries), wantCells, len(spec.KnownCatalogueStrategies), len(spec.KnownValueTypes))
 	}
 
 	seen := make(map[string]bool, len(entries))
+	demoteRows := make(map[string]int, len(spec.KnownCatalogueStrategies))
 	for _, e := range entries {
 		if e.Strategy == "" {
 			t.Fatalf("matrix row has empty strategy: %+v", e)
 		}
-		if e.Expect != "accept" && e.Expect != "reject" {
-			t.Fatalf("matrix row (%s, %q) has invalid expect %q (must be accept or reject)", e.Strategy, e.ValueType, e.Expect)
+		if e.Expect != "accept" && e.Expect != "reject" && e.Expect != "demote" {
+			t.Fatalf("matrix row (%s, %q) has invalid expect %q (must be accept, reject, or demote)", e.Strategy, e.ValueType, e.Expect)
 		}
 		if e.Expect == "reject" && e.Reason == "" {
 			t.Fatalf("matrix row (%s, %q) expects reject but carries no reason", e.Strategy, e.ValueType)
 		}
-		if e.Expect == "accept" && e.Reason != "" {
-			t.Fatalf("matrix row (%s, %q) expects accept but carries a reject reason %q", e.Strategy, e.ValueType, e.Reason)
+		if e.Expect != "reject" && e.Reason != "" {
+			t.Fatalf("matrix row (%s, %q) expects %s but carries a reject reason %q", e.Strategy, e.ValueType, e.Expect, e.Reason)
 		}
 		if !spec.KnownCatalogueStrategies[e.Strategy] {
 			t.Errorf("matrix row names strategy %q, not a member of spec.KnownCatalogueStrategies", e.Strategy)
 		}
-		if e.ValueType != "" && !spec.KnownValueTypes[e.ValueType] {
+		if e.Expect == "demote" {
+			if e.ValueType == "" || spec.KnownValueTypes[e.ValueType] {
+				t.Errorf("matrix row (%s, %q) has expect demote but value_type is empty or a spec.KnownValueTypes member; a demote row must name an out-of-catalogue type", e.Strategy, e.ValueType)
+			}
+			demoteRows[e.Strategy]++
+		} else if e.ValueType != "" && !spec.KnownValueTypes[e.ValueType] {
 			t.Errorf("matrix row names value_type %q, not a member of spec.KnownValueTypes", e.ValueType)
 		}
 
@@ -91,17 +103,22 @@ func TestSchemaRuleMatrix(t *testing.T) {
 
 		rule := buildMatrixRule(e.Strategy, e.ValueType)
 		err := spec.ValidateFieldRule(rule)
-		switch {
-		case e.Expect == "accept" && err != nil:
-			t.Errorf("(strategy=%s, value_type=%q) expected accept, ValidateFieldRule rejected: %v", e.Strategy, e.ValueType, err)
-		case e.Expect == "reject" && err == nil:
-			t.Errorf("(strategy=%s, value_type=%q) expected reject (%s), ValidateFieldRule accepted", e.Strategy, e.ValueType, e.Reason)
+		switch e.Expect {
+		case "accept", "demote":
+			if err != nil {
+				t.Errorf("(strategy=%s, value_type=%q, expect=%s) ValidateFieldRule rejected: %v", e.Strategy, e.ValueType, e.Expect, err)
+			}
+		case "reject":
+			if err == nil {
+				t.Errorf("(strategy=%s, value_type=%q) expected reject (%s), ValidateFieldRule accepted", e.Strategy, e.ValueType, e.Reason)
+			}
 		}
 	}
 
-	// Bidirectional: every cell of the closed cross-product must have a row.
-	// This is what catches a catalogue addition the matrix was never
-	// updated for, by the missing cell's own name.
+	// Bidirectional: every cell of the closed cross-product must have a row,
+	// and every strategy must have exactly one demote row. This is what
+	// catches a catalogue addition the matrix was never updated for, by the
+	// missing cell's own name.
 	valueTypes := []string{""}
 	for vt := range spec.KnownValueTypes {
 		valueTypes = append(valueTypes, vt)
@@ -112,6 +129,9 @@ func TestSchemaRuleMatrix(t *testing.T) {
 			if !seen[key] {
 				t.Errorf("no matrix row for (strategy=%s, value_type=%q); spec.KnownCatalogueStrategies/spec.KnownValueTypes gained a member matrix.json does not cover", strategy, vt)
 			}
+		}
+		if demoteRows[strategy] != 1 {
+			t.Errorf("strategy %q has %d demote rows in matrix.json, want exactly 1", strategy, demoteRows[strategy])
 		}
 	}
 }

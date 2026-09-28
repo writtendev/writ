@@ -229,7 +229,14 @@ type Vocabulary struct {
 	// value_type: rule 3 refuses a body key with no declared rule at all
 	// — there is no per-vocabulary JSON Schema bounding "known fields"
 	// for a log-declared type the way there is for the bootstrap one — and
-	// separately validates value_type on the rules that declare one.
+	// separately validates value_type on the rules that declare one. A
+	// rule's own ValueType, or a KeyTypes entry, may itself name something
+	// outside this build's spec.KnownValueTypes (WRIT-334): this map holds
+	// the raw declaration exactly as the schema in the log wrote it, never
+	// the demoted form the fold path installs (engine/schema.go's
+	// RulesFromSchemas), because validateFieldsAgainstRules needs the raw
+	// value to tell "legitimately untyped" from "declared with a type this
+	// build cannot interpret" and refuse the second case outright.
 	Fields map[OpVersionKey][]spec.FieldRule
 }
 
@@ -603,8 +610,33 @@ func validateFieldsAgainstRules(rules []spec.FieldRule, body map[string]any, str
 	for _, field := range fields {
 		val := body[field]
 		r, ok := byField[field]
+		kt, isKeyColumn := keyColumnTypes[field]
+
+		// WRIT-334: refuse a write to a field, or a keyed-lww key column,
+		// whose declared type this build's own spec.KnownValueTypes does
+		// not contain -- a rule a resolver installed anyway, demoted, from
+		// a newer writer's schema this build predates (rules[] above is
+		// voc.Fields/valueTypeRulesOnce()'s raw, undemoted form, so an
+		// unrecognized type is still visible here as declared, not as "").
+		// This producer cannot validate a value against a type it does not
+		// know, so it refuses the write the same way it refuses one to an
+		// undeclared field (spec/op-envelope.md §Producer validation rule
+		// 3) rather than let an unvalidated value reach the log. Checked
+		// ahead of everything else below -- the "undeclared" branch, the
+		// key-column string floor, the null check, and every catalogue
+		// typecheck all presuppose a declared type this build can
+		// interpret. The key-column check applies whether or not field
+		// also carries a field rule of its own (isKeyColumn is independent
+		// of ok), matching rule 3's own key-column exception.
+		if isKeyColumn && kt != "" && !spec.KnownValueTypes[kt] {
+			return &RejectError{Reason: RejectSchemaViolation, Err: fmt.Errorf("field %q: key column value_type %q is not recognized by this writer and cannot be validated (spec/op-envelope.md §Producer validation rule 3)", field, kt)}
+		}
+		if ok && r.ValueType != "" && !spec.KnownValueTypes[r.ValueType] {
+			return &RejectError{Reason: RejectSchemaViolation, Err: fmt.Errorf("field %q: value_type %q is not recognized by this writer and cannot be validated (spec/op-envelope.md §Producer validation rule 3)", field, r.ValueType)}
+		}
+
 		if !ok {
-			if kt, isKeyColumn := keyColumnTypes[field]; isKeyColumn {
+			if isKeyColumn {
 				if err := validateKeyColumnValue(kt, val); err != nil {
 					return &RejectError{Reason: RejectSchemaViolation, Err: fmt.Errorf("field %q: %w", field, err)}
 				}
@@ -626,7 +658,6 @@ func validateFieldsAgainstRules(rules []spec.FieldRule, body map[string]any, str
 		// floor -- this key-column check runs first, so a name playing both
 		// roles is refused here, before that later check ever sees the
 		// value.
-		_, isKeyColumn := keyColumnTypes[field]
 		if isKeyColumn {
 			if _, isStr := val.(string); !isStr {
 				return &RejectError{Reason: RejectSchemaViolation, Err: fmt.Errorf("field %q: key column value must be a JSON string (spec/fold.md §5 keyed-lww)", field)}

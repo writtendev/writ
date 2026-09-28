@@ -1,0 +1,219 @@
+name: schema-driven-unrecognized-value-type
+description: >
+  WRIT-334's Option A ruling made executable: a define-field whose value_type,
+  or a key_types entry, is outside this reader's spec.KnownValueTypes is
+  demoted -- installed untyped at exactly that position, still folds, still
+  reports a warning-shaped SchemaConflict -- rather than withheld the way
+  spec.ValidateFieldRule's other violations are (schema-driven-invalid-rule.yaml).
+  One control field (title, ordinary string) and four demoted ones: ident
+  (x-uuid, lww) is deliberately the sole rule of its own op_type
+  (set-ident) -- before this ticket, dropping that rule dropped the whole
+  op to UnknownOp, which this fixture's golden now shows folding normally
+  instead; size (x-duration, lww, paired with max_length) and grade
+  (x-rating, lww, paired with enum) exercise the same demotion with the
+  two field-rule attributes spec.ValidateFieldRule would otherwise
+  cross-check against a known value_type, and both attributes are preserved
+  on the resolved rule regardless -- the fold never reads either one. score
+  (keyed-lww, value_type person-ref, key(who), key_types {who: x-handle})
+  is the decisive case: value_type is a recognized catalogue member and
+  key_types' one entry is not, so per-position demotion (Matt's ruling via
+  the orchestrator decision comment on WRIT-334) clears only the key_types
+  entry -- score's own value keeps normalizing as person-ref while its
+  "who" key component does not, written here with a mixed-case value on
+  each so the golden's normalized/verbatim split is visible rather than
+  merely asserted. The golden pins four warnings (one per demoted field,
+  none for the control), no drop conflicts, every field present in folded
+  state, and an empty unknown_ops -- including for set-ident's op, which
+  is the ticket's own repro of the single-rule-op_type case. (pins: reader)
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: define-type
+            parents: [create]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "acme.widget"
+            expect: accept
+
+          - id: define-field-title
+            parents: [define-type]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: define-field-ident
+            parents: [define-field-title]
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "set-ident"
+                op_version: "1"
+                field: "ident"
+                value_type: "x-uuid"
+                strategy: "lww"
+            expect: accept
+
+          - id: define-field-size
+            parents: [define-field-ident]
+            author: alice
+            timestamp: 2026-01-01T00:04:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "set-size"
+                op_version: "1"
+                field: "size"
+                value_type: "x-duration"
+                max_length: 8
+                strategy: "lww"
+            expect: accept
+
+          - id: define-field-grade
+            parents: [define-field-size]
+            author: alice
+            timestamp: 2026-01-01T00:05:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "set-grade"
+                op_version: "1"
+                field: "grade"
+                value_type: "x-rating"
+                enum: ["a", "b"]
+                strategy: "lww"
+            expect: accept
+
+          - id: define-field-score
+            parents: [define-field-grade]
+            author: alice
+            timestamp: 2026-01-01T00:06:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "set-score"
+                op_version: "1"
+                field: "score"
+                value_type: "person-ref"
+                strategy: "keyed-lww"
+                key: ["who"]
+                key_types:
+                  who: "x-handle"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/widget
+    history:
+      - commits:
+          - id: widget-create
+            author: alice
+            timestamp: 2026-01-01T00:07:00Z
+            op:
+              object_id: widget-1
+              object_type: acme.widget
+              op_type: create
+              op_version: 1
+              body:
+                title: "Widget"
+            expect: accept
+
+          - id: widget-set-ident
+            parents: [widget-create]
+            author: alice
+            timestamp: 2026-01-01T00:08:00Z
+            op:
+              object_id: widget-1
+              object_type: acme.widget
+              op_type: set-ident
+              op_version: 1
+              body:
+                ident: "not-yet-a-real-uuid"
+            expect: accept
+
+          - id: widget-set-size
+            parents: [widget-set-ident]
+            author: alice
+            timestamp: 2026-01-01T00:09:00Z
+            op:
+              object_id: widget-1
+              object_type: acme.widget
+              op_type: set-size
+              op_version: 1
+              body:
+                size: "PT1H30M"
+            expect: accept
+
+          - id: widget-set-grade
+            parents: [widget-set-size]
+            author: alice
+            timestamp: 2026-01-01T00:10:00Z
+            op:
+              object_id: widget-1
+              object_type: acme.widget
+              op_type: set-grade
+              op_version: 1
+              body:
+                grade: "gold"
+            expect: accept
+
+          - id: widget-set-score
+            parents: [widget-set-grade]
+            author: alice
+            timestamp: 2026-01-01T00:11:00Z
+            op:
+              object_id: widget-1
+              object_type: acme.widget
+              op_type: set-score
+              op_version: 1
+              body:
+                score: "EMAIL:Alice@EXAMPLE.COM"
+                who: "ALiCE"
+            expect: accept

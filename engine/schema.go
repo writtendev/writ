@@ -1085,7 +1085,17 @@ type resolvedSchemaTypes struct {
 	// field declaration that survived grammar, spec.ValidateFieldRule, and
 	// spec.CheckTargetAgreement — the original state.SchemaField, not the
 	// spec.FieldRule built from it for validation, so Deprecated and the
-	// rest of its shape are not lost building it back into a Rule.
+	// rest of its shape are not lost building it back into a Rule. This
+	// includes a field whose ValueType, or a KeyTypes entry, is outside
+	// this build's own spec.KnownValueTypes (WRIT-334): ValidateFieldRule
+	// tolerates that structurally, so a field is withheld here only for
+	// one of the reasons above, never for naming a type this reader
+	// doesn't recognize. Every consumer of this map — VocabulariesFromSchemas
+	// (the producer's Vocabulary.Fields) and Store.Types (the schema-in-the-log
+	// shape a caller reads back) — gets this raw, undemoted form on
+	// purpose: only RulesFromSchemas's fold projection demotes, because
+	// demotion is what the fold path needs, not what a producer validates
+	// against or a caller reading declared types back expects to see.
 	fields map[string][]state.SchemaField
 	// ops holds, per non-contested non-"schema" object type, every
 	// define-op declaration that survived the same grammar check.
@@ -1488,6 +1498,31 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 				}
 			}
 
+			// WRIT-334: one warning-shaped SchemaConflict per installed
+			// rule that carries an unrecognized value_type or key_types
+			// entry, built at this single dedicated site (shaped for
+			// WRIT-335, which gives this warning its own `kind` without
+			// touching the drop/withhold conflicts above). Deliberately
+			// after every withholding pass above and scoped to typeFields,
+			// never survivingFields: a rule pass 1 already dropped, or
+			// that pass 2/3 withheld, gets only its own existing conflict
+			// and never also this warning, so a reader is never told a
+			// rule was "installed" and "withheld" in the same breath.
+			// ObjectIDs names the one schema object that owns t.Name here,
+			// not res.boundBy -- that map isn't built yet at this point in
+			// the pass, and sch.ObjectID is the same value it would hold
+			// for a non-contested type.
+			for _, f := range typeFields {
+				if positions := demotedPositions(f); len(positions) > 0 {
+					conflicts = append(conflicts, SchemaConflict{
+						ObjectType: t.Name,
+						ObjectIDs:  []string{sch.ObjectID},
+						Reason: fmt.Sprintf("field rule (%s, %d, %s) declares %s, not in this reader's value-type catalogue; installed untyped at %s (spec/schema-ops.md §10)",
+							f.OpType, f.OpVersion, f.Name, strings.Join(positions, ", "), pluralPosition(len(positions))),
+					})
+				}
+			}
+
 			var typeOps []state.SchemaOp
 			for _, o := range t.Ops {
 				if !validOpTypeGrammar(o.OpType) {
@@ -1577,6 +1612,32 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 // define-op op_type (spec/schema-ops.md §11) drops a rule RulesFromSchemas
 // used to install and reports a SchemaConflict it used to stay silent on,
 // for any op_type that fails ^[a-z][a-z0-9-]*$ or exceeds opTypeMaxLength.
+//
+// A rule surviving resolveSchemaTypes whose ValueType, or a KeyTypes entry,
+// names something outside this reader's own spec.KnownValueTypes is neither
+// dropped nor withheld (WRIT-334, Matt's Option A ruling): resolveSchemaTypes
+// installs it and reports one warning-shaped SchemaConflict for it (that
+// warning is res.conflicts's, shared with VocabulariesFromSchemas and built
+// once, at a single site, right where typeFields itself is assembled — see
+// its own comment there). What is this function's own job, and only this
+// function's, is turning that installed-but-unrecognized rule into the
+// demoted Rule the fold path actually gets: the rule's own ValueType
+// cleared to "" only when ValueType itself is the unrecognized one, one
+// KeyTypes column cleared only when that column's own entry is
+// unrecognized, every recognized position left exactly as declared.
+// resolveSchemaTypes's own res.fields (and so VocabulariesFromSchemas and
+// Store.Types) keep the raw, undemoted declaration on purpose: the two
+// set-level agreement passes inside resolveSchemaTypes (CheckKeyColumnAgreement,
+// CheckTargetAgreement) already ran on those raw values, before this
+// function ever sees the rule, and a producer validating a write needs the
+// raw declaration too, to tell "legitimately untyped" from "declared with a
+// type this build cannot interpret" (internal/codec/schema.go's tier-2
+// refusal). internal/fold consults ValueType/KeyTypes for exactly one
+// purpose, person-ref normalization (spec/value-types.md §Normalization),
+// and person-ref is always a recognized member of the catalogue, so a
+// demoted rule folds identically to one declared untyped at that position
+// from the start; nothing about this function's demotion is fold-time
+// behavior.
 func RulesFromSchemas(schemas []Schema) (map[string][]Rule, []SchemaConflict) {
 	res := resolveSchemaTypes(schemas)
 
@@ -1584,6 +1645,14 @@ func RulesFromSchemas(schemas []Schema) (map[string][]Rule, []SchemaConflict) {
 	for typeName, typeFields := range res.fields {
 		var typeRules []Rule
 		for _, f := range typeFields {
+			// WRIT-334: demoted here, and only here -- see this function's
+			// own doc comment above for why res.fields itself stays raw.
+			valueType := f.ValueType
+			if valueType != "" && !spec.KnownValueTypes[valueType] {
+				valueType = ""
+			}
+			keyTypes := demoteKeyTypes(f.KeyTypes)
+
 			// deprecated:true is metadata discouraging new writes, not a
 			// removal (spec/schema-ops.md §5, §8): the rule stays
 			// installed and active for folding so ops already signed
@@ -1598,10 +1667,10 @@ func RulesFromSchemas(schemas []Schema) (map[string][]Rule, []SchemaConflict) {
 				Strategy:   f.Strategy,
 				Key:        f.Key,
 				Lattice:    f.Lattice,
-				ValueType:  f.ValueType,
+				ValueType:  valueType,
 				Enum:       f.Enum,
 				MaxLength:  f.MaxLength,
-				KeyTypes:   f.KeyTypes,
+				KeyTypes:   keyTypes,
 				Deprecated: f.Deprecated,
 				ObjectType: typeName,
 			})
@@ -1612,6 +1681,61 @@ func RulesFromSchemas(schemas []Schema) (map[string][]Rule, []SchemaConflict) {
 	}
 
 	return rules, res.conflicts
+}
+
+// demoteKeyTypes returns kt with every entry outside spec.KnownValueTypes
+// replaced by "" (WRIT-334's per-position demotion). A recognized entry,
+// and one already "", pass through unchanged. A nil kt returns nil:
+// RulesFromSchemas must not turn a strategy that never had key_types into
+// one that spuriously has an empty map.
+func demoteKeyTypes(kt map[string]string) map[string]string {
+	if len(kt) == 0 {
+		return kt
+	}
+	demoted := make(map[string]string, len(kt))
+	for col, valueType := range kt {
+		if valueType != "" && !spec.KnownValueTypes[valueType] {
+			valueType = ""
+		}
+		demoted[col] = valueType
+	}
+	return demoted
+}
+
+// demotedPositions lists, in the fixed order a rule's own shape puts them in
+// -- value_type first, then key_types entries in column-sorted order -- the
+// human-readable name of every position on f that WRIT-334's per-position
+// demotion applies to: "value_type %q" when f.ValueType itself is outside
+// spec.KnownValueTypes, and "key_types[%q] = %q" for each KeyTypes entry
+// that is. An empty result means f is not demoted at all -- the common
+// case, and resolveSchemaTypes's cue to append no warning for it.
+func demotedPositions(f state.SchemaField) []string {
+	var positions []string
+	if f.ValueType != "" && !spec.KnownValueTypes[f.ValueType] {
+		positions = append(positions, fmt.Sprintf("value_type %q", f.ValueType))
+	}
+	var cols []string
+	for col, valueType := range f.KeyTypes {
+		if valueType != "" && !spec.KnownValueTypes[valueType] {
+			cols = append(cols, col)
+		}
+	}
+	sort.Strings(cols)
+	for _, col := range cols {
+		positions = append(positions, fmt.Sprintf("key_types[%q] = %q", col, f.KeyTypes[col]))
+	}
+	return positions
+}
+
+// pluralPosition returns "that position" for a single demoted position and
+// "those positions" for more than one, so a warning naming exactly one
+// demoted position doesn't read as a typo ("was installed untyped at
+// value_type "x-future": those positions").
+func pluralPosition(n int) string {
+	if n == 1 {
+		return "that position"
+	}
+	return "those positions"
 }
 
 // VocabulariesFromSchemas resolves every folded schema object present in a
