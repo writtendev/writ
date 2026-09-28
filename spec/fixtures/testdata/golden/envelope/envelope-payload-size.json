@@ -1,7 +1,7 @@
 {
   "ops": [
     {
-      "ref": "refs/writ/alice/widget",
+      "ref": "refs/writ/0123456789abcdef/widget",
       "commit": "eb4300be45543f8f157ade7207fe41a5d70423cc",
       "parents": [],
       "author": "Alice Example \u003calice@example.test\u003e",
@@ -27,7 +27,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/widget",
+      "ref": "refs/writ/0123456789abcdef/widget",
       "commit": "62e29c960eacf68190d8f5c92a25cd3a0331a20f",
       "parents": [
         "eb4300be45543f8f157ade7207fe41a5d70423cc"
@@ -56,7 +56,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/widget",
+      "ref": "refs/writ/0123456789abcdef/widget",
       "commit": "30ec824aeb610b0cec118b03f9230886d779f124",
       "parents": [
         "62e29c960eacf68190d8f5c92a25cd3a0331a20f"

@@ -6,7 +6,7 @@ description: >
   is still accepted — an oversized op does not poison the chain.
 
 refs:
-  - name: refs/writ/alice/widget
+  - name: refs/writ/0123456789abcdef/widget
     history:
       - commits:
           - id: payload-at-max

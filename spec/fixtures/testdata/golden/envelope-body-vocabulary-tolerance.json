@@ -1,21 +1,21 @@
 {
   "refs": [
     {
-      "name": "refs/writ/alice/schema",
+      "name": "refs/writ/0123456789abcdef/schema",
       "commit": "5c70d5fade71cbb51df9cf420f4514a384260723"
     },
     {
-      "name": "refs/writ/alice/widget",
+      "name": "refs/writ/0123456789abcdef/widget",
       "commit": "6ea2c3a5365e42f96fb840453a538427c4d83028"
     },
     {
-      "name": "refs/writ/alice/gadget",
+      "name": "refs/writ/0123456789abcdef/gadget",
       "commit": "8b98081badc9f23aa8f4ed83b29b8c15c8cee454"
     }
   ],
   "generations": [
     {
-      "ref": "refs/writ/alice/schema",
+      "ref": "refs/writ/0123456789abcdef/schema",
       "index": 0,
       "commits": [
         {
@@ -151,7 +151,7 @@
       ]
     },
     {
-      "ref": "refs/writ/alice/widget",
+      "ref": "refs/writ/0123456789abcdef/widget",
       "index": 0,
       "commits": [
         {
@@ -210,7 +210,7 @@
       ]
     },
     {
-      "ref": "refs/writ/alice/gadget",
+      "ref": "refs/writ/0123456789abcdef/gadget",
       "index": 0,
       "commits": [
         {

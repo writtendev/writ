@@ -12,6 +12,7 @@ import (
 
 	"github.com/writtendev/writ/internal/codec"
 	"github.com/writtendev/writ/internal/codec/canonicaljson"
+	"github.com/writtendev/writ/internal/dag"
 	"github.com/writtendev/writ/spec/fixtures"
 )
 
@@ -65,6 +66,19 @@ type DispositionState struct {
 func runEnvelopeFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 	t.Helper()
 
+	// Refs are discovered the way a conforming reader discovers them --
+	// production ref discovery (dag.Chains), not the description's ref
+	// list -- so a ref a conforming reader would skip (an invalid
+	// writer-id) fails the family instead of silently evaluating commits
+	// nothing would ever reach. This is a discovery check only, not an
+	// enumeration-coverage one: the per-commit loop below still walks
+	// every commit the manifest lists by SHA, because how far a
+	// production walk reaches past a rejected commit is
+	// multi-writer-chains' subject (WRIT-289), not this family's.
+	if err := checkChainsDiscoverable(fix); err != nil {
+		return nil, err
+	}
+
 	trustStore, err := fixtures.TrustStoreFor(fix.Description)
 	if err != nil {
 		return nil, fmt.Errorf("create trust store: %w", err)
@@ -108,6 +122,40 @@ func runEnvelopeFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 		return nil, fmt.Errorf("marshal envelope golden: %w", err)
 	}
 	return append(b, '\n'), nil
+}
+
+// checkChainsDiscoverable asserts that every ref the fixture's manifest
+// records is a chain a conforming reader finds through production ref
+// discovery (dag.Chains), pointed at the tip the manifest recorded. It is
+// the family's substitute for reading fix.Description.Refs directly: a
+// ref with a grammar-invalid writer-id (spec/ref-layout.md) is one
+// dag.Chains silently skips, so a fixture repo built from such a ref is
+// not a conforming writ repository and an independent implementation
+// enumerating its own refs would see nothing there at all.
+func checkChainsDiscoverable(fix *fixtures.Fixture) error {
+	chains, err := dag.Chains(fix.Repo.Storer)
+	if err != nil {
+		return fmt.Errorf("discover chains: %w", err)
+	}
+
+	for _, r := range fix.Manifest.Refs {
+		chain, ok := chains[r.Name]
+		if !ok {
+			if _, perr := dag.ParseChainRef(r.Name); perr != nil {
+				return fmt.Errorf("ref %q is not a chain a conforming reader discovers: %w", r.Name, perr)
+			}
+			return fmt.Errorf("ref %q is not a chain a conforming reader discovers: not found by dag.Chains", r.Name)
+		}
+		if chain.Tip.String() != r.Commit {
+			return fmt.Errorf("ref %q: discovered tip %s does not match manifest commit %s", r.Name, chain.Tip.String(), r.Commit)
+		}
+	}
+
+	if len(chains) != len(fix.Manifest.Refs) {
+		return fmt.Errorf("dag.Chains discovered %d chains but the manifest lists %d refs", len(chains), len(fix.Manifest.Refs))
+	}
+
+	return nil
 }
 
 func evaluateOpCommit(t *testing.T, fix *fixtures.Fixture, refName string, commit *object.Commit, cd fixtures.CommitDesc, trustStore codec.TrustStore) (*OpGoldenState, error) {

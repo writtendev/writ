@@ -16,7 +16,7 @@ description: >
   null rather than an array.
 
 refs:
-  - name: refs/writ/alice/schema
+  - name: refs/writ/0123456789abcdef/schema
     history:
       - commits:
           - id: schema-create
@@ -220,7 +220,7 @@ refs:
                 strategy: "create-once"
             expect: accept
 
-  - name: refs/writ/alice/widget
+  - name: refs/writ/0123456789abcdef/widget
     history:
       - commits:
           - id: choice-outside-enum
@@ -285,7 +285,7 @@ refs:
                 summary: "a field the schema declares no rule for"
             expect: accept
 
-  - name: refs/writ/alice/gadget
+  - name: refs/writ/0123456789abcdef/gadget
     history:
       - commits:
           - id: anchor-null-context-collar

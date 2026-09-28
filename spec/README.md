@@ -49,6 +49,7 @@ producer would have refused. A blank cell means the split does not apply
 | `schemas/resolution.schema.json` | Normative | | JSON Schema (draft 2020-12) for the resolution outcome object |
 | `schemas/field-rules.schema.json` | Normative | | JSON Schema (draft 2020-12) for field merge rule declarations (`field-rules.json`) |
 | `schemas/schema-ops.schema.json` | Normative | | JSON Schema (draft 2020-12) for the schema operations family |
+| `testdata/corpus.json` | Normative | | The corpus manifest: `format`, the version of the corpus's machine-readable shapes (vector, index, golden, and description shapes) an implementation was written against |
 | `testdata/canonicalization/vectors.json` | Normative | producer | Canonicalization test vectors: input → exact canonical bytes, or input → rejection |
 | `testdata/ordering/vectors.json` | Normative | producer | Fractional indexing test vectors: generation across boundaries, canonical validation, and comparison |
 | `testdata/ref-names/vectors.json` | Normative | producer | Ref-naming test vectors (valid/invalid) and pinned refspecs |
@@ -106,6 +107,7 @@ spec/
 │   ├── field-rules.schema.json — draft 2020-12 schema for field merge rule declarations
 │   └── schema-ops.schema.json — draft 2020-12 schema for schema operations
 ├── testdata/
+│   ├── corpus.json         — the corpus manifest: format, the corpus's machine-readable shape version
 │   ├── canonicalization/   — encoding vectors (valid and rejected inputs)
 │   ├── ordering/           — fractional indexing test vectors (validation, generation, comparison)
 │   ├── ref-names/          — ref-naming vectors (valid/invalid) and pinned refspecs
@@ -259,6 +261,20 @@ reproduce repository generation directly:
    commits will have the exact same SHAs as the reference manifests.
 5. Run the schema-driven pipeline above against the repository you built,
    the same way Option A's test suite runs it against a generated one.
+
+### Pinning the corpus
+
+State conformance as a release tag plus `testdata/corpus.json`'s `format`,
+e.g. "passes the writ corpus at `v0.1.0`, format 1". The tag identifies
+the corpus's *contents* — which fixtures and vectors exist; `format`
+identifies the *shape* of the machine-readable pieces — vector and
+`index.json` shapes, golden shapes, description YAML knobs — and only
+bumps when a change after a release alters one of those shapes
+incompatibly. Adding a vector, fixture, or family never bumps it.
+`corpus.json` deliberately carries no `version` field: the release tag
+already names the corpus's contents, and a hardcoded version string would
+be a second source of truth someone has to remember to bump at every
+release.
 
 ## What each corpus pins: producer versus reader
 

@@ -6,7 +6,7 @@ description: >
   object_type, and body as an array).
 
 refs:
-  - name: refs/writ/alice/widget
+  - name: refs/writ/0123456789abcdef/widget
     history:
       - commits:
           - id: payload-pretty-printed

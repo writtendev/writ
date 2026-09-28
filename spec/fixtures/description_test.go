@@ -1,6 +1,62 @@
 package fixtures
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/writtendev/writ/internal/dag"
+)
+
+// isWritChainRefCandidate reports whether ref is under a namespace where a
+// writ chain ref belongs -- refs/writ/ or refs/remotes/<remote>/writ/ --
+// the same two prefixes dag.ParseChainRef itself recognizes. A ref outside
+// both (refs/heads/*, the orphan-anchors/force-pushed-branch families'
+// refs/fixture-history/*) names no writer-id at all and is out of this
+// guard's scope by construction.
+func isWritChainRefCandidate(ref string) bool {
+	if strings.HasPrefix(ref, "refs/writ/") {
+		return true
+	}
+	return strings.HasPrefix(ref, "refs/remotes/") && strings.Contains(ref, "/writ/")
+}
+
+// TestCorpusRefsAreDiscoverableChains is a corpus-wide static guard: every
+// ref name and keep_as any description in the corpus declares under
+// refs/writ/ or refs/remotes/<remote>/writ/ must parse with
+// dag.ParseChainRef, the same production ref discovery
+// envelope_test.go's checkChainsDiscoverable exercises end-to-end for the
+// envelope family. A grammar-invalid writer-id (spec/ref-layout.md) is a
+// ref a conforming reader's dag.Chains silently skips, so a description
+// that names one describes a repo that isn't a conforming writ
+// repository -- across every family, not just envelope's, including the
+// remote-tracking ref multi-writer-chains.yaml declares. No repo
+// generation is needed for this check, so it's cheap.
+func TestCorpusRefsAreDiscoverableChains(t *testing.T) {
+	descs, err := LoadCorpus()
+	if err != nil {
+		t.Fatalf("load corpus: %v", err)
+	}
+
+	check := func(descName, ref string) {
+		if !isWritChainRefCandidate(ref) {
+			return
+		}
+		if _, err := dag.ParseChainRef(ref); err != nil {
+			t.Errorf("description %q: ref %q does not parse as a writ chain ref: %v", descName, ref, err)
+		}
+	}
+
+	for _, d := range descs {
+		for _, r := range d.Refs {
+			check(d.Name, r.Name)
+			for _, g := range r.History {
+				if g.KeptAs != "" {
+					check(d.Name, g.KeptAs)
+				}
+			}
+		}
+	}
+}
 
 // TestLoadRejectsDuplicateRefNames covers the collision Generate can't
 // safely resolve on its own: two refs (or a ref and a keep_as) sharing a

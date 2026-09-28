@@ -212,3 +212,31 @@ func TestCanonicalizationVectorsLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestCorpusManifest strict-decodes spec/testdata/corpus.json -- the
+// corpus's version manifest -- and requires a supported format. format
+// versions the corpus's machine-readable shapes (vector and index.json
+// shapes, golden shapes, description knobs); it increments only when a
+// change after a release alters an existing shape incompatibly, never for
+// an addition. There is deliberately no version field: the corpus's
+// contents are identified by the release tag instead (spec/README.md
+// "Reusing the Corpus in an Independent Implementation"). Strict decoding
+// means an unknown field here is a test failure, not silently ignored.
+func TestCorpusManifest(t *testing.T) {
+	raw, err := spec.FS.ReadFile("testdata/corpus.json")
+	if err != nil {
+		t.Fatalf("reading testdata/corpus.json: %v", err)
+	}
+
+	var manifest struct {
+		Format int `json:"format"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&manifest); err != nil {
+		t.Fatalf("decoding testdata/corpus.json: %v", err)
+	}
+	if manifest.Format < 1 {
+		t.Errorf("corpus.json format = %d, want >= 1", manifest.Format)
+	}
+}

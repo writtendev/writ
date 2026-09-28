@@ -1,7 +1,7 @@
 {
   "ops": [
     {
-      "ref": "refs/writ/alice/widget",
+      "ref": "refs/writ/0123456789abcdef/widget",
       "commit": "330ea6dee11d83c13d478566a4b9672a6f460e7c",
       "parents": [],
       "author": "Alice Example \u003calice@example.test\u003e",
@@ -28,7 +28,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/widget",
+      "ref": "refs/writ/0123456789abcdef/widget",
       "commit": "721fb33ab2af873cce29a9bb86ab59db799457d1",
       "parents": [
         "330ea6dee11d83c13d478566a4b9672a6f460e7c"
@@ -57,7 +57,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/widget",
+      "ref": "refs/writ/0123456789abcdef/widget",
       "commit": "18197acc1243e4ed6b0a7a7fc2e7390be3cd7907",
       "parents": [
         "721fb33ab2af873cce29a9bb86ab59db799457d1"
@@ -85,7 +85,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/widget",
+      "ref": "refs/writ/0123456789abcdef/widget",
       "commit": "be0e602d33ec8c27b234b1432fe5bc4e53e5c07f",
       "parents": [
         "18197acc1243e4ed6b0a7a7fc2e7390be3cd7907"
@@ -113,7 +113,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/widget",
+      "ref": "refs/writ/0123456789abcdef/widget",
       "commit": "35363078d2ecc8a771d2d402abb310c81f330c01",
       "parents": [
         "be0e602d33ec8c27b234b1432fe5bc4e53e5c07f"
