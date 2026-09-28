@@ -127,9 +127,16 @@ operations. A conforming reader:
    object types, op types, op versions, or fields
    (`spec/forward-compatibility.md`) never stop the walk: both are
    operations, and the stopping rule applies only to a commit that fails
-   reader validation itself, or that this reader's clone cannot read at
-   all. There is no depth or count bound beyond this rule — nothing else
-   limits how far the walk goes from a valid chain.
+   reader validation itself, or whose own commit object this reader's clone
+   cannot read at all — its parents are then unknowable. It does not apply
+   to a commit whose own commit object is present but some object its tree
+   names is locally absent (the shape a partial clone's fetch filter
+   leaves behind): that commit is still rejected — it carries no operation
+   this reader can decode — but its parents, already known from the commit
+   object itself, are still followed, because a reader that cannot read an
+   object it did not fetch cannot tell whether that object would have
+   encoded one. There is no depth or count bound beyond this rule —
+   nothing else limits how far the walk goes from a valid chain.
 3. Deduplicates visited operations by commit SHA (the op id).
 4. Groups operations by the `object_id` found in each op commit's `op.json`
    payload.
@@ -147,12 +154,15 @@ multi-writer-chains.yaml`, which pins exactly this tradeoff.
 An object's op-DAG is the ancestry-restricted subgraph over its `object_id`.
 Rollback detection is a reachability check against the previously observed
 ref tip, using this same reader walk — a commit only reachable by walking
-through a rejected commit does not count as reachable, so a tip advanced
-across a break reports as a rollback (`Rewound`) exactly as a genuine
-force-push would, even though the old tip is still, in the weaker sense of
-plain git ancestry, an ancestor of the new one. Neither reader enumeration
-nor rollback detection requires chain spine inspection or writer
-attribution.
+through a commit that fails reader validation does not count as reachable,
+so a tip advanced across such a break reports as a rollback (`Rewound`)
+exactly as a genuine force-push would, even though the old tip is still, in
+the weaker sense of plain git ancestry, an ancestor of the new one. A
+commit reachable only through one whose referenced object this clone could
+not read remains reachable exactly as before: that break does not stop the
+walk either way (see the stopping rule above), so it does not stop
+reachability for rollback detection. Neither reader enumeration nor
+rollback detection requires chain spine inspection or writer attribution.
 
 ## Writer ID convention
 

@@ -898,6 +898,159 @@ func TestRefresh_NonOpTipOverCursorRebuilds(t *testing.T) {
 	}
 }
 
+// TestRefresh_ObjectUnavailableRepairResidualDivergence reproduces the
+// WRIT-289 round 1 review finding against an object-unavailable break that
+// is later repaired: chain op1(w-a create) <- op2(w-b create) <- op3(w-a
+// update), with op2's own op.json blob deleted from the object store after
+// the fact (the shape a partial clone's fetch filter leaves behind), then
+// restored.
+//
+// Under the orchestrator decision on top of the WRIT-289 ruling —
+// object-unavailable does not stop the walk, because op2's commit itself
+// was read fine and its parents are known — the first Refresh already
+// reaches op1 through the rejected op2, so w-a is never behind the break in
+// the first place: it holds op1 and op3 (OpCount 2) from the very first
+// pass, and a repair afterward changes nothing about it. That is what this
+// PR guarantees, and what this test pins: an incremental Refresh and a cold
+// Rebuild never disagree about w-a, before or after the blob is restored.
+//
+// w-b is a different story, and a pre-existing one: w-b's only op is op2
+// itself, the rejected commit. Restoring its blob does not, by itself, make
+// Refresh revisit it — the chain's stored cursor is still op3, which has
+// not moved, so an incremental pass has nothing new to walk and op2 stays
+// unresolved until some later event forces a walk back through it (a moved
+// tip, or a full Rebuild). This is the same one-shot behavior
+// docs/quickstart.md's partial-clone section documents ("a later `writ
+// sync` that finds nothing new to fetch reports up to date... even though
+// an object folded above may still be stale") and the same gap
+// origin/main has today, limited to the op whose blob was missing — this
+// PR does not widen it, and fixing it is out of this ticket's scope
+// (WRIT-289 round 1 review, orchestrator decision).
+func TestRefresh_ObjectUnavailableRepairResidualDivergence(t *testing.T) {
+	ctx := context.Background()
+	repo, store := createTestStore(t, "0123456789abcdef")
+
+	ms, ok := repo.Storer.(*memory.Storage)
+	if !ok {
+		t.Fatalf("repo.Storer = %T, want *memory.Storage", repo.Storer)
+	}
+
+	db, err := projection.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open projection failed: %v", err)
+	}
+	defer db.Close()
+
+	env1 := makeWidgetEnv("w-a", "create", map[string]any{"title": "A1"})
+	if _, err := store.Append(ctx, env1, nil); err != nil {
+		t.Fatalf("store.Append op1 failed: %v", err)
+	}
+	env2 := makeWidgetEnv("w-b", "create", map[string]any{"title": "B1"})
+	op2, err := store.Append(ctx, env2, nil)
+	if err != nil {
+		t.Fatalf("store.Append op2 failed: %v", err)
+	}
+	env3 := makeWidgetEnv("w-a", "update", map[string]any{"title": "A2"})
+	if _, err := store.Append(ctx, env3, nil); err != nil {
+		t.Fatalf("store.Append op3 failed: %v", err)
+	}
+
+	// Delete op2's op.json blob from the object store directly — the
+	// commit and its tree stay put (they were fetched), only the blob a
+	// partial clone's fetch filter would have withheld is gone.
+	op2Commit, err := object.GetCommit(repo.Storer, plumbing.NewHash(op2.ID))
+	if err != nil {
+		t.Fatalf("GetCommit(op2) failed: %v", err)
+	}
+	op2Tree, err := op2Commit.Tree()
+	if err != nil {
+		t.Fatalf("op2 Tree() failed: %v", err)
+	}
+	opJSONEntry, err := op2Tree.FindEntry("op.json")
+	if err != nil {
+		t.Fatalf("find op.json entry on op2's tree: %v", err)
+	}
+	blobHash := opJSONEntry.Hash
+	blobObj, ok := ms.Objects[blobHash]
+	if !ok {
+		t.Fatalf("op2's op.json blob %s not present before deletion", blobHash)
+	}
+	delete(ms.Objects, blobHash)
+	delete(ms.Blobs, blobHash)
+
+	stats1, err := db.Refresh(store, projection.WithSchema(testRules()))
+	if err != nil {
+		t.Fatalf("first Refresh failed: %v", err)
+	}
+	if len(stats1.Rejections) != 1 || stats1.Rejections[0].CommitID != op2.ID || stats1.Rejections[0].Reason != dag.RejectObjectUnavailable {
+		t.Fatalf("first Refresh Rejections = %v, want exactly one for %s reason %q", stats1.Rejections, op2.ID, dag.RejectObjectUnavailable)
+	}
+
+	wa1, err := db.Object("w-a")
+	if err != nil {
+		t.Fatalf("Object(w-a) after first Refresh: %v", err)
+	}
+	if wa1.OpCount != 2 {
+		t.Fatalf("Object(w-a).OpCount after first Refresh = %d, want 2 (op1 and op3; object-unavailable op2 between them does not stop the walk)", wa1.OpCount)
+	}
+	if _, err := db.Object("w-b"); err != projection.ErrNotFound {
+		t.Fatalf("Object(w-b) after first Refresh = %v, want projection.ErrNotFound (op2 itself is the rejected commit)", err)
+	}
+
+	// Repair: put the blob back, exactly as `git fetch --refetch
+	// --no-filter` would for a real partial clone.
+	ms.Objects[blobHash] = blobObj
+	ms.Blobs[blobHash] = blobObj
+
+	stats2, err := db.Refresh(store, projection.WithSchema(testRules()))
+	if err != nil {
+		t.Fatalf("second Refresh failed: %v", err)
+	}
+	if stats2.Rebuilt {
+		t.Fatalf("second Refresh Rebuilt = true, want false: the chain tip (op3) has not moved, so there is nothing new for an incremental pass to walk")
+	}
+
+	waIncremental, err := db.Object("w-a")
+	if err != nil {
+		t.Fatalf("Object(w-a) after repair: %v", err)
+	}
+	if waIncremental.OpCount != 2 {
+		t.Fatalf("Object(w-a).OpCount after repair = %d, want 2 (unchanged: this PR guarantees no disagreement with a cold rebuild for it, before or after repair)", waIncremental.OpCount)
+	}
+
+	// A fresh cold Rebuild after the repair is what an incremental pass
+	// must agree with — and does, for w-a.
+	freshDB, err := projection.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open fresh projection failed: %v", err)
+	}
+	defer freshDB.Close()
+	if _, err := freshDB.Rebuild(store, projection.WithSchema(testRules())); err != nil {
+		t.Fatalf("fresh Rebuild failed: %v", err)
+	}
+	waRebuilt, err := freshDB.Object("w-a")
+	if err != nil {
+		t.Fatalf("fresh Rebuild Object(w-a): %v", err)
+	}
+	if waRebuilt.OpCount != waIncremental.OpCount {
+		t.Fatalf("w-a disagreement: incremental OpCount = %d, cold rebuild OpCount = %d, want equal", waIncremental.OpCount, waRebuilt.OpCount)
+	}
+
+	// w-b is the pre-existing, out-of-scope residual: a cold Rebuild
+	// re-decodes op2 from scratch and finds it valid now that its blob is
+	// back, but the incremental pass above never revisited op2 at all —
+	// its cursor sits at op3, unmoved — so it stays exactly as stale as it
+	// was the moment the rejection was first observed. This is the same
+	// gap origin/main has today for the op whose blob was missing; WRIT-289
+	// does not widen it, and closing it is a follow-up, not this ticket.
+	if _, err := db.Object("w-b"); err != projection.ErrNotFound {
+		t.Errorf("Object(w-b) from the incremental pass after repair = %v, want projection.ErrNotFound (known residual: the incremental pass never revisits op2 without a new walk reaching it)", err)
+	}
+	if _, err := freshDB.Object("w-b"); err != nil {
+		t.Errorf("fresh Rebuild Object(w-b) after repair = %v, want no error (a cold walk re-decodes op2 from scratch and finds it valid now)", err)
+	}
+}
+
 func TestRebuild_SurfacesRejections(t *testing.T) {
 	ctx := context.Background()
 	repo, store := createTestStore(t, "0123456789abcdef")

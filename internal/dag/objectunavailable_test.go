@@ -287,6 +287,13 @@ func TestEnumerate_AbsentParentCommitIsObjectUnavailable(t *testing.T) {
 // failure to nil, nil, so this exact shape decoded as an empty payload and
 // was reported as non-canonical-payload — an absent object misreported as
 // a malformed op.
+//
+// It also pins the WRIT-289 orchestrator decision on top of the ruling:
+// object-unavailable is the one rejection reason that does not stop the
+// walk, because the tip's own commit object was read fine and its
+// parents are known — only its op.json blob is locally missing, so it is
+// not known to be a non-op. op1, sitting behind the object-unavailable
+// tip, is therefore still held.
 func TestEnumerate_ObjectUnavailableDistinctFromMalformed(t *testing.T) {
 	dir, repo := initTestRepo(t)
 	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
@@ -336,11 +343,78 @@ func TestEnumerate_ObjectUnavailableDistinctFromMalformed(t *testing.T) {
 	}
 
 	// op1 sits behind the rejected (object-unavailable) tip on the same
-	// chain, with no other path reaching it. WRIT-289: a rejected commit's
-	// parents are never expanded, whatever the rejection reason, so op1
-	// is no longer held.
-	if len(res.Ops["w-1"]) != 0 {
-		t.Fatalf("Ops[w-1] = %v, want none (op1 is behind the rejected tip and unreachable)", res.Ops["w-1"])
+	// chain. WRIT-289's orchestrator decision: object-unavailable does not
+	// stop the walk — the tip commit itself was read fine, so its parents
+	// are still expanded — so op1 is held.
+	if len(res.Ops["w-1"]) != 1 || res.Ops["w-1"][0].ID != op1.ID {
+		t.Fatalf("Ops[w-1] = %v, want exactly [%s] (op1 sits behind the object-unavailable tip, but that rejection reason does not stop the walk)", res.Ops["w-1"], op1.ID)
+	}
+}
+
+// TestEnumerate_ObjectUnavailableMidChainDoesNotStopWalk pins the WRIT-289
+// orchestrator decision squarely on the case that matters for it: an
+// object-unavailable commit sitting *between* two valid ops, not standing
+// alone as the chain tip. Chain shape: op1 (create) <- unavailable (its
+// op.json blob absent) <- op2 (update, the tip). Both op1 and op2 must be
+// held, and the unavailable commit must be reported as exactly one
+// rejection — proving the walk crossed it in both directions (it reached
+// op1 behind it, and dag.Store.Append, which never validates its own
+// chain tip's op.json, was able to build op2 on top of it).
+func TestEnumerate_ObjectUnavailableMidChainDoesNotStopWalk(t *testing.T) {
+	dir, repo := initTestRepo(t)
+	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
+	store, err := dag.Open(dir, ident, withVocabularies())
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+
+	op1, err := store.Append(context.Background(), codec.Envelope{
+		ObjectID: "w-1", ObjectType: "widget", OpType: "create", OpVersion: 1,
+		Body: json.RawMessage(`{"title":"Widget 1"}`),
+	}, nil)
+	if err != nil {
+		t.Fatalf("Append op1 failed: %v", err)
+	}
+
+	unavailableHash, err := writeCommitWithMissingOpJSONBlob(repo, plumbing.NewHash(op1.ID))
+	if err != nil {
+		t.Fatalf("writeCommitWithMissingOpJSONBlob failed: %v", err)
+	}
+	refName := plumbing.ReferenceName("refs/writ/0123456789abcdef/widget")
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(refName, unavailableHash)); err != nil {
+		t.Fatalf("advance ref to unavailable commit: %v", err)
+	}
+
+	op2, err := store.Append(context.Background(), codec.Envelope{
+		ObjectID: "w-1", ObjectType: "widget", OpType: "update", OpVersion: 1,
+		Body: json.RawMessage(`{"title":"Widget 1 v2"}`),
+	}, nil)
+	if err != nil {
+		t.Fatalf("Append op2 failed: %v", err)
+	}
+
+	res, err := store.Enumerate()
+	if err != nil {
+		t.Fatalf("Enumerate failed: %v", err)
+	}
+
+	if len(res.Rejections) != 1 {
+		t.Fatalf("rejections = %v, want exactly one", res.Rejections)
+	}
+	if rej := res.Rejections[0]; rej.CommitID != unavailableHash.String() || rej.Reason != dag.RejectObjectUnavailable {
+		t.Errorf("rejection = %+v, want commit %s reason %q", rej, unavailableHash.String(), dag.RejectObjectUnavailable)
+	}
+
+	ops := res.Ops["w-1"]
+	if len(ops) != 2 {
+		t.Fatalf("Ops[w-1] = %v, want 2 (op1 and op2; the object-unavailable commit between them does not stop the walk in either direction)", ops)
+	}
+	byID := make(map[string]bool, len(ops))
+	for _, op := range ops {
+		byID[op.ID] = true
+	}
+	if !byID[op1.ID] || !byID[op2.ID] {
+		t.Fatalf("Ops[w-1] = %v, want exactly [%s, %s]", ops, op1.ID, op2.ID)
 	}
 }
 
