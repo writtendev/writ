@@ -361,7 +361,7 @@ property of the encoding, not of the schema.
 
 **Normalization is intrinsic to `person-ref`.** `spec/value-types.md` §Normalization defines the rule: where a rule's `value_type` (or, for a key component, `key_types` entry) is `person-ref`, the field normalizes per `spec/identifiers.md` automatically. It is not a separate declarative attribute a rule table author repeats field by field. Whether a value normalizes is decided only by the rule's `value_type`/`key_types`, never by inspecting operation types or field names — that much is a statement about normalization only.
 
-The fold does read a closed set of op-type and field-name literals, each stated in its own strategy's entry above and frozen with this version: `tombstone` reads the op types `delete` and `undelete` (§5.6); `set-observed-remove` reads the declared field names `add`/`remove` (flat shape, §5.4), the member names `add`/`remove` (nested shape, §5.4), and the op types `add`, `add-*`, `remove`, `remove-*` (scalar shape, §5.4). No other op-type or field-name literal reaches the fold.
+The fold does read a closed set of op-type and field-name literals, each stated in its own strategy's entry below and frozen with this version: `tombstone` reads the op types `delete` and `undelete` (§5.6); `set-observed-remove` reads the declared field names `add`/`remove` (flat shape, §5.4), the member names `add`/`remove` (nested shape, §5.4), and the op types `add`, `add-*`, `remove`, `remove-*` (scalar shape, §5.4). No other op-type or field-name literal reaches the fold.
 
 ### Unified empty-value contract
 
