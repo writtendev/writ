@@ -197,6 +197,67 @@ func newIncrementalSeenPredicate(stmt *sql.Stmt) (func(opID string) bool, func()
 	return seen, close
 }
 
+// metaKeyObjectUnavailableCommits is the meta row (WRIT-366) that carries,
+// across Refresh/Rebuild passes, the set of commit ids the most recent
+// pass recorded as dag.RejectObjectUnavailable. Unlike every other
+// rejection reason, that verdict is not permanent: a partial clone's
+// withheld blob or tree can arrive later, and an incremental pass that
+// never re-decodes a commit sitting behind its stored cursor would
+// otherwise hold whatever it decided about that commit's shape the first
+// time it saw it, forever. It is a droppable-cache row exactly like
+// chain_tips or code_tips — if this projection is ever dropped, the next
+// build is a cold one and recomputes it from nothing.
+const metaKeyObjectUnavailableCommits = "object_unavailable_commits"
+
+// loadObjectUnavailableCommits reads the set metaKeyObjectUnavailableCommits
+// carries. A cache that predates this key, or has never recorded an
+// object-unavailable rejection, returns a nil slice and no error — there
+// is nothing to recheck.
+func loadObjectUnavailableCommits(q metaQueryable) ([]string, error) {
+	raw, ok := loadMetaString(q, metaKeyObjectUnavailableCommits)
+	if !ok || raw == "" {
+		return nil, nil
+	}
+	var ids []string
+	if err := json.Unmarshal([]byte(raw), &ids); err != nil {
+		return nil, fmt.Errorf("projection: unmarshal %s: %w", metaKeyObjectUnavailableCommits, err)
+	}
+	return ids, nil
+}
+
+// writeObjectUnavailableCommits persists ids, deduplicated and sorted for a
+// deterministic stored value, as the new recorded set, replacing whatever
+// loadObjectUnavailableCommits previously returned. Always called from
+// within the same transaction as the rest of that pass's writes: the
+// recorded set must never be visible out of step with the data it
+// describes.
+func writeObjectUnavailableCommits(tx *sql.Tx, ids []string) error {
+	deduped := dedupSortedStrings(ids)
+	raw, err := json.Marshal(deduped)
+	if err != nil {
+		return fmt.Errorf("projection: marshal %s: %w", metaKeyObjectUnavailableCommits, err)
+	}
+	if _, err := tx.Exec("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", metaKeyObjectUnavailableCommits, string(raw)); err != nil {
+		return fmt.Errorf("projection: write %s: %w", metaKeyObjectUnavailableCommits, err)
+	}
+	return nil
+}
+
+// dedupSortedStrings returns ids with duplicates removed, in sorted order.
+func dedupSortedStrings(ids []string) []string {
+	seen := make(map[string]bool, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // Refresh incrementally brings the projection SQLite cache up to date with the underlying DAG store.
 // If a chain rollback or deleted chain ref is detected, Refresh falls through to a full rebuild.
 func (d *DB) Refresh(store *dag.Store, opts ...Option) (Stats, error) {
@@ -270,6 +331,34 @@ func (d *DB) Refresh(store *dag.Store, opts ...Option) (Stats, error) {
 		return d.rebuildWithConfig(store, cfg, targetTips)
 	}
 
+	// WRIT-366: a RejectObjectUnavailable verdict is the one rejection
+	// reason that is not permanent — recheck every commit a prior pass
+	// recorded as object-unavailable (metaKeyObjectUnavailableCommits)
+	// before trusting the stored cursors past it. Store.StillObjectUnavailable
+	// re-runs the same decode a walk would; a changed verdict — the object
+	// now decodes cleanly, or it arrived and fails reader validation for a
+	// different reason — means the incremental path below would disagree
+	// with a cold walk, so this pass takes the full-rebuild path instead,
+	// exactly like a rewound or disappeared chain. A clone whose withheld
+	// objects stay withheld rechecks and agrees every time, so this does
+	// not force a rebuild on every Refresh — only a pass that follows a
+	// recorded object actually arriving pays for one.
+	recordedUnavailable, err := loadObjectUnavailableCommits(d.db)
+	if err != nil {
+		return Stats{}, err
+	}
+	if len(recordedUnavailable) > 0 {
+		verdicts, err := store.StillObjectUnavailable(recordedUnavailable)
+		if err != nil {
+			return Stats{}, fmt.Errorf("projection: recheck object-unavailable commits: %w", err)
+		}
+		for _, id := range recordedUnavailable {
+			if !verdicts[id] {
+				return d.rebuildWithConfig(store, cfg, targetTips)
+			}
+		}
+	}
+
 	// 3. Enumerate delta since stored cursors. dag.WithSeen(...) is scoped
 	// to this incremental call alone (see incrementalSeenOption and the
 	// comment at rebuildWithConfig's own EnumerateSince call, which must
@@ -333,6 +422,21 @@ func (d *DB) Refresh(store *dag.Store, opts ...Option) (Stats, error) {
 		if _, err := tx.Exec("INSERT INTO code_tips (ref_name, tip) VALUES (?, ?)", refName, tip); err != nil {
 			return Stats{}, fmt.Errorf("projection: insert code tip %s: %w", refName, err)
 		}
+	}
+
+	// Update the recorded object-unavailable set (WRIT-366): carry forward
+	// every commit already rechecked above as still object-unavailable,
+	// plus any new one this pass's own delta walk rejected the same way
+	// (a just-pushed op whose blob a partial clone's fetch filter withheld,
+	// most commonly).
+	unavailableIDs := append([]string{}, recordedUnavailable...)
+	for _, rej := range enumRes.Rejections {
+		if rej.Reason == dag.RejectObjectUnavailable {
+			unavailableIDs = append(unavailableIDs, rej.CommitID)
+		}
+	}
+	if err := writeObjectUnavailableCommits(tx, unavailableIDs); err != nil {
+		return Stats{}, err
 	}
 
 	// Insert newly enumerated ops into ops table
@@ -540,6 +644,20 @@ func (d *DB) rebuildWithConfig(store *dag.Store, cfg *refreshConfig, targetTips 
 
 	if _, err := tx.Exec("DELETE FROM meta WHERE key = 'needs_rebuild'"); err != nil {
 		return Stats{}, fmt.Errorf("projection: clear needs_rebuild: %w", err)
+	}
+
+	// Replace the recorded object-unavailable set (WRIT-366) outright: a
+	// cold walk is authoritative, so whatever it rejected as
+	// object-unavailable this time is the whole set worth rechecking next
+	// pass, independent of whatever the set held before this rebuild.
+	var unavailableIDs []string
+	for _, rej := range enumRes.Rejections {
+		if rej.Reason == dag.RejectObjectUnavailable {
+			unavailableIDs = append(unavailableIDs, rej.CommitID)
+		}
+	}
+	if err := writeObjectUnavailableCommits(tx, unavailableIDs); err != nil {
+		return Stats{}, err
 	}
 
 	if err := tx.Commit(); err != nil {

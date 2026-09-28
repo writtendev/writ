@@ -215,28 +215,35 @@ func WithLiveTrustStore(ts codec.TrustStore) EnumerateOption {
 // what ops records. What the walk reaches from a given commit is fixed by
 // decodeOpCommit's verdict on every commit along the way, and that verdict
 // never changes after the fact for a commit whose op.json this clone
-// already had. One shape of object-unavailable commit has an outcome that
-// can change later: root tree passing every tree-shape rule, missing only
-// its own op.json blob — and its parents were already being followed
-// either way (see rootOpJSONBlobAbsent), so repairing that blob later does
-// not reopen a gap in an op already recorded.
+// already had.
 //
-// A different shape does reopen a gap, and this is a known residual
-// (WRIT-366), not something this option's caller can guard against: an
-// absent root tree stops the walk without expanding parents, exactly like
-// a reader-validation rejection — but unlike a reader-validation
-// rejection, that verdict is not permanent. When the tree is later
-// repaired, a fresh walk that reaches the same commit again may find it
-// op-shaped after all and follow its parents, decoding ops an earlier
-// pass — stopped at that same commit — never reached. The stored cursor
-// for the chain does not move on its own, so an incremental pass gains no
-// trigger to revisit that region, and stays behind what a cold walk would
-// now produce there. A root tree present without a top-level op.json
-// entry does not have this problem — rule 1 already settles that verdict
-// from what this reader can see, permanently, independent of whatever
-// else in the tree might later arrive. A caller that cannot tolerate the
-// root-tree residual (a partial fetch with no rebuild-on-gap path, a
-// hand-rolled cache) must not pass this option.
+// A RejectObjectUnavailable commit's verdict is the one exception: it can
+// change later, in either direction, when the object this clone was
+// missing arrives (a partial clone's later unfiltered fetch, most
+// commonly):
+//   - the commit was walked past — root tree passing every tree-shape
+//     rule, missing only its own op.json blob (see rootOpJSONBlobAbsent)
+//     — and ops behind it were recorded, but the blob that arrives turns
+//     out to fail reader validation itself (non-canonical, wrong schema,
+//     a committer mismatch); a cold walk now stops at that commit, so
+//     those recorded ops are no longer something a cold walk would hold;
+//   - the commit stopped the walk — an absent root tree, an unknowable
+//     op-shape — and nothing behind it was recorded, but the tree that
+//     arrives turns out op-shaped after all; a cold walk now reaches ops
+//     behind it that no earlier pass ever recorded.
+//
+// Either way is a real gap against this option's invariant, and neither
+// is something WithSeen's predicate can detect by itself — it only ever
+// answers "already recorded", never "recorded under a verdict that has
+// since changed". projection.Refresh closes both directions (WRIT-366)
+// by persisting the set of commits a pass recorded as
+// RejectObjectUnavailable and, before every incremental pass, rechecking
+// each one against the store's current object availability
+// (Store.StillObjectUnavailable): a changed verdict routes that pass to a
+// full Rebuild instead of trusting the stored cursors past it, so the
+// invariant holds again by the next call. A caller of this option that
+// does not perform an equivalent recheck must not treat the invariant as
+// holding across an object-unavailable repair.
 func WithSeen(match func(opID string) bool) EnumerateOption {
 	return func(c *enumerateConfig) { c.seen = match }
 }
@@ -561,6 +568,53 @@ func verifyCommitByID(s storage.Storer, id string, ts codec.TrustStore) codec.Ve
 	return codec.Verify(pureCommit, ts)
 }
 
+// StillObjectUnavailable re-decodes each commit in ids against s's current
+// object store and reports, per commit, whether decodeOpCommit's verdict
+// for it is still exactly RejectObjectUnavailable — the same predicate
+// EnumerateSince's Step 3 and isAncestor apply during a walk, run here
+// against a caller-supplied list of commits outside one (WRIT-366).
+// projection.Refresh calls this, before its incremental pass, on the
+// commits a prior pass recorded as object-unavailable: unlike every other
+// rejection reason, that verdict is not permanent (a blob or tree a
+// partial clone's fetch filter withheld can arrive later), and an
+// incremental pass that never re-decodes a commit sitting behind its
+// stored cursor would otherwise hold whatever it decided about that
+// commit's shape the first time it saw it, forever (see WithSeen's doc
+// comment for the two directions this can go wrong).
+//
+// A commit reported true is unchanged: either this clone still cannot
+// read whatever object was missing, or it cannot even fetch the commit at
+// all any more — either way, not a reason to trust the stored cursors
+// past it. A commit reported false has a different verdict now: it
+// decodes as a valid op, or it fails reader validation for some other
+// reason (a repaired blob that turns out malformed, say) — either way,
+// the caller must fall back to a full Rebuild rather than keep treating
+// that commit, and everything reachable from it, the way an earlier pass
+// did.
+//
+// One packidx cache is shared across every id in ids (see EnumerateSince's
+// cachedStorer comment for why this matters — WRIT-255 round 2): this is
+// meant to be called with a whole batch of recorded commits, not one at a
+// time.
+func (s *Store) StillObjectUnavailable(ids []string) (map[string]bool, error) {
+	cachedStorer := packidx.WithCache(s.storer)
+	result := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		hash := plumbing.NewHash(id)
+		commitObj, err := object.GetCommit(cachedStorer, hash)
+		if err != nil {
+			if errors.Is(err, plumbing.ErrObjectNotFound) {
+				result[id] = true
+				continue
+			}
+			return nil, fmt.Errorf("dag: recheck object-unavailable commit %s: %w", id, err)
+		}
+		_, _, rej := decodeOpCommit(cachedStorer, commitObj)
+		result[id] = rej != nil && rej.Reason == RejectObjectUnavailable
+	}
+	return result, nil
+}
+
 // decodeOpCommit is the single definition of "is an op" (WRIT-289): it
 // wraps codec.FromGitCommit and codec.DecodeCommit — reader-validation
 // rules 1-4, spec/op-envelope.md §Reader validation — and maps a failure at
@@ -692,9 +746,12 @@ func objectAbsent(s storage.Storer, hash plumbing.Hash) bool {
 //     --filter=blob:none or --filter=tree:1 clone);
 //   - the tree is present but names no top-level "op.json" entry at all,
 //     even when some other object it names (a subtree, most commonly) is
-//     also locally absent: rule 1 already rejects that shape as
-//     missing-op-json on the entries this reader can see, so there is
-//     nothing left to learn by reading further.
+//     also locally absent: rule 1 already rejects that shape on the
+//     entries this reader can see — missing-op-json, or
+//     op-json-subdirectory if the absent subtree itself turns out to hold
+//     an op.json a complete reader would find (this reader cannot tell
+//     which); either way it is a known non-op, so there is nothing left
+//     to learn by reading further.
 //
 // commitObj.Tree() re-reads the root tree object decodeOpCommit's own
 // codec.FromGitCommit call already read moments earlier; both go through

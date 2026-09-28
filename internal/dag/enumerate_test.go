@@ -880,10 +880,12 @@ func TestEnumerate_RefOnAbsentRootTreeHistoryStopsAtTip(t *testing.T) {
 // tree IS present but names no top-level "op.json" entry — only a "src"
 // directory entry whose own subtree is locally absent, the `--filter=
 // tree:1` shape. The root tree's own entries already settle that this
-// commit is a known missing-op-json non-op (reader-validation rule 1)
-// regardless of the absent subtree, so the walk must not expand its
-// parents even though decodeOpCommit still reports it
-// RejectObjectUnavailable (the subtree read is what actually fails).
+// commit is a known non-op (reader-validation rule 1: missing-op-json, or
+// op-json-subdirectory if the absent "src" subtree itself turns out to
+// hold an op.json — either way, not an operation) regardless of the
+// absent subtree, so the walk must not expand its parents even though
+// decodeOpCommit still reports it RejectObjectUnavailable (the subtree
+// read is what actually fails).
 func TestEnumerate_AbsentSubtreeNoRootOpJSONStopsAtTip(t *testing.T) {
 	dir, repo := initTestRepo(t)
 	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
