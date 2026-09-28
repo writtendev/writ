@@ -10,7 +10,7 @@ description: >
   outcome codec.Verify must observe rather than a reject reason.
 
 refs:
-  - name: refs/writ/alice/widget
+  - name: refs/writ/0123456789abcdef/widget
     history:
       - commits:
           - id: bad-sig-wrong-key

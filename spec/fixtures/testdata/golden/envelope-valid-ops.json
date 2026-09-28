@@ -1,17 +1,17 @@
 {
   "refs": [
     {
-      "name": "refs/writ/alice/widget",
+      "name": "refs/writ/0123456789abcdef/widget",
       "commit": "9044c989b7d7fbb586f6436cd3bab27633eedb8b"
     },
     {
-      "name": "refs/writ/bob/widget",
+      "name": "refs/writ/fedcba9876543210/widget",
       "commit": "48cbf66f8137ed7a9dc43bdb7df8a4d5a09aeefc"
     }
   ],
   "generations": [
     {
-      "ref": "refs/writ/alice/widget",
+      "ref": "refs/writ/0123456789abcdef/widget",
       "index": 0,
       "commits": [
         {
@@ -59,7 +59,7 @@
       ]
     },
     {
-      "ref": "refs/writ/bob/widget",
+      "ref": "refs/writ/fedcba9876543210/widget",
       "index": 0,
       "commits": [
         {

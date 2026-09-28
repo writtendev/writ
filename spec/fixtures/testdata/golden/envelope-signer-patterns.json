@@ -1,13 +1,13 @@
 {
   "refs": [
     {
-      "name": "refs/writ/alice/widget",
+      "name": "refs/writ/0123456789abcdef/widget",
       "commit": "b21ff28b894b1926bb02498c8faee058a74a4b3d"
     }
   ],
   "generations": [
     {
-      "ref": "refs/writ/alice/widget",
+      "ref": "refs/writ/0123456789abcdef/widget",
       "index": 0,
       "commits": [
         {

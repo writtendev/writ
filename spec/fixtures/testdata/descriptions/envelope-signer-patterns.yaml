@@ -52,7 +52,7 @@ trust_store:
     namespaces: ["!git", "*"]
 
 refs:
-  - name: refs/writ/alice/widget
+  - name: refs/writ/0123456789abcdef/widget
     history:
       - commits:
           # Case 1: '*' crosses '/'. path.Match's '*' will not cross a

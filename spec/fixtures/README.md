@@ -38,7 +38,7 @@ Fixture YAML descriptions under `testdata/descriptions/` support the following c
 ## The Fixture Families
 
 - **`manifest`:** Pinned repository manifest outputs (`testdata/golden/*.json`) covering all generated refs, commits, SHAs, and trees.
-- **`envelope`:** Golden envelope outputs (`testdata/golden/envelope/*.json`) verifying byte-for-byte canonicalization, schema conformance, tree structure, pure-Go SSH signature verification (`codec.Verify`), declared vs observed disposition equality, and — independently of disposition, since verification never gates it — declared vs observed verification outcome equality.
+- **`envelope`:** Golden envelope outputs (`testdata/golden/envelope/*.json`) verifying byte-for-byte canonicalization, schema conformance, tree structure, pure-Go SSH signature verification (`codec.Verify`), declared vs observed disposition equality, and — independently of disposition, since verification never gates it — declared vs observed verification outcome equality. Its refs are conforming chain refs the harness finds through production ref discovery (`dag.Chains`), not through the description; the golden carries one entry per commit the manifest lists, each evaluated individually by SHA. How far a chain walk reaches past a rejected commit is `multi-writer-chains`' subject, not this family's.
 - **`forward-compat`:** Golden forward-compatibility outputs (`testdata/golden/forward-compat/*.json`) verifying that unknown op types, future op versions, and unknown fields are preserved byte-for-byte, classified according to the reader profile, and surfaced as opaque records without perturbing known state.
 - **`fold`:** Golden folded state outputs (`testdata/golden/fold/*.json`) verifying that concurrent field edits, multi-device writer races, LWW and tiebreak rules, per-field merge strategies, `tombstone` delete/undelete/edit interleavings (`fold-tombstone-threads`, the corpus's carrier for `op_type: delete` — deletion wins over a concurrent edit and over a later undelete, which a plain `lww` bool cannot reproduce), and ancestry truncation reduce deterministically to byte-identical folded states across writers and DAG permutations. Every rule these folds run under comes from the fixture's own log: each repo declares a `schema` object, `writ.FoldSchema` materializes it and `writ.RulesFromSchemas` resolves it into per-`object_type` rules, exactly as the `schema-driven` family does — `schema` objects are the rule source here rather than golden output, since their own materialization is the `schema` family's subject, and a fixture declaring no schema still folds, with no rules and every op reported through `unknown_ops`. The family also runs the `forward-compat-*` descriptions, whose goldens pin that an unknown object type, an unknown op type and a future op version reach `unknown_ops` while the ops the schema does declare fold normally.
 - **`orphan-anchors`:** Golden resolution outputs (`testdata/golden/orphan-anchors/*.json`) verifying pure anchor resolution (`resolve.Resolve`) across real git history rewrites (rebase, rename, file and line deletion, hunk drift, force-push), checking matching ladder rungs, orphan degradation reasons, overall status derivation, schema validity, and byte-identical orphan preservation.
@@ -140,7 +140,14 @@ this corpus to verify compatibility:
    git repositories.
 2. For each repository, load its refs under `refs/writ/`, fold its `schema`
    objects to resolve the per-`object_type` merge rules the repo declares, and
-   fold all other operations into materialized state under those rules.
+   fold all other operations into materialized state under those rules. For
+   the `envelope` family specifically, refs are discovered the same way,
+   then reader validation and signature verification run on each commit
+   the golden lists by `commit`.
 3. Serialize the folded state to canonical JSON.
 4. Compare byte-for-byte against the golden files in
    `spec/fixtures/testdata/golden/`.
+
+See `spec/README.md`'s "Reusing the Corpus in an Independent Implementation"
+for how to pin the corpus shape (`spec/testdata/corpus.json`) an
+implementation was written against.

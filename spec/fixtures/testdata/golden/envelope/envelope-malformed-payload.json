@@ -1,7 +1,7 @@
 {
   "ops": [
     {
-      "ref": "refs/writ/alice/widget",
+      "ref": "refs/writ/0123456789abcdef/widget",
       "commit": "8416a2312be014390be681b969eb11b12f297869",
       "parents": [],
       "author": "Alice Example \u003calice@example.test\u003e",
@@ -29,7 +29,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/widget",
+      "ref": "refs/writ/0123456789abcdef/widget",
       "commit": "0ccf7f1dd85695edb67a8dfc58889fbedcf7a015",
       "parents": [
         "8416a2312be014390be681b969eb11b12f297869"
@@ -59,7 +59,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/widget",
+      "ref": "refs/writ/0123456789abcdef/widget",
       "commit": "363250291679e4a5971fee0df105d0b485422cdb",
       "parents": [
         "0ccf7f1dd85695edb67a8dfc58889fbedcf7a015"
@@ -89,7 +89,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/widget",
+      "ref": "refs/writ/0123456789abcdef/widget",
       "commit": "4221d7d2046a07437e145846cd37f163e7072ab0",
       "parents": [
         "363250291679e4a5971fee0df105d0b485422cdb"
@@ -118,7 +118,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/widget",
+      "ref": "refs/writ/0123456789abcdef/widget",
       "commit": "2c39dc18d478e588a622aec0a3be6a9e3dba8b5f",
       "parents": [
         "4221d7d2046a07437e145846cd37f163e7072ab0"
@@ -147,7 +147,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/widget",
+      "ref": "refs/writ/0123456789abcdef/widget",
       "commit": "e40cb757b2fb0f2e8f7bc643047fdd2d60b66a09",
       "parents": [
         "2c39dc18d478e588a622aec0a3be6a9e3dba8b5f"
@@ -177,7 +177,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/widget",
+      "ref": "refs/writ/0123456789abcdef/widget",
       "commit": "d4d472f367fb7beae39cb70e8ec87ee0ec2973b6",
       "parents": [
         "e40cb757b2fb0f2e8f7bc643047fdd2d60b66a09"
@@ -207,7 +207,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/widget",
+      "ref": "refs/writ/0123456789abcdef/widget",
       "commit": "8119fca13c3521b42c0d940cdc0306571aef459f",
       "parents": [
         "d4d472f367fb7beae39cb70e8ec87ee0ec2973b6"
@@ -237,7 +237,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/widget",
+      "ref": "refs/writ/0123456789abcdef/widget",
       "commit": "08c2629cb350846511bd748991cafd620c4d3e9b",
       "parents": [
         "8119fca13c3521b42c0d940cdc0306571aef459f"

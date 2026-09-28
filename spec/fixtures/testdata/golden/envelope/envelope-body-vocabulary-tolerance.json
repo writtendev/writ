@@ -1,7 +1,7 @@
 {
   "ops": [
     {
-      "ref": "refs/writ/alice/schema",
+      "ref": "refs/writ/0123456789abcdef/schema",
       "commit": "6878f32e6ceba5d25b58018d4349cddbfb8921eb",
       "parents": [],
       "author": "Alice Example \u003calice@example.test\u003e",
@@ -28,7 +28,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/schema",
+      "ref": "refs/writ/0123456789abcdef/schema",
       "commit": "bc8e7c1f1c78f9de75b6fad53a582223bf0c66e7",
       "parents": [
         "6878f32e6ceba5d25b58018d4349cddbfb8921eb"
@@ -57,7 +57,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/schema",
+      "ref": "refs/writ/0123456789abcdef/schema",
       "commit": "27382775734ac958e763d554093467861828431e",
       "parents": [
         "bc8e7c1f1c78f9de75b6fad53a582223bf0c66e7"
@@ -86,7 +86,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/schema",
+      "ref": "refs/writ/0123456789abcdef/schema",
       "commit": "48c204f4cba9c214de249f181eeebd04d24f5f62",
       "parents": [
         "27382775734ac958e763d554093467861828431e"
@@ -115,7 +115,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/schema",
+      "ref": "refs/writ/0123456789abcdef/schema",
       "commit": "3ed7ada4ebe921505e07e57ad6490d205cfeded1",
       "parents": [
         "48c204f4cba9c214de249f181eeebd04d24f5f62"
@@ -144,7 +144,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/schema",
+      "ref": "refs/writ/0123456789abcdef/schema",
       "commit": "f2787164af180502b6741da0e569a155afb69569",
       "parents": [
         "3ed7ada4ebe921505e07e57ad6490d205cfeded1"
@@ -173,7 +173,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/schema",
+      "ref": "refs/writ/0123456789abcdef/schema",
       "commit": "55318451ec6b561cc7832648f6731407d60e6573",
       "parents": [
         "f2787164af180502b6741da0e569a155afb69569"
@@ -202,7 +202,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/schema",
+      "ref": "refs/writ/0123456789abcdef/schema",
       "commit": "11a96881d7aa8fab9a70893b3d4ceb09355c4ec8",
       "parents": [
         "55318451ec6b561cc7832648f6731407d60e6573"
@@ -231,7 +231,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/schema",
+      "ref": "refs/writ/0123456789abcdef/schema",
       "commit": "1f44797563562b38e75bf5b21c186e7f042f59be",
       "parents": [
         "11a96881d7aa8fab9a70893b3d4ceb09355c4ec8"
@@ -260,7 +260,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/schema",
+      "ref": "refs/writ/0123456789abcdef/schema",
       "commit": "33d18fcb9b84cce446660d6e63f3c90e6d56703c",
       "parents": [
         "1f44797563562b38e75bf5b21c186e7f042f59be"
@@ -289,7 +289,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/schema",
+      "ref": "refs/writ/0123456789abcdef/schema",
       "commit": "a352b255cef6c258b7eee51cc85e352e1c5b13cb",
       "parents": [
         "33d18fcb9b84cce446660d6e63f3c90e6d56703c"
@@ -318,7 +318,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/schema",
+      "ref": "refs/writ/0123456789abcdef/schema",
       "commit": "5c70d5fade71cbb51df9cf420f4514a384260723",
       "parents": [
         "a352b255cef6c258b7eee51cc85e352e1c5b13cb"
@@ -347,7 +347,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/widget",
+      "ref": "refs/writ/0123456789abcdef/widget",
       "commit": "d980dfc410353b92f04969a8b2ee1b479d49485e",
       "parents": [],
       "author": "Alice Example \u003calice@example.test\u003e",
@@ -374,7 +374,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/widget",
+      "ref": "refs/writ/0123456789abcdef/widget",
       "commit": "836026237616337a5540d99bb0a875bac6a7b078",
       "parents": [
         "d980dfc410353b92f04969a8b2ee1b479d49485e"
@@ -403,7 +403,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/widget",
+      "ref": "refs/writ/0123456789abcdef/widget",
       "commit": "09c11e71cee7e88c02c9d7350feefbc762916c96",
       "parents": [
         "836026237616337a5540d99bb0a875bac6a7b078"
@@ -432,7 +432,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/widget",
+      "ref": "refs/writ/0123456789abcdef/widget",
       "commit": "4d07533216bff5191cb7e2a14f77e2ab78bd42ca",
       "parents": [
         "09c11e71cee7e88c02c9d7350feefbc762916c96"
@@ -461,7 +461,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/widget",
+      "ref": "refs/writ/0123456789abcdef/widget",
       "commit": "6ea2c3a5365e42f96fb840453a538427c4d83028",
       "parents": [
         "4d07533216bff5191cb7e2a14f77e2ab78bd42ca"
@@ -490,7 +490,7 @@
       }
     },
     {
-      "ref": "refs/writ/alice/gadget",
+      "ref": "refs/writ/0123456789abcdef/gadget",
       "commit": "8b98081badc9f23aa8f4ed83b29b8c15c8cee454",
       "parents": [],
       "author": "Alice Example \u003calice@example.test\u003e",
