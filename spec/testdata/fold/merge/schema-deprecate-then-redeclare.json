@@ -1,6 +1,6 @@
 {
   "name": "schema-deprecate-then-redeclare",
-  "description": "deprecate-field writes deprecated:true into the same key a define-field register is scoped by (spec/schema-ops.md §Evolution), which is what makes it tombstone-style without needing the tombstone strategy: the tombstone strategy is per-object, and this is a per-key register like any other keyed-lww field. A later define-field redeclaring the same (type, op_type, op_version, field) key changes field_strategy but never touches field_deprecated on its own, so the field stays deprecated until an explicit write says otherwise.",
+  "description": "deprecate-field writes deprecated:true into the same key a define-field register is scoped by (spec/schema-ops.md §Evolution), which is what makes it tombstone-style without needing the tombstone strategy: the tombstone strategy is per-object, and this is a per-key register like any other keyed-lww field. A later define-field redeclaring the same (type, op_type, op_version, field) key changes field_strategy but never touches field_deprecated on its own, so the field stays deprecated; no op clears it (spec/schema-ops.md §4.6).",
   "object_id": "obj-schema-1",
   "fields": {
     "field_strategy": { "strategy": "keyed-lww", "op_type": "define-field", "field": "strategy", "key": ["type", "op_type", "op_version", "field"], "target": "field_strategy" },

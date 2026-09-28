@@ -1,0 +1,29 @@
+{
+  "name": "lattice-unknown-element-only",
+  "description": "A single operation writes only an undeclared (future) lattice element alongside a sibling lww field. The lattice field stays absent from folded state, not the bottom element, the operation is not quarantined, and the sibling field applies normally (spec/fold.md §5.7)",
+  "object_id": "obj-1",
+  "fields": {
+    "status": {
+      "strategy": "lattice",
+      "lattice": ["pending", "done"]
+    },
+    "title": {
+      "strategy": "lww"
+    }
+  },
+  "ops": [
+    {
+      "id": "op-a",
+      "parents": [],
+      "time": 100,
+      "object_id": "obj-1",
+      "body": {
+        "status": "from-the-future",
+        "title": "hello"
+      }
+    }
+  ],
+  "expected_state": {
+    "title": "hello"
+  }
+}

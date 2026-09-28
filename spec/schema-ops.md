@@ -505,7 +505,12 @@ Declares an op type within a type's vocabulary.
 
 - `type` (string, required).
 - `deprecated` (boolean, required, `true`): Producers MUST write `true`;
-  there is no `deprecate-type`-family op that clears it in this version.
+  there is no `deprecate-type`-family op that clears it in this version. A
+  `deprecate-type` op whose `deprecated` is not literally `true` — `false`,
+  any non-boolean, or absent — is uninterpretable, and a conforming fold
+  MUST report it through `UnknownOps`, the same shape §3.1/§3.3/§3.4 use.
+  Storing `false` would let one non-conforming op silently clear a
+  deprecation for every reader.
 
 ### 4.6. `deprecate-field`
 
@@ -527,7 +532,10 @@ Declares an op type within a type's vocabulary.
 
 - `type`, `op_type`, `op_version`, `field` (all required): Identifies the
   declaration being deprecated, matching a `define-field`'s key exactly.
-- `deprecated` (boolean, required, `true`).
+- `deprecated` (boolean, required, `true`). A `deprecate-field` op whose
+  `deprecated` is not literally `true` — `false`, any non-boolean, or
+  absent — is uninterpretable on the same terms as `deprecate-type` above,
+  and a conforming fold MUST report it through `UnknownOps`.
 
 ---
 
@@ -1331,8 +1339,10 @@ than restating the precedence itself (WRIT-188).
   §3.1 non-canonical `op_version` quarantine across all three affected op
   types, the §3.3 unrepresentable-`max_length` quarantine
   (`schema-numeric-bounds`), a concurrent multi-writer `define-field`
-  race, a `deprecate-field`/redeclare interleaving, and unknown `op_type`
-  / future `op_version` on the `schema` object type itself (§10).
+  race, a `deprecate-field`/redeclare interleaving, unknown `op_type`
+  / future `op_version` on the `schema` object type itself (§10), and the
+  §4.5/§4.6 `deprecated`-not-`true` quarantine
+  (`schema-deprecated-not-true-quarantined`).
 - `spec/testdata/producer/` (WRIT-188) — §11's producer/reader paired
   verdicts over ops governed by a schema resolved from the log: see
   `spec/op-envelope.md` §Conformance data for the full description.

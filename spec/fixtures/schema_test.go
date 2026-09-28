@@ -212,27 +212,32 @@ func runSchemaFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 }
 
 // assertSchemaFoldSuperset is the asymmetric cross-check spec/schema-ops.md
-// §3.1, §3.3, and §3.4 require. Do not copy assertSettingsFoldAgreement
-// (settings_test.go) as a symmetric equality: writ.Fold(ops,
-// writ.SchemaRules()) does NOT quarantine a non-canonical op_version body
-// field, because ruleAccepts treats "01" as an ordinary keyed-lww
-// key-component string, nor an unrepresentable max_length, because
+// §3.1, §3.3, §3.4, §4.5, and §4.6 require. Do not copy
+// assertSettingsFoldAgreement (settings_test.go) as a symmetric equality:
+// writ.Fold(ops, writ.SchemaRules()) does NOT quarantine a non-canonical
+// op_version body field, because ruleAccepts treats "01" as an ordinary
+// keyed-lww key-component string, nor an unrepresentable max_length, because
 // ruleAccepts' keyed-lww case (max_length's own meta-rule) only asks
 // v != nil, nor a create whose body namespace disagrees with its
 // target's derived-id suffix, because that check is a comparison between
 // the op's own ObjectID and a body field — nothing a generic Rule can
-// express at all — both checks live one layer up, in the typed
+// express at all, nor a deprecate-type/deprecate-field whose deprecated
+// body field is not literally true, because that keyed-lww rule's
+// ruleAccepts arm accepts any non-null value regardless of the rule's
+// declared bool value_type — both checks live one layer up, in the typed
 // writ.FoldSchema reducer (state.FoldSchema's canonicalOpVersion,
-// decodeMaxLength, and namespace-implied-by-id gates). A symmetric
-// assertion fails on this family by construction, and weakening the
-// golden to make it pass would delete the rule this stage exists to
-// pin. The correct assertion is that FoldSchema's UnknownOps is a
-// superset of Fold's, with the difference being exactly: (a)
+// decodeMaxLength, namespace-implied-by-id, and deprecated-not-true gates).
+// A symmetric assertion fails on this family by construction, and
+// weakening the golden to make it pass would delete the rule this stage
+// exists to pin. The correct assertion is that FoldSchema's UnknownOps is
+// a superset of Fold's, with the difference being exactly: (a)
 // define-op/define-field/deprecate-field ops whose op_version body field
 // is not canonical, (b) define-field ops whose max_length body field is
-// present and not a JSON integer representable in int64 (WRIT-269), and
-// (c) create ops on a "schema:"-prefixed ObjectID whose body namespace
-// disagrees with the id's own suffix, or omits it entirely (WRIT-254).
+// present and not a JSON integer representable in int64 (WRIT-269), (c)
+// create ops on a "schema:"-prefixed ObjectID whose body namespace
+// disagrees with the id's own suffix, or omits it entirely (WRIT-254), and
+// (d) deprecate-type/deprecate-field ops whose deprecated body field is
+// not literally true — false, any non-boolean, or absent (WRIT-338).
 func assertSchemaFoldSuperset(t *testing.T, sch writ.Schema, state writ.ObjectState, fixtureName, objectID string, opByID map[string]codec.Op) {
 	t.Helper()
 
@@ -281,9 +286,19 @@ func assertSchemaFoldSuperset(t *testing.T, sch writ.Schema, state writ.ObjectSt
 				}
 			}
 		}
-		if op.OpType != "define-op" && op.OpType != "define-field" && op.OpType != "deprecate-field" {
-			t.Errorf("[%s/%s] op %s (op_type=%s) is schema-unknown but not generic-unknown; the only permitted asymmetries are the non-canonical op_version quarantine, the unrepresentable max_length quarantine, and the namespace-implied-by-id quarantine on a create, and none of those apply here",
+		if op.OpType != "define-op" && op.OpType != "define-field" && op.OpType != "deprecate-field" && op.OpType != "deprecate-type" {
+			t.Errorf("[%s/%s] op %s (op_type=%s) is schema-unknown but not generic-unknown; the only permitted asymmetries are the non-canonical op_version quarantine, the unrepresentable max_length quarantine, the namespace-implied-by-id quarantine on a create, and the deprecated-not-true quarantine on a deprecate-type/deprecate-field, and none of those apply here",
 				fixtureName, objectID, id, op.OpType)
+			continue
+		}
+		if op.OpType == "deprecate-type" || op.OpType == "deprecate-field" {
+			if v, ok := body["deprecated"].(bool); !ok || !v {
+				continue // permitted: deprecated-not-true quarantine (§4.5/§4.6, WRIT-338)
+			}
+		}
+		if op.OpType == "deprecate-type" {
+			t.Errorf("[%s/%s] op %s (deprecate-type) is schema-unknown but not generic-unknown, yet its deprecated field is literally true; the only permitted asymmetry for deprecate-type is the deprecated-not-true quarantine",
+				fixtureName, objectID, id)
 			continue
 		}
 		opVersion, _ := body["op_version"].(string)
