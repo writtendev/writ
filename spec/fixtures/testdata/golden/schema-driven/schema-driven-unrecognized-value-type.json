@@ -136,60 +136,60 @@
   ],
   "conflicts": [
     {
+      "kind": "key-column-disagreement",
       "object_type": "acme.gadget",
       "object_ids": [
         "schema:acme"
-      ],
-      "reason": "field rule (audit, 1, note_b) declares key column \"case\" as \"x-case-b\", disagreeing with field \"note_a\"'s rule for the same (op_type, op_version), which declares it \"x-case-a\"; every keyed-lww rule sharing a key column within one (op_type, op_version) must agree on that column's key_types entry, because a producer resolves a key column's declared type by column name alone (spec/op-envelope.md §Producer validation rule 3) -- no winner is picked, so every rule bound to this column is withheld"
+      ]
     },
     {
+      "kind": "target-disagreement",
       "object_type": "acme.gadget",
       "object_ids": [
         "schema:acme"
-      ],
-      "reason": "field rule (mark-b, 1, tag) reuses target \"tag\" already bound by (mark-a, 1, tag), but they disagree on value_type; the target is shared by more than one (op_type, field) version-bump class, so the version-bump carve-out for value_type, enum and max_length applies only within a class, not between them (spec/schema-ops.md §8) — every rule sharing this target must agree on value_type"
+      ]
     },
     {
+      "kind": "value-type-unknown",
       "object_type": "acme.widget",
       "object_ids": [
         "schema:acme"
-      ],
-      "reason": "field rule (set-assign, 1, assignment) declares key_types[\"team\"] = \"x-team-kind\", not in this reader's value-type catalogue; installed untyped at that position (spec/schema-ops.md §10)"
+      ]
     },
     {
+      "kind": "value-type-unknown",
       "object_type": "acme.widget",
       "object_ids": [
         "schema:acme"
-      ],
-      "reason": "field rule (set-grade, 1, grade) declares value_type \"x-rating\", not in this reader's value-type catalogue; installed untyped at that position (spec/schema-ops.md §10)"
+      ]
     },
     {
+      "kind": "value-type-unknown",
       "object_type": "acme.widget",
       "object_ids": [
         "schema:acme"
-      ],
-      "reason": "field rule (set-ident, 1, ident) declares value_type \"x-uuid\", not in this reader's value-type catalogue; installed untyped at that position (spec/schema-ops.md §10)"
+      ]
     },
     {
+      "kind": "value-type-unknown",
       "object_type": "acme.widget",
       "object_ids": [
         "schema:acme"
-      ],
-      "reason": "field rule (set-owner, 1, owner) declares value_type \"x-owner-kind\", not in this reader's value-type catalogue; installed untyped at that position (spec/schema-ops.md §10)"
+      ]
     },
     {
+      "kind": "value-type-unknown",
       "object_type": "acme.widget",
       "object_ids": [
         "schema:acme"
-      ],
-      "reason": "field rule (set-score, 1, score) declares key_types[\"who\"] = \"x-handle\", not in this reader's value-type catalogue; installed untyped at that position (spec/schema-ops.md §10)"
+      ]
     },
     {
+      "kind": "value-type-unknown",
       "object_type": "acme.widget",
       "object_ids": [
         "schema:acme"
-      ],
-      "reason": "field rule (set-size, 1, size) declares value_type \"x-duration\", not in this reader's value-type catalogue; installed untyped at that position (spec/schema-ops.md §10)"
+      ]
     }
   ],
   "objects": [

@@ -28,10 +28,12 @@ type SchemaField = state.SchemaField
 type SchemaOp = state.SchemaOp
 
 // SchemaConflictKind is a closed catalogue of the reasons resolveSchemaTypes
-// can produce a SchemaConflict (spec/schema-ops.md §6). It is the only part
-// of a SchemaConflict a conformant implementation may compare: the set is
-// closed for this spec version, and a caller branches on Kind, never on
-// Reason's wording (WRIT-335).
+// can produce a SchemaConflict (spec/schema-ops.md §6). The set is closed
+// for this spec version, and a caller branches on Kind, never on Reason's
+// wording (WRIT-335) -- Reason is the only field of a SchemaConflict whose
+// wording is not pinned; Kind, together with which of ObjectType and
+// Namespace are set and what ObjectIDs holds (spec/schema-ops.md §6's
+// per-kind table), is spec-defined and conformance-relevant.
 type SchemaConflictKind string
 
 const (
@@ -57,9 +59,15 @@ const (
 	SchemaConflictTypeUnqualified SchemaConflictKind = "type-unqualified"
 
 	// SchemaConflictTypeContested: an object_type is bound by more than one
-	// schema object. Kept reachable only for the literal bare type "schema"
-	// (WRIT-254); otherwise unreachable, since two schema objects can no
-	// longer bind the identical qualified object_type.
+	// schema object. Currently unreachable for any object_type, including
+	// the literal bare type "schema" (WRIT-254): the schema-object-id-
+	// matches-namespace gate makes at most one schema object own a given
+	// namespace, so two surviving schema objects can never bind the
+	// identical qualified object_type, and "schema" itself is caught by a
+	// separate, unconditional branch that never falls through to this
+	// comparison. Kept rather than deleted, as the one remaining owner-
+	// comparison SchemaConflict construction site this file has for a
+	// non-"schema" type (resolveSchemaTypes's WRIT-254 note).
 	SchemaConflictTypeContested SchemaConflictKind = "type-contested"
 
 	// SchemaConflictOpTypeUngrammatical: a define-field's or a define-op's
@@ -104,13 +112,16 @@ type SchemaConflict struct {
 	// Kind is the closed conflict code (see SchemaConflictKind). Always
 	// set: every construction site names one.
 	Kind SchemaConflictKind `json:"kind"`
-	// ObjectType is set for an object_type collision (two schema objects
-	// sharing a namespace and binding the identical qualified type) and for
-	// a single field-rule validation failure; empty for a namespace-only
-	// collision.
+	// ObjectType is set on every Kind except SchemaConflictNamespaceUngrammatical
+	// and SchemaConflictObjectIDMismatch, which drop a whole schema object
+	// before any of its declared types is looked at (spec/schema-ops.md
+	// §6's per-kind table).
 	ObjectType string `json:"object_type,omitempty"`
-	// Namespace is set for a namespace collision, and echoed on an
-	// object_type collision when known.
+	// Namespace is set only on the five declaration-level kinds --
+	// SchemaConflictNamespaceUngrammatical, SchemaConflictObjectIDMismatch,
+	// SchemaConflictSchemaRedefined, SchemaConflictTypeUngrammatical, and
+	// SchemaConflictTypeUnqualified -- never on a per-rule or per-target
+	// kind (spec/schema-ops.md §6's per-kind table).
 	Namespace string `json:"namespace,omitempty"`
 	// ObjectIDs names the schema objects involved: two for a collision
 	// between schema objects, one for a single object's own invalid rule or

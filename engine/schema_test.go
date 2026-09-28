@@ -1762,8 +1762,8 @@ func TestRulesFromSchemas_SharedTargetDifferentUnrecognizedTypesWithheldNoWarnin
 	if len(conflicts) != 1 {
 		t.Fatalf("expected exactly 1 withhold conflict and no separate demotion warning, got %+v", conflicts)
 	}
-	if strings.Contains(conflicts[0].Reason, "installed untyped") {
-		t.Fatalf("a withheld rule must never also be reported as installed/demoted: %q", conflicts[0].Reason)
+	if conflicts[0].Kind == writ.SchemaConflictValueTypeUnknown {
+		t.Fatalf("a withheld rule must never also be reported as installed/demoted: %+v", conflicts[0])
 	}
 }
 
@@ -1790,8 +1790,8 @@ func TestRulesFromSchemas_InvalidAndUnrecognizedRuleGetsOnlyDropConflict(t *test
 	if len(conflicts) != 1 {
 		t.Fatalf("expected exactly 1 drop conflict, got %+v", conflicts)
 	}
-	if !strings.Contains(conflicts[0].Reason, "invalid and was not installed") {
-		t.Fatalf("expected the pass-1 drop reason, got %q", conflicts[0].Reason)
+	if conflicts[0].Kind != writ.SchemaConflictRuleInvalid {
+		t.Fatalf("expected the pass-1 drop kind rule-invalid, got %q", conflicts[0].Kind)
 	}
 }
 

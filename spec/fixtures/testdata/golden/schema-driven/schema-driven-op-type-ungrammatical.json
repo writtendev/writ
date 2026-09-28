@@ -1,0 +1,75 @@
+{
+  "schemas": [
+    {
+      "object_id": "schema:acme",
+      "schema": {
+        "object_id": "schema:acme",
+        "namespace": "acme",
+        "types": [
+          {
+            "type": "acme.gadget",
+            "fields": [
+              {
+                "field": "status",
+                "op_type": "Set-Status",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              },
+              {
+                "field": "title",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              }
+            ],
+            "ops": [
+              {
+                "op_type": "Approve",
+                "op_version": 1,
+                "description": "Approve the gadget"
+              },
+              {
+                "op_type": "review",
+                "op_version": 1,
+                "description": "Review the gadget"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "conflicts": [
+    {
+      "kind": "op-type-ungrammatical",
+      "object_type": "acme.gadget",
+      "object_ids": [
+        "schema:acme"
+      ]
+    },
+    {
+      "kind": "op-type-ungrammatical",
+      "object_type": "acme.gadget",
+      "object_ids": [
+        "schema:acme"
+      ]
+    }
+  ],
+  "objects": [
+    {
+      "object_id": "gadget-1",
+      "object_type": "acme.gadget",
+      "total_order": [
+        {
+          "commit": "87e5d391fc67ef0ebae93b838e5feebdea722e7b",
+          "t_star": 1767225960
+        }
+      ],
+      "state": {
+        "title": "Widget"
+      }
+    }
+  ]
+}

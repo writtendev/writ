@@ -223,8 +223,10 @@ a repo" is not the whole pipeline; the schema-driven pipeline below is:
    folded `Schema` structure and any resolver conflicts) to canonical JSON.
    A resolver conflict serializes as `{kind, object_type?, namespace?,
    object_ids}` — `kind` is the closed catalogue `spec/schema-ops.md` §6
-   tabulates; no human-readable reason text is part of the corpus, and none
-   is compared.
+   tabulates, and that section's second table states exactly which of
+   `object_type`/`namespace` a given `kind` carries and what `object_ids`
+   holds; no human-readable reason text is part of the corpus, and none is
+   compared.
 6. Assert the output matches the appropriate `testdata/golden/<name>.json`
    byte-for-byte.
 
@@ -251,8 +253,10 @@ Your test suite then, per fixture repository:
    op reports as unknown.
 4. Serializes the folded state (and, where the fixture carries one, the
    folded schema state and conflicts) to canonical JSON. A resolver
-   conflict serializes as `{kind, object_type?, namespace?, object_ids}`;
-   no human-readable reason text is part of the corpus.
+   conflict serializes as `{kind, object_type?, namespace?, object_ids}` —
+   see `spec/schema-ops.md` §6's second table for exactly which fields a
+   given `kind` carries; no human-readable reason text is part of the
+   corpus.
 5. Asserts that the output matches `spec/fixtures/testdata/golden/<name>.json`
    byte-for-byte — `testdata/golden/schema/` for the schema family and
    `testdata/golden/schema-driven/` for the schema-driven family.

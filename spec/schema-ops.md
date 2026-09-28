@@ -596,23 +596,55 @@ more:
 
 | `kind` | Produced by | Effect |
 | --- | --- | --- |
-| `namespace-ungrammatical` | kind 3 below (a schema object's folded `namespace` fails §4.1's grammar) | Withheld: none of the schema object's types are installed |
-| `object-id-mismatch` | kind 2 below | Withheld: the whole schema object is dropped |
-| `schema-redefined` | kind 1 below, the bare-`schema` special case | Withheld: the `define-type` is not installed |
-| `type-ungrammatical` | kind 3 below (a `define-type` name fails §4.2's `object_type` grammar) | Withheld: the type is not installed |
-| `type-unqualified` | kind 4 below | Withheld: the type is not installed |
-| `type-contested` | kind 1 below (an `object_type` collision) | Withheld: neither schema object's rules are installed for the contested type |
+| `namespace-ungrammatical` | shape 3 below (a schema object's folded `namespace` fails §4.1's grammar) | Withheld: none of the schema object's types are installed |
+| `object-id-mismatch` | shape 2 below | Withheld: the whole schema object is dropped |
+| `schema-redefined` | shape 1 below, the bare-`schema` special case | Withheld: the `define-type` is not installed |
+| `type-ungrammatical` | shape 3 below (a `define-type` name fails §4.2's `object_type` grammar) | Withheld: the type is not installed |
+| `type-unqualified` | shape 4 below | Withheld: the type is not installed |
+| `type-contested` | shape 1 below (an `object_type` collision) | Withheld: neither schema object's rules are installed for the contested type |
 | `op-type-ungrammatical` | §11 (a `define-field` or `define-op` `op_type` fails the envelope grammar) | Withheld: the rule, or the op type, is not installed |
 | `rule-invalid` | §9 (`spec.ValidateFieldRule` rejects a rule) | Withheld: the rule is not installed |
 | `key-column-disagreement` | §8's key-column paragraph | Withheld: every rule participating in the disagreeing column |
-| `target-disagreement` | kind 5 below / §8 | Withheld: every rule bound to the disagreeing target |
+| `target-disagreement` | shape 5 below / §8 | Withheld: every rule bound to the disagreeing target |
 | `value-type-unknown` | §9 / §10 | **Not withheld**: the rule is installed demoted (untyped) at the unrecognized position; this is a warning, not a drop |
 
 A v0.1 reader never emits a `kind` outside this table; a future kind is a
 new spec version's business, not something this one's resolver produces.
 
-The five withholding shapes those first ten codes come from, and none is
-picked a winner:
+Which of `object_type` and `namespace` a conflict carries, and what
+`object_ids` holds, is itself a function of `kind` alone — pinned by the
+conformance corpus exactly as `kind`'s own value is, not left to each
+implementation's discretion:
+
+| `kind` | `object_type` | `namespace` | `object_ids` |
+| --- | --- | --- | --- |
+| `namespace-ungrammatical` | absent | present | one: the schema object |
+| `object-id-mismatch` | absent | present | one: the schema object |
+| `schema-redefined` | present (`"schema"`) | present | one: the schema object |
+| `type-ungrammatical` | present | present | one: the schema object |
+| `type-unqualified` | present | present | one: the schema object |
+| `type-contested` | present | absent | two: `[owner, collider]` |
+| `op-type-ungrammatical` | present | absent | one: the schema object |
+| `rule-invalid` | present | absent | one: the schema object |
+| `key-column-disagreement` | present | absent | one: the schema object |
+| `target-disagreement` | present | absent | one: the schema object |
+| `value-type-unknown` | present | absent | one: the schema object |
+
+`namespace` is present on exactly the five declaration-level kinds above —
+the ones a schema object's own namespace is known and relevant for before
+any per-type or per-rule question is reached — and absent on the other
+six, where only the owning schema object's id, not its namespace, is
+named. `object_type` is absent only on the two kinds that drop a whole
+schema object before any of its declared types is looked at
+(`namespace-ungrammatical`, `object-id-mismatch`); present on every other
+kind. `object_ids` holds exactly one schema object id except for
+`type-contested`, whose two ids are the type's original owner followed by
+the colliding schema object.
+
+Seven of the ten withholding kinds share one of the five shapes below; the
+other three — `op-type-ungrammatical` (§11), `rule-invalid` (§9), and
+`key-column-disagreement` (§8's key-column paragraph) — are documented at
+their own sections instead of here. None of the ten ever picks a winner:
 
 1. **`object_type` collision** (§2): two schema objects both bind the
    same (namespace-qualified) `object_type`. Withholding rules for the
@@ -627,13 +659,13 @@ picked a winner:
    the qualification in §2 never applies to.
 
    **Narrowed scope (WRIT-254).** Post-WRIT-217, this required two
-   colliding objects to share a namespace; post-WRIT-254 (kind 2 below),
+   colliding objects to share a namespace; post-WRIT-254 (shape 2 below),
    two schema objects can no longer share a namespace and both survive
    resolution, because at most one object id can equal `schema:` + any
    given namespace. A real, namespace-qualified `object_type` therefore
-   cannot reach this kind of conflict any more: it is unreachable for
+   cannot reach this shape of conflict any more: it is unreachable for
    every type except the bare `schema` special case above, which this
-   kind still catches on any single qualifying declaration, with no
+   shape still catches on any single qualifying declaration, with no
    owner comparison needed. The mechanism — the withholding itself, and
    the underlying `Contested` state it drives at the producer boundary
    (`spec/op-envelope.md`'s tier 3) — is retained rather than removed:
@@ -645,7 +677,7 @@ picked a winner:
    deprecations — contribute anything to resolution, and this is checked
    before any of the object's types are even looked at, so one conflict
    names the whole object rather than repeating per type. This is what
-   makes kind 1 unreachable for a namespace-qualified type (above): two
+   makes shape 1 unreachable for a namespace-qualified type (above): two
    schema objects surviving this gate can never share a namespace, since
    `schema:<namespace>` is a function of the namespace alone and each
    object is checked against its own. It supersedes the older, weaker
@@ -1133,7 +1165,7 @@ branch is unreachable from a schema-valid body the same way
   `define-field` naming a `value_type`, or a `key_types` entry, this
   reader's own `KnownValueTypes` does not contain — the log carries it
   because some newer writer's build knows a member this one predates —
-  does not withhold the rule the way §6's five conflict kinds do. The
+  does not withhold the rule the way §6's other ten kinds do. The
   resolver installs it anyway, demoted at exactly the unrecognized
   position: `value_type` itself clears to `""` only when `value_type`
   is the unrecognized one, and a `key_types` entry clears to `""` only
@@ -1185,7 +1217,7 @@ than restating the precedence itself (WRIT-188).
   recoverable the moment the contest itself is. The asymmetry is the
   point, not an oversight: a producer can retract nothing it has already
   signed, so the fence is on the side where a mistake is undoable.
-  WRIT-254 narrows how often this bullet's premise can arise (§6 kind 1's
+  WRIT-254 narrows how often this bullet's premise can arise (§6 shape 1's
   note): a real, namespace-qualified `object_type` can no longer be
   contested at all, so tier 3's write-side permission and this bullet's
   reasoning apply, in practice, only to the bare `schema` type's own
@@ -1211,7 +1243,19 @@ than restating the precedence itself (WRIT-188).
   envelope path regardless, so gating it here is not a new security
   boundary — it buys a clearer rejection and a rule index that is never
   keyed by an unwritable `op_type`, and it applies to a `define-op`
-  declaration exactly as it does to `define-field`'s.
+  declaration exactly as it does to `define-field`'s. Gating outside
+  `ValidateFieldRule` also settles the one case where the two checks
+  could otherwise both fire: an empty `op_type`. `validOpTypeGrammar`
+  requires a non-empty match, so `resolveSchemaTypes` runs it, and
+  reports `op-type-ungrammatical`, before a candidate rule ever reaches
+  `spec.ValidateFieldRule` (`engine/schema.go`'s per-field loop checks
+  `validOpTypeGrammar` first and `continue`s past `ValidateFieldRule` on
+  failure). `ValidateFieldRule`'s own `empty-op-type` invariant (§9) is
+  therefore unreachable through the resolver: a rule with an empty
+  `op_type` is always reported `op-type-ungrammatical`, never
+  `rule-invalid`, and `empty-op-type` fires only when `ValidateFieldRule`
+  is called directly, outside `resolveSchemaTypes` — validating the
+  bootstrap table on load, for instance.
 - **A producer refuses a write to a field or key column whose declared
   type it does not recognize (WRIT-334).** §9's resolver installs a rule
   demoted at an unrecognized `value_type` or `key_types` position rather
