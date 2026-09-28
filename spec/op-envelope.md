@@ -217,7 +217,16 @@ built, the producer MUST also verify that:
    another rule, the field rule governs the value's declared *type* — but
    the JSON-string floor below still applies on top, because fold checks
    every key column present in the body whether or not the same name also
-   carries a field rule.
+   carries a field rule. A field, or a `keyed-lww` key column, whose
+   declared type the producer does not itself recognize — a `value_type`
+   or `key_types` entry outside its own closed catalogue, installed
+   anyway by a reader that tolerates it
+   ([`spec/schema-ops.md`](schema-ops.md) §10, WRIT-334) — is refused
+   here too: a producer cannot check a value against a type it does not
+   know, so it treats the write the same as one to an undeclared field
+   rather than let an unvalidated value through. This does not widen what
+   rule 3 declares; it is what "holds a value conforming to it" already
+   requires when "it" is a type this build cannot interpret.
 4. The `op_type` and `op_version` are ones the schema object governing
    `object_type` declares. A producer never legitimately authors an op
    type or an op version it cannot interpret; where it appears to, the

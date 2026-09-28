@@ -140,26 +140,25 @@ func validIdentifier(s string) bool {
 // clear of both restrictions, which is why the sentinels are built that
 // way rather than as a custom error type.
 var (
-	errEmptyOpType              = errors.New("invariant empty-op-type")
-	errInvalidOpVersion         = errors.New("invariant invalid-op-version")
-	errEmptyField               = errors.New("invariant empty-field")
-	errInvalidFieldIdentifier   = errors.New("invariant invalid-field-identifier")
-	errInvalidTargetIdentifier  = errors.New("invariant invalid-target-identifier")
-	errInvalidKeyIdentifier     = errors.New("invariant invalid-key-identifier")
-	errUnknownStrategy          = errors.New("invariant unknown-strategy")
-	errKeyedLWWNoKey            = errors.New("invariant keyed-lww-no-key")
-	errLatticeNoElements        = errors.New("invariant lattice-no-elements")
-	errUnknownValueType         = errors.New("invariant unknown-value-type")
-	errEnumNoValues             = errors.New("invariant enum-no-values")
-	errEnumOnNonEnum            = errors.New("invariant enum-on-non-enum")
-	errMaxLengthValueType       = errors.New("invariant max-length-value-type")
-	errTombstoneValueType       = errors.New("invariant tombstone-value-type")
-	errLatticeValueType         = errors.New("invariant lattice-value-type")
-	errLatticeElementNotInEnum  = errors.New("invariant lattice-element-not-in-enum")
-	errKeyTypesCount            = errors.New("invariant key-types-count")
-	errKeyTypesMissingColumn    = errors.New("invariant key-types-missing-column")
-	errKeyTypesUnknownValueType = errors.New("invariant key-types-unknown-value-type")
-	errKeyTypesNonKeyedLWW      = errors.New("invariant key-types-non-keyed-lww")
+	errEmptyOpType             = errors.New("invariant empty-op-type")
+	errInvalidOpVersion        = errors.New("invariant invalid-op-version")
+	errEmptyField              = errors.New("invariant empty-field")
+	errInvalidFieldIdentifier  = errors.New("invariant invalid-field-identifier")
+	errInvalidTargetIdentifier = errors.New("invariant invalid-target-identifier")
+	errInvalidKeyIdentifier    = errors.New("invariant invalid-key-identifier")
+	errUnknownStrategy         = errors.New("invariant unknown-strategy")
+	errKeyedLWWNoKey           = errors.New("invariant keyed-lww-no-key")
+	errLatticeNoElements       = errors.New("invariant lattice-no-elements")
+	errEnumNoValues            = errors.New("invariant enum-no-values")
+	errEnumOnNonEnum           = errors.New("invariant enum-on-non-enum")
+	errMaxLengthValueType      = errors.New("invariant max-length-value-type")
+	errTombstoneValueType      = errors.New("invariant tombstone-value-type")
+	errLatticeValueType        = errors.New("invariant lattice-value-type")
+	errLatticeElementNotInEnum = errors.New("invariant lattice-element-not-in-enum")
+	errKeyTypesCount           = errors.New("invariant key-types-count")
+	errKeyTypesMissingColumn   = errors.New("invariant key-types-missing-column")
+	errKeyTypesEmptyValueType  = errors.New("invariant key-types-empty-value-type")
+	errKeyTypesNonKeyedLWW     = errors.New("invariant key-types-non-keyed-lww")
 )
 
 // fieldRuleSentinels maps the token spec/testdata/schema-ops/invalid/index.json's
@@ -174,34 +173,55 @@ var (
 // here, or an entry with no covering case, fails a test by name instead of
 // shipping untested.
 var fieldRuleSentinels = map[string]error{
-	"empty-op-type":                errEmptyOpType,
-	"invalid-op-version":           errInvalidOpVersion,
-	"empty-field":                  errEmptyField,
-	"invalid-field-identifier":     errInvalidFieldIdentifier,
-	"invalid-target-identifier":    errInvalidTargetIdentifier,
-	"invalid-key-identifier":       errInvalidKeyIdentifier,
-	"unknown-strategy":             errUnknownStrategy,
-	"keyed-lww-no-key":             errKeyedLWWNoKey,
-	"lattice-no-elements":          errLatticeNoElements,
-	"unknown-value-type":           errUnknownValueType,
-	"enum-no-values":               errEnumNoValues,
-	"enum-on-non-enum":             errEnumOnNonEnum,
-	"max-length-value-type":        errMaxLengthValueType,
-	"tombstone-value-type":         errTombstoneValueType,
-	"lattice-value-type":           errLatticeValueType,
-	"lattice-element-not-in-enum":  errLatticeElementNotInEnum,
-	"key-types-count":              errKeyTypesCount,
-	"key-types-missing-column":     errKeyTypesMissingColumn,
-	"key-types-unknown-value-type": errKeyTypesUnknownValueType,
-	"key-types-non-keyed-lww":      errKeyTypesNonKeyedLWW,
+	"empty-op-type":               errEmptyOpType,
+	"invalid-op-version":          errInvalidOpVersion,
+	"empty-field":                 errEmptyField,
+	"invalid-field-identifier":    errInvalidFieldIdentifier,
+	"invalid-target-identifier":   errInvalidTargetIdentifier,
+	"invalid-key-identifier":      errInvalidKeyIdentifier,
+	"unknown-strategy":            errUnknownStrategy,
+	"keyed-lww-no-key":            errKeyedLWWNoKey,
+	"lattice-no-elements":         errLatticeNoElements,
+	"enum-no-values":              errEnumNoValues,
+	"enum-on-non-enum":            errEnumOnNonEnum,
+	"max-length-value-type":       errMaxLengthValueType,
+	"tombstone-value-type":        errTombstoneValueType,
+	"lattice-value-type":          errLatticeValueType,
+	"lattice-element-not-in-enum": errLatticeElementNotInEnum,
+	"key-types-count":             errKeyTypesCount,
+	"key-types-missing-column":    errKeyTypesMissingColumn,
+	"key-types-empty-value-type":  errKeyTypesEmptyValueType,
+	"key-types-non-keyed-lww":     errKeyTypesNonKeyedLWW,
 }
 
 // ValidateFieldRule validates an individual field rule definition. Each
 // violation's error ends ": invariant <token>" (one of fieldRuleSentinels'
 // keys above); spec/schema-ops.md §9 documents that suffix and the full
-// twenty-token vocabulary it can carry, since the suffix reaches a schema
+// nineteen-token vocabulary it can carry, since the suffix reaches a schema
 // author directly through writ schema plan/apply and schemasrc diagnostics,
 // not just a test.
+//
+// An out-of-catalogue ValueType, or KeyTypes entry, is deliberately not one
+// of the nineteen (WRIT-334): this reader's own KnownValueTypes catalogue
+// may be older than the catalogue a rule's writer declared it against, and
+// a rule naming a type this build does not recognize is a candidate for
+// demotion at the resolver (engine/schema.go's RulesFromSchemas), never a
+// drop here. What this function still rejects is a value_type this build
+// recognizes used somewhere it cannot typecheck -- enum/max_length/
+// tombstone/lattice's own cross-checks below -- and those checks are
+// themselves skipped, not guessed at, for a value_type or key_types entry
+// this build does not recognize: a reader that cannot identify the type
+// cannot judge whether it fits tombstone, lattice, enum, or max_length
+// either. Authoring stays exactly as strict as before this ticket:
+// spec/schemas/schema-ops.schema.json's value_type enum still refuses an
+// out-of-catalogue type before a define-field body ever reaches this
+// function, and FieldRules() below still requires every rule in writ's own
+// shipped table to name only catalogue members. An empty KeyTypes entry
+// (`key_types: {col: ""}`) is not "unrecognized" either -- it names no
+// type at all, catalogue member or otherwise, so no writer, newer or
+// otherwise, can have meant it as a forward-compatible declaration. It
+// stays rejected as key-types-empty-value-type below, the one KeyTypes
+// check WRIT-334 did not relax.
 func ValidateFieldRule(r FieldRule) error {
 	if r.OpType == "" {
 		return fmt.Errorf("rule with empty op_type: %w", errEmptyOpType)
@@ -235,35 +255,47 @@ func ValidateFieldRule(r FieldRule) error {
 
 	// value_type is optional (spec/value-types.md): a rule declaring none is
 	// untyped, mirroring the "no declared strategy" idiom of spec/fold.md §5.
-	// A declared one must be a member of the closed catalogue.
-	if r.ValueType != "" && !KnownValueTypes[r.ValueType] {
-		return fmt.Errorf("rule for (%s, %s) declares unknown value_type %q: %w", r.OpType, r.Field, r.ValueType, errUnknownValueType)
-	}
+	// A declared one need not be a member of the closed catalogue (WRIT-334):
+	// a rule naming a type this build's KnownValueTypes does not contain is
+	// structurally valid -- the resolver, not this function, decides what to
+	// do with it (demote at the unrecognized position, engine/schema.go's
+	// RulesFromSchemas). knownValueType gates every check below that
+	// presupposes knowing what the declared type actually is.
+	knownValueType := r.ValueType == "" || KnownValueTypes[r.ValueType]
 
-	// enum is required iff value_type == "enum", forbidden otherwise.
+	// enum is required iff value_type == "enum", forbidden otherwise. Both
+	// directions apply regardless of whether value_type is recognized: a
+	// value_type this build does not know is never literally "enum" either
+	// way, so neither check needs a knownValueType guard.
 	if r.ValueType == "enum" && len(r.Enum) == 0 {
 		return fmt.Errorf("rule for (%s, %s) declares value_type enum but no enum values: %w", r.OpType, r.Field, errEnumNoValues)
 	}
-	if r.ValueType != "enum" && len(r.Enum) > 0 {
+	if knownValueType && r.ValueType != "enum" && len(r.Enum) > 0 {
 		return fmt.Errorf("rule for (%s, %s) declares enum values on non-enum value_type %q: %w", r.OpType, r.Field, r.ValueType, errEnumOnNonEnum)
 	}
 
-	// max_length only parameterises string and text.
-	if r.MaxLength != 0 && r.ValueType != "string" && r.ValueType != "text" {
+	// max_length only parameterises string and text -- skipped for an
+	// unrecognized value_type, which might be a thirteenth string-shaped
+	// catalogue member this build cannot judge one way or the other.
+	if knownValueType && r.MaxLength != 0 && r.ValueType != "string" && r.ValueType != "text" {
 		return fmt.Errorf("rule for (%s, %s) declares max_length on value_type %q; only string and text take one: %w", r.OpType, r.Field, r.ValueType, errMaxLengthValueType)
 	}
 
 	// tombstone's accumulator tests val == true / val == false and nothing
-	// else, so any value_type other than bool is a rule that can never fire.
-	if r.Strategy == "tombstone" && r.ValueType != "" && r.ValueType != "bool" {
+	// else, so any value_type other than bool is a rule that can never fire
+	// -- skipped for an unrecognized value_type, for the same reason.
+	if knownValueType && r.Strategy == "tombstone" && r.ValueType != "" && r.ValueType != "bool" {
 		return fmt.Errorf("rule for (%s, %s) uses tombstone with value_type %q; only bool typechecks: %w", r.OpType, r.Field, r.ValueType, errTombstoneValueType)
 	}
 
 	// lattice's semilattice elements and the field's legal values must be the
 	// same list: value_type enum only, and every lattice element a member of
-	// the declared enum.
+	// the declared enum. The value_type/enum cross-check is skipped for an
+	// unrecognized value_type; the lattice/enum element check itself already
+	// binds off value_type == "enum" literally, so it needs no separate
+	// guard.
 	if r.Strategy == "lattice" {
-		if r.ValueType != "" && r.ValueType != "enum" {
+		if knownValueType && r.ValueType != "" && r.ValueType != "enum" {
 			return fmt.Errorf("rule for (%s, %s) uses lattice with value_type %q; only enum typechecks: %w", r.OpType, r.Field, r.ValueType, errLatticeValueType)
 		}
 		if r.ValueType == "enum" {
@@ -283,7 +315,19 @@ func ValidateFieldRule(r FieldRule) error {
 	}
 
 	// key_types is required for keyed-lww, covering exactly the columns key
-	// declares, and forbidden everywhere else.
+	// declares, and forbidden everywhere else. Both structural checks below
+	// (cardinality, per-column presence) apply regardless of whether a
+	// column's own entry names a recognized type -- only the entry's own
+	// membership in KnownValueTypes is no longer checked here (WRIT-334):
+	// an unrecognized key_types entry is structurally valid, the same
+	// tolerance value_type itself gets above, and the resolver demotes that
+	// one column rather than this function rejecting the whole rule. An
+	// *empty* entry is different in kind, not just an out-of-catalogue
+	// name: no conforming writer, this build's vintage or any newer one,
+	// ever declares key_types[col] == "" -- schema-ops.schema.json's
+	// key_types values are $ref's value_type, whose enum excludes the
+	// empty string, so this is malformed, not forward-compatible, and
+	// stays rejected.
 	if r.Strategy == "keyed-lww" {
 		if len(r.KeyTypes) != len(r.Key) {
 			return fmt.Errorf("rule for (%s, %s) declares key_types covering %d column(s), want exactly the %d in key %v: %w", r.OpType, r.Field, len(r.KeyTypes), len(r.Key), r.Key, errKeyTypesCount)
@@ -293,8 +337,8 @@ func ValidateFieldRule(r FieldRule) error {
 			if !ok {
 				return fmt.Errorf("rule for (%s, %s) declares no key_types entry for key column %q: %w", r.OpType, r.Field, k, errKeyTypesMissingColumn)
 			}
-			if !KnownValueTypes[kt] {
-				return fmt.Errorf("rule for (%s, %s) declares unknown key_types value_type %q for column %q: %w", r.OpType, r.Field, kt, k, errKeyTypesUnknownValueType)
+			if kt == "" {
+				return fmt.Errorf("rule for (%s, %s) declares an empty key_types entry for key column %q: %w", r.OpType, r.Field, k, errKeyTypesEmptyValueType)
 			}
 		}
 	} else if len(r.KeyTypes) > 0 {
@@ -398,6 +442,22 @@ func FieldRules() ([]FieldRule, error) {
 		for _, r := range rules {
 			if err := ValidateFieldRule(r); err != nil {
 				return fmt.Errorf("spec: %s %w", filePath, err)
+			}
+			// ValidateFieldRule tolerates a value_type or key_types entry
+			// outside KnownValueTypes (WRIT-334): a rule sourced from the log
+			// may legitimately name a type a newer writer's catalogue has and
+			// this build's does not. writ's own shipped field-rules.json is
+			// not that case -- it is authored against this exact build's
+			// catalogue -- so this loader holds it to the stricter,
+			// fully-in-catalogue bar ValidateFieldRule itself no longer
+			// enforces.
+			if r.ValueType != "" && !KnownValueTypes[r.ValueType] {
+				return fmt.Errorf("spec: %s: rule for (%s, %s) declares value_type %q, not a member of KnownValueTypes", filePath, r.OpType, r.Field, r.ValueType)
+			}
+			for _, k := range r.Key {
+				if kt, ok := r.KeyTypes[k]; ok && !KnownValueTypes[kt] {
+					return fmt.Errorf("spec: %s: rule for (%s, %s) declares key_types[%q] = %q, not a member of KnownValueTypes", filePath, r.OpType, r.Field, k, kt)
+				}
 			}
 
 			key := ruleKey{Dir: path.Dir(filePath), OpType: r.OpType, OpVersion: r.OpVersion, Field: r.Field}

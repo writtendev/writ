@@ -29,6 +29,18 @@ constraints, no cross-field validation, no custom types (WRIT-184 decision 6).
 | `position` | base-62 fractional index | per `spec/ordering.md`; validation is the existing canonical-form check |
 | `anchor` | anchor object | per `spec/anchors.md`; git-shaped, so it stays in writ |
 
+The catalogue is closed for a **writer**: `spec/schemas/schema-ops.schema.json`'s
+`value_type` enum refuses a `define-field` naming anything outside this
+table, so no producer can author a thirteenth member. It is not closed for
+a **reader**: a `value_type` or `key_types` entry a reader's own build
+predates — the log carries it because some other, newer writer's schema
+declared it — demotes the rule (or, per position, the one key column) to
+untyped rather than withholding it (`spec/schema-ops.md` §10, WRIT-334).
+Adding a catalogue member is therefore additive for every reader already
+in the field: it degrades gracefully to "untyped" rather than dropping the
+rule, or — when that rule is the sole rule of its `op_type` — the whole
+op.
+
 `anchor` and `git-oid` are the boundary test for the schema-layer
 restructuring (WRIT-184): they are not merge strategies, but they are
 git-shaped, and writ is signed mergeable state in git. Keeping them as
@@ -120,6 +132,19 @@ value:
    non-`enum` `value_type`.
 5. `max_length` declared on a `value_type` other than `string`/`text`.
 
+Four of these five — `tombstone`, `lattice`'s value_type/enum cross-check,
+`enum`, and `max_length` — presuppose the reader can tell what the rule's
+own declared `value_type` constrains, and are skipped when that
+`value_type` is outside `KnownValueTypes`: a reader too old to know the
+type cannot judge whether it typechecks against `tombstone`, `lattice`,
+`enum`, or `max_length` either, so those four are skipped rather than
+guessed at, and the rule is demoted instead (§Producer-side and
+reader-tolerant below, `spec/schema-ops.md` §10). The fifth — `key_types`
+covering exactly `key` — is structural and runs regardless of whether
+`value_type` or any `key_types` entry names a recognized type; an
+unrecognized `key_types` entry demotes only that one key column, never the
+coverage check itself.
+
 The same field name carries no implied value type: two types that both
 declare a field called `relation` may type it `enum` and `string`
 respectively, and nothing reconciles them. A value type is a property of the
@@ -157,6 +182,19 @@ types, folding a mismatched value verbatim rather than rejecting the
 operation carrying it. Nothing on the read path calls the value-type
 validator: `internal/value` is a producer-side guard, exactly as
 `internal/person.Check` already is.
+
+A `value_type` or `key_types` entry outside this reader's own
+`KnownValueTypes` is a distinct case from "no declared `value_type`": the
+resolver still installs the rule, demoted at exactly the unrecognized
+position(s) (§The closed catalogue above, `spec/schema-ops.md` §10), and
+reports a warning-shaped `SchemaConflict` — nothing is withheld. A
+producer sits on the other side of that same gap: it cannot validate a
+write against a type it does not recognize, so it refuses the write
+outright (`spec/op-envelope.md` producer validation rule 3) rather than
+accept it unchecked. This extends rule 3's existing "undeclared field"
+refusal to "declared, but declared with a type this build cannot
+interpret" — a recognized sibling field or key column in the same op
+stays ordinarily writable.
 
 For a type a repository's own `schema` object declares (WRIT-188,
 `spec/op-envelope.md`'s producer precedence tier 2), the `value_type` a

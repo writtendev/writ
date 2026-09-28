@@ -64,6 +64,11 @@
     "expect": "accept"
   },
   {
+    "strategy": "append",
+    "value_type": "x-future",
+    "expect": "demote"
+  },
+  {
     "strategy": "create-once",
     "expect": "accept"
   },
@@ -128,6 +133,11 @@
     "expect": "accept"
   },
   {
+    "strategy": "create-once",
+    "value_type": "x-future",
+    "expect": "demote"
+  },
+  {
     "strategy": "keyed-lww",
     "expect": "accept"
   },
@@ -190,6 +200,11 @@
     "strategy": "keyed-lww",
     "value_type": "timestamp",
     "expect": "accept"
+  },
+  {
+    "strategy": "keyed-lww",
+    "value_type": "x-future",
+    "expect": "demote"
   },
   {
     "strategy": "lattice",
@@ -267,6 +282,11 @@
     "reason": "rule for (test-op, value) uses lattice with value_type \"timestamp\"; only enum typechecks"
   },
   {
+    "strategy": "lattice",
+    "value_type": "x-future",
+    "expect": "demote"
+  },
+  {
     "strategy": "lww",
     "expect": "accept"
   },
@@ -331,6 +351,11 @@
     "expect": "accept"
   },
   {
+    "strategy": "lww",
+    "value_type": "x-future",
+    "expect": "demote"
+  },
+  {
     "strategy": "multi-value",
     "expect": "accept"
   },
@@ -395,6 +420,11 @@
     "expect": "accept"
   },
   {
+    "strategy": "multi-value",
+    "value_type": "x-future",
+    "expect": "demote"
+  },
+  {
     "strategy": "set-observed-remove",
     "expect": "accept"
   },
@@ -459,6 +489,11 @@
     "expect": "accept"
   },
   {
+    "strategy": "set-observed-remove",
+    "value_type": "x-future",
+    "expect": "demote"
+  },
+  {
     "strategy": "set-union",
     "expect": "accept"
   },
@@ -521,6 +556,11 @@
     "strategy": "set-union",
     "value_type": "timestamp",
     "expect": "accept"
+  },
+  {
+    "strategy": "set-union",
+    "value_type": "x-future",
+    "expect": "demote"
   },
   {
     "strategy": "tombstone",
@@ -596,5 +636,10 @@
     "value_type": "timestamp",
     "expect": "reject",
     "reason": "rule for (test-op, value) uses tombstone with value_type \"timestamp\"; only bool typechecks"
+  },
+  {
+    "strategy": "tombstone",
+    "value_type": "x-future",
+    "expect": "demote"
   }
 ]

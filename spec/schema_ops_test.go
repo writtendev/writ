@@ -197,21 +197,20 @@ func TestValidSchemaOpsVectors(t *testing.T) {
 //     invariant for this reason; this inventory is what makes that gap
 //     visible instead of silent.
 var fieldRuleSentinelInventory = map[string]string{
-	"empty-op-type":                "schema: body.op_type is required and $ref's op_type_name, a non-empty grammar",
-	"invalid-op-version":           "pinned: schemaOpsInvariants hardcodes FieldRule.OpVersion to 1 (the outer op's own op_version >= 1 requirement, unrelated to body.op_version's decimal-string encoding)",
-	"empty-field":                  "schema: body.field is required and $ref's field_name, a non-empty grammar",
-	"invalid-field-identifier":     "schema: body.field is $ref's field_name; a schema-valid field is already a valid identifier",
-	"invalid-target-identifier":    "schema: body.target is $ref's target_name; define-field-target-grammar.json (kind: schema) already exercises this grammar",
-	"invalid-key-identifier":       "schema: body.key items are $ref's key_column_name; define-field-key-column-grammar.json (kind: schema) already exercises this grammar",
-	"unknown-strategy":             "schema: body.strategy is $ref's strategy, the closed catalogue enum; define-field-unknown-strategy.json (kind: schema) already exercises this",
-	"unknown-value-type":           "schema: body.value_type is $ref's value_type, the closed catalogue enum; define-field-unknown-value-type.json (kind: schema) already exercises this",
-	"key-types-unknown-value-type": "schema: body.key_types' additionalProperties is $ref's value_type, the same closed catalogue enum a key_types entry cannot escape",
-	"enum-no-values":               "deferred: value_type enum with an absent enum array is schema-valid (enum's own minItems:1 only bounds a *present* array)",
-	"tombstone-value-type":         "deferred: tombstone with a declared non-bool value_type is schema-valid",
-	"lattice-value-type":           "deferred: lattice with a declared non-enum value_type is schema-valid",
-	"lattice-element-not-in-enum":  "deferred: a lattice element outside its own enum is schema-valid (lattice and enum are just two string arrays to the schema)",
-	"key-types-missing-column":     "deferred: key_types with the right cardinality but the wrong column names is schema-valid",
-	"key-types-non-keyed-lww":      "deferred: key_types declared on a non-keyed-lww strategy is schema-valid",
+	"empty-op-type":               "schema: body.op_type is required and $ref's op_type_name, a non-empty grammar",
+	"invalid-op-version":          "pinned: schemaOpsInvariants hardcodes FieldRule.OpVersion to 1 (the outer op's own op_version >= 1 requirement, unrelated to body.op_version's decimal-string encoding)",
+	"empty-field":                 "schema: body.field is required and $ref's field_name, a non-empty grammar",
+	"invalid-field-identifier":    "schema: body.field is $ref's field_name; a schema-valid field is already a valid identifier",
+	"invalid-target-identifier":   "schema: body.target is $ref's target_name; define-field-target-grammar.json (kind: schema) already exercises this grammar",
+	"invalid-key-identifier":      "schema: body.key items are $ref's key_column_name; define-field-key-column-grammar.json (kind: schema) already exercises this grammar",
+	"unknown-strategy":            "schema: body.strategy is $ref's strategy, the closed catalogue enum; define-field-unknown-strategy.json (kind: schema) already exercises this",
+	"enum-no-values":              "deferred: value_type enum with an absent enum array is schema-valid (enum's own minItems:1 only bounds a *present* array)",
+	"tombstone-value-type":        "deferred: tombstone with a declared non-bool value_type is schema-valid",
+	"lattice-value-type":          "deferred: lattice with a declared non-enum value_type is schema-valid",
+	"lattice-element-not-in-enum": "deferred: a lattice element outside its own enum is schema-valid (lattice and enum are just two string arrays to the schema)",
+	"key-types-missing-column":    "deferred: key_types with the right cardinality but the wrong column names is schema-valid",
+	"key-types-empty-value-type":  "schema: key_types values are $ref's value_type, whose enum excludes the empty string; no schema-valid body can carry key_types[col] == \"\"",
+	"key-types-non-keyed-lww":     "deferred: key_types declared on a non-keyed-lww strategy is schema-valid",
 }
 
 // TestFieldRuleSentinelInventoryComplete asserts fieldRuleSentinelInventory

@@ -1,0 +1,304 @@
+{
+  "schemas": [
+    {
+      "object_id": "schema:acme",
+      "schema": {
+        "object_id": "schema:acme",
+        "namespace": "acme",
+        "types": [
+          {
+            "type": "acme.gadget",
+            "fields": [
+              {
+                "field": "note_a",
+                "op_type": "audit",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "keyed-lww",
+                "key": [
+                  "case"
+                ],
+                "key_types": {
+                  "case": "x-case-a"
+                }
+              },
+              {
+                "field": "note_b",
+                "op_type": "audit",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "keyed-lww",
+                "key": [
+                  "case"
+                ],
+                "key_types": {
+                  "case": "x-case-b"
+                }
+              },
+              {
+                "field": "tag",
+                "op_type": "mark-a",
+                "op_version": 1,
+                "value_type": "x-mark-a",
+                "strategy": "lww"
+              },
+              {
+                "field": "tag",
+                "op_type": "mark-b",
+                "op_version": 1,
+                "value_type": "x-mark-b",
+                "strategy": "lww"
+              }
+            ]
+          },
+          {
+            "type": "acme.widget",
+            "fields": [
+              {
+                "field": "title",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww"
+              },
+              {
+                "field": "assignment",
+                "op_type": "set-assign",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "keyed-lww",
+                "key": [
+                  "assignee",
+                  "team"
+                ],
+                "key_types": {
+                  "assignee": "person-ref",
+                  "team": "x-team-kind"
+                }
+              },
+              {
+                "field": "grade",
+                "op_type": "set-grade",
+                "op_version": 1,
+                "value_type": "x-rating",
+                "enum": [
+                  "a",
+                  "b"
+                ],
+                "strategy": "lww"
+              },
+              {
+                "field": "ident",
+                "op_type": "set-ident",
+                "op_version": 1,
+                "value_type": "x-uuid",
+                "strategy": "lww"
+              },
+              {
+                "field": "owner",
+                "op_type": "set-owner",
+                "op_version": 1,
+                "value_type": "x-owner-kind",
+                "strategy": "keyed-lww",
+                "key": [
+                  "holder"
+                ],
+                "key_types": {
+                  "holder": "person-ref"
+                }
+              },
+              {
+                "field": "score",
+                "op_type": "set-score",
+                "op_version": 1,
+                "value_type": "person-ref",
+                "strategy": "keyed-lww",
+                "key": [
+                  "who"
+                ],
+                "key_types": {
+                  "who": "x-handle"
+                }
+              },
+              {
+                "field": "size",
+                "op_type": "set-size",
+                "op_version": 1,
+                "value_type": "x-duration",
+                "max_length": 8,
+                "strategy": "lww"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "conflicts": [
+    {
+      "object_type": "acme.gadget",
+      "object_ids": [
+        "schema:acme"
+      ],
+      "reason": "field rule (audit, 1, note_b) declares key column \"case\" as \"x-case-b\", disagreeing with field \"note_a\"'s rule for the same (op_type, op_version), which declares it \"x-case-a\"; every keyed-lww rule sharing a key column within one (op_type, op_version) must agree on that column's key_types entry, because a producer resolves a key column's declared type by column name alone (spec/op-envelope.md §Producer validation rule 3) -- no winner is picked, so every rule bound to this column is withheld"
+    },
+    {
+      "object_type": "acme.gadget",
+      "object_ids": [
+        "schema:acme"
+      ],
+      "reason": "field rule (mark-b, 1, tag) reuses target \"tag\" already bound by (mark-a, 1, tag), but they disagree on value_type; the target is shared by more than one (op_type, field) version-bump class, so the version-bump carve-out for value_type, enum and max_length applies only within a class, not between them (spec/schema-ops.md §8) — every rule sharing this target must agree on value_type"
+    },
+    {
+      "object_type": "acme.widget",
+      "object_ids": [
+        "schema:acme"
+      ],
+      "reason": "field rule (set-assign, 1, assignment) declares key_types[\"team\"] = \"x-team-kind\", not in this reader's value-type catalogue; installed untyped at that position (spec/schema-ops.md §10)"
+    },
+    {
+      "object_type": "acme.widget",
+      "object_ids": [
+        "schema:acme"
+      ],
+      "reason": "field rule (set-grade, 1, grade) declares value_type \"x-rating\", not in this reader's value-type catalogue; installed untyped at that position (spec/schema-ops.md §10)"
+    },
+    {
+      "object_type": "acme.widget",
+      "object_ids": [
+        "schema:acme"
+      ],
+      "reason": "field rule (set-ident, 1, ident) declares value_type \"x-uuid\", not in this reader's value-type catalogue; installed untyped at that position (spec/schema-ops.md §10)"
+    },
+    {
+      "object_type": "acme.widget",
+      "object_ids": [
+        "schema:acme"
+      ],
+      "reason": "field rule (set-owner, 1, owner) declares value_type \"x-owner-kind\", not in this reader's value-type catalogue; installed untyped at that position (spec/schema-ops.md §10)"
+    },
+    {
+      "object_type": "acme.widget",
+      "object_ids": [
+        "schema:acme"
+      ],
+      "reason": "field rule (set-score, 1, score) declares key_types[\"who\"] = \"x-handle\", not in this reader's value-type catalogue; installed untyped at that position (spec/schema-ops.md §10)"
+    },
+    {
+      "object_type": "acme.widget",
+      "object_ids": [
+        "schema:acme"
+      ],
+      "reason": "field rule (set-size, 1, size) declares value_type \"x-duration\", not in this reader's value-type catalogue; installed untyped at that position (spec/schema-ops.md §10)"
+    }
+  ],
+  "objects": [
+    {
+      "object_id": "gadget-1",
+      "object_type": "acme.gadget",
+      "total_order": [
+        {
+          "commit": "8ac3392bb13fec6d6cddc0bf0357e8f2bfdcee5e",
+          "t_star": 1767226860
+        },
+        {
+          "commit": "07834aa0dd816d51a392a585f771b6e4750f9d14",
+          "t_star": 1767226920
+        },
+        {
+          "commit": "1f5bbef22d670cb02a50497b6780824288f5a8a2",
+          "t_star": 1767226980
+        }
+      ],
+      "state": {},
+      "unknown_ops": [
+        {
+          "commit": "8ac3392bb13fec6d6cddc0bf0357e8f2bfdcee5e",
+          "object_type": "acme.gadget",
+          "op_type": "mark-a",
+          "op_version": 1,
+          "verification": "wrong-key"
+        },
+        {
+          "commit": "07834aa0dd816d51a392a585f771b6e4750f9d14",
+          "object_type": "acme.gadget",
+          "op_type": "mark-b",
+          "op_version": 1,
+          "verification": "wrong-key"
+        },
+        {
+          "commit": "1f5bbef22d670cb02a50497b6780824288f5a8a2",
+          "object_type": "acme.gadget",
+          "op_type": "audit",
+          "op_version": 1,
+          "verification": "wrong-key"
+        }
+      ]
+    },
+    {
+      "object_id": "widget-1",
+      "object_type": "acme.widget",
+      "total_order": [
+        {
+          "commit": "f409326efbf6a1665695175908284d5fdf963a20",
+          "t_star": 1767226440
+        },
+        {
+          "commit": "da51a3d70a34a75de80c82c9b7dbeffee42d5746",
+          "t_star": 1767226500
+        },
+        {
+          "commit": "4bc42707de32197409bc07b0c80002835b4b6f2e",
+          "t_star": 1767226560
+        },
+        {
+          "commit": "43d233dcd45f61940676362de76dbeba7079f182",
+          "t_star": 1767226620
+        },
+        {
+          "commit": "7e889b1cbd0a6d6e2931ef1e4cd2827653e5fd06",
+          "t_star": 1767226680
+        },
+        {
+          "commit": "29ce351799c066f71aef714a556ceb5a3296d2b9",
+          "t_star": 1767226740
+        },
+        {
+          "commit": "254aefc2f06b16465dd8a44ad061a15368ec9cab",
+          "t_star": 1767226800
+        }
+      ],
+      "state": {
+        "assignment": [
+          {
+            "key": [
+              "carol",
+              "Eng-Team"
+            ],
+            "value": "note"
+          }
+        ],
+        "grade": "gold",
+        "ident": "not-yet-a-real-uuid",
+        "owner": [
+          {
+            "key": [
+              "bob"
+            ],
+            "value": "raw-owner-value"
+          }
+        ],
+        "score": [
+          {
+            "key": [
+              "ALiCE"
+            ],
+            "value": "email:alice@example.com"
+          }
+        ],
+        "size": "PT1H30M",
+        "title": "Widget"
+      }
+    }
+  ]
+}

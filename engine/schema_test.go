@@ -1621,6 +1621,217 @@ func TestRulesFromSchemas_SharedKeyColumnAgreementOK(t *testing.T) {
 	}
 }
 
+// TestRulesFromSchemas_UnrecognizedValueTypeDemotedNotWithheld pins
+// WRIT-334's Option A ruling directly: a field rule whose value_type is
+// outside this build's spec.KnownValueTypes is installed, demoted
+// (ValueType cleared to ""), with one warning-shaped SchemaConflict --
+// never dropped, never withheld. RulesFromSchemas and VocabulariesFromSchemas
+// are built from the same shared resolveSchemaTypes pass (the warning is
+// resolveSchemaTypes's own conflict, not appended separately by either
+// caller), so they must report byte-identical conflicts; only the rule
+// shape itself differs, because VocabulariesFromSchemas keeps the raw
+// declaration a producer needs to refuse the write (internal/codec/schema.go),
+// while RulesFromSchemas hands the fold path the demoted form.
+func TestRulesFromSchemas_UnrecognizedValueTypeDemotedNotWithheld(t *testing.T) {
+	f := mkField("widget", "set-ident", 1, "ident", "lww")
+	f.ValueType = "x-uuid"
+	a := state.Schema{
+		ObjectID:  "schema:acme",
+		Namespace: "acme",
+		Types:     []state.SchemaType{{Name: "acme.widget", Fields: []state.SchemaField{f}}},
+	}
+
+	rules, conflicts := writ.RulesFromSchemas([]state.Schema{a})
+	got := rules["acme.widget"]
+	if len(got) != 1 {
+		t.Fatalf("expected the rule installed (demoted, not withheld), got %+v", got)
+	}
+	if got[0].ValueType != "" {
+		t.Fatalf("expected ValueType demoted to \"\", got %q", got[0].ValueType)
+	}
+	if len(conflicts) != 1 {
+		t.Fatalf("expected exactly 1 warning conflict, got %+v", conflicts)
+	}
+	if !strings.Contains(conflicts[0].Reason, `value_type "x-uuid"`) || !strings.Contains(conflicts[0].Reason, "installed untyped") {
+		t.Fatalf("conflict reason should name the demoted value_type and say it was installed untyped, got %q", conflicts[0].Reason)
+	}
+
+	vocabularies, vocConflicts := writ.VocabulariesFromSchemas([]state.Schema{a})
+	if !reflect.DeepEqual(vocConflicts, conflicts) {
+		t.Fatalf("VocabulariesFromSchemas conflicts = %+v, want identical to RulesFromSchemas' %+v", vocConflicts, conflicts)
+	}
+	vocFields := vocabularies["acme.widget"].Fields[codec.OpVersionKey{OpType: "set-ident", OpVersion: 1}]
+	if len(vocFields) != 1 || vocFields[0].ValueType != "x-uuid" {
+		t.Fatalf("expected Vocabulary.Fields to keep the raw, undemoted value_type \"x-uuid\", got %+v", vocFields)
+	}
+}
+
+// TestRulesFromSchemas_PerPositionDemotion pins decision 2 of the plan
+// (the orchestrator's decision on WRIT-334, pending Matt's confirmation
+// before the tag): where a rule's own value_type is recognized but one of
+// its key_types entries is not, only that key column demotes. "score" is
+// keyed-lww, value_type person-ref (recognized) with key(who), key_types
+// {who: x-handle} (not recognized).
+func TestRulesFromSchemas_PerPositionDemotion(t *testing.T) {
+	score := state.SchemaField{
+		Name: "score", OpType: "set-score", OpVersion: 1, Strategy: "keyed-lww",
+		ValueType: "person-ref", Key: []string{"who"}, KeyTypes: map[string]string{"who": "x-handle"},
+	}
+	a := state.Schema{
+		ObjectID:  "schema:acme",
+		Namespace: "acme",
+		Types:     []state.SchemaType{{Name: "acme.widget", Fields: []state.SchemaField{score}}},
+	}
+
+	rules, conflicts := writ.RulesFromSchemas([]state.Schema{a})
+	got := rules["acme.widget"]
+	if len(got) != 1 {
+		t.Fatalf("expected the rule installed, got %+v", got)
+	}
+	if got[0].ValueType != "person-ref" {
+		t.Fatalf("expected the rule's own value_type to stay person-ref (recognized), got %q", got[0].ValueType)
+	}
+	if got[0].KeyTypes["who"] != "" {
+		t.Fatalf("expected key_types[who] demoted to \"\", got %q", got[0].KeyTypes["who"])
+	}
+	if len(conflicts) != 1 {
+		t.Fatalf("expected exactly 1 warning conflict naming only the key_types entry, got %+v", conflicts)
+	}
+	if strings.Contains(conflicts[0].Reason, `value_type "person-ref"`) {
+		t.Fatalf("conflict must not name the recognized value_type as demoted: %q", conflicts[0].Reason)
+	}
+	if !strings.Contains(conflicts[0].Reason, `key_types["who"] = "x-handle"`) {
+		t.Fatalf("conflict should name the demoted key_types entry, got %q", conflicts[0].Reason)
+	}
+}
+
+// TestRulesFromSchemas_SharedTargetBothUnrecognizedSameTypeInstalled pins
+// that CheckTargetAgreement compares raw declared values, not demoted ones
+// (spec/schema-ops.md §10): two rules across different op_types sharing a
+// target (same field name, no explicit target) that both declare the exact
+// same unrecognized value_type agree, exactly as two rules both declaring a
+// recognized value_type would, and both install.
+func TestRulesFromSchemas_SharedTargetBothUnrecognizedSameTypeInstalled(t *testing.T) {
+	v1 := mkField("widget", "create", 1, "owner", "lww")
+	v1.ValueType = "x-uuid"
+	v2 := mkField("widget", "assign", 1, "owner", "lww")
+	v2.ValueType = "x-uuid"
+	a := state.Schema{
+		ObjectID:  "schema:acme",
+		Namespace: "acme",
+		Types:     []state.SchemaType{{Name: "acme.widget", Fields: []state.SchemaField{v1, v2}}},
+	}
+
+	rules, conflicts := writ.RulesFromSchemas([]state.Schema{a})
+	got := rules["acme.widget"]
+	if len(got) != 2 {
+		t.Fatalf("expected both same-unrecognized-type rules installed, got %+v", got)
+	}
+	for _, r := range got {
+		if r.ValueType != "" {
+			t.Errorf("expected both rules demoted, got ValueType %q on %+v", r.ValueType, r)
+		}
+	}
+	if len(conflicts) != 2 {
+		t.Fatalf("expected 2 warning conflicts, one per demoted rule, got %+v", conflicts)
+	}
+}
+
+// TestRulesFromSchemas_SharedTargetDifferentUnrecognizedTypesWithheldNoWarning
+// is the discriminating negative: two rules sharing a target that declare
+// two different unrecognized value_types must disagree and be withheld
+// together, with no demotion warning at all -- if CheckTargetAgreement
+// compared demoted ("") values instead of raw ones, "x-uuid" and "x-other"
+// would both read as "" and wrongly agree, installing what a newer reader
+// that knows both types would withhold.
+func TestRulesFromSchemas_SharedTargetDifferentUnrecognizedTypesWithheldNoWarning(t *testing.T) {
+	v1 := mkField("widget", "create", 1, "owner", "lww")
+	v1.ValueType = "x-uuid"
+	v2 := mkField("widget", "assign", 1, "owner", "lww")
+	v2.ValueType = "x-other"
+	a := state.Schema{
+		ObjectID:  "schema:acme",
+		Namespace: "acme",
+		Types:     []state.SchemaType{{Name: "acme.widget", Fields: []state.SchemaField{v1, v2}}},
+	}
+
+	rules, conflicts := writ.RulesFromSchemas([]state.Schema{a})
+	if got := rules["acme.widget"]; len(got) != 0 {
+		t.Fatalf("expected both rules withheld (disagreeing raw value_type), got %+v", got)
+	}
+	if len(conflicts) != 1 {
+		t.Fatalf("expected exactly 1 withhold conflict and no separate demotion warning, got %+v", conflicts)
+	}
+	if strings.Contains(conflicts[0].Reason, "installed untyped") {
+		t.Fatalf("a withheld rule must never also be reported as installed/demoted: %q", conflicts[0].Reason)
+	}
+}
+
+// TestRulesFromSchemas_InvalidAndUnrecognizedRuleGetsOnlyDropConflict pins
+// that pass 1's structural validation runs, and drops, ahead of any
+// demotion question: a rule that is invalid on grounds unrelated to its
+// value_type (here, an unknown strategy) is dropped in pass 1 regardless of
+// whether its value_type also happens to be unrecognized, and gets only
+// that one drop conflict -- never reaches typeFields, so never also gets a
+// demotion warning.
+func TestRulesFromSchemas_InvalidAndUnrecognizedRuleGetsOnlyDropConflict(t *testing.T) {
+	f := mkField("widget", "set-ident", 1, "ident", "bogus-strategy")
+	f.ValueType = "x-uuid"
+	a := state.Schema{
+		ObjectID:  "schema:acme",
+		Namespace: "acme",
+		Types:     []state.SchemaType{{Name: "acme.widget", Fields: []state.SchemaField{f}}},
+	}
+
+	rules, conflicts := writ.RulesFromSchemas([]state.Schema{a})
+	if got := rules["acme.widget"]; len(got) != 0 {
+		t.Fatalf("expected the invalid rule dropped, got %+v", got)
+	}
+	if len(conflicts) != 1 {
+		t.Fatalf("expected exactly 1 drop conflict, got %+v", conflicts)
+	}
+	if !strings.Contains(conflicts[0].Reason, "invalid and was not installed") {
+		t.Fatalf("expected the pass-1 drop reason, got %q", conflicts[0].Reason)
+	}
+}
+
+// TestStoreTypes_ReportsRawUnrecognizedValueType pins that Store.Types --
+// the schema-in-the-log shape a caller reads back (spec/op-envelope.md
+// §Producer validation, "the shapes callers see come from the schema in
+// the log", AGENTS.md) -- reports a field's value_type exactly as declared,
+// undemoted, even when it names something outside this build's own
+// spec.KnownValueTypes. The declaration is written as a foreign/newer
+// writer's op, bypassing this build's own producer validation entirely
+// (writeForeignSchemaOp), the same way a real newer writer's schema would
+// already be sitting in the log before this build ever opened it.
+func TestStoreTypes_ReportsRawUnrecognizedValueType(t *testing.T) {
+	store, ctx, dir := openStoreWithCoreSchema(t)
+
+	p := writeForeignSchemaOp(t, dir, "fedcba9876543210", "", "schema:newer", "create", map[string]any{"namespace": "newer"}, 0)
+	p = writeForeignSchemaOp(t, dir, "fedcba9876543210", p, "schema:newer", "define-type", map[string]any{"type": "newer.gadget"}, 1)
+	p = writeForeignSchemaOp(t, dir, "fedcba9876543210", p, "schema:newer", "define-op", map[string]any{"type": "newer.gadget", "op_type": "set-ident", "op_version": "1"}, 2)
+	_ = writeForeignSchemaOp(t, dir, "fedcba9876543210", p, "schema:newer", "define-field", map[string]any{
+		"type": "newer.gadget", "op_type": "set-ident", "op_version": "1",
+		"field": "ident", "value_type": "x-uuid", "strategy": "lww",
+	}, 3)
+
+	if _, err := store.Refresh(ctx); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	types, err := store.Types(ctx)
+	if err != nil {
+		t.Fatalf("Store.Types failed: %v", err)
+	}
+	ty, ok := findSchemaType(types, "newer.gadget")
+	if !ok {
+		t.Fatalf("Store.Types: declared type %q missing from %+v", "newer.gadget", types)
+	}
+	if len(ty.Fields) != 1 || ty.Fields[0].Name != "ident" || ty.Fields[0].ValueType != "x-uuid" {
+		t.Fatalf("Store.Types.Fields = %+v, want one field {ident, x-uuid} reported raw, undemoted", ty.Fields)
+	}
+}
+
 // TestStoreSchemaFoldsEveryLoggedSchemaObject exercises Store.Schema
 // end-to-end: ops are appended directly (there is no write path for schema
 // ops in this ticket, spec/schema-ops.md §1.2), and Store.Schema is proven

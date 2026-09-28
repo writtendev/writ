@@ -223,5 +223,22 @@
     "reason_code": "schema-violation",
     "reader_disposition": "interpretable",
     "reason": "WRIT-137: a person-ref value carrying an interior C0 control character is refused at the producer by person.Check; the reader has no repertoire check and folds the op with the value intact"
+  },
+  "unrecognized-value-type-field.json": {
+    "producer_verdict": "reject",
+    "reason_code": "schema-violation",
+    "reader_disposition": "interpretable",
+    "reason": "WRIT-334: \"ident\" declares value_type \"x-uuid\", outside this build's spec.KnownValueTypes, and is the sole rule of its op_type (\"set-ident\") -- the ticket's own repro. The producer cannot validate a value against a type it does not recognize and refuses the write (rule 3's undeclared-field refusal, extended). The resolver installs the rule anyway, demoted to untyped rather than dropped (Option A, spec/schema-ops.md §10): before this ticket the rule was dropped and the whole op fell through to UnknownOp; now it folds normally, which this fixture pins by naming interpretable rather than unknown-op"
+  },
+  "unrecognized-key-types-entry.json": {
+    "producer_verdict": "reject",
+    "reason_code": "schema-violation",
+    "reader_disposition": "interpretable",
+    "reason": "WRIT-334: \"score\" is keyed-lww, value_type person-ref (recognized), key(who), and key_types {who: x-handle} -- \"x-handle\" is outside this build's spec.KnownValueTypes. The producer refuses the write because it cannot validate the \"who\" key column against a type it does not recognize, independently of \"score\"'s own recognized value_type (spec/op-envelope.md rule 3's key-column extension). The resolver demotes only the \"who\" key column, per position (the orchestrator's decision on the ticket, pending Matt's confirmation): \"score\" itself keeps normalizing as person-ref, and the rule installs rather than withholds, so the reader disposition is interpretable"
+  },
+  "unrecognized-value-type-sibling-writable.json": {
+    "producer_verdict": "accept",
+    "reader_disposition": "interpretable",
+    "reason": "WRIT-334: \"code\" declares value_type \"x-uuid\", outside this build's spec.KnownValueTypes, sharing op_type \"set-widget\" with a recognized sibling field \"title\" (string). The body writes only \"title\"; a recognized sibling field in the same op stays ordinarily writable even though \"code\"'s own rule would be refused if the body tried to write it (spec/schema-ops.md §11's producer-refusal bullet is scoped per field/key column, not per op)"
   }
 }

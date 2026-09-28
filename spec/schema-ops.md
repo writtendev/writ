@@ -430,7 +430,11 @@ Declares one field on one op's body for one type.
 - `value_type` (string, optional): One member of the closed value-type
   catalogue (`spec/value-types.md`). A rule declaring none is untyped, the
   same no-implicit-behavior idiom `spec/fold.md` §5 states for an
-  undeclared strategy.
+  undeclared strategy. The catalogue is closed for *this* writer — the
+  shipped schema's `value_type` enum refuses anything else here — but not
+  for a reader of a log a newer writer already wrote to; see §10 for what
+  a reader does with a `value_type` or `key_types` entry it does not
+  recognize.
 - `enum` (array of strings, optional): Required iff `value_type ==
   "enum"`; forbidden otherwise.
 - `max_length` (integer, optional): Only meaningful when `value_type` is
@@ -678,6 +682,19 @@ kinds of conflict can arise, and none is picked a winner:
    `object_type` — its other targets, and any type-level metadata — is
    unaffected.
 
+Not every `SchemaConflict` the resolver reports withholds anything. A rule
+whose `value_type`, or a `key_types` entry, is outside this reader's own
+catalogue is not one of the five kinds above: it is still installed,
+demoted at exactly the unrecognized position (§10), and the resolver
+reports one warning-shaped `SchemaConflict` alongside it — `ObjectType`,
+the owning schema's `ObjectIDs`, and a `Reason` naming what was demoted —
+purely informational, distinguishable from a withholding conflict only by
+the fact that the rule it names is nonetheless present in the resolved
+rule set. A rule the pass above actually drops or withholds gets its
+existing conflict and never also this warning: the two are mutually
+exclusive per rule, so a reader is never told a rule was "installed" and
+"withheld" in the same breath.
+
 A conflict is **resolver output, not fold output**. `Fold(ops, rules) →
 ObjectState{ObjectID, ObjectType, TotalOrder, State, UnknownOps}` is
 per-object and pure; a collision between two *different* schema objects is
@@ -705,11 +722,18 @@ object type whose rules never come from the log.
    never withheld for being deprecated (§5, §8).
 4. Validate each candidate rule through `spec.ValidateFieldRule`. A rule
    that fails is dropped and reported, never handed to the fold driver
-   (§9).
+   (§9). `ValidateFieldRule` now tolerates a `value_type` or `key_types`
+   entry outside `KnownValueTypes` rather than rejecting it: a rule
+   naming one is a candidate, not a drop, and the two set-level passes in
+   step 5 run on its declared values exactly as written, never on a
+   demoted form.
 5. Index surviving rules by bound `object_type`, visiting schema objects
    in ascending `object_id` order, so two conforming implementations build
    the same index from the same input regardless of enumeration order.
-   Detect and withhold collisions (§6).
+   Detect and withhold collisions (§6). Once a rule is installed, demote
+   it (and only it) at any position — `value_type` itself, or one
+   `key_types` entry — outside `KnownValueTypes`, and report the warning
+   §6 describes (§10).
 6. Fold every other object with the rules resolved for its `object_type`.
 
 ### 7.1. Absent schema is not a fold error
@@ -1014,25 +1038,50 @@ never handed to `Fold`. This is why the resolver lives in package
 ---
 
 `ValidateFieldRule`'s error for a rejected rule ends `: invariant <token>`,
-naming which of its twenty violation branches rejected the rule. The
+naming which of its nineteen violation branches rejected the rule. The
 suffix reaches a schema author directly, not just a test: `writ schema
 plan`/`apply` porcelain, the `--json` `conflicts[].reason` field
 (`docs/cli-json.md`), and `schemasrc` compile diagnostics all format this
 same error verbatim. The vocabulary: `empty-op-type`,
 `invalid-op-version`, `empty-field`, `invalid-field-identifier`,
 `invalid-target-identifier`, `invalid-key-identifier`, `unknown-strategy`,
-`keyed-lww-no-key`, `lattice-no-elements`, `unknown-value-type`,
+`keyed-lww-no-key`, `lattice-no-elements`,
 `enum-no-values`, `enum-on-non-enum`, `max-length-value-type`,
 `tombstone-value-type`, `lattice-value-type`,
 `lattice-element-not-in-enum`, `key-types-count`,
-`key-types-missing-column`, `key-types-unknown-value-type`, and
-`key-types-non-keyed-lww` — one per branch above. Five of the twenty are
+`key-types-missing-column`, `key-types-empty-value-type`, and
+`key-types-non-keyed-lww` — one per branch above. Five of the nineteen are
 exercised as `rejects: "invariant"` conformance vectors, each naming the
 one it pins in a sibling `invariant_rule` field (§Conformance Data); the
 rest are unreachable from a schema-valid `define-field` body, unreachable
 because the reference harness pins the field itself, or reachable but not
 yet given a vector — `spec/schema_ops_test.go`'s
 `fieldRuleSentinelInventory` states which, and why, for each.
+
+An out-of-catalogue `value_type` or `key_types` entry is deliberately
+*not* one of the nineteen (WRIT-334): `unknown-value-type` and
+`key-types-unknown-value-type` were both deleted, not bridged to, when
+this reader stopped rejecting the two branches they named. `spec/schemas/schema-ops.schema.json`'s
+`value_type` enum still closes the catalogue for *this build's own*
+`writ schema plan`/`apply` — an author naming a thirteenth type is
+refused at the schema-validation step, before `ValidateFieldRule` is ever
+reached, so authoring stays exactly as strict as before. What changed is
+what a *reader* does with a `value_type` already in the log from some
+other, newer writer: `ValidateFieldRule` now accepts it structurally, and
+the checks that presuppose knowing the type — `enum-on-non-enum`,
+`max-length-value-type`, `tombstone-value-type`, `lattice-value-type` —
+are skipped for it rather than guessed at (`enum-no-values` and
+`lattice-element-not-in-enum` already apply only when `value_type ==
+"enum"`, so neither needed a carve-out). §10 covers what the resolver
+does with a rule that clears this gate. An *empty* `key_types` entry
+(`{col: ""}`) is not one of the two deleted branches and stays rejected
+as `key-types-empty-value-type`: it names no type at all, catalogue
+member or otherwise, so no writer — this build's vintage or a newer
+one — can ever have meant it as a forward-compatible declaration, and
+`spec/schemas/schema-ops.schema.json`'s `key_types` values are `$ref`'s
+`value_type`, whose enum already excludes the empty string, so this
+branch is unreachable from a schema-valid body the same way
+`invalid-field-identifier` is.
 
 ---
 
@@ -1045,6 +1094,30 @@ yet given a vector — `spec/schema_ops_test.go`'s
   DAG and contribute to total ordering (`t*`) and ancestry, but contribute
   no field mutations to known schema state.
 - **Absent schema for an encountered `object_type`:** See §7.1.
+- **Unrecognized `value_type` or `key_types` entry (WRIT-334):** a
+  `define-field` naming a `value_type`, or a `key_types` entry, this
+  reader's own `KnownValueTypes` does not contain — the log carries it
+  because some newer writer's build knows a member this one predates —
+  does not withhold the rule the way §6's five conflict kinds do. The
+  resolver installs it anyway, demoted at exactly the unrecognized
+  position: `value_type` itself clears to `""` only when `value_type`
+  is the unrecognized one, and a `key_types` entry clears to `""` only
+  for the column whose own entry is unrecognized, leaving every
+  recognized position — the rule's own `value_type`, or a sibling
+  `key_types` column — exactly as declared. §6's two set-level passes
+  (target agreement, key-column agreement) run on the raw declared
+  values, never the demoted ones, so a withhold decision never depends on
+  whether this reader happens to recognize the type: a newer reader that
+  does know a shared type would withhold or install exactly what this one
+  does. §9's four type-dependent validation checks are skipped for the
+  unrecognized position, since a reader that does not know the type
+  cannot judge whether it typechecks against `tombstone`, `lattice`,
+  `enum`, or `max_length` either. The resolver reports one warning
+  `SchemaConflict` per demoted rule alongside the installed rule (§6);
+  nothing about this is a fold-time behavior — `internal/fold` still
+  never looks at `value_type` for anything but `person-ref`
+  normalization (`spec/value-types.md` §Normalization), so a demoted
+  rule folds identically to one declared untyped from the start.
 
 ---
 
@@ -1104,6 +1177,24 @@ than restating the precedence itself (WRIT-188).
   boundary — it buys a clearer rejection and a rule index that is never
   keyed by an unwritable `op_type`, and it applies to a `define-op`
   declaration exactly as it does to `define-field`'s.
+- **A producer refuses a write to a field or key column whose declared
+  type it does not recognize (WRIT-334).** §9's resolver installs a rule
+  demoted at an unrecognized `value_type` or `key_types` position rather
+  than withholding it, but the producer's own tier-2 check
+  (`spec/op-envelope.md` rule 3) cannot validate a value against a type it
+  does not know — it has no catalogue entry to check the value against,
+  and letting it through unchecked would be a bigger lockstep break than
+  the one this ticket closes: it would let a value that *would* fail the
+  type once a newer build finally implements it reach the log signed.
+  This refusal is the same shape as rule 3's "undeclared field" refusal
+  extended one step: a field is now refused not only when the schema
+  declares no rule for it at all, but also when it declares one this
+  build cannot interpret. It applies independently to a body field whose
+  own rule's `value_type` is unrecognized and to a body key that is a
+  keyed-lww key column whose `key_types` entry is unrecognized, whether
+  or not that name also carries a field rule of its own — a recognized
+  sibling field or key column in the same op is unaffected and stays
+  ordinarily writable.
 
 ---
 
@@ -1164,3 +1255,33 @@ than restating the precedence itself (WRIT-188).
   type. The pairs exist to pin that the grammar check runs in the
   per-rule pass: a malformed rule drops only itself, never the group a
   grouping pass would have put it in alongside its legitimate sibling.
+- `spec/testdata/schema-rules/matrix.json` (WRIT-334) — one `expect:
+  "demote"` row per merge strategy, an out-of-catalogue `value_type`
+  (`x-future`) `ValidateFieldRule` must accept rather than reject; see
+  `spec/value-types.md` §Orthogonality for the matrix itself.
+- `spec/fixtures/testdata/descriptions/schema-driven-unrecognized-value-type.yaml`
+  (WRIT-334) — the reader-side pin, across two types in one schema
+  object. `acme.widget` carries a `create/title` control field alongside
+  six demoted fields: an out-of-catalogue `value_type` as the sole rule
+  of its `op_type` (which does not fall through to `UnknownOp` the way it
+  did before this ticket), one paired with `max_length`, one paired with
+  `enum`, and per-position demotion pinned in both directions and for
+  mixed sibling key columns — a `keyed-lww` field with a recognized
+  `value_type` (`person-ref`) beside an unrecognized `key_types` entry,
+  the reverse (an unrecognized `value_type` beside a recognized
+  `key_types` entry), and a `keyed-lww` field with two key columns, one
+  recognized and one not. `acme.gadget` is the negative passes 2 and 3
+  need: two rules sharing a target, and two rules sharing a key column,
+  each pair declaring different out-of-catalogue types — comparing raw
+  declared values (not demoted ones) means they still disagree and are
+  withheld, never wrongly agreeing as "untyped". The golden pins six
+  warnings (one per demoted `acme.widget` field), two withhold conflicts,
+  no drop conflicts, every `acme.widget` field present in folded state,
+  and `acme.gadget`'s three ops in `unknown_ops`.
+- `spec/testdata/producer/cases/unrecognized-value-type-field.json`,
+  `unrecognized-key-types-entry.json`, and
+  `unrecognized-value-type-sibling-writable.json` (WRIT-334) — §11's new
+  producer-refusal bullet, paired with the reader tolerance the golden
+  above pins: a write to a field, and separately to a key column, whose
+  declared type this producer does not recognize is refused, while a
+  write touching only a recognized sibling field is accepted.
