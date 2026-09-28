@@ -1,0 +1,48 @@
+{
+  "name": "multi-value-partial-collapse",
+  "description": "WRIT-345 item 5 (spec/fold.md §5.9): a later write observing only some of the concurrent versions, not all and not none. Expected: the register partially collapses to op-d's merged value and op-c's untouched value.",
+  "object_id": "obj-1",
+  "fields": {
+    "body": { "strategy": "multi-value" }
+  },
+  "ops": [
+    {
+      "id": "op-root",
+      "parents": [],
+      "time": 100,
+      "object_id": "obj-1",
+      "body": { "body": "Root" }
+    },
+    {
+      "id": "op-a",
+      "parents": ["op-root"],
+      "time": 200,
+      "object_id": "obj-1",
+      "body": { "body": "Version A" }
+    },
+    {
+      "id": "op-b",
+      "parents": ["op-root"],
+      "time": 300,
+      "object_id": "obj-1",
+      "body": { "body": "Version B" }
+    },
+    {
+      "id": "op-c",
+      "parents": ["op-root"],
+      "time": 400,
+      "object_id": "obj-1",
+      "body": { "body": "Version C" }
+    },
+    {
+      "id": "op-d",
+      "parents": ["op-a", "op-b"],
+      "time": 500,
+      "object_id": "obj-1",
+      "body": { "body": "Merged A and B" }
+    }
+  ],
+  "expected_state": {
+    "body": ["Merged A and B", "Version C"]
+  }
+}

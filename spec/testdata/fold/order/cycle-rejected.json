@@ -1,0 +1,26 @@
+{
+  "name": "cycle-rejected",
+  "description": "A directed cycle in the restricted DAG (op-root emits, then op-a and op-b hold each other's only remaining in-degree) MUST be rejected (spec/fold.md §1, \"Malformed input that contains a directed cycle ... MUST reject\", and §4 step 5, |L| != |S|). Expected: ordering returns a refusal, not an empty result.",
+  "object_id": "obj-1",
+  "expected_refusal": true,
+  "ops": [
+    {
+      "id": "op-root",
+      "parents": [],
+      "time": 100,
+      "object_id": "obj-1"
+    },
+    {
+      "id": "op-a",
+      "parents": ["op-root", "op-b"],
+      "time": 200,
+      "object_id": "obj-1"
+    },
+    {
+      "id": "op-b",
+      "parents": ["op-a"],
+      "time": 300,
+      "object_id": "obj-1"
+    }
+  ]
+}

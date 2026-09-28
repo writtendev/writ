@@ -1,0 +1,60 @@
+{
+  "name": "invalid-utf8-target",
+  "description": "WRIT-345 item R5b (spec/anchors.md §Lines and encoding, spec/resolution.md §Target Tree & Content Preparation): a target file's bytes that are not valid UTF-8 cannot be carried in a JSON string, so this case supplies bin.go through target.files_base64. Expected: each invalid byte decodes to its own U+FFFD, not one U+FFFD per ill-formed subsequence, and the recorded context matches that decode verbatim.",
+  "anchor": {
+    "version": 1,
+    "new": {
+      "commit": "1111111111111111111111111111111111111111",
+      "path": "bin.go",
+      "blob": "ffffffffffffffffffffffffffffffffffffffff",
+      "range": {
+        "start": 1,
+        "end": 2
+      },
+      "context": {
+        "before": [],
+        "lines": [
+          "a := \"��\"",
+          "b := \"�\""
+        ],
+        "after": []
+      }
+    }
+  },
+  "target": {
+    "files_base64": {
+      "bin.go": "YSA6PSAi4oIiCmIgOj0gIv8iCg=="
+    }
+  },
+  "expect": {
+    "anchor": {
+      "version": 1,
+      "new": {
+        "commit": "1111111111111111111111111111111111111111",
+        "path": "bin.go",
+        "blob": "ffffffffffffffffffffffffffffffffffffffff",
+        "range": {
+          "start": 1,
+          "end": 2
+        },
+        "context": {
+          "before": [],
+          "lines": [
+            "a := \"��\"",
+            "b := \"�\""
+          ],
+          "after": []
+        }
+      }
+    },
+    "new": {
+      "outcome": "resolved",
+      "match": "context-exact",
+      "path": "bin.go",
+      "range": {
+        "start": 1,
+        "end": 2
+      }
+    }
+  }
+}

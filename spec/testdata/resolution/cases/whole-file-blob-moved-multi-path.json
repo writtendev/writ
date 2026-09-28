@@ -1,0 +1,35 @@
+{
+  "name": "whole-file-blob-moved-multi-path",
+  "description": "WRIT-345 item R1b (spec/resolution.md Whole-File Anchors, exact-blob-moved): the whole-file counterpart of exact-blob-moved-multi-path.json, since resolveWholeFileSide runs its own separate candidate-path loop. Expected: the same smallest-path-in-UTF-8-byte-order tiebreak picks B.go.",
+  "anchor": {
+    "version": 1,
+    "new": {
+      "commit": "1111111111111111111111111111111111111111",
+      "path": "src/old.go",
+      "blob": "8b0078b898037ac52e5c080424ae3d6b1236320a"
+    }
+  },
+  "target": {
+    "files": {
+      "b.go": "package x\n\nfunc F() {}\n",
+      "B.go": "package x\n\nfunc F() {}\n",
+      "a/x.go": "package x\n\nfunc F() {}\n",
+      "c.go": "other\n"
+    }
+  },
+  "expect": {
+    "anchor": {
+      "version": 1,
+      "new": {
+        "commit": "1111111111111111111111111111111111111111",
+        "path": "src/old.go",
+        "blob": "8b0078b898037ac52e5c080424ae3d6b1236320a"
+      }
+    },
+    "new": {
+      "outcome": "resolved",
+      "match": "exact-blob-moved",
+      "path": "B.go"
+    }
+  }
+}

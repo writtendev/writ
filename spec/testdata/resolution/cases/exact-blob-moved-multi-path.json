@@ -1,0 +1,65 @@
+{
+  "name": "exact-blob-moved-multi-path",
+  "description": "WRIT-345 item R1a (spec/resolution.md Rung 2): three target paths hold a blob identical to anchor.blob, plus an unrelated file. Expected: Rung 2's tiebreak (smallest path in UTF-8 byte order) picks B.go.",
+  "anchor": {
+    "version": 1,
+    "new": {
+      "commit": "1111111111111111111111111111111111111111",
+      "path": "src/old.go",
+      "blob": "8b0078b898037ac52e5c080424ae3d6b1236320a",
+      "range": {
+        "start": 3,
+        "end": 3
+      },
+      "context": {
+        "before": [
+          ""
+        ],
+        "lines": [
+          "func F() {}"
+        ],
+        "after": []
+      }
+    }
+  },
+  "target": {
+    "files": {
+      "b.go": "package x\n\nfunc F() {}\n",
+      "B.go": "package x\n\nfunc F() {}\n",
+      "a/x.go": "package x\n\nfunc F() {}\n",
+      "c.go": "other\n"
+    }
+  },
+  "expect": {
+    "anchor": {
+      "version": 1,
+      "new": {
+        "commit": "1111111111111111111111111111111111111111",
+        "path": "src/old.go",
+        "blob": "8b0078b898037ac52e5c080424ae3d6b1236320a",
+        "range": {
+          "start": 3,
+          "end": 3
+        },
+        "context": {
+          "before": [
+            ""
+          ],
+          "lines": [
+            "func F() {}"
+          ],
+          "after": []
+        }
+      }
+    },
+    "new": {
+      "outcome": "resolved",
+      "match": "exact-blob-moved",
+      "path": "B.go",
+      "range": {
+        "start": 3,
+        "end": 3
+      }
+    }
+  }
+}

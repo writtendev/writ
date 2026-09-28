@@ -1,0 +1,54 @@
+{
+  "name": "keyed-lww-non-ascii-key-order",
+  "description": "WRIT-345 item 4 (spec/fold.md §5.8/§8): keyed-lww result entries are ordered by key tuple in canonical UTF-8 byte order, previously stated only for set-union/OR-set/multi-value and untested against a non-ASCII key. Expected order: 'Z', 'f', 'é', 'Ａ', '😀'.",
+  "object_id": "obj-1",
+  "fields": {
+    "verdict": { "strategy": "keyed-lww", "key": ["subject"] }
+  },
+  "ops": [
+    {
+      "id": "op-1",
+      "parents": [],
+      "time": 100,
+      "object_id": "obj-1",
+      "body": { "subject": "😀", "verdict": "5" }
+    },
+    {
+      "id": "op-2",
+      "parents": ["op-1"],
+      "time": 200,
+      "object_id": "obj-1",
+      "body": { "subject": "Ａ", "verdict": "4" }
+    },
+    {
+      "id": "op-3",
+      "parents": ["op-2"],
+      "time": 300,
+      "object_id": "obj-1",
+      "body": { "subject": "é", "verdict": "3" }
+    },
+    {
+      "id": "op-4",
+      "parents": ["op-3"],
+      "time": 400,
+      "object_id": "obj-1",
+      "body": { "subject": "f", "verdict": "2" }
+    },
+    {
+      "id": "op-5",
+      "parents": ["op-4"],
+      "time": 500,
+      "object_id": "obj-1",
+      "body": { "subject": "Z", "verdict": "1" }
+    }
+  ],
+  "expected_state": {
+    "verdict": [
+      { "key": ["Z"], "value": "1" },
+      { "key": ["f"], "value": "2" },
+      { "key": ["é"], "value": "3" },
+      { "key": ["Ａ"], "value": "4" },
+      { "key": ["😀"], "value": "5" }
+    ]
+  }
+}

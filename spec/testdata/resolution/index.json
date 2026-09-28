@@ -336,5 +336,45 @@
     "description": "Whole-file anchor on file whose blob matches target tree",
     "match": "exact-path-blob",
     "outcome": "resolved"
+  },
+  "exact-blob-moved-multi-path.json": {
+    "description": "Rung 2 tiebreak across three paths holding an identical blob: the smallest path in UTF-8 byte order wins",
+    "match": "exact-blob-moved",
+    "outcome": "resolved"
+  },
+  "whole-file-blob-moved-multi-path.json": {
+    "description": "Whole-file counterpart of exact-blob-moved-multi-path.json: resolveWholeFileSide's own candidate loop applies the same smallest-path-in-UTF-8-byte-order tiebreak",
+    "match": "exact-blob-moved",
+    "outcome": "resolved"
+  },
+  "context-exact-cross-file-tiebreak.json": {
+    "description": "Rung 3 cross-file tiebreak with five matching windows across three files, exercising all four tiebreak keys (collar score, distance, start, path) in fixed order",
+    "match": "context-exact",
+    "outcome": "resolved"
+  },
+  "ambiguous-cross-file.json": {
+    "description": "Rung 4 tie between two windows in two different files, not two windows in one file as ambiguous-duplicate.json exercises",
+    "outcome": "orphaned",
+    "reason": "ambiguous"
+  },
+  "crlf-target-lf-context.json": {
+    "description": "Target file lines keep their trailing CR; LF-only recorded context cannot match any line, so the (present) path orphans as no-candidate rather than resolving",
+    "outcome": "orphaned",
+    "reason": "no-candidate"
+  },
+  "bom-target.json": {
+    "description": "Target file's line 1 begins with a byte-order mark that is not stripped before comparison; the BOM-free recorded context falls below the match threshold",
+    "outcome": "orphaned",
+    "reason": "below-threshold"
+  },
+  "invalid-utf8-target.json": {
+    "description": "Target file supplied via target.files_base64 carries invalid UTF-8; each invalid byte decodes to its own U+FFFD (not one per maximal ill-formed subsequence), and the recorded context matches that per-byte decode verbatim",
+    "match": "context-exact",
+    "outcome": "resolved"
+  },
+  "target-line-truncation.json": {
+    "description": "Target line of 1200 Unicode code points is truncated to its first 1000 code points before comparison, measured in code points rather than UTF-8 bytes or UTF-16 units",
+    "match": "context-exact",
+    "outcome": "resolved"
   }
 }

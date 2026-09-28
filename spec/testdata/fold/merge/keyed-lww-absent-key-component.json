@@ -1,0 +1,37 @@
+{
+  "name": "keyed-lww-absent-key-component",
+  "description": "WRIT-345 item 3 (spec/fold.md §5.8, \"A key component the body omits entirely ... contributes the empty component\"). Expected: op-2 (omits `revision`) and op-3 (omits `subject`) address the distinct registers [\"user:alice\",\"\"] and [\"\",\"r1\"].",
+  "object_id": "obj-1",
+  "fields": {
+    "verdict": { "strategy": "keyed-lww", "key": ["subject", "revision"] }
+  },
+  "ops": [
+    {
+      "id": "op-1",
+      "parents": [],
+      "time": 100,
+      "object_id": "obj-1",
+      "body": { "subject": "user:alice", "revision": "", "verdict": "approve" }
+    },
+    {
+      "id": "op-2",
+      "parents": ["op-1"],
+      "time": 200,
+      "object_id": "obj-1",
+      "body": { "subject": "user:alice", "verdict": "request-changes" }
+    },
+    {
+      "id": "op-3",
+      "parents": ["op-1"],
+      "time": 300,
+      "object_id": "obj-1",
+      "body": { "revision": "r1", "verdict": "none" }
+    }
+  ],
+  "expected_state": {
+    "verdict": [
+      { "key": ["", "r1"], "value": "none" },
+      { "key": ["user:alice", ""], "value": "request-changes" }
+    ]
+  }
+}

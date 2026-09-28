@@ -1,0 +1,64 @@
+{
+  "name": "ambiguous-cross-file",
+  "description": "WRIT-345 item R3 (spec/resolution.md Rung 4, Strict best): a tie between two best-scoring windows across two different files, not within one file as ambiguous-duplicate.json exercises. Expected: the anchor orphans as ambiguous.",
+  "anchor": {
+    "version": 1,
+    "new": {
+      "commit": "1111111111111111111111111111111111111111",
+      "path": "dup.go",
+      "blob": "cccccccccccccccccccccccccccccccccccccccc",
+      "range": {
+        "start": 3,
+        "end": 4
+      },
+      "context": {
+        "before": [
+          "\tsetup()"
+        ],
+        "lines": [
+          "\ta()",
+          "\tb()"
+        ],
+        "after": [
+          "\tteardown()"
+        ]
+      }
+    }
+  },
+  "target": {
+    "files": {
+      "one.go": "func One() {\n\tsetup()\n\ta()\n\tb_modified()\n\tteardown()\n}\n",
+      "two.go": "func One() {\n\tsetup()\n\ta()\n\tb_modified()\n\tteardown()\n}\n"
+    }
+  },
+  "expect": {
+    "anchor": {
+      "version": 1,
+      "new": {
+        "commit": "1111111111111111111111111111111111111111",
+        "path": "dup.go",
+        "blob": "cccccccccccccccccccccccccccccccccccccccc",
+        "range": {
+          "start": 3,
+          "end": 4
+        },
+        "context": {
+          "before": [
+            "\tsetup()"
+          ],
+          "lines": [
+            "\ta()",
+            "\tb()"
+          ],
+          "after": [
+            "\tteardown()"
+          ]
+        }
+      }
+    },
+    "new": {
+      "outcome": "orphaned",
+      "reason": "ambiguous"
+    }
+  }
+}

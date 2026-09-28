@@ -1,0 +1,36 @@
+{
+  "name": "create-once-concurrent-roots",
+  "description": "WRIT-345 item 2 (spec/fold.md §5.2): create-once's tiebreak between two concurrent root writers with equal t*. Expected: the smaller op id wins, not the values' own ordering.",
+  "object_id": "obj-1",
+  "fields": {
+    "created_by": { "strategy": "create-once" },
+    "title": { "strategy": "lww" }
+  },
+  "ops": [
+    {
+      "id": "op-b",
+      "parents": [],
+      "time": 100,
+      "object_id": "obj-1",
+      "body": { "created_by": "amy", "title": "B" }
+    },
+    {
+      "id": "op-a",
+      "parents": [],
+      "time": 100,
+      "object_id": "obj-1",
+      "body": { "created_by": "zed", "title": "A" }
+    },
+    {
+      "id": "op-c",
+      "parents": ["op-a", "op-b"],
+      "time": 200,
+      "object_id": "obj-1",
+      "body": { "title": "C" }
+    }
+  ],
+  "expected_state": {
+    "created_by": "zed",
+    "title": "C"
+  }
+}

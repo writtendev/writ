@@ -49,11 +49,10 @@ func compileResolutionSchema(t *testing.T) *jsonschema.Schema {
 	return sch
 }
 
-func gitBlobOID(content string) string {
-	b := []byte(content)
+func gitBlobOID(content []byte) string {
 	h := sha1.New()
-	fmt.Fprintf(h, "blob %d\x00", len(b))
-	h.Write(b)
+	fmt.Fprintf(h, "blob %d\x00", len(content))
+	h.Write(content)
 	return hex.EncodeToString(h.Sum(nil))
 }
 
@@ -152,7 +151,7 @@ func TestResolutionVectorsValidate(t *testing.T) {
 			}
 
 			// Verify blob OID integrity for exact-blob matches
-			for path, content := range c.Target.Files {
+			for path, content := range c.Target.Contents {
 				computed := gitBlobOID(content)
 				if expectObj.New != nil && anchorObj.New != nil {
 					if expectObj.New.Match == "exact-path-blob" && expectObj.New.Path == path {

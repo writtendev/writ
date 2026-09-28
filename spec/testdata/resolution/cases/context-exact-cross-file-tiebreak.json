@@ -1,0 +1,64 @@
+{
+  "name": "context-exact-cross-file-tiebreak",
+  "description": "WRIT-345 item R2 (spec/resolution.md Rung 3, Candidate Selection & Tiebreaks): anchor.path is absent, so the search spans every file in the target tree, and five windows across three files match verbatim. Expected: the fixed tiebreak order (collar score, then distance, then start, then path) picks z.go:3; swapping any two tiebreak keys picks a different window.",
+  "anchor": {
+    "version": 1,
+    "new": {
+      "commit": "1111111111111111111111111111111111111111",
+      "path": "gone.go",
+      "blob": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "range": {
+        "start": 5,
+        "end": 5
+      },
+      "context": {
+        "before": [
+          "// B"
+        ],
+        "lines": [
+          "TARGET();"
+        ],
+        "after": []
+      }
+    }
+  },
+  "target": {
+    "files": {
+      "a.go": "// B\nTARGET();\nx\nx\nx\n// B\nTARGET();\nx\n",
+      "m.go": "y\ny\ny\ny\nTARGET();\ny\n",
+      "z.go": "y\n// B\nTARGET();\ny\ny\n// B\nTARGET();\ny\n"
+    }
+  },
+  "expect": {
+    "anchor": {
+      "version": 1,
+      "new": {
+        "commit": "1111111111111111111111111111111111111111",
+        "path": "gone.go",
+        "blob": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "range": {
+          "start": 5,
+          "end": 5
+        },
+        "context": {
+          "before": [
+            "// B"
+          ],
+          "lines": [
+            "TARGET();"
+          ],
+          "after": []
+        }
+      }
+    },
+    "new": {
+      "outcome": "resolved",
+      "match": "context-exact",
+      "path": "z.go",
+      "range": {
+        "start": 3,
+        "end": 3
+      }
+    }
+  }
+}

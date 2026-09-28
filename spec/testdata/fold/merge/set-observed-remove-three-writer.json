@@ -1,0 +1,34 @@
+{
+  "name": "set-observed-remove-three-writer",
+  "description": "WRIT-345 item 6 (spec/fold.md §5.4): a concurrent re-add that sorts before the causally-later remove in the total order L. Expected: presence is decided by causal ancestry, not L-position, so 'bug' stays present.",
+  "object_id": "obj-1",
+  "fields": {
+    "labels": { "strategy": "set-observed-remove" }
+  },
+  "ops": [
+    {
+      "id": "op-alice-add",
+      "parents": [],
+      "time": 100,
+      "object_id": "obj-1",
+      "body": { "labels": { "add": ["bug"] } }
+    },
+    {
+      "id": "op-carol-readd",
+      "parents": ["op-alice-add"],
+      "time": 150,
+      "object_id": "obj-1",
+      "body": { "labels": { "add": ["bug"] } }
+    },
+    {
+      "id": "op-bob-remove",
+      "parents": ["op-alice-add"],
+      "time": 200,
+      "object_id": "obj-1",
+      "body": { "labels": { "remove": ["bug"] } }
+    }
+  ],
+  "expected_state": {
+    "labels": ["bug"]
+  }
+}

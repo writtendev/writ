@@ -29,8 +29,8 @@ func TestDeterminismShuffledMap(t *testing.T) {
 			// for.
 			algo := detectHashAlgo(c.Anchor)
 
-			fileKeys := make([]string, 0, len(c.Target.Files))
-			for k := range c.Target.Files {
+			fileKeys := make([]string, 0, len(c.Target.Contents))
+			for k := range c.Target.Contents {
 				fileKeys = append(fileKeys, k)
 			}
 
@@ -43,7 +43,7 @@ func TestDeterminismShuffledMap(t *testing.T) {
 				})
 				shuffledFiles := make(map[string][]byte, len(fileKeys))
 				for _, k := range fileKeys {
-					shuffledFiles[k] = []byte(c.Target.Files[k])
+					shuffledFiles[k] = c.Target.Contents[k]
 				}
 
 				tree := resolve.NewTree(shuffledFiles, algo)
@@ -79,10 +79,10 @@ func TestPurityNoInputMutation(t *testing.T) {
 			rawAnchorCopy := make([]byte, len(c.Anchor))
 			copy(rawAnchorCopy, c.Anchor)
 
-			files := make(map[string][]byte, len(c.Target.Files))
-			fileSnapshots := make(map[string][]byte, len(c.Target.Files))
-			for k, v := range c.Target.Files {
-				b := []byte(v)
+			files := make(map[string][]byte, len(c.Target.Contents))
+			fileSnapshots := make(map[string][]byte, len(c.Target.Contents))
+			for k, v := range c.Target.Contents {
+				b := v
 				files[k] = b
 				bCopy := make([]byte, len(b))
 				copy(bCopy, b)

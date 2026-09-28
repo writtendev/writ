@@ -1,0 +1,59 @@
+{
+  "name": "bom-target",
+  "description": "WRIT-345 item R5a (spec/resolution.md §Target Tree & Content Preparation, decoding): a target file beginning with a UTF-8 byte-order mark is decoded as-is, not stripped before line splitting. Expected: the BOM-free recorded context fails to match line 1, and the side orphans below-threshold.",
+  "anchor": {
+    "version": 1,
+    "new": {
+      "commit": "1111111111111111111111111111111111111111",
+      "path": "bom.go",
+      "blob": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "range": {
+        "start": 1,
+        "end": 1
+      },
+      "context": {
+        "before": [],
+        "lines": [
+          "package main"
+        ],
+        "after": [
+          "",
+          "import \"fmt\""
+        ]
+      }
+    }
+  },
+  "target": {
+    "files": {
+      "bom.go": "﻿package main\n\nimport \"fmt\"\n"
+    }
+  },
+  "expect": {
+    "anchor": {
+      "version": 1,
+      "new": {
+        "commit": "1111111111111111111111111111111111111111",
+        "path": "bom.go",
+        "blob": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "range": {
+          "start": 1,
+          "end": 1
+        },
+        "context": {
+          "before": [],
+          "lines": [
+            "package main"
+          ],
+          "after": [
+            "",
+            "import \"fmt\""
+          ]
+        }
+      }
+    },
+    "new": {
+      "outcome": "orphaned",
+      "reason": "below-threshold"
+    }
+  }
+}

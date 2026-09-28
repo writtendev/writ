@@ -36,6 +36,15 @@ func TestOrder_SpecVectors(t *testing.T) {
 			}
 
 			ordered, err := dag.Order(input)
+			if vec.ExpectedRefusal {
+				// A restricted DAG containing a directed cycle
+				// (spec/fold.md §1, §4 step 5) must be rejected. Only the
+				// presence of an error is pinned, never its text.
+				if err == nil {
+					t.Fatalf("dag.Order: expected an error for a cyclic restricted DAG, got nil")
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("Order failed: %v", err)
 			}

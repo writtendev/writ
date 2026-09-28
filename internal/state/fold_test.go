@@ -55,6 +55,19 @@ func TestOrderVectors(t *testing.T) {
 					Strategy:  "lww",
 				},
 			})
+			if vec.ExpectedRefusal {
+				// A restricted DAG containing a directed cycle
+				// (spec/fold.md §1, §4 step 5) must be rejected. Only the
+				// presence of an error is pinned, never its text; the
+				// order/permutation assertions below do not apply.
+				if err == nil {
+					t.Fatalf("s.Fold: expected an error for a cyclic restricted DAG, got nil")
+				}
+				if _, err := dag.Order(ops); err == nil {
+					t.Fatalf("dag.Order: expected an error for a cyclic restricted DAG, got nil")
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("s.Fold failed: %v", err)
 			}

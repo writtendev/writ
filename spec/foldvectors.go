@@ -36,6 +36,13 @@ type OrderVector struct {
 	ObjectID      string    `json:"object_id"`
 	Ops           []OrderOp `json:"ops"`
 	ExpectedOrder []string  `json:"expected_order"`
+	// ExpectedRefusal marks a vector whose restricted DAG spec/fold.md §1 and
+	// §4 step 5 require a conforming reader to reject — a directed cycle —
+	// rather than produce an order. Mutually exclusive with a non-empty
+	// ExpectedOrder. A harness asserts only that ordering returned a non-nil
+	// error, never its text: spec.TotalOrder, dag.Order, and the engine's own
+	// Fold need not agree on wording.
+	ExpectedRefusal bool `json:"expected_refusal,omitempty"`
 }
 
 // StrategyConfig specifies the merge strategy and optional parameters (e.g. lattice elements)
@@ -177,6 +184,17 @@ func OrderVectors() ([]OrderVector, error) {
 			if op.ObjectID == vec.ObjectID {
 				matchingIDs[op.ID] = true
 			}
+		}
+
+		if vec.ExpectedRefusal {
+			if len(vec.ExpectedOrder) != 0 {
+				return nil, fmt.Errorf("spec: order vector %q sets both expected_refusal and expected_order", vec.Name)
+			}
+			// A refusal vector's restricted DAG is expected to contain a
+			// cycle (spec/fold.md §1, §4 step 5): skip the expected-order
+			// and acyclicity checks below, which would themselves reject it.
+			vectors = append(vectors, vec)
+			continue
 		}
 
 		if len(vec.ExpectedOrder) != len(matchingIDs) {

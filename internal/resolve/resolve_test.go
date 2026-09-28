@@ -44,9 +44,9 @@ func TestConformanceVectors(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.Name, func(t *testing.T) {
-			files := make(map[string][]byte, len(c.Target.Files))
-			for p, content := range c.Target.Files {
-				files[p] = []byte(content)
+			files := make(map[string][]byte, len(c.Target.Contents))
+			for p, content := range c.Target.Contents {
+				files[p] = content
 			}
 
 			algo := detectHashAlgo(c.Anchor)

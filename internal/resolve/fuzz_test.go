@@ -58,8 +58,19 @@ func FuzzResolve(f *testing.F) {
 	// Seed with resolution vectors
 	if cases, err := spec.ResolutionVectors(); err == nil {
 		for _, c := range cases {
+			// The fuzz corpus format is map[string]string, JSON text; a
+			// files_base64 entry carrying invalid UTF-8 (the one case in
+			// this corpus) round-trips losslessly into the Go string via
+			// string(b), but json.Marshal below replaces its invalid
+			// bytes with U+FFFD, which is fine for a fuzz seed — it need
+			// only be a starting point, not a faithful replay of the
+			// conformance vector.
+			seedFiles := make(map[string]string, len(c.Target.Contents))
+			for p, b := range c.Target.Contents {
+				seedFiles[p] = string(b)
+			}
 			var filesMapJSON []byte
-			if targetBytes, err := json.Marshal(c.Target.Files); err == nil {
+			if targetBytes, err := json.Marshal(seedFiles); err == nil {
 				filesMapJSON = targetBytes
 			}
 			f.Add([]byte(c.Anchor), filesMapJSON)
