@@ -117,15 +117,81 @@ operations. A conforming reader:
 
 1. Enumerates all refs under `refs/writ/*` (local writer) and
    `refs/remotes/*/writ/*` (remote-tracking chains fetched from remotes).
-2. Walks full commit ancestry from every enumerated ref tip.
+2. Walks commit ancestry from every enumerated ref tip. A commit that fails
+   [`spec/op-envelope.md`](op-envelope.md) §Reader validation is rejected,
+   and the walk MUST NOT follow that commit's parents: a chain is a chain,
+   and a break in it is the end of it (WRIT-289). An operation behind such a
+   break is enumerated only if some other path of valid operations reaches
+   it — for example a causal DAG parent edge from a different writer's
+   chain. Signature-verification outcomes (`spec/signing.md`) and unknown
+   object types, op types, op versions, or fields
+   (`spec/forward-compatibility.md`) never stop the walk: both are
+   operations, and the stopping rule applies to a commit that fails reader
+   validation itself, and to every commit this reader's clone cannot read
+   at all — its own commit object, its own root tree, or some other object
+   its tree names — with exactly one exception: a commit whose own commit
+   object is present, and whose root tree passes every one of §Reader
+   validation rule 1's tree-shape checks against what this reader can see
+   without the blob's own bytes — the tree has exactly one entry, that
+   entry is named `op.json`, and it is a regular-file blob at mode
+   `100644` — but is missing only that entry's own blob (what a
+   blob-filtered clone's fetch filter leaves behind). That commit is
+   still rejected — it carries no operation this reader can decode — but
+   its parents, already known from the commit object itself, are still
+   followed, because a reader that cannot read a blob it did not fetch
+   cannot tell whether that blob would have encoded a valid operation.
+   Every other locally-unreadable shape stops the walk exactly like a
+   reader-validation failure: an absent root tree (a reader that cannot
+   read a tree cannot tell whether it would have named an `op.json` entry
+   at all — the shape a tree-filtered clone's ref tip on ordinary code
+   history has, at every commit); a root tree present but without a
+   top-level `op.json` entry, even when some other object it names is
+   also absent (rule 1 already rejects that shape on the entries this
+   reader can see — `missing-op-json`, or `op-json-subdirectory` if the
+   absent subtree itself turns out to hold an `op.json` a complete reader
+   would find, which this reader cannot tell — so either way there is
+   nothing left to learn by reading further); and a root tree that
+   already fails one of rule 1's other tree-shape checks on what this
+   reader can see — an extra entry
+   beside `op.json` whatever that entry's own blob holds, `op.json`
+   present as a directory instead of a blob, or `op.json` present at some
+   mode other than `100644` — which already settles that the commit is
+   not an operation, whether or not some other object the tree names is
+   also absent. There is no depth or count bound beyond this rule:
+   walking past a run of the one narrow exception costs exactly what
+   walking an equally long chain of valid operations costs, and any
+   writer with push access can already produce a valid-operation chain of
+   any length, so the exception adds no bound-stepping leverage beyond
+   what the format already permits.
 3. Deduplicates visited operations by commit SHA (the op id).
 4. Groups operations by the `object_id` found in each op commit's `op.json`
    payload.
 
+Why no bound rather than a fixed depth or count past the last recognized
+operation: a fixed bound is only a threshold for an attacker to step over,
+and tolerating a bounded run of non-op commits is the same exposure as
+tolerating an unbounded one, just with the cost capped instead of removed.
+The accepted cost of stopping at the first break instead is that a
+repository which relied on a reader walking *through* a malformed or
+non-op commit to reach ops beyond it will, under this rule, surface fewer
+operations than before — see `spec/fixtures/testdata/descriptions/
+multi-writer-chains.yaml`, which pins exactly this tradeoff.
+
 An object's op-DAG is the ancestry-restricted subgraph over its `object_id`.
-Rollback detection is an ancestry reachability check against the previously
-observed ref tip; neither reader enumeration nor rollback detection requires
-chain spine inspection or writer attribution.
+Rollback detection is a reachability check against the previously observed
+ref tip, using this same reader walk — a commit only reachable by walking
+through a commit that fails reader validation does not count as reachable,
+so a tip advanced across such a break reports as a rollback (`Rewound`)
+exactly as a genuine force-push would, even though the old tip is still, in
+the weaker sense of plain git ancestry, an ancestor of the new one. A
+commit reachable only through one whose root tree passes every tree-shape
+check above and is missing only its own `op.json` blob remains reachable
+exactly as before: that break does not stop the walk either way (see the
+stopping rule's one exception above), so it does not stop reachability for
+rollback detection. Every other locally-unreadable shape stops
+reachability the same way it stops the walk. Neither reader enumeration
+nor rollback detection requires chain spine inspection or writer
+attribution.
 
 ## Writer ID convention
 
@@ -284,3 +350,10 @@ This fallback:
   name parsing, valid and invalid forms, and pinned refspec strings.
 - `spec/ref_layout_test.go` — test suite asserting grammar conformance and
   `git check-ref-format` validation.
+- `spec/fixtures/testdata/descriptions/multi-writer-chains.yaml` and its
+  fold golden (`spec/fixtures/testdata/golden/fold/multi-writer-chains.json`)
+  — the §Reader enumeration stopping rule (WRIT-289): two writer chains, a
+  remote-tracking chain, a cross-chain causal parent edge, and two breaks
+  (a commit missing `op.json` and one whose `op.json` is present but
+  non-canonical), pinning exactly which operations a conforming reader
+  holds and which it does not.

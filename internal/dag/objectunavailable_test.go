@@ -287,6 +287,20 @@ func TestEnumerate_AbsentParentCommitIsObjectUnavailable(t *testing.T) {
 // failure to nil, nil, so this exact shape decoded as an empty payload and
 // was reported as non-canonical-payload — an absent object misreported as
 // a malformed op.
+//
+// It also pins the WRIT-289 orchestrator decision on top of the ruling,
+// for the one object-unavailable shape it lets expand: the tip's own
+// commit object is present, and its root tree passes every tree-shape
+// check — exactly one entry, named op.json, a regular-file blob at mode
+// 100644 — missing only that entry's own blob, so it is not known to be
+// a non-op. op1, sitting behind the object-unavailable tip, is therefore
+// still held. Every other shape does not expand — an absent root tree or
+// one present without a top-level op.json entry
+// (TestEnumerate_RefOnAbsentRootTreeHistoryStopsAtTip and
+// TestEnumerate_AbsentSubtreeNoRootOpJSONStopsAtTip, enumerate_test.go),
+// or a root tree that already fails some other tree-shape check — an
+// extra entry, op.json as a directory, or the wrong mode
+// (TestEnumerate_RootOpJSONBlobAbsentTreeShapes, this file).
 func TestEnumerate_ObjectUnavailableDistinctFromMalformed(t *testing.T) {
 	dir, repo := initTestRepo(t)
 	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
@@ -335,9 +349,80 @@ func TestEnumerate_ObjectUnavailableDistinctFromMalformed(t *testing.T) {
 		t.Errorf("rejection reason = %q, must not be a reader-validation reason for a merely-absent object", rej.Reason)
 	}
 
-	// The valid sibling op is unaffected.
+	// op1 sits behind the rejected (object-unavailable) tip on the same
+	// chain. WRIT-289's orchestrator decision: this shape — root tree
+	// passing every tree-shape rule, missing only its own op.json blob —
+	// does not stop the walk, so the tip's parents are still expanded and
+	// op1 is held.
 	if len(res.Ops["w-1"]) != 1 || res.Ops["w-1"][0].ID != op1.ID {
-		t.Fatalf("Ops[w-1] = %v, want exactly [%s]", res.Ops["w-1"], op1.ID)
+		t.Fatalf("Ops[w-1] = %v, want exactly [%s] (op1 sits behind the object-unavailable tip, but a missing op.json blob alone does not stop the walk)", res.Ops["w-1"], op1.ID)
+	}
+}
+
+// TestEnumerate_ObjectUnavailableMidChainDoesNotStopWalk pins the WRIT-289
+// orchestrator decision squarely on the case that matters for it: an
+// object-unavailable commit sitting *between* two valid ops, not standing
+// alone as the chain tip. Chain shape: op1 (create) <- unavailable (its
+// op.json blob absent) <- op2 (update, the tip). Both op1 and op2 must be
+// held, and the unavailable commit must be reported as exactly one
+// rejection — proving the walk crossed it in both directions (it reached
+// op1 behind it, and dag.Store.Append, which never validates its own
+// chain tip's op.json, was able to build op2 on top of it).
+func TestEnumerate_ObjectUnavailableMidChainDoesNotStopWalk(t *testing.T) {
+	dir, repo := initTestRepo(t)
+	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
+	store, err := dag.Open(dir, ident, withVocabularies())
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+
+	op1, err := store.Append(context.Background(), codec.Envelope{
+		ObjectID: "w-1", ObjectType: "widget", OpType: "create", OpVersion: 1,
+		Body: json.RawMessage(`{"title":"Widget 1"}`),
+	}, nil)
+	if err != nil {
+		t.Fatalf("Append op1 failed: %v", err)
+	}
+
+	unavailableHash, err := writeCommitWithMissingOpJSONBlob(repo, plumbing.NewHash(op1.ID))
+	if err != nil {
+		t.Fatalf("writeCommitWithMissingOpJSONBlob failed: %v", err)
+	}
+	refName := plumbing.ReferenceName("refs/writ/0123456789abcdef/widget")
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(refName, unavailableHash)); err != nil {
+		t.Fatalf("advance ref to unavailable commit: %v", err)
+	}
+
+	op2, err := store.Append(context.Background(), codec.Envelope{
+		ObjectID: "w-1", ObjectType: "widget", OpType: "update", OpVersion: 1,
+		Body: json.RawMessage(`{"title":"Widget 1 v2"}`),
+	}, nil)
+	if err != nil {
+		t.Fatalf("Append op2 failed: %v", err)
+	}
+
+	res, err := store.Enumerate()
+	if err != nil {
+		t.Fatalf("Enumerate failed: %v", err)
+	}
+
+	if len(res.Rejections) != 1 {
+		t.Fatalf("rejections = %v, want exactly one", res.Rejections)
+	}
+	if rej := res.Rejections[0]; rej.CommitID != unavailableHash.String() || rej.Reason != dag.RejectObjectUnavailable {
+		t.Errorf("rejection = %+v, want commit %s reason %q", rej, unavailableHash.String(), dag.RejectObjectUnavailable)
+	}
+
+	ops := res.Ops["w-1"]
+	if len(ops) != 2 {
+		t.Fatalf("Ops[w-1] = %v, want 2 (op1 and op2; the object-unavailable commit between them does not stop the walk in either direction)", ops)
+	}
+	byID := make(map[string]bool, len(ops))
+	for _, op := range ops {
+		byID[op.ID] = true
+	}
+	if !byID[op1.ID] || !byID[op2.ID] {
+		t.Fatalf("Ops[w-1] = %v, want exactly [%s, %s]", ops, op1.ID, op2.ID)
 	}
 }
 
@@ -598,5 +683,190 @@ func TestEnumerate_MissingOpJSONPresentBlobTreeHashNotObjectUnavailable(t *testi
 	}
 	if rej := res.Rejections[0]; rej.Reason != codec.RejectMissingOpJSON {
 		t.Errorf("rejection reason = %q, want %q", rej.Reason, codec.RejectMissingOpJSON)
+	}
+}
+
+// TestEnumerate_RootOpJSONBlobAbsentTreeShapes pins the round 3
+// orchestrator decision's narrowing of rootOpJSONBlobAbsent (WRIT-289): a
+// RejectObjectUnavailable commit's parents are expanded only when its
+// root tree passes every op-envelope tree-shape rule this reader can
+// check without the blob's own bytes — exactly one entry, named
+// "op.json", a regular-file blob at mode 100644 — and is missing only
+// that entry's own blob. Round 2's cut checked only "an op.json entry
+// exists and its blob is absent," which let each of the four bad shapes
+// below — every one a reader-validation rejection in its own right, once
+// the blob is actually read — expand anyway: a real --filter=blob:none
+// or --filter=tree:1 clone with a writ ref pointed at ordinary code
+// history carrying one of these shapes at every commit walked the whole
+// history instead of stopping at the tip.
+//
+// Each row builds a rootOpJSONBlobAbsentChainDepth-commit chain of the
+// same tree shape and points a writ ref at the tip — mirroring what an
+// attacker, or a filtered clone of an unlucky ordinary repository, could
+// produce. The four bad shapes must each stop the walk at the tip
+// (DecodedCommits == 1, only the tip). The fifth, valid shape — the one
+// true exception the ruling's orchestrator decision allows — must walk
+// the whole chain (DecodedCommits == rootOpJSONBlobAbsentChainDepth),
+// pinning that the narrowing does not overcorrect and stop there too.
+const rootOpJSONBlobAbsentChainDepth = 300
+
+func TestEnumerate_RootOpJSONBlobAbsentTreeShapes(t *testing.T) {
+	absentOpJSONBlob := plumbing.NewHash("0123456789abcdef0123456789abcdef01234567")
+	absentOpJSONBlob2 := plumbing.NewHash("fedcba9876543210fedcba9876543210fedcba98")
+	absentSubtree := plumbing.NewHash("1111111111111111111111111111111111111111")
+
+	tests := []struct {
+		name         string
+		wantDecoded  int
+		buildEntries func(repo *git.Repository) ([]object.TreeEntry, error)
+	}{
+		{
+			// Reviewer shape 1: op.json plus another top-level entry.
+			// extra-tree-entry, whatever the other entry's own blob
+			// holds — here a blob that IS present, the shape a
+			// blob:limit filter that let a small README through but
+			// withheld a large op.json would leave behind.
+			name:        "op_json_plus_extra_entry",
+			wantDecoded: 1,
+			buildEntries: func(repo *git.Repository) ([]object.TreeEntry, error) {
+				readmeBlob, err := writeBlob(repo, []byte("hello"))
+				if err != nil {
+					return nil, err
+				}
+				return []object.TreeEntry{
+					{Name: "README.md", Mode: filemode.Regular, Hash: readmeBlob},
+					{Name: "op.json", Mode: filemode.Regular, Hash: absentOpJSONBlob},
+				}, nil
+			},
+		},
+		{
+			// Reviewer shape 2: op.json present as a directory, its
+			// subtree absent. op-json-subdirectory/invalid-op-json-mode
+			// territory — op.json is not a blob at all.
+			name:        "op_json_as_absent_directory",
+			wantDecoded: 1,
+			buildEntries: func(repo *git.Repository) ([]object.TreeEntry, error) {
+				return []object.TreeEntry{
+					{Name: "op.json", Mode: filemode.Dir, Hash: absentSubtree},
+				}, nil
+			},
+		},
+		{
+			// Reviewer shape 3: op.json at mode 100755. invalid-op-json-mode.
+			name:        "op_json_invalid_mode",
+			wantDecoded: 1,
+			buildEntries: func(repo *git.Repository) ([]object.TreeEntry, error) {
+				return []object.TreeEntry{
+					{Name: "op.json", Mode: filemode.Executable, Hash: absentOpJSONBlob},
+				}, nil
+			},
+		},
+		{
+			// Reviewer shape 4: op.json blob absent AND another object
+			// (a subtree) also absent. spec/ref-layout.md's exception
+			// applies only when the op.json blob is the *sole*
+			// locally-absent object; this tree has two.
+			name:        "op_json_absent_plus_other_object_absent",
+			wantDecoded: 1,
+			buildEntries: func(repo *git.Repository) ([]object.TreeEntry, error) {
+				return []object.TreeEntry{
+					{Name: "op.json", Mode: filemode.Regular, Hash: absentOpJSONBlob},
+					{Name: "src", Mode: filemode.Dir, Hash: absentSubtree},
+				}, nil
+			},
+		},
+		{
+			// The one true exception: exactly one entry, named op.json,
+			// a regular-file blob at mode 100644, and that blob is the
+			// only thing locally absent. The walk must keep going.
+			name:        "op_json_blob_only_absent",
+			wantDecoded: rootOpJSONBlobAbsentChainDepth,
+			buildEntries: func(repo *git.Repository) ([]object.TreeEntry, error) {
+				return []object.TreeEntry{
+					{Name: "op.json", Mode: filemode.Regular, Hash: absentOpJSONBlob2},
+				}, nil
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, repo := initTestRepo(t)
+			ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
+			store, err := dag.Open(dir, ident, withVocabularies())
+			if err != nil {
+				t.Fatalf("Open failed: %v", err)
+			}
+
+			entries, err := tc.buildEntries(repo)
+			if err != nil {
+				t.Fatalf("buildEntries failed: %v", err)
+			}
+
+			tree := &object.Tree{Entries: entries}
+			treeObj := repo.Storer.NewEncodedObject()
+			treeObj.SetType(plumbing.TreeObject)
+			if err := tree.Encode(treeObj); err != nil {
+				t.Fatalf("encode tree: %v", err)
+			}
+			treeHash, err := repo.Storer.SetEncodedObject(treeObj)
+			if err != nil {
+				t.Fatalf("store tree: %v", err)
+			}
+
+			// Every commit in the chain reuses the same tree — an
+			// attacker-chosen chain of any length can point every commit's
+			// op.json at the same withheld blob, so sharing the tree here
+			// is not a simplification that understates the walk's cost;
+			// it is the realistic shape.
+			sig := object.Signature{Name: "Mallory", Email: "mallory@example.test", When: time.Now().UTC()}
+			tip := plumbing.ZeroHash
+			for i := 0; i < rootOpJSONBlobAbsentChainDepth; i++ {
+				commit := &object.Commit{
+					Author:    sig,
+					Committer: sig,
+					Message:   "writ: create widget/chain\n",
+					TreeHash:  treeHash,
+				}
+				if !tip.IsZero() {
+					commit.ParentHashes = []plumbing.Hash{tip}
+				}
+				commitObj := repo.Storer.NewEncodedObject()
+				commitObj.SetType(plumbing.CommitObject)
+				if err := commit.Encode(commitObj); err != nil {
+					t.Fatalf("encode commit %d: %v", i, err)
+				}
+				h, err := repo.Storer.SetEncodedObject(commitObj)
+				if err != nil {
+					t.Fatalf("store commit %d: %v", i, err)
+				}
+				tip = h
+			}
+
+			refName := plumbing.ReferenceName("refs/writ/0123456789abcdef/widget")
+			if err := repo.Storer.SetReference(plumbing.NewHashReference(refName, tip)); err != nil {
+				t.Fatalf("set widget ref to chain tip: %v", err)
+			}
+
+			res, err := store.Enumerate()
+			if err != nil {
+				t.Fatalf("Enumerate failed: %v", err)
+			}
+
+			if res.DecodedCommits != tc.wantDecoded {
+				t.Errorf("DecodedCommits = %d, want %d", res.DecodedCommits, tc.wantDecoded)
+			}
+			if len(res.Rejections) != tc.wantDecoded {
+				t.Errorf("len(Rejections) = %d, want %d", len(res.Rejections), tc.wantDecoded)
+			}
+			for _, rej := range res.Rejections {
+				if rej.Reason != dag.RejectObjectUnavailable {
+					t.Errorf("rejection reason = %q, want %q", rej.Reason, dag.RejectObjectUnavailable)
+				}
+			}
+			if len(res.Ops) != 0 {
+				t.Errorf("Ops = %v, want none (every commit in the chain is a rejection, never a held op)", res.Ops)
+			}
+		})
 	}
 }

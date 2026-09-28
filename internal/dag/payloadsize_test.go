@@ -79,9 +79,10 @@ func writeOversizedOpCommit(repo *git.Repository, parent plumbing.Hash, size int
 // TestEnumerate_RejectsOversizedPayloadWithBoundedAllocation pins the
 // reader side of WRIT-255: an op.json far over codec.MaxPayloadBytes is a
 // recorded rejection (payload-too-large), not a decode panic or an insert
-// failure, a valid sibling op on the same chain still enumerates, and
-// FromGitCommit's io.LimitReader keeps the cost of reading it bounded
-// rather than proportional to the oversized blob.
+// failure, and FromGitCommit's io.LimitReader keeps the cost of reading it
+// bounded rather than proportional to the oversized blob. Since WRIT-289,
+// the oversized tip also stops the walk cold: op1 behind it is not held
+// (see the assertion below).
 func TestEnumerate_RejectsOversizedPayloadWithBoundedAllocation(t *testing.T) {
 	dir, repo := initTestRepo(t)
 	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
@@ -130,9 +131,13 @@ func TestEnumerate_RejectsOversizedPayloadWithBoundedAllocation(t *testing.T) {
 		t.Errorf("rejection reason = %q, want %q", rej.Reason, codec.RejectPayloadTooLarge)
 	}
 
-	// The valid sibling op is unaffected by the oversized op on the same chain.
-	if len(res.Ops["w-1"]) != 1 || res.Ops["w-1"][0].ID != op1.ID {
-		t.Fatalf("Ops[w-1] = %v, want exactly [%s]", res.Ops["w-1"], op1.ID)
+	// op1 sits behind the oversized tip on the same chain, with no other
+	// path reaching it, so the WRIT-289 stopping rule cuts it off too: the
+	// walk never expands the rejected tip's parents, and a rejected commit
+	// ends the chain right there ("a chain is a chain; a break in it is
+	// the end of it").
+	if len(res.Ops["w-1"]) != 0 {
+		t.Fatalf("Ops[w-1] = %v, want none (op1 is behind the rejected tip and unreachable)", res.Ops["w-1"])
 	}
 
 	// Bounded allocation: reading the oversized blob through

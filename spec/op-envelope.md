@@ -634,6 +634,11 @@ why) if any of the following fail:
 Signature verification is a separate concern (see [`spec/signing.md`](signing.md)) — it
 cannot live in fold, and this document does not define when it runs.
 
+A commit a reader rejects under this section also ends the reader's
+ancestry walk along that path: see
+[`spec/ref-layout.md`](ref-layout.md#reader-enumeration) §Reader
+enumeration for the stopping rule (WRIT-289).
+
 ## Out of scope, with forward references
 
 - Ref layout, writer-id convention, and refspecs: [`spec/ref-layout.md`](ref-layout.md).

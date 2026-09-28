@@ -6,11 +6,11 @@
     },
     {
       "name": "refs/writ/fedcba9876543210/widget",
-      "commit": "e0de0ad448d615800babd1dfc3a35ecc4bdfc7fa"
+      "commit": "5064ca8b6890f770b37f60720e3881df71593e35"
     },
     {
       "name": "refs/remotes/origin/writ/550e8400e29b41d4/widget",
-      "commit": "61eaabdf4c00919af36b9808f0496adb39cbb3b4"
+      "commit": "88f4460e88e9558b2612ad9b42a0ba0e98bbb42e"
     }
   ],
   "generations": [
@@ -76,7 +76,7 @@
           "signed": true
         },
         {
-          "sha": "e0de0ad448d615800babd1dfc3a35ecc4bdfc7fa",
+          "sha": "5064ca8b6890f770b37f60720e3881df71593e35",
           "tree": "eb8cb59dc037cdd6f166f0dc933d804a68876bfd",
           "parents": [
             "14e662356b7be6c65fd5f1b7daa15a94d8ffb3cb",
@@ -85,7 +85,7 @@
           "author": "Bob Example \u003cbob@example.test\u003e",
           "timestamp": "2026-01-01T00:02:30Z",
           "message": "writ: note acme.widget/widget-01\n",
-          "signed": true
+          "signed": false
         }
       ]
     },
@@ -94,9 +94,31 @@
       "index": 0,
       "commits": [
         {
-          "sha": "61eaabdf4c00919af36b9808f0496adb39cbb3b4",
-          "tree": "37ad5791cbdabdf283e07061459886b81904138b",
+          "sha": "df067668dee62078b10b86b944177a4335e64c55",
+          "tree": "e45dd786fe1c8d25d49c8938c03435e6adfe8720",
           "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:00:15Z",
+          "message": "writ: note acme.widget/widget-02\n",
+          "signed": true
+        },
+        {
+          "sha": "ea73b4cee7030597e69d0ad7c538ad37dd94fa75",
+          "tree": "81e80ad5c4c25294302170a05c4efdca2eaab813",
+          "parents": [
+            "df067668dee62078b10b86b944177a4335e64c55"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:00:30Z",
+          "message": "writ: update widget/widget-01\n",
+          "signed": true
+        },
+        {
+          "sha": "88f4460e88e9558b2612ad9b42a0ba0e98bbb42e",
+          "tree": "37ad5791cbdabdf283e07061459886b81904138b",
+          "parents": [
+            "ea73b4cee7030597e69d0ad7c538ad37dd94fa75"
+          ],
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:00:45Z",
           "message": "writ: endorse acme.widget/widget-01\n",
