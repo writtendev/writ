@@ -1492,8 +1492,15 @@ func TestRefresh_ObjectUnavailableRootTreeArrivesBlobAbsentTriggersRebuild(t *te
 	if len(stats1.Rejections) != 1 || stats1.Rejections[0].CommitID != op2.ID || stats1.Rejections[0].Reason != dag.RejectObjectUnavailable {
 		t.Fatalf("first Refresh Rejections = %v, want exactly one for %s reason %q", stats1.Rejections, op2.ID, dag.RejectObjectUnavailable)
 	}
-	if stats1.Rejections[0].Expands {
-		t.Fatalf("first Refresh Rejections[0].Expands = true, want false: op2's root tree is absent, so rootOpJSONBlobAbsent cannot even read it")
+	// The Expands bit itself is internal bookkeeping (dag.EnumerateResult.
+	// ObjectUnavailableExpands), not exposed on Stats.Rejections — check it
+	// directly against a fresh walk of the same repository state.
+	enumRes1, err := store.Enumerate()
+	if err != nil {
+		t.Fatalf("Enumerate after first Refresh failed: %v", err)
+	}
+	if enumRes1.ObjectUnavailableExpands[op2.ID] {
+		t.Fatalf("ObjectUnavailableExpands[op2] = true, want false: op2's root tree is absent, so rootOpJSONBlobAbsent cannot even read it")
 	}
 
 	wa1, err := db.Object("w-a")
@@ -1600,8 +1607,15 @@ func TestRefresh_ObjectUnavailableCommitArrivesBlobAbsentTriggersRebuild(t *test
 	if len(stats1.Rejections) != 1 || stats1.Rejections[0].CommitID != op2.ID || stats1.Rejections[0].Reason != dag.RejectObjectUnavailable {
 		t.Fatalf("first Refresh Rejections = %v, want exactly one for %s reason %q", stats1.Rejections, op2.ID, dag.RejectObjectUnavailable)
 	}
-	if stats1.Rejections[0].Expands {
-		t.Fatalf("first Refresh Rejections[0].Expands = true, want false: op2's commit object itself is absent, so there is no ParentHashes to expand into")
+	// The Expands bit itself is internal bookkeeping (dag.EnumerateResult.
+	// ObjectUnavailableExpands), not exposed on Stats.Rejections — check it
+	// directly against a fresh walk of the same repository state.
+	enumRes1, err := store.Enumerate()
+	if err != nil {
+		t.Fatalf("Enumerate after first Refresh failed: %v", err)
+	}
+	if enumRes1.ObjectUnavailableExpands[op2.ID] {
+		t.Fatalf("ObjectUnavailableExpands[op2] = true, want false: op2's commit object itself is absent, so there is no ParentHashes to expand into")
 	}
 
 	wa1, err := db.Object("w-a")

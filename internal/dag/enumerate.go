@@ -18,17 +18,6 @@ type Rejection struct {
 	CommitID string             `json:"commit_id"`
 	Reason   codec.RejectReason `json:"reason"`
 	Err      string             `json:"error,omitempty"`
-
-	// Expands reports whether the walk that produced this Rejection went on
-	// to enqueue CommitID's parents anyway — true only when Reason is
-	// RejectObjectUnavailable and rootOpJSONBlobAbsent said so (see
-	// EnumerateSince's Step 3). Always false for every other reason, where
-	// a rejection ends the walk on that path. Reason alone is not the
-	// walk's whole verdict on a RejectObjectUnavailable commit: the same
-	// reason can persist while Expands flips, in either direction, once a
-	// withheld object arrives — StillObjectUnavailable compares both, not
-	// Reason alone, for exactly that reason (WRIT-289 round 5).
-	Expands bool `json:"expands,omitempty"`
 }
 
 // RejectObjectUnavailable reports that an op-commit chain references an
@@ -94,6 +83,23 @@ type EnumerateResult struct {
 	// beyond what the format already allows; see rootOpJSONBlobAbsent for
 	// why the exception is this narrow and no narrower.
 	Rejections []Rejection `json:"rejections,omitempty"`
+
+	// ObjectUnavailableExpands records, for every commit in Rejections
+	// whose Reason is RejectObjectUnavailable, whether this walk went on
+	// to enqueue that commit's parents anyway (rootOpJSONBlobAbsent's
+	// verdict for it — see EnumerateSince's Step 3). It is keyed by
+	// CommitID and holds no entry for any other rejection reason, where a
+	// rejection always ends the walk on that path. This is bookkeeping
+	// for StillObjectUnavailable's caller (projection.Refresh, WRIT-289
+	// round 5): Reason alone is not a RejectObjectUnavailable commit's
+	// whole verdict, since the same reason can persist while this bit
+	// flips from false to true once a withheld object arrives (see
+	// StillObjectUnavailable). Deliberately not carried on Rejection
+	// itself: Rejection is part of the caller-visible writ.Rejection via
+	// RefreshStats.Rejections, and this bit is internal to the walk and
+	// the projection cache, not something any caller outside this package
+	// needs to read.
+	ObjectUnavailableExpands map[string]bool `json:"object_unavailable_expands,omitempty"`
 
 	// DecodedCommits is the total number of commits decodeOpCommit was
 	// called on during this pass, whether it kept the commit as an op or
@@ -230,10 +236,11 @@ func WithLiveTrustStore(ts codec.TrustStore) EnumerateOption {
 //
 // A RejectObjectUnavailable commit's verdict is the one exception: it has
 // two parts — the reject reason itself, and whether the walk expanded the
-// commit's parents anyway (rootOpJSONBlobAbsent; see Rejection.Expands) —
-// and either part can change later, independently of the other, when the
-// object this clone was missing arrives (a partial clone's later
-// unfiltered fetch, most commonly). For example:
+// commit's parents anyway (rootOpJSONBlobAbsent; see
+// EnumerateResult.ObjectUnavailableExpands) — and either part can change
+// later, independently of the other, when the object this clone was
+// missing arrives (a partial clone's later unfiltered fetch, most
+// commonly). For example:
 //   - the commit was walked past — root tree passing every tree-shape
 //     rule, missing only its own op.json blob — and ops behind it were
 //     recorded, but the blob that arrives turns out to fail reader
@@ -246,12 +253,18 @@ func WithLiveTrustStore(ts codec.TrustStore) EnumerateOption {
 //     op-shaped, with its own op.json blob now also present; a cold walk
 //     now reaches ops behind it that no earlier pass ever recorded (the
 //     reason changes away from RejectObjectUnavailable);
-//   - the commit stopped the walk — an absent root tree, or a present one
-//     this reader could not yet expand — and the tree (or commit object)
-//     that arrives turns out op-shaped with only its own op.json blob
-//     still absent; the reject reason stays RejectObjectUnavailable, but a
-//     cold walk now expands this commit's parents where an earlier pass's
-//     recorded verdict did not (WRIT-289 round 5).
+//   - the commit stopped the walk — an absent root tree, or an absent
+//     commit object itself — and the tree (or commit object) that arrives
+//     turns out op-shaped with only its own op.json blob still absent;
+//     the reject reason stays RejectObjectUnavailable, but a cold walk
+//     now expands this commit's parents where an earlier pass's recorded
+//     verdict did not (WRIT-289 round 5). Only this false-to-true
+//     direction is possible while the reason stays RejectObjectUnavailable:
+//     a root tree already present and already failing rootOpJSONBlobAbsent
+//     is settled by its own hash and cannot later "arrive" into passing —
+//     the only way this bit flips true-to-false is the reason itself
+//     changing away from RejectObjectUnavailable, covered by the first two
+//     bullets above.
 //
 // Every one of these is a real gap against this option's invariant, and
 // none is something WithSeen's predicate can detect by itself — it only
@@ -447,7 +460,12 @@ func (s *Store) EnumerateSince(cursors CursorSet, opts ...EnumerateOption) (*Enu
 			decoded = append(decoded, decodedCommit{pure: pure, op: op})
 		} else {
 			expands := rej.Reason == RejectObjectUnavailable && rootOpJSONBlobAbsent(cachedStorer, commitObj)
-			rej.Expands = expands
+			if rej.Reason == RejectObjectUnavailable {
+				if result.ObjectUnavailableExpands == nil {
+					result.ObjectUnavailableExpands = make(map[string]bool)
+				}
+				result.ObjectUnavailableExpands[rej.CommitID] = expands
+			}
 			result.Rejections = append(result.Rejections, *rej)
 			if !expands {
 				continue
@@ -599,9 +617,9 @@ func verifyCommitByID(s storage.Storer, id string, ts codec.TrustStore) codec.Ve
 // counts as still unavailable). Expands is only meaningful when Unavailable
 // is true — it is rootOpJSONBlobAbsent's answer for the same commit, the
 // same expand/stop decision EnumerateSince's Step 3 and isAncestor make
-// during a walk (see Rejection.Expands) — and is always false when
-// Unavailable is false or when the commit could not be fetched at all
-// (nothing to expand into without ParentHashes).
+// during a walk (see EnumerateResult.ObjectUnavailableExpands) — and is
+// always false when Unavailable is false or when the commit could not be
+// fetched at all (nothing to expand into without ParentHashes).
 type ObjectUnavailableVerdict struct {
 	Unavailable bool
 	Expands     bool

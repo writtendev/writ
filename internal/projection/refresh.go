@@ -202,22 +202,23 @@ func newIncrementalSeenPredicate(stmt *sql.Stmt) (func(opID string) bool, func()
 // recent pass's classification of every commit it recorded as
 // dag.RejectObjectUnavailable: not just the commit id, but the Expands bit
 // (objectUnavailableRecord) the walk computed for it at the same time (see
-// dag.Rejection.Expands). Unlike every other rejection reason,
-// RejectObjectUnavailable is not a permanent verdict, and neither is the
-// expand/stop decision made alongside it — a partial clone's withheld blob
-// or tree can arrive later and change either one independently of the
-// other — and an incremental pass that never re-decodes a commit sitting
-// behind its stored cursor would otherwise hold whatever it decided about
-// that commit's shape the first time it saw it, forever. It is a
-// droppable-cache row exactly like chain_tips or code_tips — if this
-// projection is ever dropped, the next build is a cold one and recomputes
-// it from nothing.
+// dag.EnumerateResult.ObjectUnavailableExpands). Unlike every other
+// rejection reason, RejectObjectUnavailable is not a permanent verdict,
+// and neither is the expand/stop decision made alongside it — a partial
+// clone's withheld blob or tree can arrive later and change either one
+// independently of the other — and an incremental pass that never
+// re-decodes a commit sitting behind its stored cursor would otherwise
+// hold whatever it decided about that commit's shape the first time it
+// saw it, forever. It is a droppable-cache row exactly like chain_tips or
+// code_tips — if this projection is ever dropped, the next build is a
+// cold one and recomputes it from nothing.
 const metaKeyObjectUnavailableCommits = "object_unavailable_commits"
 
 // objectUnavailableRecord pairs a recorded RejectObjectUnavailable commit
-// with the Expands bit a pass computed for it (dag.Rejection.Expands) when
-// it recorded the rejection. Persisting both, not just the commit id, is
-// what lets the recheck below notice a commit whose reject reason is still
+// with the Expands bit a pass computed for it
+// (dag.EnumerateResult.ObjectUnavailableExpands) when it recorded the
+// rejection. Persisting both, not just the commit id, is what lets the
+// recheck below notice a commit whose reject reason is still
 // object-unavailable but whose expand/stop decision has changed — reason
 // alone is not the walk's whole verdict on this kind of commit (WRIT-289
 // round 5).
@@ -465,13 +466,14 @@ func (d *DB) Refresh(store *dag.Store, opts ...Option) (Stats, error) {
 	// confirmed to still match, plus any new one this pass's own delta
 	// walk rejected the same way (a just-pushed op whose blob a partial
 	// clone's fetch filter withheld, most commonly) — recorded with the
-	// Expands bit that same walk computed for it (dag.Rejection.Expands).
+	// Expands bit that same walk computed for it
+	// (dag.EnumerateResult.ObjectUnavailableExpands).
 	unavailableRecords := append([]objectUnavailableRecord{}, recordedUnavailable...)
 	for _, rej := range enumRes.Rejections {
 		if rej.Reason == dag.RejectObjectUnavailable {
 			unavailableRecords = append(unavailableRecords, objectUnavailableRecord{
 				CommitID: rej.CommitID,
-				Expands:  rej.Expands,
+				Expands:  enumRes.ObjectUnavailableExpands[rej.CommitID],
 			})
 		}
 	}
@@ -689,15 +691,16 @@ func (d *DB) rebuildWithConfig(store *dag.Store, cfg *refreshConfig, targetTips 
 	// Replace the recorded object-unavailable set (WRIT-366, extended
 	// WRIT-289 round 5) outright: a cold walk is authoritative, so
 	// whatever it rejected as object-unavailable this time, together with
-	// the Expands bit it computed for each (dag.Rejection.Expands), is the
-	// whole set worth rechecking next pass, independent of whatever the
-	// set held before this rebuild.
+	// the Expands bit it computed for each
+	// (dag.EnumerateResult.ObjectUnavailableExpands), is the whole set
+	// worth rechecking next pass, independent of whatever the set held
+	// before this rebuild.
 	var unavailableRecords []objectUnavailableRecord
 	for _, rej := range enumRes.Rejections {
 		if rej.Reason == dag.RejectObjectUnavailable {
 			unavailableRecords = append(unavailableRecords, objectUnavailableRecord{
 				CommitID: rej.CommitID,
-				Expands:  rej.Expands,
+				Expands:  enumRes.ObjectUnavailableExpands[rej.CommitID],
 			})
 		}
 	}
