@@ -45,18 +45,18 @@
   ],
   "conflicts": [
     {
+      "kind": "object-id-mismatch",
       "namespace": "shared-vocab",
       "object_ids": [
         "sch-alice"
-      ],
-      "reason": "schema object id \"sch-alice\" does not match the derived form \"schema:shared-vocab\" for namespace \"shared-vocab\" and none of its types were installed"
+      ]
     },
     {
+      "kind": "object-id-mismatch",
       "namespace": "shared-vocab",
       "object_ids": [
         "sch-bob"
-      ],
-      "reason": "schema object id \"sch-bob\" does not match the derived form \"schema:shared-vocab\" for namespace \"shared-vocab\" and none of its types were installed"
+      ]
     }
   ],
   "objects": [

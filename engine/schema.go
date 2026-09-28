@@ -27,12 +27,83 @@ type SchemaField = state.SchemaField
 // SchemaOp is a schema-declared op type within a type's vocabulary (v1).
 type SchemaOp = state.SchemaOp
 
-// SchemaConflict records a load-bearing collision between schema objects,
-// found by RulesFromSchemas. No winner is ever picked: on an ObjectType
-// collision, RulesFromSchemas installs no rules at all for that object_type,
-// so its ops fall through the absent-schema path to UnknownOp (FC-1, FC-12)
-// exactly as if no schema had defined it.
+// SchemaConflictKind is a closed catalogue of the reasons resolveSchemaTypes
+// can produce a SchemaConflict (spec/schema-ops.md §6). It is the only part
+// of a SchemaConflict a conformant implementation may compare: the set is
+// closed for this spec version, and a caller branches on Kind, never on
+// Reason's wording (WRIT-335).
+type SchemaConflictKind string
+
+const (
+	// SchemaConflictNamespaceUngrammatical: a schema object's namespace
+	// fails the namespace grammar; none of its types were installed.
+	SchemaConflictNamespaceUngrammatical SchemaConflictKind = "namespace-ungrammatical"
+
+	// SchemaConflictObjectIDMismatch: a schema object's own ObjectID does
+	// not match the derived form for its namespace; the whole object is
+	// dropped.
+	SchemaConflictObjectIDMismatch SchemaConflictKind = "object-id-mismatch"
+
+	// SchemaConflictSchemaRedefined: a define-type attempts to redefine the
+	// engine's built-in bootstrap type "schema".
+	SchemaConflictSchemaRedefined SchemaConflictKind = "schema-redefined"
+
+	// SchemaConflictTypeUngrammatical: a define-type's declared name fails
+	// the object_type grammar.
+	SchemaConflictTypeUngrammatical SchemaConflictKind = "type-ungrammatical"
+
+	// SchemaConflictTypeUnqualified: a define-type's declared name is not
+	// qualified with its own schema object's namespace.
+	SchemaConflictTypeUnqualified SchemaConflictKind = "type-unqualified"
+
+	// SchemaConflictTypeContested: an object_type is bound by more than one
+	// schema object. Kept reachable only for the literal bare type "schema"
+	// (WRIT-254); otherwise unreachable, since two schema objects can no
+	// longer bind the identical qualified object_type.
+	SchemaConflictTypeContested SchemaConflictKind = "type-contested"
+
+	// SchemaConflictOpTypeUngrammatical: a define-field's or a define-op's
+	// declared op_type fails the op_type grammar.
+	SchemaConflictOpTypeUngrammatical SchemaConflictKind = "op-type-ungrammatical"
+
+	// SchemaConflictRuleInvalid: spec.ValidateFieldRule rejects a field
+	// rule; it is dropped and not installed.
+	SchemaConflictRuleInvalid SchemaConflictKind = "rule-invalid"
+
+	// SchemaConflictKeyColumnDisagreement: spec.CheckKeyColumnAgreement
+	// finds two or more rules disagreeing on a shared key column (including
+	// the dual-role tombstone/key-column case); every participating rule is
+	// withheld together.
+	SchemaConflictKeyColumnDisagreement SchemaConflictKind = "key-column-disagreement"
+
+	// SchemaConflictTargetDisagreement: spec.CheckTargetAgreement finds two
+	// or more rules disagreeing on a shared target; every participating
+	// rule is withheld together.
+	SchemaConflictTargetDisagreement SchemaConflictKind = "target-disagreement"
+
+	// SchemaConflictValueTypeUnknown: a rule's value_type or a key_types
+	// entry names something outside this reader's value-type catalogue
+	// (spec/value-types.md). Unlike every other kind, the rule is not
+	// withheld: it is installed untyped (WRIT-334), and this is a warning,
+	// not a drop.
+	SchemaConflictValueTypeUnknown SchemaConflictKind = "value-type-unknown"
+)
+
+// SchemaConflict records a conflict resolveSchemaTypes found while resolving
+// schema objects into rules (spec/schema-ops.md §6): a load-bearing
+// collision between schema objects, an invalid declaration, or — the one
+// exception — a warning that a rule was installed untyped. Kind is the
+// closed, conformance-relevant code; Reason is human-readable, informative,
+// and free to change wording in any release, including this one (WRIT-335).
+// For every Kind except SchemaConflictValueTypeUnknown, RulesFromSchemas
+// installs no rule at all for what the conflict names: no winner is ever
+// picked, and any op naming a withheld object_type/rule falls through the
+// absent-schema path to UnknownOp (FC-1, FC-12) exactly as if no schema had
+// defined it.
 type SchemaConflict struct {
+	// Kind is the closed conflict code (see SchemaConflictKind). Always
+	// set: every construction site names one.
+	Kind SchemaConflictKind `json:"kind"`
 	// ObjectType is set for an object_type collision (two schema objects
 	// sharing a namespace and binding the identical qualified type) and for
 	// a single field-rule validation failure; empty for a namespace-only
@@ -45,7 +116,9 @@ type SchemaConflict struct {
 	// between schema objects, one for a single object's own invalid rule or
 	// its attempt to redefine `schema` itself.
 	ObjectIDs []string `json:"object_ids"`
-	Reason    string   `json:"reason"`
+	// Reason is human-readable and informative only; its wording is not a
+	// contract and may change in any release. Branch on Kind, never Reason.
+	Reason string `json:"reason"`
 }
 
 // Schema folds every `schema` object present in the log and returns their
@@ -1185,6 +1258,7 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 		// cannot drift from this decision the way it used to.
 		if sch.Namespace != "" && !state.ValidNamespaceGrammar(sch.Namespace) {
 			conflicts = append(conflicts, SchemaConflict{
+				Kind:      SchemaConflictNamespaceUngrammatical,
 				Namespace: sch.Namespace,
 				ObjectIDs: []string{sch.ObjectID},
 				Reason:    fmt.Sprintf("namespace %q is not a valid namespace (must match ^[a-z][a-z0-9-]*$, max %d chars) and none of its types were installed", sch.Namespace, state.NamespaceGrammarMaxLength),
@@ -1208,6 +1282,7 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 		// (state.SchemaObjectIDMatchesNamespace's doc comment above).
 		if !state.SchemaObjectIDMatchesNamespace(sch) {
 			conflicts = append(conflicts, SchemaConflict{
+				Kind:      SchemaConflictObjectIDMismatch,
 				Namespace: sch.Namespace,
 				ObjectIDs: []string{sch.ObjectID},
 				Reason:    fmt.Sprintf("schema object id %q does not match the derived form %q for namespace %q and none of its types were installed", sch.ObjectID, state.DeriveSchemaObjectID(sch.Namespace), sch.Namespace),
@@ -1220,6 +1295,7 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 				declared[t.Name] = true
 				contested["schema"] = true
 				conflicts = append(conflicts, SchemaConflict{
+					Kind:       SchemaConflictSchemaRedefined,
 					ObjectType: "schema",
 					Namespace:  sch.Namespace,
 					ObjectIDs:  []string{sch.ObjectID},
@@ -1241,6 +1317,7 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 			// type.
 			if !validObjectTypeGrammar(t.Name) {
 				conflicts = append(conflicts, SchemaConflict{
+					Kind:       SchemaConflictTypeUngrammatical,
 					ObjectType: t.Name,
 					Namespace:  sch.Namespace,
 					ObjectIDs:  []string{sch.ObjectID},
@@ -1262,6 +1339,7 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 			// legitimate binding of that same wire type.
 			if !typeIsQualifiedForNamespace(t.Name, sch.Namespace) {
 				conflicts = append(conflicts, SchemaConflict{
+					Kind:       SchemaConflictTypeUnqualified,
 					ObjectType: t.Name,
 					Namespace:  sch.Namespace,
 					ObjectIDs:  []string{sch.ObjectID},
@@ -1299,6 +1377,7 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 			if owner != sch.ObjectID && !contested[t.Name] {
 				contested[t.Name] = true
 				conflicts = append(conflicts, SchemaConflict{
+					Kind:       SchemaConflictTypeContested,
 					ObjectType: t.Name,
 					ObjectIDs:  []string{owner, sch.ObjectID},
 					Reason:     fmt.Sprintf("object_type %q is bound by more than one schema object", t.Name),
@@ -1369,6 +1448,7 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 
 				if !validOpTypeGrammar(sr.OpType) {
 					conflicts = append(conflicts, SchemaConflict{
+						Kind:       SchemaConflictOpTypeUngrammatical,
 						ObjectType: t.Name,
 						ObjectIDs:  []string{sch.ObjectID},
 						Reason:     fmt.Sprintf("define-field op_type %q is not a valid op type (must match ^[a-z][a-z0-9-]*$, max %d chars) and was not installed", sr.OpType, opTypeMaxLength),
@@ -1378,6 +1458,7 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 
 				if err := spec.ValidateFieldRule(sr); err != nil {
 					conflicts = append(conflicts, SchemaConflict{
+						Kind:       SchemaConflictRuleInvalid,
 						ObjectType: t.Name,
 						ObjectIDs:  []string{sch.ObjectID},
 						Reason:     fmt.Sprintf("field rule (%s, %d, %s) is invalid and was not installed: %v", sr.OpType, sr.OpVersion, sr.Field, err),
@@ -1440,6 +1521,7 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 				}
 				if err := spec.CheckKeyColumnAgreement(ck.Column, columnRules); err != nil {
 					conflicts = append(conflicts, SchemaConflict{
+						Kind:       SchemaConflictKeyColumnDisagreement,
 						ObjectType: t.Name,
 						ObjectIDs:  []string{sch.ObjectID},
 						Reason:     err.Error(),
@@ -1481,6 +1563,7 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 				}
 				if err := spec.CheckTargetAgreement(tk, targetRules); err != nil {
 					conflicts = append(conflicts, SchemaConflict{
+						Kind:       SchemaConflictTargetDisagreement,
 						ObjectType: t.Name,
 						ObjectIDs:  []string{sch.ObjectID},
 						Reason:     err.Error(),
@@ -1514,6 +1597,7 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 			for _, f := range typeFields {
 				if positions := demotedPositions(f); len(positions) > 0 {
 					conflicts = append(conflicts, SchemaConflict{
+						Kind:       SchemaConflictValueTypeUnknown,
 						ObjectType: t.Name,
 						ObjectIDs:  []string{sch.ObjectID},
 						Reason: fmt.Sprintf("field rule (%s, %d, %s) declares %s, not in this reader's value-type catalogue; installed untyped at %s (spec/schema-ops.md §10)",
@@ -1526,6 +1610,7 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 			for _, o := range t.Ops {
 				if !validOpTypeGrammar(o.OpType) {
 					conflicts = append(conflicts, SchemaConflict{
+						Kind:       SchemaConflictOpTypeUngrammatical,
 						ObjectType: t.Name,
 						ObjectIDs:  []string{sch.ObjectID},
 						Reason:     fmt.Sprintf("define-op op_type %q is not a valid op type (must match ^[a-z][a-z0-9-]*$, max %d chars) and was not installed", o.OpType, opTypeMaxLength),

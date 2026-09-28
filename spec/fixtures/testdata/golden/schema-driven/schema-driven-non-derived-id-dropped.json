@@ -45,11 +45,11 @@
   ],
   "conflicts": [
     {
+      "kind": "object-id-mismatch",
       "namespace": "bigco",
       "object_ids": [
         "rogue-object"
-      ],
-      "reason": "schema object id \"rogue-object\" does not match the derived form \"schema:bigco\" for namespace \"bigco\" and none of its types were installed"
+      ]
     }
   ],
   "objects": [

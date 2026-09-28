@@ -672,7 +672,7 @@ func conflictsIntroducedByApply(schemas []writ.Schema, before []writ.SchemaConfl
 func conflictKey(c writ.SchemaConflict) string {
 	ids := append([]string(nil), c.ObjectIDs...)
 	sort.Strings(ids)
-	return strings.Join([]string{c.ObjectType, c.Namespace, strings.Join(ids, ","), c.Reason}, "\x00")
+	return strings.Join([]string{string(c.Kind), c.ObjectType, c.Namespace, strings.Join(ids, ","), c.Reason}, "\x00")
 }
 
 // describeSchemaConflict renders one SchemaConflict as a refusal line,

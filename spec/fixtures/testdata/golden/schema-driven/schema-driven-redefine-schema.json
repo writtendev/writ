@@ -28,12 +28,12 @@
   ],
   "conflicts": [
     {
+      "kind": "schema-redefined",
       "object_type": "schema",
       "namespace": "acme",
       "object_ids": [
         "schema:acme"
-      ],
-      "reason": "schema is the engine's built-in bootstrap type and cannot be redefined from the log"
+      ]
     }
   ],
   "objects": [

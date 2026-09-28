@@ -581,8 +581,38 @@ the others.
 ## 6. Conflicts
 
 Reading any object requires first folding the `schema` objects present in
-a repository and resolving them into per-`object_type` rule sets. Five
-kinds of conflict can arise, and none is picked a winner:
+a repository and resolving them into per-`object_type` rule sets. The
+resolver reports what it found as a `SchemaConflict` list. Each entry
+serializes as `kind`, `object_type` (when set), `namespace` (when set), and
+`object_ids` — that shape, not any human-readable text, is what an
+independent implementation reproduces and a conformance corpus pins. A
+`reason` (or any other human-readable explanation an implementation chooses
+to carry alongside it) is informative only: its wording is never part of
+conformance and may differ, or change, between implementations and releases
+without affecting conformance.
+
+`kind` is a **closed catalogue** for this spec version — eleven codes, no
+more:
+
+| `kind` | Produced by | Effect |
+| --- | --- | --- |
+| `namespace-ungrammatical` | kind 3 below (a schema object's folded `namespace` fails §4.1's grammar) | Withheld: none of the schema object's types are installed |
+| `object-id-mismatch` | kind 2 below | Withheld: the whole schema object is dropped |
+| `schema-redefined` | kind 1 below, the bare-`schema` special case | Withheld: the `define-type` is not installed |
+| `type-ungrammatical` | kind 3 below (a `define-type` name fails §4.2's `object_type` grammar) | Withheld: the type is not installed |
+| `type-unqualified` | kind 4 below | Withheld: the type is not installed |
+| `type-contested` | kind 1 below (an `object_type` collision) | Withheld: neither schema object's rules are installed for the contested type |
+| `op-type-ungrammatical` | §11 (a `define-field` or `define-op` `op_type` fails the envelope grammar) | Withheld: the rule, or the op type, is not installed |
+| `rule-invalid` | §9 (`spec.ValidateFieldRule` rejects a rule) | Withheld: the rule is not installed |
+| `key-column-disagreement` | §8's key-column paragraph | Withheld: every rule participating in the disagreeing column |
+| `target-disagreement` | kind 5 below / §8 | Withheld: every rule bound to the disagreeing target |
+| `value-type-unknown` | §9 / §10 | **Not withheld**: the rule is installed demoted (untyped) at the unrecognized position; this is a warning, not a drop |
+
+A v0.1 reader never emits a `kind` outside this table; a future kind is a
+new spec version's business, not something this one's resolver produces.
+
+The five withholding shapes those first ten codes come from, and none is
+picked a winner:
 
 1. **`object_type` collision** (§2): two schema objects both bind the
    same (namespace-qualified) `object_type`. Withholding rules for the
@@ -684,14 +714,15 @@ kinds of conflict can arise, and none is picked a winner:
 
 Not every `SchemaConflict` the resolver reports withholds anything. A rule
 whose `value_type`, or a `key_types` entry, is outside this reader's own
-catalogue is not one of the five kinds above: it is still installed,
-demoted at exactly the unrecognized position (§10), and the resolver
-reports one warning-shaped `SchemaConflict` alongside it — `ObjectType`,
-the owning schema's `ObjectIDs`, and a `Reason` naming what was demoted —
-purely informational, distinguishable from a withholding conflict only by
-the fact that the rule it names is nonetheless present in the resolved
-rule set. A rule the pass above actually drops or withholds gets its
-existing conflict and never also this warning: the two are mutually
+catalogue is not one of the five withholding shapes above: it is still
+installed, demoted at exactly the unrecognized position (§10), and the
+resolver reports one warning-shaped `SchemaConflict` alongside it, `kind`
+`value-type-unknown` — `object_type`, the owning schema's `object_ids`, and
+a `reason` naming what was demoted — distinguishable from a withholding
+conflict by its `kind` alone (the table above), and by the fact that the
+rule it names is nonetheless present in the resolved rule set. A rule the
+pass above actually drops or withholds gets its existing conflict and never
+also this warning: the two are mutually
 exclusive per rule, so a reader is never told a rule was "installed" and
 "withheld" in the same breath.
 
@@ -1057,6 +1088,10 @@ rest are unreachable from a schema-valid `define-field` body, unreachable
 because the reference harness pins the field itself, or reachable but not
 yet given a vector — `spec/schema_ops_test.go`'s
 `fieldRuleSentinelInventory` states which, and why, for each.
+
+The resolver-level code for any such rejection is the single `kind`
+`rule-invalid` (§6): the `<token>` distinguishes which branch fired, but
+stays informative, inside `reason`, the same as the rest of that string.
 
 An out-of-catalogue `value_type` or `key_types` entry is deliberately
 *not* one of the nineteen (WRIT-334): `unknown-value-type` and

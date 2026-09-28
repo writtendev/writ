@@ -290,27 +290,27 @@ func TestRulesFromSchemas_UnqualifiedConsumerTypeDroppedNotInstalled(t *testing.
 		t.Fatalf("expected 3 conflicts (one per bad declaration), got %+v", conflicts)
 	}
 
-	reasons := make(map[string]string, len(conflicts))
+	kinds := make(map[string]writ.SchemaConflictKind, len(conflicts))
 	for _, c := range conflicts {
-		reasons[c.ObjectType] = c.Reason
+		kinds[c.ObjectType] = c.Kind
 	}
 	// "standup" and "bigco.retro" are grammar-legal object types — each is
 	// a single, correctly-shaped segment or two — so both are caught only
 	// by the qualification check (§2, §6.4), not by WRIT-253's newer
 	// object_type grammar gate.
-	if !strings.Contains(reasons["standup"], "not qualified with this schema object's own namespace") {
-		t.Errorf("standup's conflict reason does not name the namespace-qualification failure: %q", reasons["standup"])
+	if kinds["standup"] != writ.SchemaConflictTypeUnqualified {
+		t.Errorf("standup's conflict Kind does not name the namespace-qualification failure: %q", kinds["standup"])
 	}
-	if !strings.Contains(reasons["bigco.retro"], "not qualified with this schema object's own namespace") {
-		t.Errorf("bigco.retro's conflict reason does not name the namespace-qualification failure: %q", reasons["bigco.retro"])
+	if kinds["bigco.retro"] != writ.SchemaConflictTypeUnqualified {
+		t.Errorf("bigco.retro's conflict Kind does not name the namespace-qualification failure: %q", kinds["bigco.retro"])
 	}
 	// "acme.foo.bar" carries two dots, which the object_type grammar
 	// (spec/op-envelope.md: at most one) already refuses on its own —
 	// WRIT-253's grammar gate runs before the qualification check and
 	// catches it first, so this one is reported as an invalid object
 	// type instead. Both checks would have dropped it either way.
-	if !strings.Contains(reasons["acme.foo.bar"], "not a valid object type") {
-		t.Errorf("acme.foo.bar's conflict reason does not name the object_type grammar failure: %q", reasons["acme.foo.bar"])
+	if kinds["acme.foo.bar"] != writ.SchemaConflictTypeUngrammatical {
+		t.Errorf("acme.foo.bar's conflict Kind does not name the object_type grammar failure: %q", kinds["acme.foo.bar"])
 	}
 }
 
@@ -783,8 +783,8 @@ func TestRulesFromSchemas_InvalidOpTypeGrammarDroppedNotInstalled(t *testing.T) 
 		t.Fatalf("expected 4 conflicts for the two grammar-invalid define-field op_types and the two grammar-invalid define-op op_types, got %+v", conflicts)
 	}
 	for _, c := range conflicts {
-		if !strings.Contains(c.Reason, "not a valid op type") {
-			t.Errorf("conflict reason does not name the grammar violation: %+v", c)
+		if c.Kind != writ.SchemaConflictOpTypeUngrammatical {
+			t.Errorf("conflict Kind does not name the grammar violation: %+v", c)
 		}
 	}
 
@@ -901,8 +901,8 @@ func TestRulesFromSchemas_InvalidTargetOrKeyGrammarDroppedNotInstalled(t *testin
 		t.Fatalf("expected 4 conflicts, one per bad rule (owner, tags, beta, delta), got %+v", conflicts)
 	}
 	for _, c := range conflicts {
-		if !strings.Contains(c.Reason, "is invalid and was not installed") {
-			t.Errorf("conflict reason does not name a dropped rule: %+v", c)
+		if c.Kind != writ.SchemaConflictRuleInvalid {
+			t.Errorf("conflict Kind does not name a dropped rule: %+v", c)
 		}
 	}
 
@@ -1585,8 +1585,8 @@ func TestRulesFromSchemas_DualRoleTombstoneFieldRefused(t *testing.T) {
 			if len(conflicts) != 1 {
 				t.Fatalf("expected exactly 1 conflict naming the unsatisfiable combination, got %+v", conflicts)
 			}
-			if !strings.Contains(conflicts[0].Reason, "tombstone") {
-				t.Fatalf("conflict should name the tombstone strategy, got %q", conflicts[0].Reason)
+			if conflicts[0].Kind != writ.SchemaConflictKeyColumnDisagreement {
+				t.Fatalf("conflict Kind should name the key-column disagreement, got %q", conflicts[0].Kind)
 			}
 		})
 	}
@@ -1792,6 +1792,145 @@ func TestRulesFromSchemas_InvalidAndUnrecognizedRuleGetsOnlyDropConflict(t *test
 	}
 	if !strings.Contains(conflicts[0].Reason, "invalid and was not installed") {
 		t.Fatalf("expected the pass-1 drop reason, got %q", conflicts[0].Reason)
+	}
+}
+
+// TestRulesFromSchemas_EveryReachableKindReachedOnce exercises one minimal
+// schema shape per reachable SchemaConflictKind (spec/schema-ops.md §6),
+// proving RulesFromSchemas actually sets each of the ten codes a schema can
+// still reach. SchemaConflictTypeContested is deliberately exempt here:
+// WRIT-254 made a namespace-qualified object_type collision structurally
+// unreachable (kind 1's own doc comment above), leaving only the bare
+// "schema" special case, which is SchemaConflictSchemaRedefined's shape,
+// not this one's -- so there is no schema left that produces
+// SchemaConflictTypeContested for this test to exercise.
+func TestRulesFromSchemas_EveryReachableKindReachedOnce(t *testing.T) {
+	unrecognizedIdent := mkField("widget", "set-ident", 1, "ident", "lww")
+	unrecognizedIdent.ValueType = "x-uuid"
+
+	for _, tc := range []struct {
+		name    string
+		schemas []state.Schema
+		want    writ.SchemaConflictKind
+	}{
+		{
+			name: "namespace-ungrammatical",
+			schemas: []state.Schema{{
+				ObjectID:  "schema:Bad Namespace",
+				Namespace: "Bad Namespace",
+			}},
+			want: writ.SchemaConflictNamespaceUngrammatical,
+		},
+		{
+			name: "object-id-mismatch",
+			schemas: []state.Schema{{
+				ObjectID:  "rogue-object",
+				Namespace: "acme",
+			}},
+			want: writ.SchemaConflictObjectIDMismatch,
+		},
+		{
+			name: "schema-redefined",
+			schemas: []state.Schema{{
+				ObjectID:  "schema:acme",
+				Namespace: "acme",
+				Types:     []state.SchemaType{{Name: "schema"}},
+			}},
+			want: writ.SchemaConflictSchemaRedefined,
+		},
+		{
+			name: "type-ungrammatical",
+			schemas: []state.Schema{{
+				ObjectID:  "schema:acme",
+				Namespace: "acme",
+				Types:     []state.SchemaType{{Name: "acme.Foo"}},
+			}},
+			want: writ.SchemaConflictTypeUngrammatical,
+		},
+		{
+			name: "type-unqualified",
+			schemas: []state.Schema{{
+				ObjectID:  "schema:acme",
+				Namespace: "acme",
+				Types:     []state.SchemaType{{Name: "standup"}},
+			}},
+			want: writ.SchemaConflictTypeUnqualified,
+		},
+		{
+			name: "op-type-ungrammatical",
+			schemas: []state.Schema{{
+				ObjectID:  "schema:acme",
+				Namespace: "acme",
+				Types: []state.SchemaType{{
+					Name:   "acme.widget",
+					Fields: []state.SchemaField{mkField("widget", "Bad_Type", 1, "summary", "lww")},
+				}},
+			}},
+			want: writ.SchemaConflictOpTypeUngrammatical,
+		},
+		{
+			name: "rule-invalid",
+			schemas: []state.Schema{{
+				ObjectID:  "schema:acme",
+				Namespace: "acme",
+				Types: []state.SchemaType{{
+					Name:   "acme.widget",
+					Fields: []state.SchemaField{mkField("widget", "set-status", 1, "status", "bogus-strategy")},
+				}},
+			}},
+			want: writ.SchemaConflictRuleInvalid,
+		},
+		{
+			name: "key-column-disagreement",
+			schemas: []state.Schema{{
+				ObjectID:  "schema:acme",
+				Namespace: "acme",
+				Types: []state.SchemaType{{
+					Name: "acme.widget",
+					Fields: []state.SchemaField{
+						{Name: "aa", OpType: "approve", OpVersion: 1, Strategy: "keyed-lww", ValueType: "string",
+							Key: []string{"subject"}, KeyTypes: map[string]string{"subject": "person-ref"}},
+						{Name: "mm", OpType: "approve", OpVersion: 1, Strategy: "keyed-lww", ValueType: "string",
+							Key: []string{"subject"}, KeyTypes: map[string]string{"subject": "string"}},
+					},
+				}},
+			}},
+			want: writ.SchemaConflictKeyColumnDisagreement,
+		},
+		{
+			name: "target-disagreement",
+			schemas: []state.Schema{{
+				ObjectID:  "schema:acme",
+				Namespace: "acme",
+				Types: []state.SchemaType{{
+					Name: "acme.gadget",
+					Fields: []state.SchemaField{
+						{Name: "mode", OpType: "configure", OpVersion: 1, Strategy: "lww", ValueType: "string"},
+						{Name: "mode", OpType: "configure", OpVersion: 2, Strategy: "set-union", ValueType: "string"},
+					},
+				}},
+			}},
+			want: writ.SchemaConflictTargetDisagreement,
+		},
+		{
+			name: "value-type-unknown",
+			schemas: []state.Schema{{
+				ObjectID:  "schema:acme",
+				Namespace: "acme",
+				Types:     []state.SchemaType{{Name: "acme.widget", Fields: []state.SchemaField{unrecognizedIdent}}},
+			}},
+			want: writ.SchemaConflictValueTypeUnknown,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, conflicts := writ.RulesFromSchemas(tc.schemas)
+			if len(conflicts) != 1 {
+				t.Fatalf("expected exactly 1 conflict, got %+v", conflicts)
+			}
+			if conflicts[0].Kind != tc.want {
+				t.Fatalf("expected Kind %q, got %q (full conflict: %+v)", tc.want, conflicts[0].Kind, conflicts[0])
+			}
+		})
 	}
 }
 

@@ -37,11 +37,11 @@
   ],
   "conflicts": [
     {
+      "kind": "target-disagreement",
       "object_type": "acme.widget",
       "object_ids": [
         "schema:acme"
-      ],
-      "reason": "field rule (promote, 2, level) reuses target \"level\" already bound by (promote, 1, level), but they disagree on lattice ([low high] vs [high low]); lattice is consulted by the strategy at fold time, so rules sharing a target MUST agree on it even across a version bump of the same (op_type, field) (spec/schema-ops.md §8)"
+      ]
     }
   ],
   "objects": [
