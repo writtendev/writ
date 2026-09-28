@@ -1,0 +1,74 @@
+{
+  "objects": [
+    {
+      "object_id": "schema:acme",
+      "schema": {
+        "object_id": "schema:acme",
+        "namespace": "acme",
+        "types": [
+          {
+            "type": "acme.gadget"
+          },
+          {
+            "type": "acme.widget",
+            "deprecated": true,
+            "fields": [
+              {
+                "field": "status",
+                "op_type": "create",
+                "op_version": 1,
+                "value_type": "string",
+                "strategy": "lww",
+                "deprecated": true
+              }
+            ]
+          }
+        ],
+        "unknown_ops": [
+          {
+            "commit": "623e3da5f76b34d1c9af7f98659d438740fcc8b1",
+            "object_type": "schema",
+            "op_type": "deprecate-type",
+            "op_version": 1,
+            "verification": "wrong-key"
+          },
+          {
+            "commit": "68e625c49f722e786a6977b79238ca4f8f58956e",
+            "object_type": "schema",
+            "op_type": "deprecate-type",
+            "op_version": 1,
+            "verification": "wrong-key"
+          },
+          {
+            "commit": "cf5a21ae87b317a8096e593aa0a443ecf1109596",
+            "object_type": "schema",
+            "op_type": "deprecate-field",
+            "op_version": 1,
+            "verification": "wrong-key"
+          },
+          {
+            "commit": "81a58d3550ba037930fee8b90048d2a61274567e",
+            "object_type": "schema",
+            "op_type": "deprecate-field",
+            "op_version": 1,
+            "verification": "wrong-key"
+          },
+          {
+            "commit": "517a48272a7ee1ee9c4b94a509cb14469488d35e",
+            "object_type": "schema",
+            "op_type": "deprecate-type",
+            "op_version": 1,
+            "verification": "wrong-key"
+          },
+          {
+            "commit": "9c2c0d9875ad216bfa6083161b670c7772303d3d",
+            "object_type": "schema",
+            "op_type": "deprecate-field",
+            "op_version": 1,
+            "verification": "wrong-key"
+          }
+        ]
+      }
+    }
+  ]
+}

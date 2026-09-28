@@ -322,6 +322,26 @@ func FoldSchema(ops []codec.Op) (Schema, error) {
 			}
 		}
 
+		// deprecated on a deprecate-type/deprecate-field op MUST be
+		// literally true (spec/schema-ops.md §4.5/§4.6: producers MUST
+		// write true, and there is no op that clears a deprecation).
+		// false, any non-boolean, or an absent deprecated is quarantined on
+		// the same terms as the quarantines above, so the case arms below
+		// can store true directly rather than whatever boolean the op
+		// happened to carry (WRIT-338).
+		if op.OpType == "deprecate-type" || op.OpType == "deprecate-field" {
+			if v, ok := body["deprecated"].(bool); !ok || !v {
+				unknownOps = append(unknownOps, UnknownOp{
+					Commit:       op.ID,
+					ObjectType:   op.ObjectType,
+					OpType:       op.OpType,
+					OpVersion:    op.OpVersion,
+					Verification: string(op.Verification.Outcome),
+				})
+				continue
+			}
+		}
+
 		switch op.OpType {
 		case "create":
 			if !namespaceSet {
@@ -349,9 +369,8 @@ func FoldSchema(ops []codec.Op) (Schema, error) {
 			if typ == "" {
 				break
 			}
-			if v, ok := body["deprecated"].(bool); ok {
-				typeDeprecated[typ] = v
-			}
+			// Quarantined above unless deprecated is literally true.
+			typeDeprecated[typ] = true
 
 		case "define-op":
 			key := schemaOpKey{
@@ -409,9 +428,8 @@ func FoldSchema(ops []codec.Op) (Schema, error) {
 				opVersion: stringField(body, "op_version"),
 				field:     stringField(body, "field"),
 			}
-			if v, ok := body["deprecated"].(bool); ok {
-				fieldDeprecated[key] = v
-			}
+			// Quarantined above unless deprecated is literally true.
+			fieldDeprecated[key] = true
 
 		default:
 			unknownOps = append(unknownOps, UnknownOp{

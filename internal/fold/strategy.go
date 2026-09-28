@@ -217,9 +217,12 @@ func (a *setObservedRemoveAccumulator) Apply(rule Rule, op codec.Op, body map[st
 		adds = append(adds, orSetItems(bodyMap["add"])...)
 		removes = append(removes, orSetItems(bodyMap["remove"])...)
 	} else if raw, ok := body[rule.Field]; ok && raw != nil {
-		if (len(op.OpType) >= 4 && op.OpType[:4] == "add-") || op.OpType == "add" {
+		// Scalar shape: which side raw lands on is decided by op.OpType, on
+		// exactly the terms ruleAccepts (reject.go) already validated the
+		// op against, via the same orSetScalarSide helper.
+		if add, remove := orSetScalarSide(op.OpType); add {
 			adds = append(adds, orSetItems(raw)...)
-		} else if (len(op.OpType) >= 7 && op.OpType[:7] == "remove-") || op.OpType == "remove" {
+		} else if remove {
 			removes = append(removes, orSetItems(raw)...)
 		}
 	}

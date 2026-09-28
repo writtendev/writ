@@ -716,7 +716,7 @@ func uninterpretable(op MergeOp, rules []FieldRule) bool {
 		if !opMatchesRule(op, r) {
 			continue
 		}
-		if !ruleAccepts(r, op.Body) {
+		if !ruleAccepts(r, op.OpType, op.Body) {
 			return true
 		}
 	}
@@ -774,7 +774,11 @@ func refOrSetItems(raw any) []string {
 
 // ruleAccepts reports whether body carries a value rule r's strategy can
 // consume. A field the body does not carry is not a write and is accepted.
-func ruleAccepts(r FieldRule, body map[string]any) bool {
+// opType is the operation's op_type, consulted only for the
+// set-observed-remove scalar shape (spec/fold.md §5.4), which has no member
+// names of its own to read the side off and so reads it off the op type
+// instead.
+func ruleAccepts(r FieldRule, opType string, body map[string]any) bool {
 	// A keyed-lww key component is consumed as a string whether or not the
 	// declared field itself is present in this body: it decides which register
 	// the write addresses.
@@ -827,6 +831,16 @@ func ruleAccepts(r FieldRule, body map[string]any) bool {
 	case "set-union":
 		return isRefStringOrStringSlice(v)
 	case "set-observed-remove":
+		if _, nested := v.(map[string]any); !nested {
+			// Scalar shape: the op type says which side the value lands on
+			// (spec/fold.md §5.4). An op type mapping to neither side has no
+			// side to consume the write on and is uninterpretable per §7.1,
+			// rather than being silently dropped (WRIT-338).
+			add, remove := refOrSetScalarSide(opType)
+			if !add && !remove {
+				return false
+			}
+		}
 		return refOrSetAccepts(r.Field, v, body)
 	case "tombstone":
 		_, ok := v.(bool)
@@ -837,6 +851,27 @@ func ruleAccepts(r FieldRule, body map[string]any) bool {
 		return isRefString(v)
 	}
 	return true
+}
+
+// refOrSetScalarSide reports which side of an OR-set the scalar body shape
+// (spec/fold.md §5.4) maps opType onto: op type "add" or a "add-" prefix maps
+// to the add side, "remove" or a "remove-" prefix maps to the remove side. An
+// op type mapping to neither side returns false, false — ruleAccepts then
+// makes the whole operation uninterpretable per §7.1 rather than silently
+// dropping the write.
+//
+// This is the predicate half of the set-observed-remove reducer's scalar
+// branch below and MUST agree with it exactly: both call this function so
+// the mapping cannot drift between the two, the way refOrSetItems' own doc
+// comment warns ruleAccepts and the reducer must not.
+func refOrSetScalarSide(opType string) (add, remove bool) {
+	if opType == "add" || strings.HasPrefix(opType, "add-") {
+		return true, false
+	}
+	if opType == "remove" || strings.HasPrefix(opType, "remove-") {
+		return false, true
+	}
+	return false, false
 }
 
 func refOrSetAccepts(field string, v any, body map[string]any) bool {
@@ -1165,9 +1200,13 @@ func Fold(ops []MergeOp, rules []FieldRule) (FoldResult, error) {
 							addItems = append(addItems, refOrSetItems(bodyMap["add"])...)
 							remItems = append(remItems, refOrSetItems(bodyMap["remove"])...)
 						} else if raw, ok := op.Body[r.Field]; ok && raw != nil {
-							if strings.HasPrefix(op.OpType, "add-") || op.OpType == "add" {
+							// Scalar shape: which side raw lands on is decided
+							// by op.OpType, on exactly the terms ruleAccepts
+							// above already validated the op against, via the
+							// same refOrSetScalarSide helper.
+							if add, remove := refOrSetScalarSide(op.OpType); add {
 								addItems = append(addItems, refOrSetItems(raw)...)
-							} else if strings.HasPrefix(op.OpType, "remove-") || op.OpType == "remove" {
+							} else if remove {
 								remItems = append(remItems, refOrSetItems(raw)...)
 							}
 						}

@@ -38,7 +38,7 @@ func Uninterpretable(op codec.Op, body map[string]any, rules []Rule) bool {
 		if !opMatchesRule(op, r) {
 			continue
 		}
-		if !ruleAccepts(r, body) {
+		if !ruleAccepts(r, op.OpType, body) {
 			return true
 		}
 	}
@@ -47,7 +47,10 @@ func Uninterpretable(op codec.Op, body map[string]any, rules []Rule) bool {
 
 // ruleAccepts reports whether body carries a value that rule r's strategy can
 // consume. A field the body does not carry is not a write and is accepted.
-func ruleAccepts(r Rule, body map[string]any) bool {
+// opType is the operation's op_type, consulted only for the set-observed-remove
+// scalar shape (spec/fold.md §5.4), which has no member names of its own to
+// read the side off and so reads it off the op type instead.
+func ruleAccepts(r Rule, opType string, body map[string]any) bool {
 	// A keyed-lww key component is consumed as a string whether or not the
 	// declared field itself is present in this body: it is what decides which
 	// register the write addresses.
@@ -90,6 +93,16 @@ func ruleAccepts(r Rule, body map[string]any) bool {
 	case "set-union":
 		return isStringOrStringSlice(v)
 	case "set-observed-remove":
+		if _, nested := v.(map[string]any); !nested {
+			// Scalar shape: the op type says which side the value lands on
+			// (spec/fold.md §5.4). An op type mapping to neither side has no
+			// side to consume the write on and is uninterpretable per §7.1,
+			// rather than being silently dropped (WRIT-338).
+			add, remove := orSetScalarSide(opType)
+			if !add && !remove {
+				return false
+			}
+		}
 		return orSetAccepts(r.Field, v, body)
 	case "tombstone":
 		_, ok := v.(bool)
@@ -130,7 +143,10 @@ func appendAccepts(v any) bool {
 //     members;
 //   - flat, where `add` and `remove` are themselves the declared fields;
 //   - scalar, where the declared field holds one item and the op type carries
-//     which side it lands on.
+//     which side it lands on. An op type mapping to neither side is rejected
+//     before this function is reached (ruleAccepts' set-observed-remove case,
+//     via orSetScalarSide), so by the time a scalar-shape v gets here its op
+//     type is already known to map to a side.
 //
 // A side holds a string or an array of strings, exactly as a set-union field
 // does. An absent side is not a write and is accepted; a side that is present
@@ -175,6 +191,27 @@ func orSetAccepts(field string, v any, body map[string]any) bool {
 		return sideOK(vMember, vPresent)
 	}
 	return sideOK(v, true)
+}
+
+// orSetScalarSide reports which side of an OR-set the scalar body shape
+// (spec/fold.md §5.4) maps opType onto: op type "add" or a "add-" prefix maps
+// to the add side, "remove" or a "remove-" prefix maps to the remove side. An
+// op type mapping to neither side returns false, false — ruleAccepts then
+// makes the whole operation uninterpretable per §7.1 rather than silently
+// dropping the write.
+//
+// This is the predicate half of setObservedRemoveAccumulator.Apply's scalar
+// branch (strategy.go) and MUST agree with it exactly: both call this
+// function so the mapping cannot drift between the two, the way orSetItems'
+// own doc comment warns orSetAccepts and the reducer must not.
+func orSetScalarSide(opType string) (add, remove bool) {
+	if opType == "add" || (len(opType) >= 4 && opType[:4] == "add-") {
+		return true, false
+	}
+	if opType == "remove" || (len(opType) >= 7 && opType[:7] == "remove-") {
+		return false, true
+	}
+	return false, false
 }
 
 // orSetItems returns the items one side of an OR-set body carries. The side

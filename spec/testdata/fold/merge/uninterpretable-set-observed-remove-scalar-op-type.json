@@ -1,0 +1,66 @@
+{
+  "name": "uninterpretable-set-observed-remove-scalar-op-type",
+  "description": "An op_type mapping to neither the add nor the remove side of a scalar-shape set-observed-remove field is uninterpretable (spec/fold.md §5.4, §7.1): the strategy has no side to consume the write on. The nested shape is unaffected by op_type, and the whole operation is rejected, including its sibling lww field",
+  "object_id": "obj-1",
+  "fields": {
+    "labels": { "strategy": "set-observed-remove" },
+    "title": { "strategy": "lww" }
+  },
+  "ops": [
+    {
+      "id": "op-a",
+      "parents": [],
+      "time": 100,
+      "object_id": "obj-1",
+      "op_type": "add-label",
+      "body": {
+        "labels": "x"
+      }
+    },
+    {
+      "id": "op-b",
+      "parents": ["op-a"],
+      "time": 200,
+      "object_id": "obj-1",
+      "op_type": "tag",
+      "body": {
+        "labels": "y",
+        "title": "t"
+      }
+    },
+    {
+      "id": "op-c",
+      "parents": ["op-b"],
+      "time": 300,
+      "object_id": "obj-1",
+      "op_type": "tag",
+      "body": {
+        "labels": ["z"]
+      }
+    },
+    {
+      "id": "op-d",
+      "parents": ["op-c"],
+      "time": 400,
+      "object_id": "obj-1",
+      "op_type": "tag",
+      "body": {
+        "labels": { "add": ["w"] }
+      }
+    },
+    {
+      "id": "op-e",
+      "parents": ["op-d"],
+      "time": 500,
+      "object_id": "obj-1",
+      "op_type": "addendum",
+      "body": {
+        "labels": "v"
+      }
+    }
+  ],
+  "expected_state": {
+    "labels": ["w", "x"]
+  },
+  "expected_unknown_ops": ["op-b", "op-c", "op-e"]
+}

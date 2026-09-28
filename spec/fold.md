@@ -359,7 +359,9 @@ position in $L$. The order the operation's own body happens to list those
 fields in is not consulted — canonical JSON object member order is a
 property of the encoding, not of the schema.
 
-**Normalization is intrinsic to `person-ref`.** `spec/value-types.md` §Normalization defines the rule: where a rule's `value_type` (or, for a key component, `key_types` entry) is `person-ref`, the field normalizes per `spec/identifiers.md` automatically. It is not a separate declarative attribute a rule table author repeats field by field, and it is not dispatched by inspecting operation types or field names — accumulators remain schema-blind, driven exclusively by the rule's `value_type`/`key_types`.
+**Normalization is intrinsic to `person-ref`.** `spec/value-types.md` §Normalization defines the rule: where a rule's `value_type` (or, for a key component, `key_types` entry) is `person-ref`, the field normalizes per `spec/identifiers.md` automatically. It is not a separate declarative attribute a rule table author repeats field by field. Whether a value normalizes is decided only by the rule's `value_type`/`key_types`, never by inspecting operation types or field names — that much is a statement about normalization only.
+
+The fold does read a closed set of op-type and field-name literals, each stated in its own strategy's entry above and frozen with this version: `tombstone` reads the op types `delete` and `undelete` (§5.6); `set-observed-remove` reads the declared field names `add`/`remove` (flat shape, §5.4), the member names `add`/`remove` (nested shape, §5.4), and the op types `add`, `add-*`, `remove`, `remove-*` (scalar shape, §5.4). No other op-type or field-name literal reaches the fold.
 
 ### Unified empty-value contract
 
@@ -399,7 +401,7 @@ Typed domain serializations (such as language-specific state structs) MAY omit e
 - **Body shapes.** A field declaring this strategy has two sides, an add side and a remove side, and a body carries them in one of three shapes. A conforming reader MUST accept all three, because §7.1 is not computable from a strategy whose body shapes are not stated:
   - **Nested** — the declared field holds an object whose `add` and `remove` members are the two sides. Either member MAY be absent.
   - **Flat** — `add` and `remove` are themselves declared fields of the op, each carrying its own side. Either field MAY be absent. The two are one operation on one set, so both sides are read together and both are subject to §7.1: an operation whose `remove` side is malformed is uninterpretable even where a reader reaches it by way of the `add` field. A reader MUST apply removals to additions carried by other operations even when the removal op carries no `add` field, and MUST accept the nested shape present at a flat-declared field.
-  - **Scalar** — the declared field carries one side's items directly and the operation's `op_type` says which side (an `add-*` or `add` op type maps to the add side, and a `remove-*` or `remove` op type maps to the remove side).
+  - **Scalar** — the declared field carries one side's items directly and the operation's `op_type` says which side (an `add-*` or `add` op type maps to the add side, and a `remove-*` or `remove` op type maps to the remove side). An operation whose `op_type` is none of these — `tag`, say, or `addendum` — and that writes the declared field in this shape is uninterpretable per §7.1: the strategy has no side to consume the write on. The nested and flat shapes name their sides explicitly and are unaffected by `op_type`.
 - **A side holds a string or an array of strings,** exactly as a `set-union` field does (§5.3): a single item needs no array around it. A side the body does not carry is not a write of that side and has no effect.
 - **Mechanism:**
   - An add operation $a \in S$ adds an element $x$.
@@ -431,10 +433,10 @@ Typed domain serializations (such as language-specific state structs) MAY omit e
   - **Causal edit after delete:** An edit $e$ that causally succeeds a delete ($d \prec e$) without an intervening undelete applies its field writes to state, but the entity remains `deleted = true` unless an explicit undelete operation is present.
 
 #### 7. `lattice` (Monotone status transitions)
-- **Initial state:** The bottom element $\bot$ of the declared semilattice.
+- **Initial state:** Absent. The field is absent from the generic folded state map until an operation writes a declared element of $V$; from that first write on, the state is the join of the declared elements written, and that first write sets it outright. No element is emitted by default — not even $\bot$ — for a field that was never written, or whose writes all carried undeclared elements (see below). Emitting $\bot$ there would be a manufactured fact, indistinguishable from a real write; a consumer that wants a default applies it above the fold.
 - **Semantics:** The field's allowed values form a bounded join-semilattice $(V, \sqcup, \le)$ with partial order $\le$ and join operation $\sqcup$.
 - **Reduction:** When an operation writes value $v \in V$, the new state is $\text{state} \sqcup v$.
-- **The value is a string.** A value of any other JSON type — `null` included — makes the whole operation uninterpretable per §7.1. A value that *is* a string but is not a declared element of $V$ is a different case and MUST NOT be rejected: it is a status from a later version of the governing schema, which the forward-compatibility preserve-and-ignore rule (`spec/forward-compatibility.md` FC-1) covers. It leaves the lattice state unchanged without quarantining the operation, so that sibling field updates carried in the same operation materialize normally.
+- **The value is a string.** A value of any other JSON type — `null` included — makes the whole operation uninterpretable per §7.1. A value that *is* a string but is not a declared element of $V$ is a different case and MUST NOT be rejected: it is a status from a later version of the governing schema, which the forward-compatibility preserve-and-ignore rule (`spec/forward-compatibility.md` FC-1) covers. It leaves the lattice state unchanged — so a field whose only writes carry undeclared elements stays absent, not $\bot$ — without quarantining the operation, so that sibling field updates carried in the same operation materialize normally.
 - **Result:** Because $\sqcup$ is associative, commutative, and idempotent, concurrent transitions $u \parallel v$ reconcile deterministically to $v_u \sqcup v_v$ regardless of arrival or topological order.
 
 #### 8. `keyed-lww` (Keyed Last-Writer-Wins registers)
@@ -576,6 +578,17 @@ collection that has sides — an OR-set `add` or `remove` that is present and
 holds `null` (§5.4). It is not a value; it is a write claimed with no value in
 it. A side the body does not carry at all is a different case and is not a
 write: absent is absent, and `{"add": null}` is not the same claim as `{}`.
+
+**A scalar-shape OR-set write under a non-matching `op_type` is also named as
+its own case** (§5.4). The `set-observed-remove` scalar body shape carries no
+side member of its own; the operation's `op_type` is the only signal that
+says which side a write lands on. An operation whose `op_type` is neither
+`add`/`add-*` nor `remove`/`remove-*` and that writes the field in scalar
+shape is uninterpretable, on the same footing as a value of the wrong JSON
+type: the rule matched a declared field, but the strategy has no side to
+consume the write on. This is not the unknown-`op_type` case of §7 — a
+declared rule matched the operation's field; what's missing is a side for
+that op type to write to.
 
 **Scope.** This rule reaches only fields that have a declared merge rule. It
 does **not** touch forward compatibility:
