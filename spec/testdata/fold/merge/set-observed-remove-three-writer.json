@@ -1,0 +1,34 @@
+{
+  "name": "set-observed-remove-three-writer",
+  "description": "WRIT-345 item 6 (spec/fold.md §5.4): a three-writer OR-set shape -- add on one writer, remove causally after it on a second, re-add concurrent with the remove on a third -- where the re-add sorts BEFORE the remove in the total order L. Every prior set-observed-remove vector puts a concurrent re-add after the removing op in L, so a reducer that keyed presence off L-position (a remove kills every earlier-in-L add of the same item) passed them all; here the re-add (op-carol-readd, t*=150) precedes the remove (op-bob-remove, t*=200) in L while remaining causally concurrent with it, so only a reducer keyed off causal ancestry -- add-wins is existential over adds not superseded by a causally later remove, not over adds earlier in L -- keeps 'bug' present.",
+  "object_id": "obj-1",
+  "fields": {
+    "labels": { "strategy": "set-observed-remove" }
+  },
+  "ops": [
+    {
+      "id": "op-alice-add",
+      "parents": [],
+      "time": 100,
+      "object_id": "obj-1",
+      "body": { "labels": { "add": ["bug"] } }
+    },
+    {
+      "id": "op-carol-readd",
+      "parents": ["op-alice-add"],
+      "time": 150,
+      "object_id": "obj-1",
+      "body": { "labels": { "add": ["bug"] } }
+    },
+    {
+      "id": "op-bob-remove",
+      "parents": ["op-alice-add"],
+      "time": 200,
+      "object_id": "obj-1",
+      "body": { "labels": { "remove": ["bug"] } }
+    }
+  ],
+  "expected_state": {
+    "labels": ["bug"]
+  }
+}

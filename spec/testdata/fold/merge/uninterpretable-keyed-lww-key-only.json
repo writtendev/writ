@@ -1,0 +1,32 @@
+{
+  "name": "uninterpretable-keyed-lww-key-only",
+  "description": "WRIT-345 item 8 (spec/fold.md §7.1, reject.go's keyed-lww key-component check): an operation that carries a non-string value at a declared keyed-lww KEY component is uninterpretable even though it never writes the declared `verdict` field itself -- op-2's `subject: 42` addresses a register, and a numeric key component is not a valid register address, so the whole operation is quarantined rather than reduced. The sibling `title` write makes the whole-op rejection observable: op-2's title write ('T2') is also discarded, so `title` stays at op-1's 'T1' rather than advancing, proving rejection is per-operation and not per-field.",
+  "object_id": "obj-1",
+  "fields": {
+    "verdict": { "strategy": "keyed-lww", "key": ["subject", "revision"] },
+    "title": { "strategy": "lww" }
+  },
+  "ops": [
+    {
+      "id": "op-1",
+      "parents": [],
+      "time": 100,
+      "object_id": "obj-1",
+      "body": { "subject": "user:alice", "revision": "r1", "verdict": "approve", "title": "T1" }
+    },
+    {
+      "id": "op-2",
+      "parents": ["op-1"],
+      "time": 200,
+      "object_id": "obj-1",
+      "body": { "subject": 42, "revision": "r1", "title": "T2" }
+    }
+  ],
+  "expected_state": {
+    "verdict": [
+      { "key": ["user:alice", "r1"], "value": "approve" }
+    ],
+    "title": "T1"
+  },
+  "expected_unknown_ops": ["op-2"]
+}

@@ -1,0 +1,65 @@
+{
+  "name": "exact-blob-moved-multi-path",
+  "description": "WRIT-345 item R1a (spec/resolution.md Rung 2): three target paths hold a blob identical to anchor.blob (b.go, B.go, a/x.go), plus an unrelated c.go. Rung 2's tiebreak is the smallest path in UTF-8 byte order, not insertion or directory order: uppercase 'B.go' (0x42) sorts before lowercase 'a/x.go' (0x61) and 'b.go' (0x62), so the winner is B.go even though it is neither the alphabetically-first-ignoring-case candidate nor the first one written into the target map.",
+  "anchor": {
+    "version": 1,
+    "new": {
+      "commit": "1111111111111111111111111111111111111111",
+      "path": "src/old.go",
+      "blob": "8b0078b898037ac52e5c080424ae3d6b1236320a",
+      "range": {
+        "start": 3,
+        "end": 3
+      },
+      "context": {
+        "before": [
+          ""
+        ],
+        "lines": [
+          "func F() {}"
+        ],
+        "after": []
+      }
+    }
+  },
+  "target": {
+    "files": {
+      "b.go": "package x\n\nfunc F() {}\n",
+      "B.go": "package x\n\nfunc F() {}\n",
+      "a/x.go": "package x\n\nfunc F() {}\n",
+      "c.go": "other\n"
+    }
+  },
+  "expect": {
+    "anchor": {
+      "version": 1,
+      "new": {
+        "commit": "1111111111111111111111111111111111111111",
+        "path": "src/old.go",
+        "blob": "8b0078b898037ac52e5c080424ae3d6b1236320a",
+        "range": {
+          "start": 3,
+          "end": 3
+        },
+        "context": {
+          "before": [
+            ""
+          ],
+          "lines": [
+            "func F() {}"
+          ],
+          "after": []
+        }
+      }
+    },
+    "new": {
+      "outcome": "resolved",
+      "match": "exact-blob-moved",
+      "path": "B.go",
+      "range": {
+        "start": 3,
+        "end": 3
+      }
+    }
+  }
+}

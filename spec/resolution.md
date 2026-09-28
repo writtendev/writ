@@ -58,7 +58,7 @@ For each file in the target tree:
    and encoding:
    - **Splitting:** Split at LF (`0x0A`). Trailing LF does not produce an empty
      final line. CRLF preserves `\r`.
-   - **Decoding:** Decoded as UTF-8, replacing invalid byte sequences with `U+FFFD`.
+   - **Decoding:** Decoded as UTF-8; every byte that is not part of a valid UTF-8 encoding is replaced with `U+FFFD` (one replacement character per invalid byte), per `spec/anchors.md` §Lines and encoding.
    - **Truncation:** Stored/compared lines longer than 1000 Unicode code points
      are truncated to their first 1000 code points.
 
@@ -254,7 +254,7 @@ Whole-file anchors evaluate as follows:
    $$\{ \text{"outcome"}: \text{"resolved"}, \text{"match"}: \text{"exact-path-blob"}, \text{"path"}: \text{anchor.path} \}$$
 2. **`exact-blob-moved`:** If `anchor.path` is absent or holds a different blob,
    but `anchor.blob` is present elsewhere in the target tree, choose the
-   lexicographically smallest path $p$ holding that blob OID and resolve to:
+   smallest path $p$ in UTF-8 byte order holding that blob OID and resolve to:
    $$\{ \text{"outcome"}: \text{"resolved"}, \text{"match"}: \text{"exact-blob-moved"}, \text{"path"}: p \}$$
 3. **Orphan:** Whole-file anchors carry no range or context lines and cannot
    perform content matching. If the recorded path exists in the target tree,
@@ -288,7 +288,7 @@ operates as follows:
   `anchor.blob` (or `anchor.path` is absent from the target tree), BUT one or
   more other paths in the target tree have a blob OID matching `anchor.blob`.
 - **Tiebreak:** If multiple paths hold identical content with `anchor.blob`,
-  select the **lexicographically smallest path** $p$.
+  select the **smallest path in UTF-8 byte order**, $p$.
 - **Outcome:** The file moved without edits. The anchored range carries over
   verbatim at the new path:
   ```jsonc
@@ -329,7 +329,7 @@ operates as follows:
      $s + N - 1$ (up to $|\text{before}| + |\text{after}|$ points).
   2. **Smallest distance from original position:** $|s - \text{anchor.range.start}|$.
   3. **Earliest position:** Smallest line number $s$.
-  4. **Lexicographically earliest path:** Smallest path $p$ (when searching across
+  4. **Smallest path in UTF-8 byte order:** $p$ (when searching across
      multiple files).
 - **Outcome:**
   Let $(p, s, s + N - 1)$ be the uniquely selected window:
@@ -394,8 +394,8 @@ rules:
 | ------ | --------- |
 | `"malformed"` | The side failed the Structural Pre-Check above: it does not decode as a v1 side anchor, or its range/context/omitted arithmetic is inconsistent. Checked, and assigned, before the ladder runs — none of the other reasons below apply once this one does. |
 | `"unsupported-version"` | Anchor version is unsupported or unimplemented. |
-| `"path-absent"` | The recorded path is absent from the target tree, and no candidate file yielded any matching lines (max score is 0). |
-| `"no-candidate"` | The file at `anchor.path` exists (or candidate files were checked), but has fewer lines than range length $N$, or every candidate window scored 0 points. |
+| `"path-absent"` | `anchor.path` is absent from the target tree and no candidate window anywhere in the tree scored > 0 points, including when every file is shorter than $N$ or the tree is empty. |
+| `"no-candidate"` | The file at `anchor.path` exists, but has fewer lines than range length $N$, or every window in it scored 0 points. |
 | `"below-threshold"` | At least one candidate window scored $> 0$ points, but the highest score was strictly below the 60% threshold ($\text{best\_score} < 0.60 \times \text{max\_score}$). |
 | `"ambiguous"` | The highest score met or exceeded the 60% threshold, but two or more distinct candidate windows tied for the highest score ($\text{best\_score} == \text{second\_best\_score}$). |
 
