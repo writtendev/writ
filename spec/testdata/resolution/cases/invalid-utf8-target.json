@@ -1,6 +1,6 @@
 {
   "name": "invalid-utf8-target",
-  "description": "WRIT-345 item R5b (spec/anchors.md §Lines and encoding, spec/resolution.md §Target Tree & Content Preparation): a target file's bytes cannot be carried in a JSON string when they are not valid UTF-8, so this case supplies bin.go through target.files_base64 instead of target.files. bin.go's two lines each carry one malformed sequence -- line 1's trailing two bytes (0xE2 0x82) are a truncated 3-byte lead with no valid third byte, and line 2's single byte (0xFF) is never a valid UTF-8 lead byte at all -- and the decode rule replaces EACH invalid byte with its own U+FFFD, not one U+FFFD per maximal ill-formed subsequence: line 1 decodes to two replacement characters, line 2 to one. A maximal-subpart decoder (Rust's from_utf8_lossy, Python's errors=replace) would collapse line 1's two bad bytes to a single U+FFFD instead, and the recorded context (built against the per-byte decode) would then fail to match verbatim.",
+  "description": "WRIT-345 item R5b (spec/anchors.md §Lines and encoding, spec/resolution.md §Target Tree & Content Preparation): a target file's bytes that are not valid UTF-8 cannot be carried in a JSON string, so this case supplies bin.go through target.files_base64. Expected: each invalid byte decodes to its own U+FFFD, not one U+FFFD per ill-formed subsequence, and the recorded context matches that decode verbatim.",
   "anchor": {
     "version": 1,
     "new": {

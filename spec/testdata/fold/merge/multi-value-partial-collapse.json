@@ -1,6 +1,6 @@
 {
   "name": "multi-value-partial-collapse",
-  "description": "WRIT-345 item 5 (spec/fold.md §5.9): a later write observing only SOME of the concurrent versions, not all of them and not none. op-d causally succeeds op-a and op-b and so supersedes both, but is concurrent with op-c, which stays a maximal write in its own right -- the register partially collapses to two entries (op-d's merged value and op-c's untouched one), distinct from three-way-concurrency (no write observes any other) and observed-collapse (one write observes every concurrent version).",
+  "description": "WRIT-345 item 5 (spec/fold.md §5.9): a later write observing only some of the concurrent versions, not all and not none. Expected: the register partially collapses to op-d's merged value and op-c's untouched value.",
   "object_id": "obj-1",
   "fields": {
     "body": { "strategy": "multi-value" }

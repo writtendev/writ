@@ -1,6 +1,6 @@
 {
   "name": "keyed-lww-non-ascii-key-order",
-  "description": "WRIT-345 item 4 (spec/fold.md §5.8/§8): keyed-lww result entries are ordered by key tuple, compared component-wise in canonical UTF-8 byte order -- stated for set-union/OR-set/multi-value in §8 but previously unstated for keyed-lww, and untested against a non-ASCII key. Five single-component keys -- 'Z' (U+005A), 'f' (U+0066), 'e with acute accent' (U+00E9), fullwidth 'A' (U+FF21), and grinning face (U+1F600) -- byte-order as Z, f, e-acute, fullwidth-A, grinning-face: the fullwidth A and the emoji both encode to 3+/4-byte UTF-8 sequences whose leading byte (0xEF, 0xF0) sorts after 'e with acute accent's leading byte (0xC3), so UTF-16 code-unit order (which would place the astral emoji, a surrogate pair starting at 0xD800, before the BMP fullwidth A at 0xFF21) or a collating/case-folding comparator (which could reorder 'Z' against the lowercase letters) would each produce a different order than this vector expects.",
+  "description": "WRIT-345 item 4 (spec/fold.md §5.8/§8): keyed-lww result entries are ordered by key tuple in canonical UTF-8 byte order, previously stated only for set-union/OR-set/multi-value and untested against a non-ASCII key. Expected order: 'Z', 'f', 'é', 'Ａ', '😀'.",
   "object_id": "obj-1",
   "fields": {
     "verdict": { "strategy": "keyed-lww", "key": ["subject"] }

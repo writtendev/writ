@@ -338,7 +338,7 @@
     "outcome": "resolved"
   },
   "exact-blob-moved-multi-path.json": {
-    "description": "Rung 2 tiebreak across three paths holding an identical blob: the smallest path in UTF-8 byte order (uppercase B.go) wins, not insertion order or a case-insensitive comparison",
+    "description": "Rung 2 tiebreak across three paths holding an identical blob: the smallest path in UTF-8 byte order wins",
     "match": "exact-blob-moved",
     "outcome": "resolved"
   },
@@ -348,7 +348,7 @@
     "outcome": "resolved"
   },
   "context-exact-cross-file-tiebreak.json": {
-    "description": "Rung 3 cross-file tiebreak with five matching windows across three files: exercises all four tiebreak keys (collar score, distance, start, path) in fixed order -- the winner is neither the smallest-distance, the earliest-start, nor the smallest-path window",
+    "description": "Rung 3 cross-file tiebreak with five matching windows across three files, exercising all four tiebreak keys (collar score, distance, start, path) in fixed order",
     "match": "context-exact",
     "outcome": "resolved"
   },
@@ -363,7 +363,7 @@
     "reason": "no-candidate"
   },
   "bom-target.json": {
-    "description": "Target file's line 1 begins with a byte-order mark that is not stripped before comparison; the BOM-free recorded context scores 2 of 4 points via the collar alone, below the 60% threshold",
+    "description": "Target file's line 1 begins with a byte-order mark that is not stripped before comparison; the BOM-free recorded context falls below the match threshold",
     "outcome": "orphaned",
     "reason": "below-threshold"
   },

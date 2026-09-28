@@ -1,6 +1,6 @@
 {
   "name": "bom-target",
-  "description": "WRIT-345 item R5a (spec/resolution.md §Target Tree & Content Preparation, decoding): a target file beginning with a UTF-8 byte-order mark is decoded as-is -- the BOM (U+FEFF) is not stripped before line splitting, so it stays part of line 1's content. The recorded context's line 1 ('package main', no BOM) therefore never exact- or fuzzy-matches line 1 of bom.go; only the after-collar (lines 2 and 3) matches, scoring 2 of the possible 4 points (50%), below the 60% acceptance threshold, so the side orphans as below-threshold. A resolver that stripped a leading BOM before comparing would resolve this anchor instead.",
+  "description": "WRIT-345 item R5a (spec/resolution.md §Target Tree & Content Preparation, decoding): a target file beginning with a UTF-8 byte-order mark is decoded as-is, not stripped before line splitting. Expected: the BOM-free recorded context fails to match line 1, and the side orphans below-threshold.",
   "anchor": {
     "version": 1,
     "new": {

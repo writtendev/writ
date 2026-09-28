@@ -1,6 +1,6 @@
 {
   "name": "context-exact-cross-file-tiebreak",
-  "description": "WRIT-345 item R2 (spec/resolution.md Rung 3, Candidate Selection & Tiebreaks): anchor.path is absent, so the search spans every file in the target tree, and five windows across three files match 'TARGET();' verbatim. The winner, z.go:3, is not the smallest path (a.go sorts first), not the earliest start overall (a.go:2 starts earlier), and not the smallest distance from the recorded position (m.go:5 has distance 0) -- it wins only by the fixed tiebreak order (collar score, then distance, then start, then path): m.go:5 has no matching collar line before it and loses on tiebreak 1; among the remaining collar=1 candidates, z.go:3 and a.go:7/z.go:7 tie on distance (2) ahead of a.go:2 (distance 3), and z.go:3's smaller start (tiebreak 3) wins that group. Swapping the order of any two tiebreak rules picks a different window.",
+  "description": "WRIT-345 item R2 (spec/resolution.md Rung 3, Candidate Selection & Tiebreaks): anchor.path is absent, so the search spans every file in the target tree, and five windows across three files match verbatim. Expected: the fixed tiebreak order (collar score, then distance, then start, then path) picks z.go:3; swapping any two tiebreak keys picks a different window.",
   "anchor": {
     "version": 1,
     "new": {

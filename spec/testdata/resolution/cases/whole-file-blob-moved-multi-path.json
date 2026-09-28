@@ -1,6 +1,6 @@
 {
   "name": "whole-file-blob-moved-multi-path",
-  "description": "WRIT-345 item R1b (spec/resolution.md Whole-File Anchors, exact-blob-moved): the whole-file counterpart of exact-blob-moved-multi-path, since resolveWholeFileSide runs its own separate candidate-path loop rather than sharing the ranged side's. Same target tree, three paths holding anchor.blob (b.go, B.go, a/x.go) plus an unrelated c.go; the smallest path in UTF-8 byte order is B.go, same reasoning as the ranged case.",
+  "description": "WRIT-345 item R1b (spec/resolution.md Whole-File Anchors, exact-blob-moved): the whole-file counterpart of exact-blob-moved-multi-path.json, since resolveWholeFileSide runs its own separate candidate-path loop. Expected: the same smallest-path-in-UTF-8-byte-order tiebreak picks B.go.",
   "anchor": {
     "version": 1,
     "new": {

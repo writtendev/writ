@@ -1,6 +1,6 @@
 {
   "name": "crlf-target-lf-context",
-  "description": "WRIT-345 item R4 (spec/resolution.md §Target Tree & Content Preparation, 'CRLF preserves \\r'): the target file's lines keep their trailing carriage return exactly as split -- CRLF is not normalized away before line matching. The recorded context carries plain LF line content (no \\r), so it cannot exact- or fuzzy-match any line of win.go: every candidate window scores 0, and since anchor.path is present in the target tree (just impossible to match), the side orphans as no-candidate rather than path-absent. A resolver that stripped \\r before comparing (spec/resolution.md's Rung 3/4 window matching) would resolve this anchor instead.",
+  "description": "WRIT-345 item R4 (spec/resolution.md §Target Tree & Content Preparation, \"CRLF preserves \\r\"): target file lines keep their trailing carriage return; CRLF is not normalized away before line matching. Expected: the LF-only recorded context matches no line, and the (present) path orphans as no-candidate rather than path-absent.",
   "anchor": {
     "version": 1,
     "new": {

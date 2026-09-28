@@ -1,6 +1,6 @@
 {
   "name": "ambiguous-cross-file",
-  "description": "WRIT-345 item R3 (spec/resolution.md Rung 4, Strict best): the existing ambiguous-duplicate vector ties two windows inside one file; this vector ties two windows across two different files, so a comparator that only counts a tie when the two best windows share a path (missing the cross-file case) would pass ambiguous-duplicate while wrongly resolving this one. anchor.path 'dup.go' is absent, so the search spans one.go and two.go, byte-identical files each shaped like ambiguous-duplicate's two functions but split one per file; each file's best window (line 3, 'a()' exact plus the setup/teardown collar, 'b_modified()' not matching the recorded 'b()') scores 4 of 6 points -- at or above the 60% threshold but tied across the two files -- so the anchor orphans as ambiguous rather than resolving to either.",
+  "description": "WRIT-345 item R3 (spec/resolution.md Rung 4, Strict best): a tie between two best-scoring windows across two different files, not within one file as ambiguous-duplicate.json exercises. Expected: the anchor orphans as ambiguous.",
   "anchor": {
     "version": 1,
     "new": {

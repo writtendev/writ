@@ -1,6 +1,6 @@
 {
   "name": "target-line-truncation",
-  "description": "WRIT-345 item R6 (spec/anchors.md §Lines and encoding, spec/resolution.md §Target Tree & Content Preparation): a target line longer than 1000 Unicode code points is truncated to its first 1000 before any comparison, measured in code points -- not UTF-8 bytes and not UTF-16 code units. min.js line 1 carries 1200 code points (600 U+00E9 'e with acute accent' followed by 600 U+1F600 'grinning face', the latter a 4-byte/2-UTF-16-unit astral character), so a byte-length truncation would cut well before the 1000th code point (each grinning face costs 4 bytes) and a UTF-16-unit truncation would also cut early (each grinning face costs 2 units) -- both land the truncation point at a different code point than a code-point count does, and the exact match below would fail under either. The recorded context's single line is exactly the first 1000 code points (600 e-acute plus the first 400 grinning faces), which is what a correct code-point truncation of line 1 produces.",
+  "description": "WRIT-345 item R6 (spec/anchors.md §Lines and encoding, spec/resolution.md §Target Tree & Content Preparation): a target line longer than 1000 Unicode code points is truncated to its first 1000 before comparison, measured in code points rather than UTF-8 bytes or UTF-16 units. Expected: the 1200-code-point line (600 é followed by 600 😀) truncates to exactly the recorded context's 1000 code points.",
   "anchor": {
     "version": 1,
     "new": {
