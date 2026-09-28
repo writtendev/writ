@@ -365,6 +365,25 @@ var fieldRuleValidationCases = []struct {
 		},
 	},
 	{
+		// Distinct from the case just above: an empty entry names no
+		// type at all, catalogue member or otherwise, so it is not a
+		// candidate for demotion at the resolver -- no writer, this
+		// build's vintage or a newer one, ever declares
+		// key_types[col] == "". Still rejected, unlike an
+		// out-of-catalogue name.
+		name: "keyed-lww key_types has an empty entry for a column (still rejected, not demoted)",
+		rule: spec.FieldRule{
+			OpType:    "approval",
+			OpVersion: 1,
+			Field:     "subject",
+			Strategy:  "keyed-lww",
+			Key:       []string{"subject"},
+			ValueType: "person-ref",
+			KeyTypes:  map[string]string{"subject": ""},
+		},
+		wantSentinel: "key-types-empty-value-type",
+	},
+	{
 		name: "key_types on a non-keyed-lww strategy",
 		rule: spec.FieldRule{
 			OpType:    "create",

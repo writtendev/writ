@@ -5,26 +5,57 @@ description: >
   demoted -- installed untyped at exactly that position, still folds, still
   reports a warning-shaped SchemaConflict -- rather than withheld the way
   spec.ValidateFieldRule's other violations are (schema-driven-invalid-rule.yaml).
-  One control field (title, ordinary string) and four demoted ones: ident
-  (x-uuid, lww) is deliberately the sole rule of its own op_type
-  (set-ident) -- before this ticket, dropping that rule dropped the whole
-  op to UnknownOp, which this fixture's golden now shows folding normally
-  instead; size (x-duration, lww, paired with max_length) and grade
-  (x-rating, lww, paired with enum) exercise the same demotion with the
-  two field-rule attributes spec.ValidateFieldRule would otherwise
+  acme.widget carries a control field (title, ordinary string) and six
+  demoted ones. ident (x-uuid, lww) is deliberately the sole rule of its
+  own op_type (set-ident) -- before this ticket, dropping that rule dropped
+  the whole op to UnknownOp, which this fixture's golden now shows folding
+  normally instead; size (x-duration, lww, paired with max_length) and
+  grade (x-rating, lww, paired with enum) exercise the same demotion with
+  the two field-rule attributes spec.ValidateFieldRule would otherwise
   cross-check against a known value_type, and both attributes are preserved
-  on the resolved rule regardless -- the fold never reads either one. score
-  (keyed-lww, value_type person-ref, key(who), key_types {who: x-handle})
-  is the decisive case: value_type is a recognized catalogue member and
-  key_types' one entry is not, so per-position demotion (Matt's ruling via
-  the orchestrator decision comment on WRIT-334) clears only the key_types
-  entry -- score's own value keeps normalizing as person-ref while its
-  "who" key component does not, written here with a mixed-case value on
-  each so the golden's normalized/verbatim split is visible rather than
-  merely asserted. The golden pins four warnings (one per demoted field,
-  none for the control), no drop conflicts, every field present in folded
-  state, and an empty unknown_ops -- including for set-ident's op, which
-  is the ticket's own repro of the single-rule-op_type case. (pins: reader)
+  on the resolved rule regardless -- the fold never reads either one.
+  Per-position demotion (the orchestrator's decision on WRIT-334's plan,
+  pending Matt's confirmation before the tag) is pinned in both directions:
+  score (keyed-lww, value_type person-ref, key(who), key_types
+  {who: x-handle}) has a recognized value_type beside an unrecognized
+  key_types entry, so only "who" demotes and score's own value keeps
+  normalizing as person-ref; owner (keyed-lww, value_type x-owner-kind,
+  key(holder), key_types {holder: person-ref}) is the reverse -- an
+  unrecognized value_type beside a recognized key_types entry, so "holder"
+  keeps normalizing as person-ref while owner's own value is installed
+  untyped. assignment (keyed-lww, value_type string, key(assignee, team),
+  key_types {assignee: person-ref, team: x-team-kind}) covers sibling key
+  columns of mixed recognized/unrecognized type on the same rule: assignee
+  normalizes, team does not. All four keyed-lww fields are written with a
+  mixed-case value on every person-ref-typed position so the golden's
+  normalized/verbatim split is visible rather than merely asserted.
+
+  acme.gadget, a second type in the same schema object, pins the negative
+  the demotion goldens above cannot: passes 2 and 3 compare raw declared
+  types, never demoted ones, so two rules that disagree on their raw,
+  otherwise-unrecognized type still withhold instead of wrongly agreeing
+  as "untyped" (engine/schema_test.go's
+  TestRulesFromSchemas_SharedTargetDifferentUnrecognizedTypesWithheldNoWarning
+  pins this at the resolver level; nothing previously pinned it at the
+  log-resolved level a schema-driven fold actually walks, or covered the
+  key-column pass at all). mark-a and mark-b both declare field "tag" with
+  no target, so both bind target "tag" (spec.FieldRule.TargetKey); they
+  are different op_types, so no version-bump carve-out applies, and their
+  raw value_types (x-mark-a vs x-mark-b) disagree -- CheckTargetAgreement
+  withholds both, and the mark-a-1/mark-b-1 ops fall to UnknownOp with no
+  demotion warning at all. note_a and note_b, one op_type "audit", both
+  bind key column "case" with disagreeing raw key_types entries
+  (x-case-a vs x-case-b) -- CheckKeyColumnAgreement withholds both the
+  same way, and the audit-1 op, which writes both fields at once, falls to
+  UnknownOp too.
+
+  The golden pins six warnings (one per demoted field on acme.widget, none
+  for the control), two withhold conflicts (acme.gadget's target and key-
+  column collisions) and no drop conflicts; every acme.widget field present
+  in folded state; and unknown_ops holding exactly mark-a-1, mark-b-1, and
+  audit-1 -- never set-ident's op, which is the ticket's own repro of the
+  single-rule-op_type case folding normally instead of falling to
+  UnknownOp. (pins: reader)
 
 refs:
   - name: refs/writ/0123456789abcdef/schema
@@ -150,12 +181,146 @@ refs:
                   who: "x-handle"
             expect: accept
 
+          - id: define-field-owner
+            parents: [define-field-score]
+            author: alice
+            timestamp: 2026-01-01T00:07:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "set-owner"
+                op_version: "1"
+                field: "owner"
+                value_type: "x-owner-kind"
+                strategy: "keyed-lww"
+                key: ["holder"]
+                key_types:
+                  holder: "person-ref"
+            expect: accept
+
+          - id: define-field-assignment
+            parents: [define-field-owner]
+            author: alice
+            timestamp: 2026-01-01T00:08:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "set-assign"
+                op_version: "1"
+                field: "assignment"
+                value_type: "string"
+                strategy: "keyed-lww"
+                key: ["assignee", "team"]
+                key_types:
+                  assignee: "person-ref"
+                  team: "x-team-kind"
+            expect: accept
+
+          - id: define-type-gadget
+            parents: [define-field-assignment]
+            author: alice
+            timestamp: 2026-01-01T00:09:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "acme.gadget"
+            expect: accept
+
+          - id: define-field-mark-a
+            parents: [define-type-gadget]
+            author: alice
+            timestamp: 2026-01-01T00:10:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.gadget"
+                op_type: "mark-a"
+                op_version: "1"
+                field: "tag"
+                value_type: "x-mark-a"
+                strategy: "lww"
+            expect: accept
+
+          - id: define-field-mark-b
+            parents: [define-field-mark-a]
+            author: alice
+            timestamp: 2026-01-01T00:11:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.gadget"
+                op_type: "mark-b"
+                op_version: "1"
+                field: "tag"
+                value_type: "x-mark-b"
+                strategy: "lww"
+            expect: accept
+
+          - id: define-field-note-a
+            parents: [define-field-mark-b]
+            author: alice
+            timestamp: 2026-01-01T00:12:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.gadget"
+                op_type: "audit"
+                op_version: "1"
+                field: "note_a"
+                value_type: "string"
+                strategy: "keyed-lww"
+                key: ["case"]
+                key_types:
+                  case: "x-case-a"
+            expect: accept
+
+          - id: define-field-note-b
+            parents: [define-field-note-a]
+            author: alice
+            timestamp: 2026-01-01T00:13:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.gadget"
+                op_type: "audit"
+                op_version: "1"
+                field: "note_b"
+                value_type: "string"
+                strategy: "keyed-lww"
+                key: ["case"]
+                key_types:
+                  case: "x-case-b"
+            expect: accept
+
   - name: refs/writ/0123456789abcdef/widget
     history:
       - commits:
           - id: widget-create
             author: alice
-            timestamp: 2026-01-01T00:07:00Z
+            timestamp: 2026-01-01T00:14:00Z
             op:
               object_id: widget-1
               object_type: acme.widget
@@ -168,7 +333,7 @@ refs:
           - id: widget-set-ident
             parents: [widget-create]
             author: alice
-            timestamp: 2026-01-01T00:08:00Z
+            timestamp: 2026-01-01T00:15:00Z
             op:
               object_id: widget-1
               object_type: acme.widget
@@ -181,7 +346,7 @@ refs:
           - id: widget-set-size
             parents: [widget-set-ident]
             author: alice
-            timestamp: 2026-01-01T00:09:00Z
+            timestamp: 2026-01-01T00:16:00Z
             op:
               object_id: widget-1
               object_type: acme.widget
@@ -194,7 +359,7 @@ refs:
           - id: widget-set-grade
             parents: [widget-set-size]
             author: alice
-            timestamp: 2026-01-01T00:10:00Z
+            timestamp: 2026-01-01T00:17:00Z
             op:
               object_id: widget-1
               object_type: acme.widget
@@ -207,7 +372,7 @@ refs:
           - id: widget-set-score
             parents: [widget-set-grade]
             author: alice
-            timestamp: 2026-01-01T00:11:00Z
+            timestamp: 2026-01-01T00:18:00Z
             op:
               object_id: widget-1
               object_type: acme.widget
@@ -216,4 +381,76 @@ refs:
               body:
                 score: "EMAIL:Alice@EXAMPLE.COM"
                 who: "ALiCE"
+            expect: accept
+
+          - id: widget-set-owner
+            parents: [widget-set-score]
+            author: alice
+            timestamp: 2026-01-01T00:19:00Z
+            op:
+              object_id: widget-1
+              object_type: acme.widget
+              op_type: set-owner
+              op_version: 1
+              body:
+                owner: "raw-owner-value"
+                holder: "BoB"
+            expect: accept
+
+          - id: widget-set-assign
+            parents: [widget-set-owner]
+            author: alice
+            timestamp: 2026-01-01T00:20:00Z
+            op:
+              object_id: widget-1
+              object_type: acme.widget
+              op_type: set-assign
+              op_version: 1
+              body:
+                assignment: "note"
+                assignee: "CarOL"
+                team: "Eng-Team"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/gadget
+    history:
+      - commits:
+          - id: mark-a-1
+            author: alice
+            timestamp: 2026-01-01T00:21:00Z
+            op:
+              object_id: gadget-1
+              object_type: acme.gadget
+              op_type: mark-a
+              op_version: 1
+              body:
+                tag: "aaa-value"
+            expect: accept
+
+          - id: mark-b-1
+            parents: [mark-a-1]
+            author: alice
+            timestamp: 2026-01-01T00:22:00Z
+            op:
+              object_id: gadget-1
+              object_type: acme.gadget
+              op_type: mark-b
+              op_version: 1
+              body:
+                tag: "bbb-value"
+            expect: accept
+
+          - id: audit-1
+            parents: [mark-b-1]
+            author: alice
+            timestamp: 2026-01-01T00:23:00Z
+            op:
+              object_id: gadget-1
+              object_type: acme.gadget
+              op_type: audit
+              op_version: 1
+              body:
+                note_a: "first note"
+                note_b: "second note"
+                case: "case-001"
             expect: accept

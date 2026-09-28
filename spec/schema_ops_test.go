@@ -209,6 +209,7 @@ var fieldRuleSentinelInventory = map[string]string{
 	"lattice-value-type":          "deferred: lattice with a declared non-enum value_type is schema-valid",
 	"lattice-element-not-in-enum": "deferred: a lattice element outside its own enum is schema-valid (lattice and enum are just two string arrays to the schema)",
 	"key-types-missing-column":    "deferred: key_types with the right cardinality but the wrong column names is schema-valid",
+	"key-types-empty-value-type":  "schema: key_types values are $ref's value_type, whose enum excludes the empty string; no schema-valid body can carry key_types[col] == \"\"",
 	"key-types-non-keyed-lww":     "deferred: key_types declared on a non-keyed-lww strategy is schema-valid",
 }
 

@@ -1038,7 +1038,7 @@ never handed to `Fold`. This is why the resolver lives in package
 ---
 
 `ValidateFieldRule`'s error for a rejected rule ends `: invariant <token>`,
-naming which of its eighteen violation branches rejected the rule. The
+naming which of its nineteen violation branches rejected the rule. The
 suffix reaches a schema author directly, not just a test: `writ schema
 plan`/`apply` porcelain, the `--json` `conflicts[].reason` field
 (`docs/cli-json.md`), and `schemasrc` compile diagnostics all format this
@@ -1049,8 +1049,8 @@ same error verbatim. The vocabulary: `empty-op-type`,
 `enum-no-values`, `enum-on-non-enum`, `max-length-value-type`,
 `tombstone-value-type`, `lattice-value-type`,
 `lattice-element-not-in-enum`, `key-types-count`,
-`key-types-missing-column`, and
-`key-types-non-keyed-lww` — one per branch above. Five of the eighteen are
+`key-types-missing-column`, `key-types-empty-value-type`, and
+`key-types-non-keyed-lww` — one per branch above. Five of the nineteen are
 exercised as `rejects: "invariant"` conformance vectors, each naming the
 one it pins in a sibling `invariant_rule` field (§Conformance Data); the
 rest are unreachable from a schema-valid `define-field` body, unreachable
@@ -1059,7 +1059,7 @@ yet given a vector — `spec/schema_ops_test.go`'s
 `fieldRuleSentinelInventory` states which, and why, for each.
 
 An out-of-catalogue `value_type` or `key_types` entry is deliberately
-*not* one of the eighteen (WRIT-334): `unknown-value-type` and
+*not* one of the nineteen (WRIT-334): `unknown-value-type` and
 `key-types-unknown-value-type` were both deleted, not bridged to, when
 this reader stopped rejecting the two branches they named. `spec/schemas/schema-ops.schema.json`'s
 `value_type` enum still closes the catalogue for *this build's own*
@@ -1073,7 +1073,15 @@ the checks that presuppose knowing the type — `enum-on-non-enum`,
 are skipped for it rather than guessed at (`enum-no-values` and
 `lattice-element-not-in-enum` already apply only when `value_type ==
 "enum"`, so neither needed a carve-out). §10 covers what the resolver
-does with a rule that clears this gate.
+does with a rule that clears this gate. An *empty* `key_types` entry
+(`{col: ""}`) is not one of the two deleted branches and stays rejected
+as `key-types-empty-value-type`: it names no type at all, catalogue
+member or otherwise, so no writer — this build's vintage or a newer
+one — can ever have meant it as a forward-compatible declaration, and
+`spec/schemas/schema-ops.schema.json`'s `key_types` values are `$ref`'s
+`value_type`, whose enum already excludes the empty string, so this
+branch is unreachable from a schema-valid body the same way
+`invalid-field-identifier` is.
 
 ---
 
@@ -1252,16 +1260,24 @@ than restating the precedence itself (WRIT-188).
   (`x-future`) `ValidateFieldRule` must accept rather than reject; see
   `spec/value-types.md` §Orthogonality for the matrix itself.
 - `spec/fixtures/testdata/descriptions/schema-driven-unrecognized-value-type.yaml`
-  (WRIT-334) — the reader-side pin: a `create/title` control field
-  alongside three demoted fields (an out-of-catalogue `value_type` as the
-  sole rule of its `op_type`, one paired with `max_length`, one paired
-  with `enum`) and one `keyed-lww` field whose `value_type` is the
-  recognized `person-ref` but whose `key_types` entry for its one key
-  column is out-of-catalogue — the per-position case: the field's own
-  value still normalizes while the key column does not. The golden pins
-  four warnings, no drop conflicts, and every field present in folded
-  state, including the sole-rule field's op, which does not fall through
-  to `UnknownOp` the way it did before this ticket.
+  (WRIT-334) — the reader-side pin, across two types in one schema
+  object. `acme.widget` carries a `create/title` control field alongside
+  six demoted fields: an out-of-catalogue `value_type` as the sole rule
+  of its `op_type` (which does not fall through to `UnknownOp` the way it
+  did before this ticket), one paired with `max_length`, one paired with
+  `enum`, and per-position demotion pinned in both directions and for
+  mixed sibling key columns — a `keyed-lww` field with a recognized
+  `value_type` (`person-ref`) beside an unrecognized `key_types` entry,
+  the reverse (an unrecognized `value_type` beside a recognized
+  `key_types` entry), and a `keyed-lww` field with two key columns, one
+  recognized and one not. `acme.gadget` is the negative passes 2 and 3
+  need: two rules sharing a target, and two rules sharing a key column,
+  each pair declaring different out-of-catalogue types — comparing raw
+  declared values (not demoted ones) means they still disagree and are
+  withheld, never wrongly agreeing as "untyped". The golden pins six
+  warnings (one per demoted `acme.widget` field), two withhold conflicts,
+  no drop conflicts, every `acme.widget` field present in folded state,
+  and `acme.gadget`'s three ops in `unknown_ops`.
 - `spec/testdata/producer/cases/unrecognized-value-type-field.json`,
   `unrecognized-key-types-entry.json`, and
   `unrecognized-value-type-sibling-writable.json` (WRIT-334) — §11's new

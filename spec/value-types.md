@@ -132,13 +132,18 @@ value:
    non-`enum` `value_type`.
 5. `max_length` declared on a `value_type` other than `string`/`text`.
 
-All five presuppose the reader can tell what the declared `value_type`
-constrains; none of them run for a rule whose `value_type` (or, for
-`key_types`, whose entry) is outside `KnownValueTypes` — a reader too old
-to know the type cannot judge whether it typechecks against `tombstone`,
-`lattice`, `enum`, or `max_length` either, so those checks are skipped
-rather than guessed at, and the rule is demoted instead (§Producer-side
-and reader-tolerant below, `spec/schema-ops.md` §10).
+Four of these five — `tombstone`, `lattice`'s value_type/enum cross-check,
+`enum`, and `max_length` — presuppose the reader can tell what the rule's
+own declared `value_type` constrains, and are skipped when that
+`value_type` is outside `KnownValueTypes`: a reader too old to know the
+type cannot judge whether it typechecks against `tombstone`, `lattice`,
+`enum`, or `max_length` either, so those four are skipped rather than
+guessed at, and the rule is demoted instead (§Producer-side and
+reader-tolerant below, `spec/schema-ops.md` §10). The fifth — `key_types`
+covering exactly `key` — is structural and runs regardless of whether
+`value_type` or any `key_types` entry names a recognized type; an
+unrecognized `key_types` entry demotes only that one key column, never the
+coverage check itself.
 
 The same field name carries no implied value type: two types that both
 declare a field called `relation` may type it `enum` and `string`

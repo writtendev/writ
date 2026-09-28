@@ -40,6 +40,11 @@
     "reason": "value_type 'currency' is not a member of the closed value-type catalogue"
   },
   {
+    "file": "define-field-key-types-empty-value.json",
+    "rejects": "schema",
+    "reason": "key_types['subject'] is the empty string, not a member of the closed value-type catalogue key_types values share (WRIT-334: distinct from an out-of-catalogue name, which spec.ValidateFieldRule tolerates -- an empty entry names no type at all, so no schema-valid body can ever carry one)"
+  },
+  {
     "file": "define-field-op-version-not-string.json",
     "rejects": "schema",
     "reason": "op_version is the JSON integer 1, not the decimal string encoding a keyed-lww key component requires on the fold path"

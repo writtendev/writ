@@ -157,6 +157,7 @@ var (
 	errLatticeElementNotInEnum = errors.New("invariant lattice-element-not-in-enum")
 	errKeyTypesCount           = errors.New("invariant key-types-count")
 	errKeyTypesMissingColumn   = errors.New("invariant key-types-missing-column")
+	errKeyTypesEmptyValueType  = errors.New("invariant key-types-empty-value-type")
 	errKeyTypesNonKeyedLWW     = errors.New("invariant key-types-non-keyed-lww")
 )
 
@@ -189,18 +190,19 @@ var fieldRuleSentinels = map[string]error{
 	"lattice-element-not-in-enum": errLatticeElementNotInEnum,
 	"key-types-count":             errKeyTypesCount,
 	"key-types-missing-column":    errKeyTypesMissingColumn,
+	"key-types-empty-value-type":  errKeyTypesEmptyValueType,
 	"key-types-non-keyed-lww":     errKeyTypesNonKeyedLWW,
 }
 
 // ValidateFieldRule validates an individual field rule definition. Each
 // violation's error ends ": invariant <token>" (one of fieldRuleSentinels'
 // keys above); spec/schema-ops.md §9 documents that suffix and the full
-// eighteen-token vocabulary it can carry, since the suffix reaches a schema
+// nineteen-token vocabulary it can carry, since the suffix reaches a schema
 // author directly through writ schema plan/apply and schemasrc diagnostics,
 // not just a test.
 //
 // An out-of-catalogue ValueType, or KeyTypes entry, is deliberately not one
-// of the eighteen (WRIT-334): this reader's own KnownValueTypes catalogue
+// of the nineteen (WRIT-334): this reader's own KnownValueTypes catalogue
 // may be older than the catalogue a rule's writer declared it against, and
 // a rule naming a type this build does not recognize is a candidate for
 // demotion at the resolver (engine/schema.go's RulesFromSchemas), never a
@@ -214,7 +216,12 @@ var fieldRuleSentinels = map[string]error{
 // spec/schemas/schema-ops.schema.json's value_type enum still refuses an
 // out-of-catalogue type before a define-field body ever reaches this
 // function, and FieldRules() below still requires every rule in writ's own
-// shipped table to name only catalogue members.
+// shipped table to name only catalogue members. An empty KeyTypes entry
+// (`key_types: {col: ""}`) is not "unrecognized" either -- it names no
+// type at all, catalogue member or otherwise, so no writer, newer or
+// otherwise, can have meant it as a forward-compatible declaration. It
+// stays rejected as key-types-empty-value-type below, the one KeyTypes
+// check WRIT-334 did not relax.
 func ValidateFieldRule(r FieldRule) error {
 	if r.OpType == "" {
 		return fmt.Errorf("rule with empty op_type: %w", errEmptyOpType)
@@ -314,14 +321,24 @@ func ValidateFieldRule(r FieldRule) error {
 	// membership in KnownValueTypes is no longer checked here (WRIT-334):
 	// an unrecognized key_types entry is structurally valid, the same
 	// tolerance value_type itself gets above, and the resolver demotes that
-	// one column rather than this function rejecting the whole rule.
+	// one column rather than this function rejecting the whole rule. An
+	// *empty* entry is different in kind, not just an out-of-catalogue
+	// name: no conforming writer, this build's vintage or any newer one,
+	// ever declares key_types[col] == "" -- schema-ops.schema.json's
+	// key_types values are $ref's value_type, whose enum excludes the
+	// empty string, so this is malformed, not forward-compatible, and
+	// stays rejected.
 	if r.Strategy == "keyed-lww" {
 		if len(r.KeyTypes) != len(r.Key) {
 			return fmt.Errorf("rule for (%s, %s) declares key_types covering %d column(s), want exactly the %d in key %v: %w", r.OpType, r.Field, len(r.KeyTypes), len(r.Key), r.Key, errKeyTypesCount)
 		}
 		for _, k := range r.Key {
-			if _, ok := r.KeyTypes[k]; !ok {
+			kt, ok := r.KeyTypes[k]
+			if !ok {
 				return fmt.Errorf("rule for (%s, %s) declares no key_types entry for key column %q: %w", r.OpType, r.Field, k, errKeyTypesMissingColumn)
+			}
+			if kt == "" {
+				return fmt.Errorf("rule for (%s, %s) declares an empty key_types entry for key column %q: %w", r.OpType, r.Field, k, errKeyTypesEmptyValueType)
 			}
 		}
 	} else if len(r.KeyTypes) > 0 {
