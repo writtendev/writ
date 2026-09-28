@@ -1509,9 +1509,8 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 			// and never also this warning, so a reader is never told a
 			// rule was "installed" and "withheld" in the same breath.
 			// ObjectIDs names the one schema object that owns t.Name here,
-			// not res.boundBy -- that map isn't built yet at this point in
-			// the pass, and sch.ObjectID is the same value it would hold
-			// for a non-contested type.
+			// not res.boundBy -- sch.ObjectID is the same value boundBy
+			// would hold for a non-contested type.
 			for _, f := range typeFields {
 				if positions := demotedPositions(f); len(positions) > 0 {
 					conflicts = append(conflicts, SchemaConflict{

@@ -1667,10 +1667,11 @@ func TestRulesFromSchemas_UnrecognizedValueTypeDemotedNotWithheld(t *testing.T) 
 }
 
 // TestRulesFromSchemas_PerPositionDemotion pins decision 2 of the plan
-// (Matt's orchestrator-decision comment on the ticket): where a rule's own
-// value_type is recognized but one of its key_types entries is not, only
-// that key column demotes. "score" is keyed-lww, value_type person-ref
-// (recognized) with key(who), key_types {who: x-handle} (not recognized).
+// (the orchestrator's decision on WRIT-334, pending Matt's confirmation
+// before the tag): where a rule's own value_type is recognized but one of
+// its key_types entries is not, only that key column demotes. "score" is
+// keyed-lww, value_type person-ref (recognized) with key(who), key_types
+// {who: x-handle} (not recognized).
 func TestRulesFromSchemas_PerPositionDemotion(t *testing.T) {
 	score := state.SchemaField{
 		Name: "score", OpType: "set-score", OpVersion: 1, Strategy: "keyed-lww",
