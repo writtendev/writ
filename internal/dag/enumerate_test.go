@@ -819,3 +819,114 @@ func TestEnumerateSince_TipAdvancedAcrossNonOpIsRewound(t *testing.T) {
 		t.Fatalf("cold Enumerate Ops[w-1] = %v, want exactly [%s] (op1 sits behind the junk commit, unreachable)", ops, op2.ID)
 	}
 }
+
+// TestEnumerate_RefOnAbsentRootTreeHistoryStopsAtTip is the round 2
+// tightening of the WRIT-289 DoS regression (orchestrator decision, round
+// 2 review): a writ ref pointed at ordinary code history whose commits'
+// root trees are themselves locally absent — the shape a `--filter=tree:0`
+// partial clone leaves behind — must stop at the tip exactly like the
+// present-but-empty-tree shape TestEnumerate_RefOnCodeHistoryStopsAtTip
+// pins. The round 1 cut got this wrong: it treated every ErrObjectNotFound
+// out of decodeOpCommit as "expand anyway", including an absent root tree,
+// which reopened the unbounded walk this ticket exists to close for any
+// reader working from a tree-filtered clone.
+func TestEnumerate_RefOnAbsentRootTreeHistoryStopsAtTip(t *testing.T) {
+	dir, repo := initTestRepo(t)
+	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
+	store, err := dag.Open(dir, ident, withVocabularies())
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+
+	const codeHistoryDepth = 1000
+	tip := plumbing.ZeroHash
+	for i := 0; i < codeHistoryDepth; i++ {
+		h, err := writeCommitWithAbsentRootTree(repo, tip)
+		if err != nil {
+			t.Fatalf("writeCommitWithAbsentRootTree %d failed: %v", i, err)
+		}
+		tip = h
+	}
+
+	refName := dag.LocalRefName(ident.WriterID, "widget")
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(refName, tip)); err != nil {
+		t.Fatalf("set widget ref to code-history tip: %v", err)
+	}
+
+	res, err := store.Enumerate()
+	if err != nil {
+		t.Fatalf("Enumerate failed: %v", err)
+	}
+
+	if res.DecodedCommits != 1 {
+		t.Errorf("DecodedCommits = %d, want 1 (only the tip; an absent root tree makes the commit's own op-shape unknowable, so the walk must not reach the other %d commits behind it)", res.DecodedCommits, codeHistoryDepth-1)
+	}
+	if len(res.Rejections) != 1 {
+		t.Fatalf("Rejections = %v, want exactly one", res.Rejections)
+	}
+	if res.Rejections[0].CommitID != tip.String() {
+		t.Errorf("rejection commit = %s, want %s (the tip)", res.Rejections[0].CommitID, tip.String())
+	}
+	if res.Rejections[0].Reason != dag.RejectObjectUnavailable {
+		t.Errorf("rejection reason = %q, want %q", res.Rejections[0].Reason, dag.RejectObjectUnavailable)
+	}
+	if len(res.Ops) != 0 {
+		t.Errorf("Ops = %v, want none", res.Ops)
+	}
+}
+
+// TestEnumerate_AbsentSubtreeNoRootOpJSONStopsAtTip pins the other shape
+// the round 2 orchestrator decision narrows to: a chain tip whose root
+// tree IS present but names no top-level "op.json" entry — only a "src"
+// directory entry whose own subtree is locally absent, the `--filter=
+// tree:1` shape. The root tree's own entries already settle that this
+// commit is a known missing-op-json non-op (reader-validation rule 1)
+// regardless of the absent subtree, so the walk must not expand its
+// parents even though decodeOpCommit still reports it
+// RejectObjectUnavailable (the subtree read is what actually fails).
+func TestEnumerate_AbsentSubtreeNoRootOpJSONStopsAtTip(t *testing.T) {
+	dir, repo := initTestRepo(t)
+	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
+	store, err := dag.Open(dir, ident, withVocabularies())
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+
+	op1, err := store.Append(context.Background(), codec.Envelope{
+		ObjectID: "w-1", ObjectType: "widget", OpType: "create", OpVersion: 1,
+		Body: json.RawMessage(`{"title":"Widget 1"}`),
+	}, nil)
+	if err != nil {
+		t.Fatalf("Append op1 failed: %v", err)
+	}
+
+	tipHash, err := writeCommitWithAbsentSubtree(repo, plumbing.NewHash(op1.ID))
+	if err != nil {
+		t.Fatalf("writeCommitWithAbsentSubtree failed: %v", err)
+	}
+	refName := dag.LocalRefName(ident.WriterID, "widget")
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(refName, tipHash)); err != nil {
+		t.Fatalf("advance ref to tip commit: %v", err)
+	}
+
+	res, err := store.Enumerate()
+	if err != nil {
+		t.Fatalf("Enumerate failed: %v", err)
+	}
+
+	if res.DecodedCommits != 1 {
+		t.Errorf("DecodedCommits = %d, want 1 (only the tip; op1 sits behind the break and must never be reached)", res.DecodedCommits)
+	}
+	if len(res.Rejections) != 1 {
+		t.Fatalf("Rejections = %v, want exactly one", res.Rejections)
+	}
+	if res.Rejections[0].CommitID != tipHash.String() {
+		t.Errorf("rejection commit = %s, want %s (the tip)", res.Rejections[0].CommitID, tipHash.String())
+	}
+	if res.Rejections[0].Reason != dag.RejectObjectUnavailable {
+		t.Errorf("rejection reason = %q, want %q", res.Rejections[0].Reason, dag.RejectObjectUnavailable)
+	}
+	if len(res.Ops["w-1"]) != 0 {
+		t.Errorf("Ops[w-1] = %v, want none (op1 must not be held behind the break)", res.Ops["w-1"])
+	}
+}

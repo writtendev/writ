@@ -126,16 +126,28 @@ operations. A conforming reader:
    chain. Signature-verification outcomes (`spec/signing.md`) and unknown
    object types, op types, op versions, or fields
    (`spec/forward-compatibility.md`) never stop the walk: both are
-   operations, and the stopping rule applies only to a commit that fails
-   reader validation itself, or whose own commit object this reader's clone
-   cannot read at all — its parents are then unknowable. It does not apply
-   to a commit whose own commit object is present but some object its tree
-   names is locally absent (the shape a partial clone's fetch filter
-   leaves behind): that commit is still rejected — it carries no operation
-   this reader can decode — but its parents, already known from the commit
-   object itself, are still followed, because a reader that cannot read an
-   object it did not fetch cannot tell whether that object would have
-   encoded one. There is no depth or count bound beyond this rule —
+   operations, and the stopping rule applies to a commit that fails reader
+   validation itself, and to every commit this reader's clone cannot read
+   at all — its own commit object, its own root tree, or some other object
+   its tree names — with exactly one exception: a commit whose own commit
+   object and root tree are both present, whose root tree names a
+   top-level `op.json` entry, and whose only locally-absent object is that
+   entry's own blob (what a blob-filtered clone's fetch filter leaves
+   behind). That commit is still rejected — it carries no operation this
+   reader can decode — but its parents, already known from the commit
+   object itself, are still followed, because a reader that cannot read a
+   blob it did not fetch cannot tell whether that blob would have encoded
+   a valid operation. Every other locally-unreadable shape stops the walk
+   exactly like a reader-validation failure: an absent root tree (a
+   reader that cannot read a tree cannot tell whether it would have named
+   an `op.json` entry at all — the shape a tree-filtered clone's ref tip
+   on ordinary code history has, at every commit), a root tree present but
+   without a top-level `op.json` entry even when some other object it
+   names is also absent (reader-validation rule 1 already rejects that
+   shape as `missing-op-json` on the entries this reader can see, so there
+   is nothing left to learn by reading further), and an `op.json` entry
+   whose own blob is present but some unrelated tree object is the one
+   that is absent. There is no depth or count bound beyond this rule —
    nothing else limits how far the walk goes from a valid chain.
 3. Deduplicates visited operations by commit SHA (the op id).
 4. Groups operations by the `object_id` found in each op commit's `op.json`
@@ -158,11 +170,13 @@ through a commit that fails reader validation does not count as reachable,
 so a tip advanced across such a break reports as a rollback (`Rewound`)
 exactly as a genuine force-push would, even though the old tip is still, in
 the weaker sense of plain git ancestry, an ancestor of the new one. A
-commit reachable only through one whose referenced object this clone could
-not read remains reachable exactly as before: that break does not stop the
-walk either way (see the stopping rule above), so it does not stop
-reachability for rollback detection. Neither reader enumeration nor
-rollback detection requires chain spine inspection or writer attribution.
+commit reachable only through one whose sole locally-absent object is its
+own `op.json` blob remains reachable exactly as before: that break does
+not stop the walk either way (see the stopping rule's one exception
+above), so it does not stop reachability for rollback detection. Every
+other locally-unreadable shape stops reachability the same way it stops
+the walk. Neither reader enumeration nor rollback detection requires chain
+spine inspection or writer attribution.
 
 ## Writer ID convention
 

@@ -905,13 +905,15 @@ func TestRefresh_NonOpTipOverCursorRebuilds(t *testing.T) {
 // the fact (the shape a partial clone's fetch filter leaves behind), then
 // restored.
 //
-// Under the orchestrator decision on top of the WRIT-289 ruling —
-// object-unavailable does not stop the walk, because op2's commit itself
-// was read fine and its parents are known — the first Refresh already
-// reaches op1 through the rejected op2, so w-a is never behind the break in
-// the first place: it holds op1 and op3 (OpCount 2) from the very first
-// pass, and a repair afterward changes nothing about it. That is what this
-// PR guarantees, and what this test pins: an incremental Refresh and a cold
+// Under the orchestrator decision on top of the WRIT-289 ruling — a
+// RejectObjectUnavailable commit whose root tree is present and names a
+// top-level op.json entry, with only that entry's own blob absent, does
+// not stop the walk, because op2's commit and root tree were both read
+// fine and its parents are known — the first Refresh already reaches op1
+// through the rejected op2, so w-a is never behind the break in the first
+// place: it holds op1 and op3 (OpCount 2) from the very first pass, and a
+// repair afterward changes nothing about it. That is what this PR
+// guarantees, and what this test pins: an incremental Refresh and a cold
 // Rebuild never disagree about w-a, before or after the blob is restored.
 //
 // w-b is a different story, and a pre-existing one: w-b's only op is op2

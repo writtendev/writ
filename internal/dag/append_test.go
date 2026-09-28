@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/storage"
 	"github.com/writtendev/writ/internal/codec"
@@ -465,6 +466,108 @@ func writeNonOpCommitWithParent(repo *git.Repository, parent plumbing.Hash) (plu
 		},
 		Message:  "non-op commit",
 		TreeHash: treeHash,
+	}
+	if !parent.IsZero() {
+		commit.ParentHashes = []plumbing.Hash{parent}
+	}
+	commitObj := repo.Storer.NewEncodedObject()
+	commitObj.SetType(plumbing.CommitObject)
+	if err := commit.Encode(commitObj); err != nil {
+		return plumbing.ZeroHash, err
+	}
+	return repo.Storer.SetEncodedObject(commitObj)
+}
+
+// writeCommitWithAbsentRootTree writes a commit whose TreeHash names no
+// object at all in repo's store — the shape a `--filter=tree:0` partial
+// clone leaves every commit's root tree in. Used by WRIT-289's
+// TestEnumerate_RefOnAbsentRootTreeHistoryStopsAtTip (round 2, orchestrator
+// decision): unlike writeNonOpCommitWithParent's empty-but-present tree,
+// this commit's own root tree is unreadable, so a reader cannot tell
+// whether it would have named an op.json entry at all and must stop
+// without decoding anything behind it, exactly like a reader-validation
+// rejection.
+func writeCommitWithAbsentRootTree(repo *git.Repository, parent plumbing.Hash) (plumbing.Hash, error) {
+	// A well-formed but never-stored tree hash: computed, not written, so
+	// repo.Storer genuinely has no object under it.
+	absentTree := &object.Tree{}
+	treeObj := &plumbing.MemoryObject{}
+	treeObj.SetType(plumbing.TreeObject)
+	if err := absentTree.Encode(treeObj); err != nil {
+		return plumbing.ZeroHash, err
+	}
+
+	commit := &object.Commit{
+		Author: object.Signature{
+			Name:  "Test",
+			Email: "test@example.com",
+			When:  time.Now().UTC(),
+		},
+		Committer: object.Signature{
+			Name:  "Test",
+			Email: "test@example.com",
+			When:  time.Now().UTC(),
+		},
+		Message:  "non-op commit, absent root tree",
+		TreeHash: treeObj.Hash(),
+	}
+	if !parent.IsZero() {
+		commit.ParentHashes = []plumbing.Hash{parent}
+	}
+	commitObj := repo.Storer.NewEncodedObject()
+	commitObj.SetType(plumbing.CommitObject)
+	if err := commit.Encode(commitObj); err != nil {
+		return plumbing.ZeroHash, err
+	}
+	return repo.Storer.SetEncodedObject(commitObj)
+}
+
+// writeCommitWithAbsentSubtree writes a commit whose root tree IS present
+// in repo's store and holds exactly one entry, a directory named "src"
+// whose own subtree hash names no object at all — the `--filter=tree:1`
+// shape. The root tree carries no "op.json" entry, so under WRIT-289's
+// round 2 orchestrator decision this is a known missing-op-json non-op
+// (rule 1, decided from the root tree's own entries) even though the
+// absent subtree also makes it RejectObjectUnavailable: either way the
+// walk must not expand its parents.
+func writeCommitWithAbsentSubtree(repo *git.Repository, parent plumbing.Hash) (plumbing.Hash, error) {
+	// A well-formed but never-stored subtree hash, same technique as
+	// writeCommitWithAbsentRootTree.
+	absentSubtree := &object.Tree{}
+	subtreeObj := &plumbing.MemoryObject{}
+	subtreeObj.SetType(plumbing.TreeObject)
+	if err := absentSubtree.Encode(subtreeObj); err != nil {
+		return plumbing.ZeroHash, err
+	}
+
+	rootTree := &object.Tree{
+		Entries: []object.TreeEntry{
+			{Name: "src", Mode: filemode.Dir, Hash: subtreeObj.Hash()},
+		},
+	}
+	rootTreeObj := repo.Storer.NewEncodedObject()
+	rootTreeObj.SetType(plumbing.TreeObject)
+	if err := rootTree.Encode(rootTreeObj); err != nil {
+		return plumbing.ZeroHash, err
+	}
+	rootTreeHash, err := repo.Storer.SetEncodedObject(rootTreeObj)
+	if err != nil {
+		return plumbing.ZeroHash, err
+	}
+
+	commit := &object.Commit{
+		Author: object.Signature{
+			Name:  "Test",
+			Email: "test@example.com",
+			When:  time.Now().UTC(),
+		},
+		Committer: object.Signature{
+			Name:  "Test",
+			Email: "test@example.com",
+			When:  time.Now().UTC(),
+		},
+		Message:  "non-op commit, absent subtree, no root-level op.json",
+		TreeHash: rootTreeHash,
 	}
 	if !parent.IsZero() {
 		commit.ParentHashes = []plumbing.Hash{parent}

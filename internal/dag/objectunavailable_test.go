@@ -288,12 +288,16 @@ func TestEnumerate_AbsentParentCommitIsObjectUnavailable(t *testing.T) {
 // was reported as non-canonical-payload — an absent object misreported as
 // a malformed op.
 //
-// It also pins the WRIT-289 orchestrator decision on top of the ruling:
-// object-unavailable is the one rejection reason that does not stop the
-// walk, because the tip's own commit object was read fine and its
-// parents are known — only its op.json blob is locally missing, so it is
-// not known to be a non-op. op1, sitting behind the object-unavailable
-// tip, is therefore still held.
+// It also pins the WRIT-289 orchestrator decision on top of the ruling,
+// for the one object-unavailable shape it lets expand: the tip's own
+// commit object and root tree both read fine, its root tree names a
+// top-level op.json entry, and only that entry's own blob is locally
+// missing, so it is not known to be a non-op. op1, sitting behind the
+// object-unavailable tip, is therefore still held. A root tree that is
+// itself absent, or present without a top-level op.json entry, does not
+// expand — TestEnumerate_RefOnAbsentRootTreeHistoryStopsAtTip and
+// TestEnumerate_AbsentSubtreeNoRootOpJSONStopsAtTip (enumerate_test.go)
+// pin those.
 func TestEnumerate_ObjectUnavailableDistinctFromMalformed(t *testing.T) {
 	dir, repo := initTestRepo(t)
 	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
@@ -343,11 +347,12 @@ func TestEnumerate_ObjectUnavailableDistinctFromMalformed(t *testing.T) {
 	}
 
 	// op1 sits behind the rejected (object-unavailable) tip on the same
-	// chain. WRIT-289's orchestrator decision: object-unavailable does not
-	// stop the walk — the tip commit itself was read fine, so its parents
-	// are still expanded — so op1 is held.
+	// chain. WRIT-289's orchestrator decision: this shape — root tree
+	// present, top-level op.json entry named, only its blob absent — does
+	// not stop the walk, so the tip's parents are still expanded and op1
+	// is held.
 	if len(res.Ops["w-1"]) != 1 || res.Ops["w-1"][0].ID != op1.ID {
-		t.Fatalf("Ops[w-1] = %v, want exactly [%s] (op1 sits behind the object-unavailable tip, but that rejection reason does not stop the walk)", res.Ops["w-1"], op1.ID)
+		t.Fatalf("Ops[w-1] = %v, want exactly [%s] (op1 sits behind the object-unavailable tip, but a missing op.json blob alone does not stop the walk)", res.Ops["w-1"], op1.ID)
 	}
 }
 

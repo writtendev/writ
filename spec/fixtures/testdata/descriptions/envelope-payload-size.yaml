@@ -6,10 +6,11 @@ description: >
   itself accepted per this envelope family's own, per-commit verdicts
   (each described commit is decoded and checked directly, not reached by
   walking ancestry from a chain tip). Under the WRIT-289 reader-enumeration
-  stopping rule, an actual reader walk starting at this chain's tip would
-  never reach payload-after-oversized at all: payload-over-max ends the
-  walk, and the ops behind it — including this one — are held only if some
-  other path of valid ops reaches them, which none does here.
+  stopping rule, an actual reader walk starting at this chain's tip
+  (payload-after-oversized) would hold that commit, then reject
+  payload-over-max as payload-too-large and stop: payload-at-max, behind
+  the break, is never reached and is held only if some other path of
+  valid ops reaches it, which none does here.
 
 refs:
   - name: refs/writ/0123456789abcdef/widget
