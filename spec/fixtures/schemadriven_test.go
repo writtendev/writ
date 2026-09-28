@@ -42,14 +42,46 @@ func TestSchemaDrivenFoldFamily(t *testing.T) {
 // other object's folded ObjectState (object_id, object_type, total_order,
 // state, unknown_ops -- writ.ObjectState's own JSON shape, reused verbatim).
 type SchemaDrivenGolden struct {
-	Schemas   []SchemaDrivenSchemaGolden `json:"schemas"`
-	Conflicts []writ.SchemaConflict      `json:"conflicts,omitempty"`
-	Objects   []writ.ObjectState         `json:"objects"`
+	Schemas   []SchemaDrivenSchemaGolden   `json:"schemas"`
+	Conflicts []SchemaDrivenConflictGolden `json:"conflicts,omitempty"`
+	Objects   []writ.ObjectState           `json:"objects"`
 }
 
 type SchemaDrivenSchemaGolden struct {
 	ObjectID string      `json:"object_id"`
 	Schema   writ.Schema `json:"schema"`
+}
+
+// SchemaDrivenConflictGolden is the corpus-pinned projection of
+// writ.SchemaConflict: kind, object_type, namespace, and object_ids only
+// (spec/schema-ops.md §6). Reason is deliberately absent -- it is
+// human-readable, free to change wording in any release, and no independent
+// implementation can be expected to reproduce writ's exact English or Go's
+// %v slice formatting (WRIT-335). The closed Kind catalogue is what the
+// corpus byte-compares.
+type SchemaDrivenConflictGolden struct {
+	Kind       writ.SchemaConflictKind `json:"kind"`
+	ObjectType string                  `json:"object_type,omitempty"`
+	Namespace  string                  `json:"namespace,omitempty"`
+	ObjectIDs  []string                `json:"object_ids"`
+}
+
+// schemaConflictKinds is the closed set this family's runner checks every
+// golden conflict's Kind against (spec/schema-ops.md §6): a test failure
+// here, not a silently-passing golden, is what catches a new
+// SchemaConflict construction site added without a Kind.
+var schemaConflictKinds = map[writ.SchemaConflictKind]bool{
+	writ.SchemaConflictNamespaceUngrammatical: true,
+	writ.SchemaConflictObjectIDMismatch:       true,
+	writ.SchemaConflictSchemaRedefined:        true,
+	writ.SchemaConflictTypeUngrammatical:      true,
+	writ.SchemaConflictTypeUnqualified:        true,
+	writ.SchemaConflictTypeContested:          true,
+	writ.SchemaConflictOpTypeUngrammatical:    true,
+	writ.SchemaConflictRuleInvalid:            true,
+	writ.SchemaConflictKeyColumnDisagreement:  true,
+	writ.SchemaConflictTargetDisagreement:     true,
+	writ.SchemaConflictValueTypeUnknown:       true,
 }
 
 func runSchemaDrivenFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
@@ -168,7 +200,14 @@ func runSchemaDrivenFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error)
 	}
 
 	rules, conflicts := writ.RulesFromSchemas(schemas)
-	golden.Conflicts = conflicts
+	for _, c := range conflicts {
+		if c.Kind == "" || !schemaConflictKinds[c.Kind] {
+			return nil, fmt.Errorf("schema conflict in %s has Kind %q, want a non-empty member of the closed SchemaConflictKind set (spec/schema-ops.md §6): %+v", fix.Name, c.Kind, c)
+		}
+		golden.Conflicts = append(golden.Conflicts, SchemaDrivenConflictGolden{
+			Kind: c.Kind, ObjectType: c.ObjectType, Namespace: c.Namespace, ObjectIDs: c.ObjectIDs,
+		})
+	}
 
 	// RulesFromSchemas must resolve to the same rules and conflicts
 	// regardless of the order schemas are handed to it (spec/schema-ops.md

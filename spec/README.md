@@ -208,17 +208,25 @@ a repo" is not the whole pipeline; the schema-driven pipeline below is:
    every candidate field rule (the same checks `spec.ValidateFieldRule`
    encodes — closed strategy catalogue, `keyed-lww`'s key/`key_types`
    requirements, `lattice`'s elements, `tombstone`'s bool-only, `enum`'s
-   required values), drop and report the ones that fail rather than
-   installing them, and detect the two schema-vs-schema conflicts (an
-   `object_type` two schema objects both bind, and a version bump that
-   reuses a `target` while disagreeing on `strategy` or `lattice`) per
-   `spec/schema-ops.md` §6 and §8. Neither conflict kind picks a winner.
+   required values), and detect every conflict in the closed, eleven-code
+   `kind` catalogue `spec/schema-ops.md` §6 tabulates — schema-vs-schema
+   collisions, an invalid or ungrammatical declaration, a shared-target or
+   shared-key-column disagreement, and the one non-withholding warning kind,
+   `value-type-unknown`. Ten of the eleven kinds withhold what they name and
+   pick no winner; a rule with `value-type-unknown` is installed anyway,
+   demoted (§10).
 4. Fold every other object with the rules resolved for its own
    `object_type`. An `object_type` no schema declares (yet) is not a fold
    error: every op on it reports through `UnknownOps`, exactly as any other
    unknown-op case does (`spec/forward-compatibility.md` FC-1, FC-12).
 5. Serialize the folded state (and, for schema objects themselves, the
    folded `Schema` structure and any resolver conflicts) to canonical JSON.
+   A resolver conflict serializes as `{kind, object_type?, namespace?,
+   object_ids}` — `kind` is the closed catalogue `spec/schema-ops.md` §6
+   tabulates, and that section's second table states exactly which of
+   `object_type`/`namespace` a given `kind` carries and what `object_ids`
+   holds; no human-readable reason text is part of the corpus, and none is
+   compared.
 6. Assert the output matches the appropriate `testdata/golden/<name>.json`
    byte-for-byte.
 
@@ -244,7 +252,11 @@ Your test suite then, per fixture repository:
    schema object at all, fold every object with no rules and confirm every
    op reports as unknown.
 4. Serializes the folded state (and, where the fixture carries one, the
-   folded schema state and conflicts) to canonical JSON.
+   folded schema state and conflicts) to canonical JSON. A resolver
+   conflict serializes as `{kind, object_type?, namespace?, object_ids}` —
+   see `spec/schema-ops.md` §6's second table for exactly which fields a
+   given `kind` carries; no human-readable reason text is part of the
+   corpus.
 5. Asserts that the output matches `spec/fixtures/testdata/golden/<name>.json`
    byte-for-byte — `testdata/golden/schema/` for the schema family and
    `testdata/golden/schema-driven/` for the schema-driven family.

@@ -29,6 +29,17 @@ const OrderByUpdatedAtDesc = projection.OrderByUpdatedAtDesc
 const PersonIDKey = identity.PersonIDKey
 const RejectObjectUnavailable = dag.RejectObjectUnavailable
 const RejectSchemaViolation = codec.RejectSchemaViolation
+const SchemaConflictKeyColumnDisagreement SchemaConflictKind = "key-column-disagreement"
+const SchemaConflictNamespaceUngrammatical SchemaConflictKind = "namespace-ungrammatical"
+const SchemaConflictObjectIDMismatch SchemaConflictKind = "object-id-mismatch"
+const SchemaConflictOpTypeUngrammatical SchemaConflictKind = "op-type-ungrammatical"
+const SchemaConflictRuleInvalid SchemaConflictKind = "rule-invalid"
+const SchemaConflictSchemaRedefined SchemaConflictKind = "schema-redefined"
+const SchemaConflictTargetDisagreement SchemaConflictKind = "target-disagreement"
+const SchemaConflictTypeContested SchemaConflictKind = "type-contested"
+const SchemaConflictTypeUngrammatical SchemaConflictKind = "type-ungrammatical"
+const SchemaConflictTypeUnqualified SchemaConflictKind = "type-unqualified"
+const SchemaConflictValueTypeUnknown SchemaConflictKind = "value-type-unknown"
 const TrustStoreOK TrustStoreStatus = "ok"
 const TrustStoreUnconfigured TrustStoreStatus = "unconfigured"
 const TrustStoreUnreadable TrustStoreStatus = "unreadable"
@@ -196,11 +207,14 @@ type Rule = state.Rule
 type Schema = state.Schema
 
 type SchemaConflict struct {
+	Kind SchemaConflictKind `json:"kind"`
 	ObjectType string `json:"object_type,omitempty"`
 	Namespace string `json:"namespace,omitempty"`
 	ObjectIDs []string `json:"object_ids"`
 	Reason string `json:"reason"`
 }
+
+type SchemaConflictKind string
 
 type SchemaErrorList = schemasrc.ErrorList
 

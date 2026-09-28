@@ -4,7 +4,6 @@
       "object_id": "schema:acme",
       "schema": {
         "object_id": "schema:acme",
-        "namespace": "acme",
         "types": [
           {
             "type": "acme.gadget",
@@ -17,10 +16,15 @@
                 "strategy": "lww"
               }
             ]
-          },
+          }
+        ],
+        "unknown_ops": [
           {
-            "type": "schema",
-            "description": "An attempt to redefine the bootstrap type"
+            "commit": "320fda1d7f9b7435f77a0e8f135bcbc9d86ae1d3",
+            "object_type": "schema",
+            "op_type": "create",
+            "op_version": 1,
+            "verification": "wrong-key"
           }
         ]
       }
@@ -28,9 +32,7 @@
   ],
   "conflicts": [
     {
-      "kind": "schema-redefined",
-      "object_type": "schema",
-      "namespace": "acme",
+      "kind": "object-id-mismatch",
       "object_ids": [
         "schema:acme"
       ]
@@ -42,13 +44,20 @@
       "object_type": "acme.gadget",
       "total_order": [
         {
-          "commit": "b3e183721dc3bd4df4504a77121738fcfad2e027",
-          "t_star": 1767225840
+          "commit": "d0220b5663fc894d5db01c1ba84ce5710a265bba",
+          "t_star": 1767225780
         }
       ],
-      "state": {
-        "title": "Widget"
-      }
+      "state": {},
+      "unknown_ops": [
+        {
+          "commit": "d0220b5663fc894d5db01c1ba84ce5710a265bba",
+          "object_type": "acme.gadget",
+          "op_type": "create",
+          "op_version": 1,
+          "verification": "wrong-key"
+        }
+      ]
     }
   ]
 }

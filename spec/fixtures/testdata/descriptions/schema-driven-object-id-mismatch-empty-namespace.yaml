@@ -1,0 +1,85 @@
+name: schema-driven-object-id-mismatch-empty-namespace
+description: >
+  spec/schema-ops.md §6's namespace-presence rule has an edge round 2 of
+  WRIT-335's review caught: `namespace` is carried on `object-id-mismatch`,
+  but carried is not the same as present on the wire, because a schema
+  object's own folded namespace can itself be empty. Here `schema:acme`'s
+  own `create` never sets `namespace` at all (only `description`), which
+  §3.4 quarantines as uninterpretable -- the create never folds, so
+  `Schema.Namespace` stays the empty string rather than being assigned
+  "acme" or anything else. The resolver's derived-id check then compares
+  "schema:acme" against "schema:" + "" == "schema:" (WRIT-254 change 2):
+  they disagree, so the whole object is dropped and reported as
+  `object-id-mismatch` -- but its `namespace` field is the empty string,
+  and `json:"namespace,omitempty"` drops an empty string exactly as it
+  would for any other kind, so the golden conflict below carries no
+  `namespace` key at all. An independent implementation that assumed
+  `object-id-mismatch` always carries `namespace` (the false reading of
+  the old, unqualified §6 table) would instead emit `"namespace": ""` and
+  byte-diverge from this golden. The `define-type`/`define-field` below
+  never install (the whole object was dropped before they were looked
+  at), so `acme.gadget`'s own create op falls through the absent-schema
+  path to `UnknownOp`, exactly as it would for any other undeclared
+  object_type. (pins: reader)
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: create-no-namespace
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                description: "acme's vocabulary, minus a namespace"
+            expect: accept
+
+          - id: define-type
+            parents: [create-no-namespace]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "acme.gadget"
+            expect: accept
+
+          - id: define-field-title
+            parents: [define-type]
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.gadget"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/gadget
+    history:
+      - commits:
+          - id: gadget-create
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: gadget-1
+              object_type: acme.gadget
+              op_type: create
+              op_version: 1
+              body:
+                title: "Gadget"
+            expect: accept

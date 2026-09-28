@@ -178,10 +178,14 @@ func FromSchemaEnvelopes(envs []writ.Envelope) []SchemaOpEntry {
 	return out
 }
 
-// SchemaConflict is a load-bearing collision between schema objects
-// (spec/schema-ops.md §Conflicts), reported by `plan` whether or not the
-// working-tree file caused it — it is the only surface that shows them.
+// SchemaConflict is a conflict resolveSchemaTypes found while resolving
+// schema objects into rules (spec/schema-ops.md §6), reported by `plan`
+// whether or not the working-tree file caused it — it is the only surface
+// that shows them. Kind is the closed, conformance-relevant code; Reason is
+// human-readable and free to change wording in any release — branch on
+// Kind.
 type SchemaConflict struct {
+	Kind       string   `json:"kind"`
 	ObjectType string   `json:"object_type,omitempty"`
 	Namespace  string   `json:"namespace,omitempty"`
 	ObjectIDs  []string `json:"object_ids"`
@@ -197,7 +201,7 @@ func FromSchemaConflicts(conflicts []writ.SchemaConflict) []SchemaConflict {
 		if ids == nil {
 			ids = []string{}
 		}
-		out[i] = SchemaConflict{ObjectType: c.ObjectType, Namespace: c.Namespace, ObjectIDs: ids, Reason: c.Reason}
+		out[i] = SchemaConflict{Kind: string(c.Kind), ObjectType: c.ObjectType, Namespace: c.Namespace, ObjectIDs: ids, Reason: c.Reason}
 	}
 	return out
 }
