@@ -28,7 +28,7 @@ func TestFoldFamily(t *testing.T) {
 		Name:      "fold",
 		GoldenDir: "testdata/golden/fold",
 		Filter: func(desc *fixtures.Description) bool {
-			return strings.HasPrefix(desc.Name, "fold-") || strings.HasPrefix(desc.Name, "forward-compat-")
+			return strings.HasPrefix(desc.Name, "fold-") || strings.HasPrefix(desc.Name, "forward-compat-") || desc.Name == "multi-writer-chains"
 		},
 		Runner: runFoldFixture,
 	})

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/writtendev/writ/internal/codec"
@@ -551,5 +552,270 @@ func TestEnumerateSince_Verification(t *testing.T) {
 	}
 	if configuredOps[0].ID != ops[0].ID {
 		t.Fatalf("the two enumerations disagree on the op id: %s vs %s", configuredOps[0].ID, ops[0].ID)
+	}
+}
+
+// TestEnumerate_StopsAtFirstNonOpCommit pins WRIT-289's ruling directly:
+// a conforming reader's ancestry walk stops at the first commit that
+// fails reader validation ("a chain is a chain; a break in it is the end
+// of it") and never expands that commit's parents, however deep the
+// history behind it goes. Chain shape: op1 <- op2 <- junk <- op3.
+func TestEnumerate_StopsAtFirstNonOpCommit(t *testing.T) {
+	dir, repo := initTestRepo(t)
+	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
+	store, err := dag.Open(dir, ident, withVocabularies())
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+
+	op1, err := store.Append(context.Background(), codec.Envelope{
+		ObjectID: "w-1", ObjectType: "widget", OpType: "create", OpVersion: 1,
+		Body: json.RawMessage(`{"title":"Widget 1"}`),
+	}, nil)
+	if err != nil {
+		t.Fatalf("Append op1 failed: %v", err)
+	}
+	op2, err := store.Append(context.Background(), codec.Envelope{
+		ObjectID: "w-1", ObjectType: "widget", OpType: "update", OpVersion: 1,
+		Body: json.RawMessage(`{"title":"Widget 1 v2"}`),
+	}, nil)
+	if err != nil {
+		t.Fatalf("Append op2 failed: %v", err)
+	}
+
+	junkHash, err := writeNonOpCommitWithParent(repo, plumbing.NewHash(op2.ID))
+	if err != nil {
+		t.Fatalf("writeNonOpCommitWithParent failed: %v", err)
+	}
+	refName := dag.LocalRefName(ident.WriterID, "widget")
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(refName, junkHash)); err != nil {
+		t.Fatalf("advance ref to junk commit: %v", err)
+	}
+
+	op3, err := store.Append(context.Background(), codec.Envelope{
+		ObjectID: "w-1", ObjectType: "widget", OpType: "update", OpVersion: 1,
+		Body: json.RawMessage(`{"title":"Widget 1 v3"}`),
+	}, nil)
+	if err != nil {
+		t.Fatalf("Append op3 failed: %v", err)
+	}
+
+	res, err := store.Enumerate()
+	if err != nil {
+		t.Fatalf("Enumerate failed: %v", err)
+	}
+
+	if res.DecodedCommits != 2 {
+		t.Errorf("DecodedCommits = %d, want 2 (op3 and the junk commit; op1 and op2 sit behind the break and are never reached)", res.DecodedCommits)
+	}
+	if len(res.Rejections) != 1 {
+		t.Fatalf("Rejections = %v, want exactly one", res.Rejections)
+	}
+	if res.Rejections[0].CommitID != junkHash.String() {
+		t.Errorf("rejection commit = %s, want %s", res.Rejections[0].CommitID, junkHash.String())
+	}
+	if res.Rejections[0].Reason != codec.RejectMissingOpJSON {
+		t.Errorf("rejection reason = %q, want %q", res.Rejections[0].Reason, codec.RejectMissingOpJSON)
+	}
+
+	ops := res.Ops["w-1"]
+	if len(ops) != 1 || ops[0].ID != op3.ID {
+		t.Fatalf("Ops[w-1] = %v, want exactly [%s]", ops, op3.ID)
+	}
+	for _, op := range ops {
+		if op.ID == op1.ID || op.ID == op2.ID {
+			t.Errorf("op1 or op2 unexpectedly held behind the junk commit: %v", ops)
+		}
+	}
+}
+
+// TestEnumerate_RefOnCodeHistoryStopsAtTip is the DoS regression WRIT-289
+// closes: a writ ref mistakenly pointed at ordinary code history (which a
+// conforming producer never does, but a reader must not pay for) costs a
+// reader exactly one decode — the tip — not one per commit in that
+// history.
+func TestEnumerate_RefOnCodeHistoryStopsAtTip(t *testing.T) {
+	dir, repo := initTestRepo(t)
+	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
+	store, err := dag.Open(dir, ident, withVocabularies())
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+
+	const codeHistoryDepth = 1000
+	tip := plumbing.ZeroHash
+	for i := 0; i < codeHistoryDepth; i++ {
+		h, err := writeNonOpCommitWithParent(repo, tip)
+		if err != nil {
+			t.Fatalf("writeNonOpCommitWithParent %d failed: %v", i, err)
+		}
+		tip = h
+	}
+
+	refName := dag.LocalRefName(ident.WriterID, "widget")
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(refName, tip)); err != nil {
+		t.Fatalf("set widget ref to code-history tip: %v", err)
+	}
+
+	res, err := store.Enumerate()
+	if err != nil {
+		t.Fatalf("Enumerate failed: %v", err)
+	}
+
+	if res.DecodedCommits != 1 {
+		t.Errorf("DecodedCommits = %d, want 1 (only the tip; the walk must not reach the other %d commits behind it)", res.DecodedCommits, codeHistoryDepth-1)
+	}
+	if len(res.Rejections) != 1 {
+		t.Fatalf("Rejections = %v, want exactly one", res.Rejections)
+	}
+	if res.Rejections[0].CommitID != tip.String() {
+		t.Errorf("rejection commit = %s, want %s (the tip)", res.Rejections[0].CommitID, tip.String())
+	}
+	if len(res.Ops) != 0 {
+		t.Errorf("Ops = %v, want none", res.Ops)
+	}
+}
+
+// TestEnumerate_UnknownAndUnsignedOpsDoNotStopWalk pins the other half of
+// the WRIT-289 stopping rule: a commit is only a break if it fails reader
+// validation. An op of an op_type no vocabulary declares (forward
+// compatibility, spec/forward-compatibility.md) and an unsigned op
+// (spec/signing.md — verification never gates fold, WRIT-251 ruling 1)
+// are both still ops, and neither stops the walk: the valid op behind
+// each is still held.
+func TestEnumerate_UnknownAndUnsignedOpsDoNotStopWalk(t *testing.T) {
+	dir, repo := initTestRepo(t)
+	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
+	store, err := dag.Open(dir, ident, withVocabularies())
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	refName := dag.LocalRefName(ident.WriterID, "widget")
+	author := codec.Identity{Name: "Alice", Email: "alice@example.test", When: time.Now().UTC()}
+
+	op1, err := store.Append(context.Background(), codec.Envelope{
+		ObjectID: "w-1", ObjectType: "widget", OpType: "create", OpVersion: 1,
+		Body: json.RawMessage(`{"title":"Widget 1"}`),
+	}, nil)
+	if err != nil {
+		t.Fatalf("Append op1 failed: %v", err)
+	}
+
+	unknownID, err := writeRawOpCommit(context.Background(), repo.Storer, codec.Envelope{
+		ObjectID: "w-1", ObjectType: "widget", OpType: "totally-unknown-op", OpVersion: 1,
+		Body: json.RawMessage(`{"note":"unknown op type"}`),
+	}, author, op1.ID, nil)
+	if err != nil {
+		t.Fatalf("writeRawOpCommit (unknown op type) failed: %v", err)
+	}
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(refName, plumbing.NewHash(unknownID))); err != nil {
+		t.Fatalf("advance ref to unknown-op-type commit: %v", err)
+	}
+
+	unsignedID, err := writeRawOpCommit(context.Background(), repo.Storer, codec.Envelope{
+		ObjectID: "w-1", ObjectType: "widget", OpType: "update", OpVersion: 1,
+		Body: json.RawMessage(`{"title":"Widget 1 unsigned"}`),
+	}, author, unknownID, nil)
+	if err != nil {
+		t.Fatalf("writeRawOpCommit (unsigned) failed: %v", err)
+	}
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(refName, plumbing.NewHash(unsignedID))); err != nil {
+		t.Fatalf("advance ref to unsigned commit: %v", err)
+	}
+
+	op2, err := store.Append(context.Background(), codec.Envelope{
+		ObjectID: "w-1", ObjectType: "widget", OpType: "update", OpVersion: 1,
+		Body: json.RawMessage(`{"title":"Widget 1 final"}`),
+	}, nil)
+	if err != nil {
+		t.Fatalf("Append op2 failed: %v", err)
+	}
+
+	res, err := store.Enumerate()
+	if err != nil {
+		t.Fatalf("Enumerate failed: %v", err)
+	}
+	if len(res.Rejections) != 0 {
+		t.Fatalf("Rejections = %v, want none: neither an unknown op type nor an unsigned commit is a reader-validation failure", res.Rejections)
+	}
+
+	ops := res.Ops["w-1"]
+	if len(ops) != 4 {
+		t.Fatalf("Ops[w-1] = %v, want 4 (op1, the unknown-op-type op, the unsigned op, and op2 — none of them stops the walk)", ops)
+	}
+	byID := make(map[string]codec.Op, len(ops))
+	for _, op := range ops {
+		byID[op.ID] = op
+	}
+	for _, want := range []string{op1.ID, unknownID, unsignedID, op2.ID} {
+		if _, ok := byID[want]; !ok {
+			t.Errorf("missing op %s in held set: %v", want, ops)
+		}
+	}
+	if got := byID[unsignedID].Verification.Outcome; got != codec.OutcomeUnsigned {
+		t.Errorf("unsigned op's Verification.Outcome = %q, want %q", got, codec.OutcomeUnsigned)
+	}
+}
+
+// TestEnumerateSince_TipAdvancedAcrossNonOpIsRewound pins the isAncestor
+// half of WRIT-289: a chain tip advanced across a commit that fails
+// reader validation is no longer a fast-forward from the stored cursor,
+// even though the old cursor is still, in the weaker sense of plain git
+// ancestry, an ancestor of the new tip. Without this, an incremental
+// refresh would keep op1 (fast-forwarding past the break) while a cold
+// rebuild would drop it — a droppable-cache invariant violation.
+func TestEnumerateSince_TipAdvancedAcrossNonOpIsRewound(t *testing.T) {
+	dir, repo := initTestRepo(t)
+	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
+	store, err := dag.Open(dir, ident, withVocabularies())
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+
+	op1, err := store.Append(context.Background(), codec.Envelope{
+		ObjectID: "w-1", ObjectType: "widget", OpType: "create", OpVersion: 1,
+		Body: json.RawMessage(`{"title":"Widget 1"}`),
+	}, nil)
+	if err != nil {
+		t.Fatalf("Append op1 failed: %v", err)
+	}
+
+	res1, err := store.Enumerate()
+	if err != nil {
+		t.Fatalf("Enumerate failed: %v", err)
+	}
+
+	junkHash, err := writeNonOpCommitWithParent(repo, plumbing.NewHash(op1.ID))
+	if err != nil {
+		t.Fatalf("writeNonOpCommitWithParent failed: %v", err)
+	}
+	refName := dag.LocalRefName(ident.WriterID, "widget")
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(refName, junkHash)); err != nil {
+		t.Fatalf("advance ref to junk commit: %v", err)
+	}
+
+	op2, err := store.Append(context.Background(), codec.Envelope{
+		ObjectID: "w-1", ObjectType: "widget", OpType: "update", OpVersion: 1,
+		Body: json.RawMessage(`{"title":"Widget 1 v2"}`),
+	}, nil)
+	if err != nil {
+		t.Fatalf("Append op2 failed: %v", err)
+	}
+
+	res2, err := store.EnumerateSince(res1.Cursors)
+	if err != nil {
+		t.Fatalf("EnumerateSince failed: %v", err)
+	}
+	if len(res2.Rewound) != 1 || res2.Rewound[0] != refName.String() {
+		t.Fatalf("Rewound = %v, want [%s]", res2.Rewound, refName.String())
+	}
+
+	res3, err := store.Enumerate()
+	if err != nil {
+		t.Fatalf("cold Enumerate failed: %v", err)
+	}
+	ops := res3.Ops["w-1"]
+	if len(ops) != 1 || ops[0].ID != op2.ID {
+		t.Fatalf("cold Enumerate Ops[w-1] = %v, want exactly [%s] (op1 sits behind the junk commit, unreachable)", ops, op2.ID)
 	}
 }

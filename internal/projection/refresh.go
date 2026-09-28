@@ -132,9 +132,11 @@ func (c *refreshConfig) enumerateOptions() []dag.EnumerateOption {
 
 // incrementalSeenOption prepares a dag.WithSeen option backed by the ops
 // table's op_id primary key, for Refresh's incremental path only (WRIT-273).
-// A commit already recorded there had its full ancestry walked by whichever
-// pass first inserted it — see dag.WithSeen's doc comment for why that
-// invariant holds for this projection specifically — so EnumerateSince can
+// A commit already recorded there had everything the reader walk reaches
+// from it (WRIT-289: ancestry the walk would have stopped short of, behind
+// a rejected commit, was never reachable in the first place) walked by
+// whichever pass first inserted it — see dag.WithSeen's doc comment for why
+// that invariant holds for this projection specifically — so EnumerateSince can
 // treat it as an already-seen stop point instead of re-decoding its whole
 // ancestry every time a new op's causal parent happens to sit deep inside
 // another chain. The prepared statement is a point lookup on the primary

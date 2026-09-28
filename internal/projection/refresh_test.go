@@ -738,7 +738,16 @@ func writeExtraTreeEntryCommit(ctx context.Context, s storage.Storer, parent str
 // without ever reading its Rejections field, so a peer's quarantined op
 // had no diagnostic path anywhere above the dag package. Reproduces the
 // ticket's own repro: append one valid op, then write a commit with tree
-// {extra, op.json} as the new tip of the widget chain.
+// {extra, op.json} as the tip of a second, brand-new chain whose causal
+// parent is that valid op.
+//
+// The malformed commit sits on its own chain rather than on top of the
+// cursor: since WRIT-289 a tip advanced across a rejected commit no
+// longer fast-forwards (isAncestor's walk stops at the break exactly like
+// EnumerateSince's own Step 3), so putting it directly over op1's chain
+// tip would report Rewound and force a full rebuild instead of the
+// incremental pass this test exercises — that scenario is
+// TestRefresh_NonOpTipOverCursorRebuilds below.
 func TestRefresh_SurfacesRejections(t *testing.T) {
 	ctx := context.Background()
 	repo, store := createTestStore(t, "0123456789abcdef")
@@ -764,9 +773,9 @@ func TestRefresh_SurfacesRejections(t *testing.T) {
 	if err != nil {
 		t.Fatalf("writeExtraTreeEntryCommit failed: %v", err)
 	}
-	refName := plumbing.ReferenceName("refs/writ/0123456789abcdef/widget")
+	refName := plumbing.ReferenceName("refs/writ/fedcba9876543210/widget")
 	if err := repo.Storer.SetReference(plumbing.NewReferenceFromStrings(refName.String(), malformedHash)); err != nil {
-		t.Fatalf("advance ref to malformed commit: %v", err)
+		t.Fatalf("set new chain ref to malformed commit: %v", err)
 	}
 
 	stats, err := db.Refresh(store, projection.WithSchema(testRules()))
@@ -774,7 +783,7 @@ func TestRefresh_SurfacesRejections(t *testing.T) {
 		t.Fatalf("Refresh failed: %v", err)
 	}
 	if stats.Rebuilt {
-		t.Fatalf("expected an incremental refresh (fast-forward), got Rebuilt=true")
+		t.Fatalf("expected an incremental refresh (the malformed commit is a cold, standalone chain, not a break over an existing cursor), got Rebuilt=true")
 	}
 	if len(stats.Rejections) != 1 {
 		t.Fatalf("Rejections = %v, want exactly one", stats.Rejections)
@@ -797,6 +806,95 @@ func TestRefresh_SurfacesRejections(t *testing.T) {
 	}
 	if len(stats2.Rejections) != 0 {
 		t.Errorf("second Refresh Rejections = %v, want none (the pass that observed the rejection is the only one that reports it)", stats2.Rejections)
+	}
+}
+
+// TestRefresh_NonOpTipOverCursorRebuilds pins the projection-level
+// consequence of WRIT-289's isAncestor change: when a chain's tip
+// advances across a commit that fails reader validation, sitting
+// directly over the stored cursor (unlike TestRefresh_SurfacesRejections
+// above, where the malformed commit is a cold, standalone chain),
+// Refresh must not silently keep fast-forwarding past the break — that
+// would let an incremental pass hold ops a cold rebuild would not. It
+// falls through to a full rebuild instead, and the ops cut off behind
+// the break disappear from the projection, exactly as a fresh Rebuild
+// from the new tip produces (the droppable-cache guarantee, AGENTS.md).
+func TestRefresh_NonOpTipOverCursorRebuilds(t *testing.T) {
+	ctx := context.Background()
+	repo, store := createTestStore(t, "0123456789abcdef")
+
+	db, err := projection.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open projection failed: %v", err)
+	}
+	defer db.Close()
+
+	env1 := makeWidgetEnv("w-cut", "create", map[string]any{"title": "Title 1"})
+	if _, err := store.Append(ctx, env1, nil); err != nil {
+		t.Fatalf("store.Append op1 failed: %v", err)
+	}
+	if _, err := db.Refresh(store, projection.WithSchema(testRules())); err != nil {
+		t.Fatalf("initial Refresh failed: %v", err)
+	}
+
+	env2 := makeWidgetEnv("w-cut", "update", map[string]any{"title": "Title 2"})
+	op2, err := store.Append(ctx, env2, nil)
+	if err != nil {
+		t.Fatalf("store.Append op2 failed: %v", err)
+	}
+	if _, err := db.Refresh(store, projection.WithSchema(testRules())); err != nil {
+		t.Fatalf("second Refresh failed: %v", err)
+	}
+
+	if _, err := db.Object("w-cut"); err != nil {
+		t.Fatalf("Object(w-cut) before the break: %v", err)
+	}
+
+	envJunk := makeWidgetEnv("w-cut-2", "create", map[string]any{"title": "Junk"})
+	junkHash, err := writeExtraTreeEntryCommit(ctx, repo.Storer, op2.ID, envJunk.Raw)
+	if err != nil {
+		t.Fatalf("writeExtraTreeEntryCommit failed: %v", err)
+	}
+	refName := plumbing.ReferenceName("refs/writ/0123456789abcdef/widget")
+	if err := repo.Storer.SetReference(plumbing.NewReferenceFromStrings(refName.String(), junkHash)); err != nil {
+		t.Fatalf("advance ref over the cursor to the malformed commit: %v", err)
+	}
+
+	stats, err := db.Refresh(store, projection.WithSchema(testRules()))
+	if err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+	if !stats.Rebuilt {
+		t.Fatalf("expected Rebuilt=true: the tip advanced across a commit that fails reader validation, so it is no longer a fast-forward from the stored cursor")
+	}
+	if len(stats.Rejections) != 1 {
+		t.Fatalf("Rejections = %v, want exactly one", stats.Rejections)
+	}
+	if stats.Rejections[0].CommitID != junkHash {
+		t.Errorf("rejection commit = %s, want %s", stats.Rejections[0].CommitID, junkHash)
+	}
+
+	if _, err := db.Object("w-cut"); err != projection.ErrNotFound {
+		t.Errorf("Object(w-cut) after rebuild = %v, want projection.ErrNotFound (op1 and op2 sit behind the malformed tip and are cut off)", err)
+	}
+
+	// A fresh Rebuild from the same store agrees: the projection above is
+	// not a stale artifact of the incremental path falling through, it is
+	// what a cold rebuild produces too.
+	freshDB, err := projection.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open fresh projection failed: %v", err)
+	}
+	defer freshDB.Close()
+	freshStats, err := freshDB.Rebuild(store, projection.WithSchema(testRules()))
+	if err != nil {
+		t.Fatalf("fresh Rebuild failed: %v", err)
+	}
+	if len(freshStats.Rejections) != 1 || freshStats.Rejections[0].CommitID != junkHash {
+		t.Errorf("fresh Rebuild Rejections = %v, want exactly one for %s", freshStats.Rejections, junkHash)
+	}
+	if _, err := freshDB.Object("w-cut"); err != projection.ErrNotFound {
+		t.Errorf("fresh Rebuild Object(w-cut) = %v, want projection.ErrNotFound", err)
 	}
 }
 

@@ -335,9 +335,12 @@ func TestEnumerate_ObjectUnavailableDistinctFromMalformed(t *testing.T) {
 		t.Errorf("rejection reason = %q, must not be a reader-validation reason for a merely-absent object", rej.Reason)
 	}
 
-	// The valid sibling op is unaffected.
-	if len(res.Ops["w-1"]) != 1 || res.Ops["w-1"][0].ID != op1.ID {
-		t.Fatalf("Ops[w-1] = %v, want exactly [%s]", res.Ops["w-1"], op1.ID)
+	// op1 sits behind the rejected (object-unavailable) tip on the same
+	// chain, with no other path reaching it. WRIT-289: a rejected commit's
+	// parents are never expanded, whatever the rejection reason, so op1
+	// is no longer held.
+	if len(res.Ops["w-1"]) != 0 {
+		t.Fatalf("Ops[w-1] = %v, want none (op1 is behind the rejected tip and unreachable)", res.Ops["w-1"])
 	}
 }
 

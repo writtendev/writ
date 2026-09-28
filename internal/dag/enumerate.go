@@ -47,14 +47,26 @@ type EnumerateResult struct {
 	// Cursors maps every discovered chain ref name to its current tip SHA.
 	Cursors CursorSet `json:"cursors"`
 
-	// Rewound contains the ref names of chains whose cursor tip was not an ancestor
-	// of the current tip (rollback detected).
+	// Rewound contains the ref names of chains whose stored cursor was not
+	// reachable from the current tip under the reader walk (WRIT-289): a
+	// rollback, or a tip advanced across a commit that fails reader
+	// validation — isAncestor's walk stops there exactly as EnumerateSince's
+	// own Step 3 does, so the cursor is no longer found even though the old
+	// SHA is still, technically, a git ancestor.
 	Rewound []string `json:"rewound,omitempty"`
 
-	// Rejections records op commits that failed reader validation.
+	// Rejections records op commits that failed reader validation. Bounded
+	// by the number of held ops plus the number of enumerated chain tips
+	// (WRIT-289): the walk stops at the first rejected commit on each path
+	// rather than continuing past it, so a ref pointed at ordinary code
+	// history produces one rejection, not one per commit in that history.
 	Rejections []Rejection `json:"rejections,omitempty"`
 
-	// DecodedCommits is the total number of commits decoded during this pass.
+	// DecodedCommits is the total number of commits decoded during this
+	// pass — every commit decodeOpCommit was called on, whether it was
+	// kept as an op or rejected. It does not count a commit the walk never
+	// reached at all: one behind a rejected commit (WRIT-289), or one
+	// object.GetCommit itself failed to fetch.
 	DecodedCommits int `json:"decoded_commits"`
 }
 
@@ -209,6 +221,21 @@ func (s *Store) EnumerateSince(cursors CursorSet, opts ...EnumerateOption) (*Enu
 		Cursors: make(CursorSet, len(chains)),
 	}
 
+	// One packidx cache for this whole pass: every commit decoded below —
+	// by Step 2's isAncestor calls and Step 3's walk alike — can hit the
+	// same on-disk packs' op.json blobs, and without this, each one
+	// re-lists the pack directory and re-decodes every searched pack's
+	// whole .idx from scratch (WRIT-255 round 2 — about 40 ms and 28 MB
+	// per call on a single 1,000,000-object pack, paid again on every
+	// commit). The wrapper is local to this call and discarded when it
+	// returns, never stored on Store: a fetch or repack between calls can
+	// change the pack set, and a fresh EnumerateSince call must see that
+	// fresh, not through a cache built before it happened. Needed as of
+	// WRIT-289 in Step 2 too, not just the decode pass below: isAncestor
+	// now decodes commits to find the reader-validation stopping point,
+	// the same way Step 3's walk does.
+	cachedStorer := packidx.WithCache(s.storer)
+
 	stopBoundary := make(map[plumbing.Hash]bool)
 	var startTips []plumbing.Hash
 	rewoundMap := make(map[string]bool)
@@ -233,7 +260,7 @@ func (s *Store) EnumerateSince(cursors CursorSet, opts ...EnumerateOption) (*Enu
 		}
 
 		// Tip moved. Check if cursorHash is an ancestor of currentTip.
-		ancestor, err := isAncestor(s.storer, currentTip, cursorHash)
+		ancestor, err := isAncestor(cachedStorer, currentTip, cursorHash)
 		if err != nil {
 			ancestor = false
 		}
@@ -277,7 +304,14 @@ func (s *Store) EnumerateSince(cursors CursorSet, opts ...EnumerateOption) (*Enu
 		}
 	}
 
-	var commitsToDecode []*object.Commit
+	// decodedCommit pairs a kept commit's pure form with its decoded op, so
+	// Step 4 below can verify and group each one without decoding it a
+	// second time.
+	type decodedCommit struct {
+		pure codec.Commit
+		op   codec.Op
+	}
+	var decoded []decodedCommit
 
 	for len(queue) > 0 {
 		currHash := queue[0]
@@ -297,7 +331,19 @@ func (s *Store) EnumerateSince(cursors CursorSet, opts ...EnumerateOption) (*Enu
 			continue
 		}
 
-		commitsToDecode = append(commitsToDecode, commitObj)
+		// decodeOpCommit is the single definition of "is an op" (WRIT-289):
+		// a commit it rejects ends the walk right here — a chain is a
+		// chain, and a break in it is the end of it — so its parents are
+		// never enqueued below. An op behind the break is still enumerated
+		// if some other path of valid ops reaches it (e.g. a causal parent
+		// edge from a different chain).
+		result.DecodedCommits++
+		pure, op, rej := decodeOpCommit(cachedStorer, commitObj)
+		if rej != nil {
+			result.Rejections = append(result.Rejections, *rej)
+			continue
+		}
+		decoded = append(decoded, decodedCommit{pure: pure, op: op})
 
 		for _, pHash := range commitObj.ParentHashes {
 			if visited[pHash] {
@@ -312,31 +358,19 @@ func (s *Store) EnumerateSince(cursors CursorSet, opts ...EnumerateOption) (*Enu
 		}
 	}
 
-	result.DecodedCommits = len(commitsToDecode)
-
-	// Step 4: Decode commits and handle rejections
+	// Step 4: verify and group the commits Step 3 kept. No second decode —
+	// decodeOpCommit above already produced each one's pure Commit and Op.
 	//
-	// One packidx cache for this whole pass: every commitsToDecode entry
-	// below can hit the same on-disk packs' op.json blobs, and without
-	// this, each one re-lists the pack directory and re-decodes every
-	// searched pack's whole .idx from scratch (WRIT-255 round 2 — about
-	// 40 ms and 28 MB per call on a single 1,000,000-object pack, paid
-	// again on every commit). The wrapper is local to this call and
-	// discarded when it returns, never stored on Store: a fetch or
-	// repack between calls can change the pack set, and a fresh
-	// EnumerateSince call must see that fresh, not through a cache built
-	// before it happened.
-	cachedStorer := packidx.WithCache(s.storer)
-
 	// matchedObjects and pendingByObject exist only to make VerifyOnly's
 	// membership scoping (see that option's doc comment) hold regardless
 	// of decode order; cfg.verifyMatch == nil (verify everything) never
 	// touches either, so Refresh/Rebuild's full-verify pass pays nothing
 	// extra for this.
 	//
-	// commitsToDecode is walked tip-first (Step 3's BFS starts at each
-	// chain's current tip and visits parents only after their children),
-	// so an op nearer a chain's tip decodes before an ancestor deeper in
+	// decoded is walked tip-first (Step 3's BFS starts at each chain's
+	// current tip and visits parents only after their children, and only
+	// once a commit passes decodeOpCommit), so an op nearer a chain's tip
+	// decodes before an ancestor deeper in
 	// that same object's history. A predicate keyed on the op's own type
 	// or body, rather than a caller-known ObjectID, can therefore see a
 	// non-matching op for some ObjectID before it ever sees the matching
@@ -360,51 +394,15 @@ func (s *Store) EnumerateSince(cursors CursorSet, opts ...EnumerateOption) (*Enu
 		pendingByObject = make(map[string][]int)
 	}
 
-	for _, commitObj := range commitsToDecode {
+	for _, dc := range decoded {
 		// pureCommit.Payload comes from FromGitCommit (gogit.go), which
-		// builds it with commit.EncodeWithoutSignature. commitObj always
-		// comes from object.GetCommit above, so go-git still holds the
-		// encoded object it was decoded from, and EncodeWithoutSignature
-		// streams those raw bytes verbatim, dropping only the
-		// gpgsig/gpgsig-sha256 header lines and their continuations
-		// (stripObjectSignatures). The payload is therefore the original
-		// object's bytes minus the signature header block — exactly the
-		// bytes the signature was computed over, headers object.Commit
-		// gives no field of its own included — which is what
-		// spec/signing.md §Signed Payload requires. go-git re-encodes the
-		// parsed struct only when matchesSource() is false: an
-		// in-memory-constructed commit, or one whose exported fields were
-		// mutated after decode. Neither happens on this path. The payload
-		// is also not a caller-supplied value: codec/verify.go's
-		// caller-supplied-Payload trust point is not reachable from here.
-		pureCommit, err := codec.FromGitCommit(cachedStorer, commitObj)
-		if err != nil {
-			reason := codec.RejectMissingOpJSON
-			if errors.Is(err, plumbing.ErrObjectNotFound) {
-				reason = RejectObjectUnavailable
-			}
-			result.Rejections = append(result.Rejections, Rejection{
-				CommitID: commitObj.Hash.String(),
-				Reason:   reason,
-				Err:      err.Error(),
-			})
-			continue
-		}
-
-		op, err := codec.DecodeCommit(pureCommit)
-		if err != nil {
-			var rej *codec.RejectError
-			reason := codec.RejectReason("unknown")
-			if errors.As(err, &rej) {
-				reason = rej.Reason
-			}
-			result.Rejections = append(result.Rejections, Rejection{
-				CommitID: commitObj.Hash.String(),
-				Reason:   reason,
-				Err:      err.Error(),
-			})
-			continue
-		}
+		// builds it with commit.EncodeWithoutSignature — see
+		// decodeOpCommit's doc comment for why it is trustworthy as the
+		// signed payload. dc.pure and dc.op are exactly what decodeOpCommit
+		// produced for this commit in Step 3 above; nothing here re-decodes
+		// or re-fetches it.
+		pureCommit := dc.pure
+		op := dc.op
 
 		// Ingest-time verification (spec/signing.md): the outcome travels
 		// with the op as data and never gates whether it folds (ruling 1,
@@ -485,6 +483,63 @@ func verifyCommitByID(s storage.Storer, id string, ts codec.TrustStore) codec.Ve
 	return codec.Verify(pureCommit, ts)
 }
 
+// decodeOpCommit is the single definition of "is an op" (WRIT-289): it
+// wraps codec.FromGitCommit and codec.DecodeCommit — reader-validation
+// rules 1-4, spec/op-envelope.md §Reader validation — and maps a failure at
+// either step to the Rejection a caller reports. A non-nil *Rejection means
+// commitObj failed reader validation, or could not even be read (an
+// object-unavailable clone gap); either way, a caller enumerating ancestry
+// MUST NOT expand this commit's parents (spec/ref-layout.md §Reader
+// enumeration: "a chain is a chain; a break in it is the end of it"). A
+// signature-verification outcome and an unknown object type, op type, op
+// version, or field are not reasons decodeOpCommit ever rejects — both are
+// ops, and neither one stops the walk.
+func decodeOpCommit(st storage.Storer, commitObj *object.Commit) (codec.Commit, codec.Op, *Rejection) {
+	// pureCommit.Payload comes from FromGitCommit (gogit.go), which builds
+	// it with commit.EncodeWithoutSignature. commitObj always comes from a
+	// caller's own object.GetCommit, so go-git still holds the encoded
+	// object it was decoded from, and EncodeWithoutSignature streams those
+	// raw bytes verbatim, dropping only the gpgsig/gpgsig-sha256 header
+	// lines and their continuations (stripObjectSignatures). The payload is
+	// therefore the original object's bytes minus the signature header
+	// block — exactly the bytes the signature was computed over, headers
+	// object.Commit gives no field of its own included — which is what
+	// spec/signing.md §Signed Payload requires. go-git re-encodes the
+	// parsed struct only when matchesSource() is false: an
+	// in-memory-constructed commit, or one whose exported fields were
+	// mutated after decode. Neither happens on this path. The payload is
+	// also not a caller-supplied value: codec/verify.go's
+	// caller-supplied-Payload trust point is not reachable from here.
+	pureCommit, err := codec.FromGitCommit(st, commitObj)
+	if err != nil {
+		reason := codec.RejectMissingOpJSON
+		if errors.Is(err, plumbing.ErrObjectNotFound) {
+			reason = RejectObjectUnavailable
+		}
+		return codec.Commit{}, codec.Op{}, &Rejection{
+			CommitID: commitObj.Hash.String(),
+			Reason:   reason,
+			Err:      err.Error(),
+		}
+	}
+
+	op, err := codec.DecodeCommit(pureCommit)
+	if err != nil {
+		var rej *codec.RejectError
+		reason := codec.RejectReason("unknown")
+		if errors.As(err, &rej) {
+			reason = rej.Reason
+		}
+		return codec.Commit{}, codec.Op{}, &Rejection{
+			CommitID: commitObj.Hash.String(),
+			Reason:   reason,
+			Err:      err.Error(),
+		}
+	}
+
+	return pureCommit, op, nil
+}
+
 // objectAbsent reports whether hash names no object at all in s — as
 // opposed to naming an object of the wrong type. go-git's typed lookups
 // (object.GetCommit, object.GetTree, object.GetBlob, all reached from
@@ -502,7 +557,18 @@ func objectAbsent(s storage.Storer, hash plumbing.Hash) bool {
 	return errors.Is(err, plumbing.ErrObjectNotFound)
 }
 
-// isAncestor reports whether candidate is reachable from tip.
+// isAncestor reports whether candidate is reachable from tip by walking
+// only through commits that pass decodeOpCommit (WRIT-289): the rollback
+// check uses the same reader walk EnumerateSince's own Step 3 does, so an
+// incremental refresh can never disagree with a cold rebuild about which
+// chain is a fast-forward. tip == candidate is always true, even when tip
+// itself is not an op — the trivial "the cursor hasn't moved" case needs no
+// decode. Beyond that, a commit's parents are examined only once that
+// commit itself passes decodeOpCommit; a rejected commit on the path, tip
+// included, is not expanded, exactly like Step 3's walk. candidate itself
+// need not be an op: reaching it as some kept commit's parent is enough,
+// the same way a stopBoundary cursor need not itself have been re-decoded
+// by this call.
 func isAncestor(s storage.Storer, tip, candidate plumbing.Hash) (bool, error) {
 	if tip == candidate {
 		return true, nil
@@ -519,6 +585,9 @@ func isAncestor(s storage.Storer, tip, candidate plumbing.Hash) (bool, error) {
 
 		commit, err := object.GetCommit(s, curr)
 		if err != nil {
+			continue
+		}
+		if _, _, rej := decodeOpCommit(s, commit); rej != nil {
 			continue
 		}
 		for _, p := range commit.ParentHashes {

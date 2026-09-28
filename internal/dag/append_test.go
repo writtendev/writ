@@ -433,6 +433,17 @@ func TestAppend_CausalParentOrderPreserved(t *testing.T) {
 }
 
 func writeNonOpCommit(repo *git.Repository) (plumbing.Hash, error) {
+	return writeNonOpCommitWithParent(repo, plumbing.ZeroHash)
+}
+
+// writeNonOpCommitWithParent writes an ordinary commit with no op.json —
+// the shape of a commit that reader validation rejects with
+// missing-op-json — as a child of parent, or a root commit when parent is
+// the zero hash. Used by WRIT-289's stopping-rule tests to build "ordinary
+// code history" a writ ref should never be pointed at: a conforming reader
+// walk MUST stop the moment it reaches a commit shaped like this, rather
+// than walk into whatever ordinary history sits behind it.
+func writeNonOpCommitWithParent(repo *git.Repository, parent plumbing.Hash) (plumbing.Hash, error) {
 	// Create a commit with empty tree (no op.json)
 	treeObj := repo.Storer.NewEncodedObject()
 	treeObj.SetType(plumbing.TreeObject)
@@ -455,12 +466,53 @@ func writeNonOpCommit(repo *git.Repository) (plumbing.Hash, error) {
 		Message:  "non-op commit",
 		TreeHash: treeHash,
 	}
+	if !parent.IsZero() {
+		commit.ParentHashes = []plumbing.Hash{parent}
+	}
 	commitObj := repo.Storer.NewEncodedObject()
 	commitObj.SetType(plumbing.CommitObject)
 	if err := commit.Encode(commitObj); err != nil {
 		return plumbing.ZeroHash, err
 	}
 	return repo.Storer.SetEncodedObject(commitObj)
+}
+
+// writeRawOpCommit builds and writes a syntactically valid op commit
+// straight through codec.WriteCommit, bypassing codec.BuildCommit's
+// producer-side vocabulary check entirely (WRIT-289's
+// TestEnumerate_UnknownAndUnsignedOpsDoNotStopWalk needs an op whose
+// op_type no vocabulary declares, and codec.BuildCommit's
+// validateProducerOp would refuse exactly that as a producer never would
+// — this simulates the op arriving already-written, from a peer, the same
+// way writeExtraTreeEntryCommit and the object-unavailable/payload-size
+// helpers in this package construct commits directly rather than through
+// Store.Append). A nil signer leaves the commit unsigned. Reader
+// validation itself has no vocabulary to check against — an unknown
+// op_type is accepted by rule 3 (spec/op-envelope.md, forward
+// compatibility) — so the result is a commit any conforming reader holds.
+func writeRawOpCommit(ctx context.Context, s storage.Storer, env codec.Envelope, author codec.Identity, parent string, signer codec.Signer) (string, error) {
+	raw, err := codec.EncodePayload(env)
+	if err != nil {
+		return "", err
+	}
+	var parents []string
+	if parent != "" {
+		parents = []string{parent}
+	}
+	c := &codec.Commit{
+		Parents:   parents,
+		Author:    author,
+		Committer: author,
+		Message:   codec.Message(env),
+		Tree: []codec.TreeEntry{
+			{Name: "op.json", Mode: "100644", Data: raw},
+		},
+	}
+	h, err := codec.WriteCommit(ctx, s, c, signer)
+	if err != nil {
+		return "", err
+	}
+	return h.String(), nil
 }
 
 func TestAppend_ConcurrentRace(t *testing.T) {

@@ -2,7 +2,22 @@ name: multi-writer-chains
 description: >
   Two writer chains carrying interleaved ops for two object_ids (widget-01 and
   widget-02), one cross-chain causal DAG parent edge, one remote-tracking chain
-  under refs/remotes/origin/writ/*, and one malformed commit missing op.json.
+  under refs/remotes/origin/writ/*, and two breaks in reader-validation-failing
+  history (WRIT-289): alice's chain has a commit missing op.json, and the
+  remote chain has a commit whose op.json is present but non-canonical. Both
+  pin the ruled stopping rule ("a chain is a chain; a break in it is the end
+  of it") — an op behind either break is held only when some other path of
+  valid ops reaches it. bob-2 is unsigned, pinning that a signature outcome
+  never stops the walk, unlike a reader-validation failure.
+
+# Expected held set under the WRIT-289 stopping rule:
+#   widget-01 = {alice-1, alice-3, bob-2, remote-1}
+#   widget-02 = {bob-1}
+# alice-2 and remote-0 are not held: each sits only behind its chain's own
+# rejected commit, with no other path reaching it. alice-1 is held only
+# because bob-2's causal parent edge reaches it directly, bypassing
+# alice-malformed on alice's own chain. 2 rejections: alice-malformed
+# (missing-op-json) and remote-malformed (non-canonical-payload).
 
 refs:
   - name: refs/writ/0123456789abcdef/widget
@@ -67,6 +82,7 @@ refs:
           - id: bob-2
             parents: [bob-1, alice-1]
             author: bob
+            unsigned: true
             timestamp: 2026-01-01T00:02:30Z
             op:
               object_id: widget-01
@@ -75,11 +91,32 @@ refs:
               op_version: 1
               body:
                 text: "Bob note referencing alice 1"
-            expect: accept
+            expect:
+              accept: true
+              verification: unsigned
 
   - name: refs/remotes/origin/writ/550e8400e29b41d4/widget
     history:
       - commits:
+          - id: remote-0
+            author: alice
+            timestamp: 2026-01-01T00:00:15Z
+            op:
+              object_id: widget-02
+              object_type: acme.widget
+              op_type: note
+              op_version: 1
+              body:
+                text: "Remote note on widget 2, behind the break"
+            expect: accept
+          - id: remote-malformed
+            author: alice
+            timestamp: 2026-01-01T00:00:30Z
+            message: "writ: update widget/widget-01\n"
+            files:
+              op.json: "{\n  \"body\": {\"status\": \"endorsed\"},\n  \"object_id\": \"widget-01\",\n  \"object_type\": \"acme.widget\",\n  \"op_type\": \"endorse\",\n  \"op_version\": 1\n}"
+            expect:
+              reject: non-canonical-payload
           - id: remote-1
             author: alice
             timestamp: 2026-01-01T00:00:45Z

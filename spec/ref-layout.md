@@ -117,15 +117,42 @@ operations. A conforming reader:
 
 1. Enumerates all refs under `refs/writ/*` (local writer) and
    `refs/remotes/*/writ/*` (remote-tracking chains fetched from remotes).
-2. Walks full commit ancestry from every enumerated ref tip.
+2. Walks commit ancestry from every enumerated ref tip. A commit that fails
+   [`spec/op-envelope.md`](op-envelope.md) §Reader validation is rejected,
+   and the walk MUST NOT follow that commit's parents: a chain is a chain,
+   and a break in it is the end of it (WRIT-289). An operation behind such a
+   break is enumerated only if some other path of valid operations reaches
+   it — for example a causal DAG parent edge from a different writer's
+   chain. Signature-verification outcomes (`spec/signing.md`) and unknown
+   object types, op types, op versions, or fields
+   (`spec/forward-compatibility.md`) never stop the walk: both are
+   operations, and the stopping rule applies only to a commit that fails
+   reader validation itself, or that this reader's clone cannot read at
+   all. There is no depth or count bound beyond this rule — nothing else
+   limits how far the walk goes from a valid chain.
 3. Deduplicates visited operations by commit SHA (the op id).
 4. Groups operations by the `object_id` found in each op commit's `op.json`
    payload.
 
+Why no bound rather than a fixed depth or count past the last recognized
+operation: a fixed bound is only a threshold for an attacker to step over,
+and tolerating a bounded run of non-op commits is the same exposure as
+tolerating an unbounded one, just with the cost capped instead of removed.
+The accepted cost of stopping at the first break instead is that a
+repository which relied on a reader walking *through* a malformed or
+non-op commit to reach ops beyond it will, under this rule, surface fewer
+operations than before — see `spec/fixtures/testdata/descriptions/
+multi-writer-chains.yaml`, which pins exactly this tradeoff.
+
 An object's op-DAG is the ancestry-restricted subgraph over its `object_id`.
-Rollback detection is an ancestry reachability check against the previously
-observed ref tip; neither reader enumeration nor rollback detection requires
-chain spine inspection or writer attribution.
+Rollback detection is a reachability check against the previously observed
+ref tip, using this same reader walk — a commit only reachable by walking
+through a rejected commit does not count as reachable, so a tip advanced
+across a break reports as a rollback (`Rewound`) exactly as a genuine
+force-push would, even though the old tip is still, in the weaker sense of
+plain git ancestry, an ancestor of the new one. Neither reader enumeration
+nor rollback detection requires chain spine inspection or writer
+attribution.
 
 ## Writer ID convention
 
@@ -284,3 +311,10 @@ This fallback:
   name parsing, valid and invalid forms, and pinned refspec strings.
 - `spec/ref_layout_test.go` — test suite asserting grammar conformance and
   `git check-ref-format` validation.
+- `spec/fixtures/testdata/descriptions/multi-writer-chains.yaml` and its
+  fold golden (`spec/fixtures/testdata/golden/fold/multi-writer-chains.json`)
+  — the §Reader enumeration stopping rule (WRIT-289): two writer chains, a
+  remote-tracking chain, a cross-chain causal parent edge, and two breaks
+  (a commit missing `op.json` and one whose `op.json` is present but
+  non-canonical), pinning exactly which operations a conforming reader
+  holds and which it does not.
