@@ -19,7 +19,7 @@ is amended deliberately — never by drift.
 AGENTS.md is the only agent brief here. CLAUDE.md and GEMINI.md are
 one-line `@AGENTS.md` imports, so every toolchain reads the same text
 and there is nothing to keep in sync. Edit AGENTS.md; leave the two
-stubs alone. Same pattern as the rest of the studio.
+stubs alone.
 
 ## House rules
 
@@ -92,17 +92,21 @@ Planned monorepo layout (see `ARCHITECTURE.md` for the rationale):
 
 ## Workflow
 
-The pipeline is four composable skills, reachable here at
-`.agents/skills/` — each entry there is a relative symlink up to the
-canonical copy in the parent studio repo, which is where they are
-actually maintained, so every project runs the same pipeline and there
-is no per-project fork to keep in sync. Edit them there, not here.
-Those symlinks are untracked on purpose: they resolve only in a
-checkout sitting inside the parent repo, so a standalone clone of
-writ has no `.agents/skills/` at all. That is expected — the pipeline
-is workspace tooling, not something writ ships. If you cloned this
-repo on its own and the skills described below are missing, that is
-why.
+The pipeline is the `factory` plugin from the `mattwalters` marketplace
+(`mattwalters/skills` on GitHub), installed once per machine at user
+scope:
+
+```
+claude plugin marketplace add mattwalters/skills
+claude plugin install factory@mattwalters --scope user
+```
+
+`.claude/settings.json` declares the marketplace so Claude Code knows
+where it lives on a machine that hasn't added it yet. It deliberately
+does not enable or pin the plugin: a project pin registers a separate
+install for every checkout and worktree, and those drift from the
+user-scope version. The skills are maintained in `mattwalters/skills`,
+not here.
 
 The four: `implement-ticket` takes one Linear WRIT ticket to a
 CI-green draft PR in a detached git worktree; `adversarial-review`
@@ -110,31 +114,45 @@ runs reviewer/fixer rounds on an open PR to a mergeable or capped
 verdict; `merge-queue` rebases and squash-merges every eligible,
 approved PR, in an order chosen to minimize conflicts, resolving
 mechanical rebase conflicts itself and surfacing anything needing new
-logic; `dispatch` orchestrates a batch of tickets through all three.
+logic; `orchestrate` runs a batch of tickets through all three.
 The first three stand alone for a single ticket or PR a human is
-already driving; `dispatch` is for running the queue. Read a skill's
-`SKILL.md` before changing what its stage produces; read `dispatch`'s
+already driving; `orchestrate` is for running the queue. Read a skill's
+`SKILL.md` before changing what its stage produces; read `orchestrate`'s
 before changing how runs are queued.
 
-## Dispatch
+## Orchestrate
 
-The per-repo configuration those four skills read. Every value they
-would otherwise have to hardcode lives here.
+The `factory` pipeline — `orchestrate`, `implement-ticket`,
+`adversarial-review`, `merge-queue`, `decision-queue` — reads this
+section for its repo-specific configuration. Every value they would
+otherwise have to hardcode lives here.
 
 - **Linear team key**: `WRIT` (ticket ids are `WRIT-<n>`).
-- **Check command**: `make build test api-check cli-docs-check gofmt-check lint` — must
+- **Check command**: `./scripts/check.sh`, which runs
+  `make build test api-check cli-docs-check gofmt-check lint`. It must
   pass locally before any push, by an implementer, a fixer, or a human.
 - **Base branch**: `main`.
-- **Worktrees**: `.claude/worktrees/` — one detached worktree per
-  ticket, named for the ticket.
-- **Run manifest**: `.claude/worktrees/dispatch-manifest.md`.
+- **Worktrees**: `$HOME/ops/worktrees/writtendev/writ/` — one detached
+  worktree per ticket, named for the ticket, outside the repo so no
+  `AGENTS.md`/`CLAUDE.md` above the checkout loads into a ticket's run.
+- **Review invariants**: `### Review invariants` below.
+- **Stop-list**: `none`.
+- **Write window**: `none`.
+
+Expand `$HOME` to an absolute path before writing the worktrees value
+into a prompt or using it in a file operation; a shell expands it, but
+Read/Edit/Write calls and prompt placeholders do not. The path sits
+under `$HOME/ops/worktrees` because that is the only directory the
+unattended orchestrate job can write to. It is shared by every checkout
+of writ on the machine, so run factory skills against writ from one
+checkout at a time.
 
 Statuses are Linear's stock ones — `Todo` → `In Progress` →
 `In Review` → `Done` — with two workspace labels doing the rest:
 `approved-to-merge` on a ticket in `In Review` means a human has approved
 its merge and it is in the merge queue; `needs-attention` means it
 needs a human and keeps whatever status it already had. `Backlog` is
-off-limits to dispatch: promoting a ticket to `Todo` is the only
+off-limits to orchestrate: promoting a ticket to `Todo` is the only
 signal that it is available to work.
 
 ### Review invariants

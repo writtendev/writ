@@ -399,7 +399,7 @@ func validateAgainstLogVocabulary(env Envelope, raw []byte, voc Vocabulary) erro
 // the shipped schema before validateValueTypes would ever see the body, and
 // producer/reader lockstep holds regardless of whether rule 6 itself runs
 // for these names. This is a considered decision, not an oversight to
-// widen later: dispatch decided against extending this filter to the full
+// widen later: it was decided against extending this filter to the full
 // bootstrap rule table (that would let rule 6 run for these four names too,
 // but the shipped schema already closes the gap, so it would add coverage
 // with no behavior change). See

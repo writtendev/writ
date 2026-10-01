@@ -1120,7 +1120,7 @@ func TestInit_BareRepository(t *testing.T) {
 
 	// No --namespace: a bare repository writes no starter file, so it needs
 	// no namespace and must keep succeeding non-interactively with none
-	// supplied (dispatch decision on WRIT-220's plan).
+	// supplied (decided on WRIT-220's plan).
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{"init", "-C", bareDir}, &stdout, &stderr)
 	if code != 0 {
