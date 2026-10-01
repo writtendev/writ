@@ -209,9 +209,9 @@ no room for.
 
 These bounds are a refinement of `FC-13`, not free-standing rules, and carry
 no `FC-n` of their own. `FC-13` requires a cache to be rebuildable from the
-raw DAG without losing or mutating anything; what follows says what that
-means when the fold is interpretable but the row shape is not wide enough to
-hold it. They are deliberately not new numbered rules: every `FC-n` is cited
+raw DAG without losing or mutating uninterpretable ops; what follows bounds
+the neighbouring case, where the fold is interpretable but the row shape is
+not wide enough to hold it. They are deliberately not new numbered rules: every `FC-n` is cited
 by an instance of the `forward-compat` corpus, and that corpus classifies one
 operation at a time against the reader profile, where a declined target
 changes no operation's disposition. `FC-13`'s row in §Normative rules summary
