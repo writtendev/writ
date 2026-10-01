@@ -54,11 +54,8 @@ docs/static/casts/
 # htmltest scratch (its default cache dir, written by a local link check)
 tmp/
 
-# Local agent tooling writ does not ship: hand-made .agents/skills/
-# symlinks for non-Claude toolchains, and the worktrees Claude Code makes
-# for isolated subagents. Factory per-ticket worktrees live outside the
-# repo (AGENTS.md ## Orchestrate).
-.agents/skills/
+# Worktrees Claude Code makes for isolated subagents. Factory per-ticket
+# worktrees live outside the repo (AGENTS.md ## Orchestrate).
 .claude/worktrees/
 .claude/settings.local.json
 

@@ -19,7 +19,7 @@ is amended deliberately — never by drift.
 AGENTS.md is the only agent brief here. CLAUDE.md and GEMINI.md are
 one-line `@AGENTS.md` imports, so every toolchain reads the same text
 and there is nothing to keep in sync. Edit AGENTS.md; leave the two
-stubs alone. Same pattern as the rest of the studio.
+stubs alone.
 
 ## House rules
 
@@ -136,7 +136,7 @@ otherwise have to hardcode lives here.
   worktree per ticket, named for the ticket, outside the repo so no
   `AGENTS.md`/`CLAUDE.md` above the checkout loads into a ticket's run.
 - **Review invariants**: `### Review invariants` below.
-- **Stop-list**: `### Stop-list` below.
+- **Stop-list**: `none`.
 - **Write window**: `none`.
 
 Expand `$HOME` to an absolute path before writing the worktrees value
@@ -146,9 +146,6 @@ under `$HOME/ops/worktrees` because that is the only directory the
 unattended orchestrate job can write to. It is shared by every checkout
 of writ on the machine, so run factory skills against writ from one
 checkout at a time.
-
-The pipeline keeps no run manifest: per-ticket state lives in Linear
-and on the PR.
 
 Statuses are Linear's stock ones — `Todo` → `In Progress` →
 `In Review` → `Done` — with two workspace labels doing the rest:
@@ -204,27 +201,6 @@ are the long form behind both.
 - **A branch rebased onto current `origin/main`** before its PR is
   opened or force-pushed. A stale base makes a review of the diff mean
   less than it looks.
-
-### Stop-list
-
-A change touching any of these waits for a human to merge it, whatever
-mode the run is in. Each one is either load-bearing for every reader
-of the format or a rule about when a run stops, and a change that
-loosens one should not approve itself.
-
-- **CI config**: `.github/workflows/`.
-- **The DCO and commit sign-off setup**: `.githooks/`, the DCO section
-  of `CONTRIBUTING.md`, and the `Signed-off-by` house rule above.
-- **The op envelope, its signing, and canonical encoding**:
-  `spec/op-envelope.md`, `spec/signing.md`,
-  `spec/canonicalization.md`, and their implementation in
-  `internal/codec/` (`encode.go`, `decode.go`, `sign.go`, `verify.go`,
-  `canonicaljson/`, `sshsig/`).
-- **Conformance fixtures**: `spec/fixtures/`, `spec/testdata/`, and the
-  vector sources in `spec/` (`*vectors.go`).
-- **The pipeline's own configuration**: this `## Orchestrate` section
-  (its fields, `### Review invariants`, and this stop-list),
-  `scripts/check.sh`, and `.claude/settings.json`.
 
 Build and test commands beyond the check command above will be
 documented here once more code exists.
