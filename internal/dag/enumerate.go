@@ -672,33 +672,24 @@ func payloadID(dc decodedCommit) string {
 	return plumbing.ComputeHash(plumbing.CommitObject, dc.pure.Payload).String()
 }
 
-// carrierOutcomeRank orders verification outcomes best-first for choosing
-// among an op's carriers (spec/signing.md §Signed Payload and Op Identity):
-// valid, wrong-key, payload-mutated, corrupted-signature, unsigned. Unlike
-// codec.WorstOutcome's ordering, which summarizes an object across its ops,
-// this one answers "what is the best evidence that this payload was signed":
-// an unsigned carrier is no evidence at all, so it ranks last.
-var carrierOutcomeRank = map[codec.VerificationOutcome]int{
-	codec.OutcomeValid:              0,
-	codec.OutcomeWrongKey:           1,
-	codec.OutcomePayloadMutated:     2,
-	codec.OutcomeCorruptedSignature: 3,
-	codec.OutcomeUnsigned:           4,
-}
-
 // verifyInto verifies every carrier of g and sets op's Verification and
 // Signature from the best outcome, ties broken by the smallest carrier SHA.
-// The best outcome, not the lowest-SHA carrier's own, is what makes dedupe
-// safe: otherwise anyone able to push could grind a lower-SHA unsigned or
-// garbage-signed carrier of a valid op and flip it to unsigned
-// (WRIT-312). Sound because every carrier signs the same bytes: a valid
-// signature on any one of them is a valid signature on the payload.
+// "Best" is the WRIT-251 trust order, valid > wrong-key > unsigned >
+// corrupted-signature > payload-mutated (codec.BetterOutcome), so adding a
+// carrier can never make an op look worse. The best outcome, not the
+// lowest-SHA carrier's own, is what makes dedupe safe: otherwise anyone able
+// to push could grind a lower-SHA unsigned or garbage-signed carrier of a
+// valid op and flip it to unsigned (WRIT-312), or attach a carrier holding an
+// SSHSIG that does not cover the payload to an honestly unsigned op and have
+// it read as payload-mutated, attributed to a key that never signed it.
+// Sound because every carrier signs the same bytes: a valid signature on any
+// one of them is a valid signature on the payload.
 func (g *carrierGroup) verifyInto(op *codec.Op, ts codec.TrustStore) {
 	best := -1
 	var bestV codec.Verification
 	for i, c := range g.carriers {
 		v := codec.Verify(c.pure, ts)
-		if best < 0 || carrierOutcomeRank[v.Outcome] < carrierOutcomeRank[bestV.Outcome] {
+		if best < 0 || codec.BetterOutcome(v.Outcome, bestV.Outcome) {
 			best, bestV = i, v
 		}
 	}

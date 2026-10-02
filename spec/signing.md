@@ -55,18 +55,25 @@ the normative verification algorithm and outcome vocabulary.
   the known instances, and does so without a validation rule on the armor
   that would have to be re-litigated per algorithm.
 - **Verification across carriers:** An op's verification outcome is the
-  *best* outcome over its carriers, ranked `valid` > `wrong-key` >
-  `payload-mutated` > `corrupted-signature` > `unsigned`, ties broken by the
-  smallest carrier SHA; the op's reported key fingerprint and principal come
-  from that carrier. This is sound because every carrier signs the same
-  bytes: one valid signature on any carrier is a valid signature on the
-  payload. The surviving carrier's own signature MUST NOT decide it alone —
-  otherwise anyone able to push could grind an unsigned or garbage-signed
-  carrier of a valid op at a lower SHA and flip it from `valid` to
-  `unsigned`. The `fold-replayed-op-verification` fixture pins this: its
-  fold golden records the op-level `verification` of every op with more
-  than one carrier, with the unsigned carrier at the lowest SHA
-  ([`spec/ref-layout.md`](ref-layout.md) §Conformance data).
+  *best* outcome over its carriers under the one trust order an object's
+  `verification` summary takes the worst of (WRIT-251): `valid` >
+  `wrong-key` > `unsigned` > `corrupted-signature` >
+  `payload-mutated`, ties broken by the smallest carrier SHA; the op's
+  reported key fingerprint and principal come from that carrier. Adding a
+  carrier therefore cannot make an op look worse. This is sound because
+  every carrier signs the same bytes: one valid signature on any carrier is
+  a valid signature on the payload. The surviving carrier's own signature
+  MUST NOT decide it alone — otherwise anyone able to push could grind an
+  unsigned or garbage-signed carrier of a valid op at a lower SHA and flip
+  it from `valid` to `unsigned`. Likewise `unsigned` ranks above
+  `corrupted-signature` and `payload-mutated`, so a third party cannot push
+  a carrier holding an SSHSIG that does not cover the payload (a real
+  signature of the author's copied from another of their commits, say) and
+  have an honestly unsigned op read as `payload-mutated` under the author's
+  own key fingerprint. The `fold-replayed-op-verification` fixture
+  pins this: its fold golden records the op-level `verification` of every
+  op with more than one carrier, with the unsigned carrier at the lowest
+  SHA ([`spec/ref-layout.md`](ref-layout.md) §Conformance data).
 - **Accepted residual: lowering an op id.** Because the op id is the lowest
   carrier SHA, a third party who can write a ref can grind armor variants of
   someone else's op until one sorts lower, and so lower the op's id and with

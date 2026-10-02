@@ -414,6 +414,71 @@ func TestEnumerate_ForeignKeyCarrierDoesNotWin(t *testing.T) {
 	}
 }
 
+// TestEnumerate_UnsignedOpStaysUnsignedUnderACopiedSignature: Alice's op is
+// honestly unsigned. Mallory adds a carrier of the same payload holding a
+// real SSHSIG of Alice's copied from another of her commits, one that does
+// not cover this payload. Alone that carrier verifies as payload-mutated,
+// with Alice's fingerprint, but the op's outcome is the best across carriers
+// under the WRIT-251 trust order (valid > wrong-key > unsigned >
+// corrupted-signature > payload-mutated), so the op stays unsigned and
+// carries no key fingerprint: adding a carrier cannot make it look worse.
+func TestEnumerate_UnsignedOpStaysUnsignedUnderACopiedSignature(t *testing.T) {
+	key := newReplayKey(t, "ed25519")
+	dir, repo := initTestRepo(t)
+	store, ids := signedChain(t, dir, key, 2)
+
+	// Replace Alice's signed update with its unsigned twin: the same payload,
+	// no signature header, and the only carrier her own ref reaches.
+	unsigned := carrierOf(t, repo, ids[1], "")
+	setRef(t, repo, "refs/writ/0123456789abcdef/widget", unsigned)
+
+	// Mallory's carrier: the same payload under Alice's signature of her
+	// create op, which covers different bytes.
+	copied := carrierOf(t, repo, ids[1], commitSignature(t, repo, ids[0]))
+	setRef(t, repo, replayRef, copied)
+
+	res, err := store.Enumerate(dag.WithLiveTrustStore(key.ts))
+	if err != nil {
+		t.Fatalf("Enumerate: %v", err)
+	}
+	survivor := minSHA(unsigned.String(), copied.String())
+	op := requireOpWithCarriers(t, res, []string{ids[0], survivor}, unsigned.String(), copied.String())
+	if op.Verification.Outcome != codec.OutcomeUnsigned {
+		t.Errorf("verification = %q, want unsigned", op.Verification.Outcome)
+	}
+	if op.Verification.KeyFingerprint != "" {
+		t.Errorf("key fingerprint = %q, want none: nothing signed this op", op.Verification.KeyFingerprint)
+	}
+	if op.Signature != "" {
+		t.Errorf("op carries a signature %q, want the unsigned carrier's none", op.Signature)
+	}
+
+	// Alone, the copied carrier is what it looks like.
+	if got := codec.Verify(pureCommit(t, repo, copied), key.ts).Outcome; got != codec.OutcomePayloadMutated {
+		t.Errorf("copied-signature carrier verifies as %q, want payload-mutated", got)
+	}
+}
+
+// TestCarrierRankIsTheTrustOrder: the carrier choice and the object summary
+// are one ordering read from opposite ends, so they cannot diverge:
+// valid > wrong-key > unsigned > corrupted-signature > payload-mutated.
+func TestCarrierRankIsTheTrustOrder(t *testing.T) {
+	best := []codec.VerificationOutcome{
+		codec.OutcomeValid, codec.OutcomeWrongKey, codec.OutcomeUnsigned,
+		codec.OutcomeCorruptedSignature, codec.OutcomePayloadMutated,
+	}
+	for i, a := range best {
+		for j, b := range best {
+			if got, want := codec.BetterOutcome(a, b), i < j; got != want {
+				t.Errorf("BetterOutcome(%s, %s) = %v, want %v", a, b, got, want)
+			}
+			if worst := codec.WorstOutcome(a, b); (i >= j && worst != a) || (i < j && worst != b) {
+				t.Errorf("WorstOutcome(%s, %s) = %s disagrees with BetterOutcome", a, b, worst)
+			}
+		}
+	}
+}
+
 // TestEnumerate_ChildOfDroppedCarrierIsRewritten: a commit whose parent line
 // names the carrier that did not become the op id reads as naming the op id.
 func TestEnumerate_ChildOfDroppedCarrierIsRewritten(t *testing.T) {

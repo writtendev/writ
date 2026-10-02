@@ -19,7 +19,7 @@
           "commit": "8238ae76cda5e511b67d7e8fea8a294a1de55cd0",
           "label": "widget-update-unsigned",
           "t_star": 1767226800,
-          "verification": "corrupted-signature"
+          "verification": "unsigned"
         }
       ],
       "state": {

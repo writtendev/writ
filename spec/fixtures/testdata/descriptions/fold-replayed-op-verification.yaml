@@ -9,11 +9,15 @@ description: >
   signed commit, a byte-identical-payload copy with the signature header
   omitted (unsigned), and one whose signature armor is corrupted
   (corrupted-signature). Her `update` op is reachable as two, neither
-  validly signed: unsigned and corrupted-signature, so the rank
-  corrupted-signature over unsigned, not just valid over the rest, is
-  pinned too. The fold golden records the op-level verification outcome
-  for every op with more than one carrier; a reader that reports the
-  lowest-SHA carrier's own outcome, or the worst, gets a different one.
+  validly signed: unsigned and corrupted-signature, so the rank unsigned
+  over corrupted-signature (the WRIT-251 trust order, valid > wrong-key >
+  unsigned > corrupted-signature > payload-mutated), not just valid over
+  the rest, is pinned too. The fold golden records the op-level
+  verification outcome for every op with more than one carrier: `valid`
+  for the first and `unsigned` for the second. A reader that reports the
+  lowest-SHA carrier's own outcome gets the first wrong, one that reports
+  the worst gets both wrong, and one that ranks corrupted-signature or
+  payload-mutated above unsigned gets the second wrong.
   In both ops the lowest-SHA carrier is the unsigned one, so the
   fixture's own bodies are chosen to make that hold; the fold fixture
   test asserts it, and each carrier's declared `expect.verification`,

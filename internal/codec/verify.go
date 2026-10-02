@@ -83,6 +83,14 @@ func WorstOutcome(outcomes ...VerificationOutcome) VerificationOutcome {
 	return worst
 }
 
+// BetterOutcome reports whether a is strictly more trustworthy than b under
+// the same ordering WorstOutcome reduces by. It is how an op's carriers are
+// reduced to the best of them (WRIT-312): the one ordering, read from the
+// other end, so adding a carrier can never make an op look worse.
+func BetterOutcome(a, b VerificationOutcome) bool {
+	return a.rank() < b.rank()
+}
+
 // TrustStore authorizes public keys for given principals, namespaces, and timestamps.
 type TrustStore interface {
 	IsAuthorized(pubKey ssh.PublicKey, principal, namespace string, when time.Time) bool

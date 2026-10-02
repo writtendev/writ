@@ -392,5 +392,7 @@ This fallback:
   by a valid, an unsigned, and a corrupted-signature commit, another by an
   unsigned and a corrupted-signature one, the lowest-SHA carrier of each
   being the unsigned one. The fold golden pins `verification` on every op
-  with more than one carrier: `valid` and `corrupted-signature`, where the
-  surviving carrier's own outcome would say `unsigned` for both.
+  with more than one carrier: `valid` and `unsigned`, the best of each op's
+  carriers under the trust order `valid` > `wrong-key` > `unsigned` >
+  `corrupted-signature` > `payload-mutated`; the surviving carrier's own
+  outcome would say `unsigned` for both.
