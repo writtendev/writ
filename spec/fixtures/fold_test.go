@@ -56,6 +56,10 @@ type FoldOpOrderEntry struct {
 	// one payload can disagree about it. Every other op's outcome is the
 	// envelope family's, per commit.
 	Verification string `json:"verification,omitempty"`
+	// KeyFingerprint is the key fingerprint reported with that outcome, pinned
+	// under the same condition: carriers can differ in it, and the tie-break
+	// between equally trusted ones is the smallest carrier SHA's.
+	KeyFingerprint string `json:"key_fingerprint,omitempty"`
 }
 
 type FoldUnknownOp struct {
@@ -315,6 +319,7 @@ func runFoldFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 			}
 			if len(enumRes.Carriers[sha]) > 1 {
 				entry.Verification = string(opsByID[sha].Verification.Outcome)
+				entry.KeyFingerprint = opsByID[sha].Verification.KeyFingerprint
 			}
 			orderEntries = append(orderEntries, entry)
 		}
@@ -388,18 +393,44 @@ func requireReplayedOpExercised(t *testing.T, fix *fixtures.Fixture, enumRes *da
 	}
 }
 
-// requireCarrierVerificationExercised pins what fold-replayed-op-verification
-// is for (WRIT-312), so the fixture cannot silently stop exercising it. Every
-// commit's own outcome is the one the description declares, and for every op
-// with more than one carrier the lowest-SHA carrier, the one whose SHA becomes
-// the op id, is unsigned while another carrier is not: the worst outcome
-// sorting first, so a reader that takes only the surviving carrier's own
-// verification reports something the golden's best-outcome rule does not.
-// Computed from the commits alone, never from what Enumerate reported, so it
-// holds against a reader that has the rule wrong.
+// carrierTrustOrder is the WRIT-251 trust order, best first, spelled out here
+// rather than read from codec so a fixture's coverage of it is judged against
+// the ruling itself (spec/signing.md §Op Identity), not against the code under
+// test.
+var carrierTrustOrder = []codec.VerificationOutcome{
+	codec.OutcomeValid,
+	codec.OutcomeWrongKey,
+	codec.OutcomeUnsigned,
+	codec.OutcomeCorruptedSignature,
+	codec.OutcomePayloadMutated,
+}
+
+// requireCarrierVerificationExercised pins what the fold-replayed-op-verification
+// fixtures are for (WRIT-312), so they cannot silently stop exercising it.
+// Everything is computed from the commits alone, never from what Enumerate
+// reported, so it holds against a reader that has the rule wrong.
+//
+// Every commit's own outcome is the one the description declares. Then, for
+// every op with more than one carrier:
+//
+//   - If its carriers do not all share one outcome, the lowest-SHA carrier,
+//     the one whose SHA becomes the op id, must be strictly less trusted than
+//     the best carrier, so a reader that reports the surviving carrier's own
+//     verification gets it wrong.
+//   - If they all share one outcome, they must carry at least two different
+//     key fingerprints, so a reader that breaks the tie by anything other than
+//     the smallest carrier SHA has a chance to report the other key; which
+//     key is reported is the golden's to pin.
+//
+// Across the ops, every adjacent pair of carrierTrustOrder must be the best
+// and the other outcome of some two-carrier op (so a reader that swaps just
+// that pair fails the golden), and the tie-break must be exercised for every
+// outcome that carries a key fingerprint (valid, wrong-key, payload-mutated;
+// an unsigned or corrupted-signature carrier has no key, so a tie between
+// them reports nothing a reader could get wrong).
 func requireCarrierVerificationExercised(t *testing.T, fix *fixtures.Fixture, enumRes *dag.EnumerateResult, ts codec.TrustStore) {
 	t.Helper()
-	outcome := func(sha string) codec.VerificationOutcome {
+	verify := func(sha string) codec.Verification {
 		c, err := fix.Repo.CommitObject(plumbing.NewHash(sha))
 		if err != nil {
 			t.Fatalf("%s: lookup commit %s: %v", fix.Name, sha, err)
@@ -408,7 +439,16 @@ func requireCarrierVerificationExercised(t *testing.T, fix *fixtures.Fixture, en
 		if err != nil {
 			t.Fatalf("%s: decode commit %s: %v", fix.Name, sha, err)
 		}
-		return codec.Verify(pure, ts).Outcome
+		return codec.Verify(pure, ts)
+	}
+	trustRank := func(o codec.VerificationOutcome) int {
+		for i, r := range carrierTrustOrder {
+			if r == o {
+				return i
+			}
+		}
+		t.Fatalf("%s: outcome %q is outside the trust order", fix.Name, o)
+		return -1
 	}
 
 	commitIdx := 0
@@ -424,39 +464,69 @@ func requireCarrierVerificationExercised(t *testing.T, fix *fixtures.Fixture, en
 				if cd.Expect.Verification != "" {
 					want = codec.VerificationOutcome(cd.Expect.Verification)
 				}
-				if got := outcome(gs.Commits[ci].SHA); got != want {
+				if got := verify(gs.Commits[ci].SHA).Outcome; got != want {
 					t.Fatalf("%s: commit %q verifies as %q, description declares %q", fix.Name, cd.ID, got, want)
 				}
 			}
 		}
 	}
 
-	multi := 0
+	type pair struct{ best, other codec.VerificationOutcome }
+	pairs := map[pair]bool{}
+	ties := map[codec.VerificationOutcome]bool{}
 	for _, ops := range enumRes.Ops {
 		for _, op := range ops {
 			carriers := enumRes.Carriers[op.ID]
 			if len(carriers) < 2 {
 				continue
 			}
-			multi++
 			if carriers[0] != op.ID {
 				t.Fatalf("%s: op %s is not its lowest carrier %s", fix.Name, op.ID, carriers[0])
 			}
-			if own := outcome(carriers[0]); own != codec.OutcomeUnsigned {
-				t.Fatalf("%s: op %s: its lowest-SHA carrier verifies as %q, want %q; change the fixture's bodies so the unsigned carrier sorts lowest",
-					fix.Name, op.ID, own, codec.OutcomeUnsigned)
+			vs := make([]codec.Verification, len(carriers))
+			best, worst := 0, 0
+			for i, c := range carriers {
+				vs[i] = verify(c)
+				if trustRank(vs[i].Outcome) < trustRank(vs[best].Outcome) {
+					best = i
+				}
+				if trustRank(vs[i].Outcome) > trustRank(vs[worst].Outcome) {
+					worst = i
+				}
 			}
-			better := false
-			for _, c := range carriers[1:] {
-				better = better || outcome(c) != codec.OutcomeUnsigned
+			bestOutcome := vs[best].Outcome
+			if vs[best].Outcome == vs[worst].Outcome {
+				fingerprints := map[string]bool{}
+				for _, v := range vs {
+					fingerprints[v.KeyFingerprint] = true
+				}
+				if bestOutcome != codec.OutcomeUnsigned && bestOutcome != codec.OutcomeCorruptedSignature {
+					ties[bestOutcome] = true
+					if len(fingerprints) < 2 {
+						t.Errorf("%s: op %s: its %d %q carriers all carry one key, so the tie-break between them is not observable",
+							fix.Name, op.ID, len(carriers), bestOutcome)
+					}
+				}
+				continue
 			}
-			if !better {
-				t.Fatalf("%s: op %s: every carrier is unsigned, so its outcome is no choice among carriers", fix.Name, op.ID)
+			if own := vs[0].Outcome; own == bestOutcome {
+				t.Errorf("%s: op %s: its lowest-SHA carrier %s already has the op's best outcome %q; change the fixture's bodies so a less trusted carrier sorts lowest",
+					fix.Name, op.ID, carriers[0], own)
+			}
+			if len(carriers) == 2 {
+				pairs[pair{bestOutcome, vs[worst].Outcome}] = true
 			}
 		}
 	}
-	if multi != 2 {
-		t.Fatalf("%s: %d multi-carrier ops, want 2", fix.Name, multi)
+	for i := 0; i+1 < len(carrierTrustOrder); i++ {
+		if p := (pair{carrierTrustOrder[i], carrierTrustOrder[i+1]}); !pairs[p] {
+			t.Errorf("%s: no two-carrier op pins %q over %q", fix.Name, p.best, p.other)
+		}
+	}
+	for _, o := range []codec.VerificationOutcome{codec.OutcomeValid, codec.OutcomeWrongKey, codec.OutcomePayloadMutated} {
+		if !ties[o] {
+			t.Errorf("%s: no op pins the smallest-SHA tie-break between two %q carriers", fix.Name, o)
+		}
 	}
 }
 

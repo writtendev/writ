@@ -70,10 +70,21 @@ the normative verification algorithm and outcome vocabulary.
   a carrier holding an SSHSIG that does not cover the payload (a real
   signature of the author's copied from another of their commits, say) and
   have an honestly unsigned op read as `payload-mutated` under the author's
-  own key fingerprint. The `fold-replayed-op-verification` fixture
-  pins this: its fold golden records the op-level `verification` of every
-  op with more than one carrier, with the unsigned carrier at the lowest
-  SHA ([`spec/ref-layout.md`](ref-layout.md) §Conformance data).
+  own key fingerprint. The `fold-replayed-op-verification` fixture pins
+  the whole order: its fold golden records the op-level `verification` and
+  key fingerprint of every op with more than one carrier, and carries one
+  op for each adjacent pair of the order (`valid` over `wrong-key`,
+  `wrong-key` over `unsigned`, `unsigned` over `corrupted-signature`,
+  `corrupted-signature` over `payload-mutated`), each with the less trusted
+  carrier at the lower SHA, so a reader that swaps any one pair, or takes
+  the surviving carrier's own outcome, fails it. The `payload-mutated`
+  carrier is a real SSHSIG by the author's key over another commit's
+  payload (`tamper: signature-transplant`). The smallest-SHA tie-break is
+  pinned for the three outcomes that report a key (`valid`, `wrong-key`,
+  `payload-mutated`) by ops whose two carriers share an outcome and differ
+  in key; `unsigned` and `corrupted-signature` carry no key, so a tie
+  between them reports nothing a reader could get wrong
+  ([`spec/ref-layout.md`](ref-layout.md) §Conformance data).
 - **Accepted residual: lowering an op id.** Because the op id is the lowest
   carrier SHA, a third party who can write a ref can grind armor variants of
   someone else's op until one sorts lower, and so lower the op's id and with

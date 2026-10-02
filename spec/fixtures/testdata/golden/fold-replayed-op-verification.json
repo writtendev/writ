@@ -17,12 +17,60 @@
       "commit": "7ce06e81c0e43170ba918dc5aa5e3b0199bef70f"
     },
     {
-      "name": "refs/writ/3333333333333333/widget",
-      "commit": "8238ae76cda5e511b67d7e8fea8a294a1de55cd0"
+      "name": "refs/writ/5000000000000001/widget",
+      "commit": "75e948fba848a9b04ef90733f2d9f18b27b85012"
     },
     {
-      "name": "refs/writ/4444444444444444/widget",
-      "commit": "febc132e7fb1e0d3b45b48d78f71e0fe9f74edb7"
+      "name": "refs/writ/5000000000000002/widget",
+      "commit": "4a979d71b4552f742baf1ccd00d55173a5b15de4"
+    },
+    {
+      "name": "refs/writ/6000000000000001/widget",
+      "commit": "8b7879995a0afde4fedb9ce21ebab4cb6d14ff27"
+    },
+    {
+      "name": "refs/writ/6000000000000002/widget",
+      "commit": "3fb4c68d01579f99e7c10b9c0ac599a1b3807414"
+    },
+    {
+      "name": "refs/writ/7000000000000001/widget",
+      "commit": "c0ed00d4af51aa5f035468403b9b05ae6d7b10ba"
+    },
+    {
+      "name": "refs/writ/7000000000000002/widget",
+      "commit": "1f0a45197854127c055c05bea1f6ba05b67ea0b3"
+    },
+    {
+      "name": "refs/writ/8000000000000001/widget",
+      "commit": "a87a17ea527b2083ac4726ea1dd4e411d98bbb5a"
+    },
+    {
+      "name": "refs/writ/8000000000000002/widget",
+      "commit": "58d89140d52fd8351ddaae3d4c75061d444bd4b4"
+    },
+    {
+      "name": "refs/writ/9000000000000001/widget",
+      "commit": "1f0fc3d1454791a6c2353971f7252cc60a3dde7f"
+    },
+    {
+      "name": "refs/writ/9000000000000002/widget",
+      "commit": "542f65f34aae48836600db18168fe2cf7f8f53aa"
+    },
+    {
+      "name": "refs/writ/a000000000000001/widget",
+      "commit": "b5d083949e32cd61055278577e9358d785e4542b"
+    },
+    {
+      "name": "refs/writ/a000000000000002/widget",
+      "commit": "45f1e8503805245f528cb639a8cee6b49370cce9"
+    },
+    {
+      "name": "refs/writ/b000000000000001/widget",
+      "commit": "47e37154647950a81156e59ca5f9abba34cedbc6"
+    },
+    {
+      "name": "refs/writ/b000000000000002/widget",
+      "commit": "b57f3ddb9f8ae35abc8fcedbfc5750482faf0f34"
     }
   ],
   "generations": [
@@ -157,34 +205,238 @@
       ]
     },
     {
-      "ref": "refs/writ/3333333333333333/widget",
+      "ref": "refs/writ/5000000000000001/widget",
       "index": 0,
       "commits": [
         {
-          "sha": "8238ae76cda5e511b67d7e8fea8a294a1de55cd0",
-          "tree": "3c308873b2a65e18058b99701c10e2b79ecf11a4",
+          "sha": "75e948fba848a9b04ef90733f2d9f18b27b85012",
+          "tree": "07f989cae3ea86e29505e781cfb8af2ae825b96b",
           "parents": [
             "6fdee6594bbd4325df8b9acf3c07b5a7a0202011"
           ],
-          "author": "Alice Example \u003calice@example.test\u003e",
+          "author": "Bob Example \u003cbob@example.test\u003e",
           "timestamp": "2026-01-01T00:20:00Z",
+          "message": "writ: update acme.widget/w-carrier-verification\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/5000000000000002/widget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "4a979d71b4552f742baf1ccd00d55173a5b15de4",
+          "tree": "07f989cae3ea86e29505e781cfb8af2ae825b96b",
+          "parents": [
+            "6fdee6594bbd4325df8b9acf3c07b5a7a0202011"
+          ],
+          "author": "Bob Example \u003cbob@example.test\u003e",
+          "timestamp": "2026-01-01T00:20:00Z",
+          "message": "writ: update acme.widget/w-carrier-verification\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/6000000000000001/widget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "8b7879995a0afde4fedb9ce21ebab4cb6d14ff27",
+          "tree": "0ef0af1c1b763dda7b2cf0206b6bc0ec9cf2233d",
+          "parents": [
+            "6fdee6594bbd4325df8b9acf3c07b5a7a0202011"
+          ],
+          "author": "Bob Example \u003cbob@example.test\u003e",
+          "timestamp": "2026-01-01T00:25:00Z",
+          "message": "writ: update acme.widget/w-carrier-verification\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/6000000000000002/widget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "3fb4c68d01579f99e7c10b9c0ac599a1b3807414",
+          "tree": "0ef0af1c1b763dda7b2cf0206b6bc0ec9cf2233d",
+          "parents": [
+            "6fdee6594bbd4325df8b9acf3c07b5a7a0202011"
+          ],
+          "author": "Bob Example \u003cbob@example.test\u003e",
+          "timestamp": "2026-01-01T00:25:00Z",
           "message": "writ: update acme.widget/w-carrier-verification\n",
           "signed": false
         }
       ]
     },
     {
-      "ref": "refs/writ/4444444444444444/widget",
+      "ref": "refs/writ/7000000000000001/widget",
       "index": 0,
       "commits": [
         {
-          "sha": "febc132e7fb1e0d3b45b48d78f71e0fe9f74edb7",
-          "tree": "3c308873b2a65e18058b99701c10e2b79ecf11a4",
+          "sha": "c0ed00d4af51aa5f035468403b9b05ae6d7b10ba",
+          "tree": "87f1dc31af5db8b2cc858055a0d91e07c960ba43",
           "parents": [
             "6fdee6594bbd4325df8b9acf3c07b5a7a0202011"
           ],
           "author": "Alice Example \u003calice@example.test\u003e",
-          "timestamp": "2026-01-01T00:20:00Z",
+          "timestamp": "2026-01-01T00:30:00Z",
+          "message": "writ: update acme.widget/w-carrier-verification\n",
+          "signed": false
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/7000000000000002/widget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "1f0a45197854127c055c05bea1f6ba05b67ea0b3",
+          "tree": "87f1dc31af5db8b2cc858055a0d91e07c960ba43",
+          "parents": [
+            "6fdee6594bbd4325df8b9acf3c07b5a7a0202011"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:30:00Z",
+          "message": "writ: update acme.widget/w-carrier-verification\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/8000000000000001/widget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "a87a17ea527b2083ac4726ea1dd4e411d98bbb5a",
+          "tree": "f998f41310f3237551b9613e694b3ae748200f97",
+          "parents": [
+            "6fdee6594bbd4325df8b9acf3c07b5a7a0202011"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:35:00Z",
+          "message": "writ: update acme.widget/w-carrier-verification\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/8000000000000002/widget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "58d89140d52fd8351ddaae3d4c75061d444bd4b4",
+          "tree": "f998f41310f3237551b9613e694b3ae748200f97",
+          "parents": [
+            "6fdee6594bbd4325df8b9acf3c07b5a7a0202011"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:35:00Z",
+          "message": "writ: update acme.widget/w-carrier-verification\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/9000000000000001/widget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "1f0fc3d1454791a6c2353971f7252cc60a3dde7f",
+          "tree": "b62a02aa53f0a6f82fbd66f5c95963135d599d54",
+          "parents": [
+            "6fdee6594bbd4325df8b9acf3c07b5a7a0202011"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:40:00Z",
+          "message": "writ: update acme.widget/w-carrier-verification\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/9000000000000002/widget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "542f65f34aae48836600db18168fe2cf7f8f53aa",
+          "tree": "b62a02aa53f0a6f82fbd66f5c95963135d599d54",
+          "parents": [
+            "6fdee6594bbd4325df8b9acf3c07b5a7a0202011"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:40:00Z",
+          "message": "writ: update acme.widget/w-carrier-verification\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/a000000000000001/widget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "b5d083949e32cd61055278577e9358d785e4542b",
+          "tree": "e2500ae3375a15d314693a5a793bdb2602bc8214",
+          "parents": [
+            "6fdee6594bbd4325df8b9acf3c07b5a7a0202011"
+          ],
+          "author": "Alice Example \u003cAlice@Example.TEST\u003e",
+          "timestamp": "2026-01-01T00:45:00Z",
+          "message": "writ: update acme.widget/w-carrier-verification\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/a000000000000002/widget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "45f1e8503805245f528cb639a8cee6b49370cce9",
+          "tree": "e2500ae3375a15d314693a5a793bdb2602bc8214",
+          "parents": [
+            "6fdee6594bbd4325df8b9acf3c07b5a7a0202011"
+          ],
+          "author": "Alice Example \u003cAlice@Example.TEST\u003e",
+          "timestamp": "2026-01-01T00:45:00Z",
+          "message": "writ: update acme.widget/w-carrier-verification\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/b000000000000001/widget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "47e37154647950a81156e59ca5f9abba34cedbc6",
+          "tree": "6d31dde76262f3484b2adb7e1f80c2a1df0ef684",
+          "parents": [
+            "6fdee6594bbd4325df8b9acf3c07b5a7a0202011"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:50:00Z",
+          "message": "writ: update acme.widget/w-carrier-verification\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/b000000000000002/widget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "b57f3ddb9f8ae35abc8fcedbfc5750482faf0f34",
+          "tree": "6d31dde76262f3484b2adb7e1f80c2a1df0ef684",
+          "parents": [
+            "6fdee6594bbd4325df8b9acf3c07b5a7a0202011"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:50:00Z",
           "message": "writ: update acme.widget/w-carrier-verification\n",
           "signed": true
         }

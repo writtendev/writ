@@ -16,6 +16,7 @@ const (
 	TamperSignature      = "signature"
 	TamperOpJsonModeExec = "op-json-mode-exec"
 	TamperArmorRewrap    = "armor-rewrap"
+	TamperSigTransplant  = "signature-transplant"
 )
 
 var validTamperEnums = map[string]bool{
@@ -25,6 +26,7 @@ var validTamperEnums = map[string]bool{
 	TamperSignature:      true,
 	TamperOpJsonModeExec: true,
 	TamperArmorRewrap:    true,
+	TamperSigTransplant:  true,
 }
 
 // IsValidTamper reports whether tamper is a recognized closed tamper enum value.
@@ -35,7 +37,10 @@ func IsValidTamper(tamper string) bool {
 // applyTamper modifies the commit object or its tree after signing according
 // to the specified tamper mode, preserving the original signature (unless
 // mutating the signature itself).
-func applyTamper(store storer.EncodedObjectStorer, commit *object.Commit, files map[string]string, tamper string) error {
+//
+// sgnr and signerId are the signer and identity the commit was (or, were it
+// signed, would have been) signed with; only signature-transplant uses them.
+func applyTamper(store storer.EncodedObjectStorer, sgnr *signer, signerId identity, commit *object.Commit, files map[string]string, tamper string) error {
 	switch tamper {
 	case TamperPayloadByte:
 		mutatedFiles := make(map[string]string, len(files))
@@ -92,6 +97,21 @@ func applyTamper(store storer.EncodedObjectStorer, commit *object.Commit, files 
 			return fmt.Errorf("tamper armor-rewrap: %w", err)
 		}
 		commit.PGPSignature = rewrapped
+
+	case TamperSigTransplant:
+		// A real, valid SSHSIG by the signing identity, but over another
+		// commit's payload: this commit's own payload with its message
+		// altered. The commit's signed bytes are untouched, so it is the
+		// same op as an untampered copy, but its signature does not cover
+		// them: payload-mutated, attributed to the signer's key.
+		other := *commit
+		other.PGPSignature = ""
+		other.Message = strings.TrimSuffix(commit.Message, "\n") + " [transplanted from another commit]\n"
+		transplanted, err := signCommit(store, sgnr, signerId, &other)
+		if err != nil {
+			return fmt.Errorf("tamper signature-transplant: %w", err)
+		}
+		commit.PGPSignature = transplanted
 
 	default:
 		return fmt.Errorf("unknown tamper mode: %q", tamper)

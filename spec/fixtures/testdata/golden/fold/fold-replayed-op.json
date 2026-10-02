@@ -13,7 +13,8 @@
           "commit": "3acf434d7cc8aae71c65d4cd87e3a9a2040cf952",
           "label": "widget-revision",
           "t_star": 1767226200,
-          "verification": "valid"
+          "verification": "valid",
+          "key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA"
         },
         {
           "commit": "e31eebde0eaf6db3eca9c4a53f58130fc968e191",

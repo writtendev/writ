@@ -388,11 +388,14 @@ This fallback:
   and its goldens (the manifest, and
   `spec/fixtures/testdata/golden/fold/fold-replayed-op-verification.json`)
   — the op's verification outcome across its carriers
-  ([`spec/signing.md`](signing.md) §Op Identity, WRIT-312): one op carried
-  by a valid, an unsigned, and a corrupted-signature commit, another by an
-  unsigned and a corrupted-signature one, the lowest-SHA carrier of each
-  being the unsigned one. The fold golden pins `verification` on every op
-  with more than one carrier: `valid` and `unsigned`, the best of each op's
-  carriers under the trust order `valid` > `wrong-key` > `unsigned` >
-  `corrupted-signature` > `payload-mutated`; the surviving carrier's own
-  outcome would say `unsigned` for both.
+  ([`spec/signing.md`](signing.md) §Op Identity, WRIT-312), under the trust
+  order `valid` > `wrong-key` > `unsigned` > `corrupted-signature` >
+  `payload-mutated`: one op carried by a valid, an unsigned and a
+  corrupted-signature commit (the unsigned one at the lowest SHA); one op
+  per adjacent pair of the order, each carried by exactly that pair with
+  the less trusted carrier at the lower SHA; and one op per key-carrying
+  outcome (`valid`, `wrong-key`, `payload-mutated`) whose two carriers share
+  the outcome and differ in key, pinning the smallest-SHA tie-break. The
+  fold golden pins `verification` and `key_fingerprint` on every op with
+  more than one carrier, and nothing else; the surviving carrier's own
+  outcome would be wrong for every op but the ties.

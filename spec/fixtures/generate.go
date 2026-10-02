@@ -8,6 +8,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/plumbing/storer"
 )
 
 // timeLayout is RFC 3339 in UTC — the only form commit timestamps are
@@ -160,20 +161,7 @@ func buildCommit(repo *git.Repository, sgnr *signer, cd CommitDesc, parents []pl
 	}
 
 	if !cd.Unsigned {
-		payloadObj := repo.Storer.NewEncodedObject()
-		if err := commit.EncodeWithoutSignature(payloadObj); err != nil {
-			return nil, plumbing.ZeroHash, fmt.Errorf("encode commit payload: %w", err)
-		}
-		r, err := payloadObj.Reader()
-		if err != nil {
-			return nil, plumbing.ZeroHash, fmt.Errorf("read commit payload: %w", err)
-		}
-		payload, err := io.ReadAll(r)
-		if err != nil {
-			return nil, plumbing.ZeroHash, fmt.Errorf("read commit payload: %w", err)
-		}
-
-		armored, err := sgnr.sign(signerId, payload)
+		armored, err := signCommit(repo.Storer, sgnr, signerId, commit)
 		if err != nil {
 			return nil, plumbing.ZeroHash, err
 		}
@@ -181,7 +169,7 @@ func buildCommit(repo *git.Repository, sgnr *signer, cd CommitDesc, parents []pl
 	}
 
 	if cd.Tamper != "" {
-		if err := applyTamper(repo.Storer, commit, cd.Files, cd.Tamper); err != nil {
+		if err := applyTamper(repo.Storer, sgnr, signerId, commit, cd.Files, cd.Tamper); err != nil {
 			return nil, plumbing.ZeroHash, err
 		}
 	}
@@ -197,6 +185,24 @@ func buildCommit(repo *git.Repository, sgnr *signer, cd CommitDesc, parents []pl
 	}
 
 	return commit, hash, nil
+}
+
+// signCommit returns an armored SSH signature, by id's key, over commit's
+// signed payload: the commit as encoded without its signature header.
+func signCommit(store storer.EncodedObjectStorer, sgnr *signer, id identity, commit *object.Commit) (string, error) {
+	payloadObj := store.NewEncodedObject()
+	if err := commit.EncodeWithoutSignature(payloadObj); err != nil {
+		return "", fmt.Errorf("encode commit payload: %w", err)
+	}
+	r, err := payloadObj.Reader()
+	if err != nil {
+		return "", fmt.Errorf("read commit payload: %w", err)
+	}
+	payload, err := io.ReadAll(r)
+	if err != nil {
+		return "", fmt.Errorf("read commit payload: %w", err)
+	}
+	return sgnr.sign(id, payload)
 }
 
 func commitState(c *object.Commit, hash plumbing.Hash) CommitState {

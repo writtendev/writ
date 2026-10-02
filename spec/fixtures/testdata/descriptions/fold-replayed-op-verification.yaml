@@ -4,24 +4,54 @@ description: >
   spec/signing.md §Op Identity, "Verification across carriers"). Carriers
   of one signed payload share its bytes but not their signature headers,
   so their own outcomes can differ, and the op's outcome is the best of
-  them, not the surviving (lowest-SHA) carrier's own. Alice's `revision`
-  op is reachable as three commits in three writer namespaces: her valid
-  signed commit, a byte-identical-payload copy with the signature header
-  omitted (unsigned), and one whose signature armor is corrupted
-  (corrupted-signature). Her `update` op is reachable as two, neither
-  validly signed: unsigned and corrupted-signature, so the rank unsigned
-  over corrupted-signature (the WRIT-251 trust order, valid > wrong-key >
-  unsigned > corrupted-signature > payload-mutated), not just valid over
-  the rest, is pinned too. The fold golden records the op-level
-  verification outcome for every op with more than one carrier: `valid`
-  for the first and `unsigned` for the second. A reader that reports the
-  lowest-SHA carrier's own outcome gets the first wrong, one that reports
-  the worst gets both wrong, and one that ranks corrupted-signature or
-  payload-mutated above unsigned gets the second wrong.
-  In both ops the lowest-SHA carrier is the unsigned one, so the
-  fixture's own bodies are chosen to make that hold; the fold fixture
-  test asserts it, and each carrier's declared `expect.verification`,
-  so the fixture cannot silently stop telling those readers apart.
+  them under the WRIT-251 trust order, valid > wrong-key > unsigned >
+  corrupted-signature > payload-mutated, ties broken by the smallest
+  carrier SHA, not the surviving (lowest-SHA) carrier's own.
+
+  Alice's `revision` op has three carriers (valid, unsigned,
+  corrupted-signature; the unsigned one lowest). Each adjacent pair of the
+  trust order is then pinned by its own `update` op with exactly that pair
+  of carriers, the less trusted one at the lower SHA, in trust order:
+  valid over wrong-key (Bob's op, a carrier signed with Alice's key),
+  wrong-key over unsigned, unsigned over corrupted-signature, and
+  corrupted-signature over payload-mutated, whose payload-mutated carrier
+  is a real SSHSIG by Alice's key over another commit's payload
+  (tamper: signature-transplant). A reader that swaps any one adjacent
+  pair gets that pair's op wrong; one that reports the lowest-SHA
+  carrier's own outcome gets all of them wrong.
+
+  The tie-break is pinned for the three outcomes that report a key
+  fingerprint, by one op each whose two carriers share the outcome and
+  are signed by different keys: valid (the trust store binds Bob's key to
+  Alice's address as well as Alice's), wrong-key (an author address that
+  matches no trust-store rule, signed by Alice's key and by Bob's), and
+  payload-mutated (a transplanted signature under each key). The golden
+  records the key fingerprint of the smallest-SHA carrier, and the ties
+  are arranged so it is Alice's in two and Bob's in one, so a reader that
+  prefers the highest SHA, or a particular key or ref name, gets one
+  wrong. Unsigned and corrupted-signature carriers carry no key, so a tie
+  between them reports nothing a reader could get wrong and is not
+  pinned.
+
+  The fold golden records the op-level `verification` and
+  `key_fingerprint` for every op with more than one carrier. The fold
+  fixture test asserts each carrier's declared `expect.verification`, that
+  in every op whose carriers disagree the lowest-SHA carrier is less
+  trusted than the best, that every adjacent pair and every key-carrying
+  tie has an op, and that each tie's carriers carry different keys, so the
+  fixture cannot silently stop telling those readers apart.
+
+# Alice's and Bob's keys each bind to their own address, and Bob's key to
+# Alice's address too, which is what makes a second valid key for one author
+# (the valid tie) possible. Alice's key is not bound to Bob's address, nor
+# either key to Alice@Example.TEST, which is how the wrong-key carriers arise.
+trust_store:
+  - principals: ["alice@example.test"]
+    key: alice
+  - principals: ["bob@example.test"]
+    key: bob
+  - principals: ["alice@example.test"]
+    key: bob
 
 refs:
   - name: refs/writ/0123456789abcdef/schema
@@ -196,14 +226,70 @@ refs:
               accept: true
               verification: corrupted-signature
 
-  # A second op, with no validly signed carrier at all.
-  - name: refs/writ/3333333333333333/widget
+
+  # Valid over wrong-key. Bob's op: one carrier is signed with Bob's key, the
+  # other with Alice's, which no trust-store rule binds to Bob's address.
+  - name: refs/writ/5000000000000001/widget
     history:
       - commits:
-          - id: widget-update-unsigned
+          - id: update-valid-over-wrong-key-valid
             parents: [widget-revision]
-            author: alice
+            author: bob
             timestamp: 2026-01-01T00:20:00Z
+            op:
+              object_id: w-carrier-verification
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "Valid over wrong-key v74"
+            expect: accept
+  - name: refs/writ/5000000000000002/widget
+    history:
+      - commits:
+          - id: update-valid-over-wrong-key-wrong
+            parents: [widget-revision]
+            author: bob
+            timestamp: 2026-01-01T00:20:00Z
+            sign_as: alice
+            op:
+              object_id: w-carrier-verification
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "Valid over wrong-key v74"
+            expect:
+              accept: true
+              verification: wrong-key
+
+  # Wrong-key over unsigned: no carrier is valid, so the op reads wrong-key,
+  # under Alice's key, not unsigned.
+  - name: refs/writ/6000000000000001/widget
+    history:
+      - commits:
+          - id: update-wrong-key-over-unsigned-wrong
+            parents: [widget-revision]
+            author: bob
+            timestamp: 2026-01-01T00:25:00Z
+            sign_as: alice
+            op:
+              object_id: w-carrier-verification
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "Wrong-key over unsigned"
+            expect:
+              accept: true
+              verification: wrong-key
+  - name: refs/writ/6000000000000002/widget
+    history:
+      - commits:
+          - id: update-wrong-key-over-unsigned-unsigned
+            parents: [widget-revision]
+            author: bob
+            timestamp: 2026-01-01T00:25:00Z
             unsigned: true
             op:
               object_id: w-carrier-verification
@@ -211,18 +297,37 @@ refs:
               op_type: update
               op_version: 1
               body:
-                title: "Next Title"
+                title: "Wrong-key over unsigned"
             expect:
               accept: true
               verification: unsigned
 
-  - name: refs/writ/4444444444444444/widget
+  # Unsigned over corrupted-signature.
+  - name: refs/writ/7000000000000001/widget
     history:
       - commits:
-          - id: widget-update-corrupted
+          - id: update-unsigned-over-corrupted-unsigned
             parents: [widget-revision]
             author: alice
-            timestamp: 2026-01-01T00:20:00Z
+            timestamp: 2026-01-01T00:30:00Z
+            unsigned: true
+            op:
+              object_id: w-carrier-verification
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "Unsigned over corrupted v5"
+            expect:
+              accept: true
+              verification: unsigned
+  - name: refs/writ/7000000000000002/widget
+    history:
+      - commits:
+          - id: update-unsigned-over-corrupted-corrupted
+            parents: [widget-revision]
+            author: alice
+            timestamp: 2026-01-01T00:30:00Z
             tamper: signature
             op:
               object_id: w-carrier-verification
@@ -230,7 +335,157 @@ refs:
               op_type: update
               op_version: 1
               body:
-                title: "Next Title"
+                title: "Unsigned over corrupted v5"
             expect:
               accept: true
               verification: corrupted-signature
+
+  # Corrupted-signature over payload-mutated: the transplanted carrier holds
+  # a real SSHSIG by Alice's key over another commit's payload.
+  - name: refs/writ/8000000000000001/widget
+    history:
+      - commits:
+          - id: update-corrupted-over-mutated-corrupted
+            parents: [widget-revision]
+            author: alice
+            timestamp: 2026-01-01T00:35:00Z
+            tamper: signature
+            op:
+              object_id: w-carrier-verification
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "Corrupted over mutated v55"
+            expect:
+              accept: true
+              verification: corrupted-signature
+  - name: refs/writ/8000000000000002/widget
+    history:
+      - commits:
+          - id: update-corrupted-over-mutated-mutated
+            parents: [widget-revision]
+            author: alice
+            timestamp: 2026-01-01T00:35:00Z
+            tamper: signature-transplant
+            op:
+              object_id: w-carrier-verification
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "Corrupted over mutated v55"
+            expect:
+              accept: true
+              verification: payload-mutated
+
+  # Tie, valid: two valid carriers under different keys (the third trust-store
+  # rule makes Bob's key valid for Alice's address as well).
+  - name: refs/writ/9000000000000001/widget
+    history:
+      - commits:
+          - id: update-tie-valid-alice
+            parents: [widget-revision]
+            author: alice
+            timestamp: 2026-01-01T00:40:00Z
+            op:
+              object_id: w-carrier-verification
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "Tie valid v8"
+            expect: accept
+  - name: refs/writ/9000000000000002/widget
+    history:
+      - commits:
+          - id: update-tie-valid-bob
+            parents: [widget-revision]
+            author: alice
+            timestamp: 2026-01-01T00:40:00Z
+            sign_as: bob
+            op:
+              object_id: w-carrier-verification
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "Tie valid v8"
+            expect: accept
+
+  # Tie, wrong-key: no trust-store rule matches the case-mismatched address,
+  # so Alice's key and Bob's are both wrong-key.
+  - name: refs/writ/a000000000000001/widget
+    history:
+      - commits:
+          - id: update-tie-wrong-key-alice
+            parents: [widget-revision]
+            author: alice_upper
+            timestamp: 2026-01-01T00:45:00Z
+            op:
+              object_id: w-carrier-verification
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "Tie wrong-key"
+            expect:
+              accept: true
+              verification: wrong-key
+  - name: refs/writ/a000000000000002/widget
+    history:
+      - commits:
+          - id: update-tie-wrong-key-bob
+            parents: [widget-revision]
+            author: alice_upper
+            timestamp: 2026-01-01T00:45:00Z
+            sign_as: bob
+            op:
+              object_id: w-carrier-verification
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "Tie wrong-key"
+            expect:
+              accept: true
+              verification: wrong-key
+
+  # Tie, payload-mutated: a transplanted signature under each key.
+  - name: refs/writ/b000000000000001/widget
+    history:
+      - commits:
+          - id: update-tie-mutated-alice
+            parents: [widget-revision]
+            author: alice
+            timestamp: 2026-01-01T00:50:00Z
+            tamper: signature-transplant
+            op:
+              object_id: w-carrier-verification
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "Tie mutated v98"
+            expect:
+              accept: true
+              verification: payload-mutated
+  - name: refs/writ/b000000000000002/widget
+    history:
+      - commits:
+          - id: update-tie-mutated-bob
+            parents: [widget-revision]
+            author: alice
+            timestamp: 2026-01-01T00:50:00Z
+            tamper: signature-transplant
+            sign_as: bob
+            op:
+              object_id: w-carrier-verification
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "Tie mutated v98"
+            expect:
+              accept: true
+              verification: payload-mutated
