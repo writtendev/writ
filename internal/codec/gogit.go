@@ -93,12 +93,14 @@ func fromGitCommit(s storage.Storer, commit *object.Commit) (Commit, error) {
 				return Commit{}, fmt.Errorf("codec: read op.json blob: %w", err)
 			}
 			te.Data = data
-		} else if entry.Name == "op.json" {
+		} else if s != nil && entry.Name == "op.json" {
 			// Not read, but still a blob this clone may not have: an
 			// op.json entry whose object is absent has always surfaced as
 			// plumbing.ErrObjectNotFound (dag: object-unavailable), whatever
 			// else is wrong with the tree, and sizing is all it takes to
 			// tell absent from present — a header read, never the content.
+			// With no storer there is nothing to ask, as everywhere else
+			// in this function.
 			if _, known, err := objectSize(s, entry.Hash); err != nil {
 				return Commit{}, fmt.Errorf("codec: read op.json blob: determine op.json blob size: %w", err)
 			} else if !known {

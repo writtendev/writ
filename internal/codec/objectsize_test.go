@@ -306,8 +306,9 @@ func TestFromGitCommitLoneSubdirectoryIsMissingOpJSON(t *testing.T) {
 }
 
 // TestWriteCommitRefusesOverBoundCommit pins the producer side: a commit with
-// more causal parents than fit under codec.MaxCommitBytes is refused before it
-// is stored, while one just under is written.
+// more causal parents than fit under codec.MaxCommitBytes (1 MiB) is refused
+// before it is stored, while one just under is written, a 1,400-parent
+// frontier included.
 func TestWriteCommitRefusesOverBoundCommit(t *testing.T) {
 	alice := codec.Identity{Name: "Alice", Email: "alice@example.test", When: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
 	tree := []codec.TreeEntry{{Name: "op.json", Mode: "100644", Data: []byte("{}")}}
@@ -320,14 +321,18 @@ func TestWriteCommitRefusesOverBoundCommit(t *testing.T) {
 	}
 
 	s := memory.NewStorage()
-	// Each parent line is 48 bytes; the rest of this commit is well under 200.
-	if _, err := codec.WriteCommit(context.Background(), s, build(1300), nil); err != nil {
-		t.Fatalf("WriteCommit of 1300 parents: %v", err)
+	// Each parent line is 48 bytes; the rest of this commit is well under 200,
+	// so about 21,800 parents fit in 1 MiB. 1,400 is the wide frontier that
+	// blocked every write to an object when the bound was 64 KiB.
+	for _, parents := range []int{1300, 1400, 21000} {
+		if _, err := codec.WriteCommit(context.Background(), s, build(parents), nil); err != nil {
+			t.Fatalf("WriteCommit of %d parents: %v", parents, err)
+		}
 	}
 
-	_, err := codec.WriteCommit(context.Background(), s, build(1400), nil)
+	_, err := codec.WriteCommit(context.Background(), s, build(22000), nil)
 	if rejectReason(err) != codec.RejectCommitTooLarge {
-		t.Fatalf("WriteCommit of 1400 parents: %v, want commit-too-large", err)
+		t.Fatalf("WriteCommit of 22000 parents: %v, want commit-too-large", err)
 	}
 	for hash, obj := range s.Objects {
 		if obj.Type() == plumbing.CommitObject && obj.Size() > codec.MaxCommitBytes {
@@ -546,5 +551,56 @@ func TestFromGitCommitDuplicateOpJSONEntriesAreNotRead(t *testing.T) {
 	t.Logf("FromGitCommit allocated %d bytes for %d duplicate op.json entries over a %d-byte blob", delta, duplicates, blobBytes)
 	if delta > allocBudget {
 		t.Errorf("FromGitCommit allocated %d bytes, want under %d", delta, allocBudget)
+	}
+}
+
+// TestFromGitCommitNilStorer pins that FromGitCommit with no storer never
+// dereferences it: the commit carries its own storer for its tree, and every
+// other check in the function that wants s is guarded on s != nil. A tree
+// whose op.json entry is not read (WRIT-313: mode 100755, duplicate op.json
+// entries, or an extra entry beside op.json) is the shape that used to size
+// that entry through s, and panicked.
+func TestFromGitCommitNilStorer(t *testing.T) {
+	blob := func(s storage.Storer) plumbing.Hash {
+		return storeObject(t, s, plumbing.BlobObject, []byte("{}"))
+	}
+	shapes := []struct {
+		name    string
+		entries func(b plumbing.Hash) []object.TreeEntry
+		want    codec.RejectReason
+	}{
+		{"mode 100755", func(b plumbing.Hash) []object.TreeEntry {
+			return []object.TreeEntry{{Name: "op.json", Mode: filemode.Executable, Hash: b}}
+		}, codec.RejectInvalidOpJSONMode},
+		{"duplicate op.json entries", func(b plumbing.Hash) []object.TreeEntry {
+			return []object.TreeEntry{
+				{Name: "op.json", Mode: filemode.Regular, Hash: b},
+				{Name: "op.json", Mode: filemode.Regular, Hash: b},
+			}
+		}, codec.RejectExtraTreeEntry},
+		{"extra entry beside op.json", func(b plumbing.Hash) []object.TreeEntry {
+			return []object.TreeEntry{
+				{Name: "extra", Mode: filemode.Regular, Hash: b},
+				{Name: "op.json", Mode: filemode.Regular, Hash: b},
+			}
+		}, codec.RejectExtraTreeEntry},
+	}
+	for _, sh := range shapes {
+		t.Run(sh.name, func(t *testing.T) {
+			s := memory.NewStorage()
+			tree := storeTree(t, s, sh.entries(blob(s)))
+			commit := commitOfSize(t, s, tree, 200)
+			gc, err := object.GetCommit(s, commit)
+			if err != nil {
+				t.Fatalf("GetCommit: %v", err)
+			}
+			pure, err := codec.FromGitCommit(nil, gc)
+			if err != nil {
+				t.Fatalf("FromGitCommit(nil, ...): %v", err)
+			}
+			if _, err := codec.DecodeCommit(pure); rejectReason(err) != sh.want {
+				t.Errorf("DecodeCommit: %v, want %s", err, sh.want)
+			}
+		})
 	}
 }

@@ -404,7 +404,7 @@ refs:
               op_type: create
               op_version: 1
               body: {}
-            commit_size: 65536
+            commit_size: 1048576
             tamper: message
 `,
 		},

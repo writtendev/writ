@@ -27,7 +27,7 @@ const MaxPayloadBytes = 1 << 20
 // MaxCommitBytes is the maximum size, in bytes, of an op commit object a
 // conforming reader accepts and a conforming producer writes, inclusive
 // (spec/op-envelope.md §Reader validation rule 1, §Producer validation).
-const MaxCommitBytes = 1 << 16
+const MaxCommitBytes = 1 << 20
 
 // MaxTreeBytes is the maximum size, in bytes, of an op commit's root tree
 // object a conforming reader accepts, inclusive (spec/op-envelope.md §Reader

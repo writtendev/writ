@@ -234,10 +234,13 @@ func TestEnumerate_GiantObjectsAreSizedBeforeLoading(t *testing.T) {
 	}
 }
 
-// TestAppendRefusesOverBoundCausalParents pins the producer side of the
-// commit bound: an Append whose causal frontier would push the commit past
-// codec.MaxCommitBytes is refused, not written.
-func TestAppendRefusesOverBoundCausalParents(t *testing.T) {
+// TestAppendCausalParentsAgainstCommitBound pins the producer side of the
+// commit bound: an Append over a wide frontier is written while the commit
+// stays within codec.MaxCommitBytes (1 MiB), and refused, not written, once
+// the causal parents would push it past. 1,400 parents is the frontier a
+// peer could push when the bound was 64 KiB and so block every honest write
+// to an object; it now fits with room to spare.
+func TestAppendCausalParentsAgainstCommitBound(t *testing.T) {
 	dir, repo := initTestRepo(t)
 	ident := testIdentity(objectSizeCaseWriter, "Alice", "alice@example.test")
 	store, err := dag.Open(dir, ident, withVocabularies())
@@ -260,17 +263,29 @@ func TestAppendRefusesOverBoundCausalParents(t *testing.T) {
 		t.Fatalf("CommitObject: %v", err)
 	}
 	var causal []string
-	for i := 0; i < 1400; i++ {
+	// 48 bytes a parent line: 22,000 is over the 1 MiB bound.
+	for i := 0; i < 22000; i++ {
 		causal = append(causal, storeRawCommit(t, repo, opCommit.TreeHash, plumbing.ZeroHash, fmt.Sprintf("parent %d\n", i)).String())
+	}
+
+	wide, err := store.Append(ctx, codec.Envelope{
+		ObjectID: "w-1", ObjectType: "widget", OpType: "update", OpVersion: 1,
+		Body: json.RawMessage(`{"title":"Widget 2"}`),
+	}, causal[:1400])
+	if err != nil {
+		t.Fatalf("Append with 1400 causal parents: %v", err)
+	}
+	if wide.ID == "" {
+		t.Fatalf("Append with 1400 causal parents returned no op id")
 	}
 
 	before := snapshotRefs(t, repo)
 	_, err = store.Append(ctx, codec.Envelope{
 		ObjectID: "w-1", ObjectType: "widget", OpType: "update", OpVersion: 1,
-		Body: json.RawMessage(`{"title":"Widget 2"}`),
+		Body: json.RawMessage(`{"title":"Widget 3"}`),
 	}, causal)
 	if err == nil {
-		t.Fatalf("Append with 1400 causal parents succeeded, want commit-too-large")
+		t.Fatalf("Append with %d causal parents succeeded, want commit-too-large", len(causal))
 	}
 	var rej *codec.RejectError
 	if !errors.As(err, &rej) || rej.Reason != codec.RejectCommitTooLarge {
