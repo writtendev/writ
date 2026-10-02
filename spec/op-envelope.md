@@ -650,13 +650,28 @@ why) if any of the following fail:
    of them (see §Producer validation). A conforming reader MUST check, in
    this order: the commit object's size, the root tree object's size,
    tree shape, the `op.json` blob's size, then the byte-equality rule
-   below. It MUST size the commit and the tree object from the object's
-   declared size, whatever type the object turns out to be, before
+   below, so a commit over its bound is `commit-too-large` whatever its
+   tree is, a tree over its bound is `tree-too-large` whatever its shape
+   is, a tree of the wrong shape is rejected for its shape whatever size
+   its `op.json` is, and an `op.json` over its bound is
+   `payload-too-large` whatever its bytes are. It MUST size the commit
+   and the root tree object from the object's declared size before
    reading any of its content, so it never loads an oversized commit or
-   tree, never reads a tree entry, and never canonicalizes an oversized
-   blob. A tree hash naming an object over 4,096 bytes is
-   `tree-too-large` even when that object is a blob, and a reader never
-   follows an entry of the root tree that is not `op.json`.
+   tree and never reads a tree entry of one. The root tree is sized
+   whatever type the object its `tree` header names turns out to be: a
+   header naming an object over 4,096 bytes is `tree-too-large` even
+   when that object is a blob, and one naming a blob of 4,096 bytes or
+   fewer is a root tree with no `op.json` entry, `missing-op-json`. A
+   reader MUST read the `op.json` blob only once the root tree is known
+   to be a single `op.json` entry at mode `100644`, so a tree that fails
+   shape costs no blob read: a tree of duplicate `op.json` entries,
+   which a host that runs fsck refuses and one that does not accepts, is
+   `extra-tree-entry`, not a read of the blob once per entry. A reader
+   never follows an entry of the root tree that is not `op.json`. The
+   conformance fixtures pin each verdict above and each adjacent pair in
+   this order (see §Conformance); that a reader holds no more than these
+   bounds in memory is a resource property no verdict shows, held by the
+   reference implementation's own tests.
 2. The payload fails the byte-equality rule above.
 3. The payload fails schema validation: a required field is missing or
    a defined field violates its type or form. Unknown *additional*
@@ -701,14 +716,30 @@ enumeration for the stopping rule (WRIT-289).
   `envelope-payload-size.yaml` is the boundary fixture for reader
   validation rule 1's size bound: one commit at exactly 1,048,576 bytes
   (`expect: accept`) and one at 1,048,577 bytes
-  (`expect: {reject: payload-too-large}`).
+  (`expect: {reject: payload-too-large}`). A second chain in it pins
+  the order around that bound: a non-canonical `op.json` (trailing
+  spaces) of exactly 1,048,576 bytes is `non-canonical-payload` and one
+  of 1,048,577 bytes is `payload-too-large` (size before byte-equality),
+  and an `op.json` of 1,048,577 bytes behind an extra tree entry is
+  `extra-tree-entry`, and at mode `100755` is `invalid-op-json-mode`
+  (tree shape before size).
   `envelope-object-size.yaml` is the boundary fixture for rule 1's two
-  object-size bounds: a root tree of exactly 4,096 bytes
-  (`expect: {reject: extra-tree-entry}`, pinning that size is checked
-  first and does not bite at the boundary) and one of 4,097 bytes
-  (`expect: {reject: tree-too-large}`), and a commit object of exactly
-  65,536 bytes (`expect: accept`) and one of 65,537 bytes
-  (`expect: {reject: commit-too-large}`).
+  object-size bounds and their order. Tree: a root tree of exactly
+  4,096 bytes (`expect: {reject: extra-tree-entry}`, pinning that the
+  bound is inclusive and that shape is checked after it) and one of
+  4,097 bytes (`expect: {reject: tree-too-large}`, pinning size before
+  shape, since by shape it is `extra-tree-entry` too); a `tree` header
+  naming a blob of 4,096 bytes (`expect: {reject: missing-op-json}`) and
+  one of 4,097 bytes (`expect: {reject: tree-too-large}`, pinning that
+  the tree is sized whatever its type). Commit: a commit object of
+  exactly 65,536 bytes (`expect: accept`) and one of 65,537 bytes
+  (`expect: {reject: commit-too-large}`); one of 65,536 bytes whose tree
+  is 4,097 (`expect: {reject: tree-too-large}`) and one of 65,537 whose
+  tree is 4,097 (`expect: {reject: commit-too-large}`, pinning commit
+  before tree). The reasons for the tree shapes themselves
+  (`missing-op-json`, including a lone subdirectory holding an `op.json`;
+  `extra-tree-entry`; `invalid-op-json-mode`) are pinned by
+  `envelope-malformed-tree.yaml`.
 - `spec/testdata/producer/` (WRIT-188) — tiers 2, 3, and 4 of the four-tier
   producer precedence above, exercised as paired verdicts: `index.json`
   names, per case under `cases/`, the producer's verdict (with a reason

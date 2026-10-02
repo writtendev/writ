@@ -10,8 +10,15 @@ description: >
   tree-too-large without being read. A commit of exactly 65,536 bytes is
   accepted and one of 65,537 bytes is rejected as commit-too-large without
   being loaded, which is why its golden record carries no fields that need
-  the decoded commit. Each described commit is decoded and checked directly,
-  not reached by walking ancestry from a chain tip.
+  the decoded commit. Two more commits pin commit before tree: one of
+  65,536 bytes whose tree is 4,097 is tree-too-large (the commit bound is
+  inclusive and the tree is checked next), and one of 65,537 bytes whose
+  tree is also 4,097 is commit-too-large, never reaching the tree. Last, a
+  commit whose tree header names a blob rather than a tree pins that the
+  tree is sized whatever its type: a blob of 4,096 bytes is just a root tree
+  with no op.json (missing-op-json), one of 4,097 bytes is tree-too-large.
+  Each described commit is decoded and checked directly, not reached by
+  walking ancestry from a chain tip.
 
 refs:
   - name: refs/writ/0123456789abcdef/widget

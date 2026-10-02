@@ -10,7 +10,9 @@ description: >
   (payload-after-oversized) would hold that commit, then reject
   payload-over-max as payload-too-large and stop: payload-at-max, behind
   the break, is never reached and is held only if some other path of
-  valid ops reaches it, which none does here.
+  valid ops reaches it, which none does here. A second chain, gadget, pins
+  the order of rule 1's checks around the blob bound: tree shape, then the
+  size bound, then byte-equality. It is not part of the walk above.
 
 refs:
   - name: refs/writ/0123456789abcdef/widget
