@@ -63,7 +63,10 @@ the normative verification algorithm and outcome vocabulary.
   payload. The surviving carrier's own signature MUST NOT decide it alone —
   otherwise anyone able to push could grind an unsigned or garbage-signed
   carrier of a valid op at a lower SHA and flip it from `valid` to
-  `unsigned`.
+  `unsigned`. The `fold-replayed-op-verification` fixture pins this: its
+  fold golden records the op-level `verification` of every op with more
+  than one carrier, with the unsigned carrier at the lowest SHA
+  ([`spec/ref-layout.md`](ref-layout.md) §Conformance data).
 - **Accepted residual: lowering an op id.** Because the op id is the lowest
   carrier SHA, a third party who can write a ref can grind armor variants of
   someone else's op until one sorts lower, and so lower the op's id and with

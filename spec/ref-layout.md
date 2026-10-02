@@ -384,3 +384,13 @@ This fallback:
   writer's op whose parent line names the carrier that does not become the
   op id, pinning one operation in the total order, one entry in each
   `append` field, and the rewritten parent edge.
+- `spec/fixtures/testdata/descriptions/fold-replayed-op-verification.yaml`
+  and its goldens (the manifest, and
+  `spec/fixtures/testdata/golden/fold/fold-replayed-op-verification.json`)
+  — the op's verification outcome across its carriers
+  ([`spec/signing.md`](signing.md) §Op Identity, WRIT-312): one op carried
+  by a valid, an unsigned, and a corrupted-signature commit, another by an
+  unsigned and a corrupted-signature one, the lowest-SHA carrier of each
+  being the unsigned one. The fold golden pins `verification` on every op
+  with more than one carrier: `valid` and `corrupted-signature`, where the
+  surviving carrier's own outcome would say `unsigned` for both.

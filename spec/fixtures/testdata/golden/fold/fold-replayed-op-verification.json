@@ -1,0 +1,36 @@
+{
+  "objects": [
+    {
+      "object_id": "w-carrier-verification",
+      "object_type": "acme.widget",
+      "total_order": [
+        {
+          "commit": "e5c4ef09d8d4bb114febcfb021357ee33bcdb21a",
+          "label": "widget-create",
+          "t_star": 1767225600
+        },
+        {
+          "commit": "5b43d813a8111223b29aa65b223eef040e253698",
+          "label": "widget-revision-unsigned",
+          "t_star": 1767226200,
+          "verification": "valid"
+        },
+        {
+          "commit": "8238ae76cda5e511b67d7e8fea8a294a1de55cd0",
+          "label": "widget-update-unsigned",
+          "t_star": 1767226800,
+          "verification": "corrupted-signature"
+        }
+      ],
+      "state": {
+        "base": [
+          "0123456789abcdef0123456789abcdef01234567"
+        ],
+        "head": [
+          "89abcdef0123456789abcdef0123456789abcde2"
+        ],
+        "title": "Next Title"
+      }
+    }
+  ]
+}

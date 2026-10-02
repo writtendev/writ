@@ -1,0 +1,232 @@
+name: fold-replayed-op-verification
+description: >
+  An op's verification outcome across its carriers (WRIT-312,
+  spec/signing.md §Op Identity, "Verification across carriers"). Carriers
+  of one signed payload share its bytes but not their signature headers,
+  so their own outcomes can differ, and the op's outcome is the best of
+  them, not the surviving (lowest-SHA) carrier's own. Alice's `revision`
+  op is reachable as three commits in three writer namespaces: her valid
+  signed commit, a byte-identical-payload copy with the signature header
+  omitted (unsigned), and one whose signature armor is corrupted
+  (corrupted-signature). Her `update` op is reachable as two, neither
+  validly signed: unsigned and corrupted-signature, so the rank
+  corrupted-signature over unsigned, not just valid over the rest, is
+  pinned too. The fold golden records the op-level verification outcome
+  for every op with more than one carrier; a reader that reports the
+  lowest-SHA carrier's own outcome, or the worst, gets a different one.
+  In both ops the lowest-SHA carrier is the unsigned one, so the
+  fixture's own bodies are chosen to make that hold; the fold fixture
+  test asserts it, and each carrier's declared `expect.verification`,
+  so the fixture cannot silently stop telling those readers apart.
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: schema-create
+            author: alice
+            timestamp: 2025-12-01T00:00:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: schema-define-type
+            parents: [schema-create]
+            author: alice
+            timestamp: 2025-12-01T00:01:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "acme.widget"
+            expect: accept
+
+          - id: schema-define-create-title
+            parents: [schema-define-type]
+            author: alice
+            timestamp: 2025-12-01T00:02:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: schema-define-update-title
+            parents: [schema-define-create-title]
+            author: alice
+            timestamp: 2025-12-01T00:03:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "update"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: schema-define-revision-base
+            parents: [schema-define-update-title]
+            author: alice
+            timestamp: 2025-12-01T00:04:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "revision"
+                op_version: "1"
+                field: "base"
+                value_type: "git-oid"
+                strategy: "append"
+            expect: accept
+
+          - id: schema-define-revision-head
+            parents: [schema-define-revision-base]
+            author: alice
+            timestamp: 2025-12-01T00:05:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "revision"
+                op_version: "1"
+                field: "head"
+                value_type: "git-oid"
+                strategy: "append"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/widget
+    history:
+      - commits:
+          - id: widget-create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: w-carrier-verification
+              object_type: acme.widget
+              op_type: create
+              op_version: 1
+              body:
+                title: "Initial Title"
+            expect: accept
+
+          - id: widget-revision
+            parents: [widget-create]
+            author: alice
+            timestamp: 2026-01-01T00:10:00Z
+            op:
+              object_id: w-carrier-verification
+              object_type: acme.widget
+              op_type: revision
+              op_version: 1
+              body:
+                base: "0123456789abcdef0123456789abcdef01234567"
+                head: "89abcdef0123456789abcdef0123456789abcde2"
+            expect: accept
+
+  # The same declaration of the revision with no signature header at all:
+  # the same signed bytes, so the same op, but nothing signed them.
+  - name: refs/writ/fedcba9876543210/widget
+    history:
+      - commits:
+          - id: widget-revision-unsigned
+            parents: [widget-create]
+            author: alice
+            timestamp: 2026-01-01T00:10:00Z
+            unsigned: true
+            op:
+              object_id: w-carrier-verification
+              object_type: acme.widget
+              op_type: revision
+              op_version: 1
+              body:
+                base: "0123456789abcdef0123456789abcdef01234567"
+                head: "89abcdef0123456789abcdef0123456789abcde2"
+            expect:
+              accept: true
+              verification: unsigned
+
+  # ... and with its signature header's armor corrupted.
+  - name: refs/writ/2222222222222222/widget
+    history:
+      - commits:
+          - id: widget-revision-corrupted
+            parents: [widget-create]
+            author: alice
+            timestamp: 2026-01-01T00:10:00Z
+            tamper: signature
+            op:
+              object_id: w-carrier-verification
+              object_type: acme.widget
+              op_type: revision
+              op_version: 1
+              body:
+                base: "0123456789abcdef0123456789abcdef01234567"
+                head: "89abcdef0123456789abcdef0123456789abcde2"
+            expect:
+              accept: true
+              verification: corrupted-signature
+
+  # A second op, with no validly signed carrier at all.
+  - name: refs/writ/3333333333333333/widget
+    history:
+      - commits:
+          - id: widget-update-unsigned
+            parents: [widget-revision]
+            author: alice
+            timestamp: 2026-01-01T00:20:00Z
+            unsigned: true
+            op:
+              object_id: w-carrier-verification
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "Next Title"
+            expect:
+              accept: true
+              verification: unsigned
+
+  - name: refs/writ/4444444444444444/widget
+    history:
+      - commits:
+          - id: widget-update-corrupted
+            parents: [widget-revision]
+            author: alice
+            timestamp: 2026-01-01T00:20:00Z
+            tamper: signature
+            op:
+              object_id: w-carrier-verification
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "Next Title"
+            expect:
+              accept: true
+              verification: corrupted-signature

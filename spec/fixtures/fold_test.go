@@ -50,6 +50,12 @@ type FoldOpOrderEntry struct {
 	Commit string `json:"commit"`
 	Label  string `json:"label,omitempty"`
 	TStar  int64  `json:"t_star"`
+	// Verification is the op's verification outcome, pinned only for an op
+	// with more than one carrier (WRIT-312): there it is the cross-carrier
+	// rule's whole subject (spec/signing.md §Op Identity), and carriers of
+	// one payload can disagree about it. Every other op's outcome is the
+	// envelope family's, per commit.
+	Verification string `json:"verification,omitempty"`
 }
 
 type FoldUnknownOp struct {
@@ -68,13 +74,24 @@ func runFoldFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 		return nil, fmt.Errorf("dag.OpenRepo failed: %w", err)
 	}
 
-	enumRes, err := store.Enumerate()
+	// Verified against the fixture's own trust store, as the envelope family
+	// does, so an op's reported outcome is the one a reader holding that
+	// allowed_signers file would report. Verification never gates fold, so
+	// nothing else in this runner reads it.
+	trustStore, err := fixtures.TrustStoreFor(fix.Description)
+	if err != nil {
+		return nil, fmt.Errorf("create trust store: %w", err)
+	}
+	enumRes, err := store.Enumerate(dag.WithLiveTrustStore(trustStore))
 	if err != nil {
 		return nil, fmt.Errorf("store.Enumerate failed: %w", err)
 	}
 
-	if fix.Name == "fold-replayed-op" {
+	switch fix.Name {
+	case "fold-replayed-op":
 		requireReplayedOpExercised(t, fix, enumRes)
+	case "fold-replayed-op-verification":
+		requireCarrierVerificationExercised(t, fix, enumRes, trustStore)
 	}
 
 	// Map commit SHA to description label
@@ -285,13 +302,21 @@ func runFoldFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 			}
 		}
 
+		opsByID := make(map[string]codec.Op, len(codecOps))
+		for _, cop := range codecOps {
+			opsByID[cop.ID] = cop
+		}
 		var orderEntries []FoldOpOrderEntry
 		for _, sha := range cc.TotalOrder {
-			orderEntries = append(orderEntries, FoldOpOrderEntry{
+			entry := FoldOpOrderEntry{
 				Commit: sha,
 				Label:  shaToLabel[sha],
 				TStar:  cc.EffectiveTimes[sha],
-			})
+			}
+			if len(enumRes.Carriers[sha]) > 1 {
+				entry.Verification = string(opsByID[sha].Verification.Outcome)
+			}
+			orderEntries = append(orderEntries, entry)
 		}
 
 		golden.Objects = append(golden.Objects, FoldObjectGolden{
@@ -360,6 +385,78 @@ func requireReplayedOpExercised(t *testing.T, fix *fixtures.Fixture, enumRes *da
 	}
 	if len(bobOp.Parents) != 1 || bobOp.Parents[0] != survivor {
 		t.Fatalf("%s: bob's op parents = %v, want [%s] (the op id)", fix.Name, bobOp.Parents, survivor)
+	}
+}
+
+// requireCarrierVerificationExercised pins what fold-replayed-op-verification
+// is for (WRIT-312), so the fixture cannot silently stop exercising it. Every
+// commit's own outcome is the one the description declares, and for every op
+// with more than one carrier the lowest-SHA carrier, the one whose SHA becomes
+// the op id, is unsigned while another carrier is not: the worst outcome
+// sorting first, so a reader that takes only the surviving carrier's own
+// verification reports something the golden's best-outcome rule does not.
+// Computed from the commits alone, never from what Enumerate reported, so it
+// holds against a reader that has the rule wrong.
+func requireCarrierVerificationExercised(t *testing.T, fix *fixtures.Fixture, enumRes *dag.EnumerateResult, ts codec.TrustStore) {
+	t.Helper()
+	outcome := func(sha string) codec.VerificationOutcome {
+		c, err := fix.Repo.CommitObject(plumbing.NewHash(sha))
+		if err != nil {
+			t.Fatalf("%s: lookup commit %s: %v", fix.Name, sha, err)
+		}
+		pure, err := codec.FromGitCommit(fix.Repo.Storer, c)
+		if err != nil {
+			t.Fatalf("%s: decode commit %s: %v", fix.Name, sha, err)
+		}
+		return codec.Verify(pure, ts).Outcome
+	}
+
+	commitIdx := 0
+	for _, ref := range fix.Description.Refs {
+		for _, gen := range ref.History {
+			gs := fix.Manifest.Generations[commitIdx]
+			commitIdx++
+			for ci, cd := range gen.Commits {
+				if cd.Expect == nil || !cd.Expect.Accept {
+					continue
+				}
+				want := codec.OutcomeValid
+				if cd.Expect.Verification != "" {
+					want = codec.VerificationOutcome(cd.Expect.Verification)
+				}
+				if got := outcome(gs.Commits[ci].SHA); got != want {
+					t.Fatalf("%s: commit %q verifies as %q, description declares %q", fix.Name, cd.ID, got, want)
+				}
+			}
+		}
+	}
+
+	multi := 0
+	for _, ops := range enumRes.Ops {
+		for _, op := range ops {
+			carriers := enumRes.Carriers[op.ID]
+			if len(carriers) < 2 {
+				continue
+			}
+			multi++
+			if carriers[0] != op.ID {
+				t.Fatalf("%s: op %s is not its lowest carrier %s", fix.Name, op.ID, carriers[0])
+			}
+			if own := outcome(carriers[0]); own != codec.OutcomeUnsigned {
+				t.Fatalf("%s: op %s: its lowest-SHA carrier verifies as %q, want %q; change the fixture's bodies so the unsigned carrier sorts lowest",
+					fix.Name, op.ID, own, codec.OutcomeUnsigned)
+			}
+			better := false
+			for _, c := range carriers[1:] {
+				better = better || outcome(c) != codec.OutcomeUnsigned
+			}
+			if !better {
+				t.Fatalf("%s: op %s: every carrier is unsigned, so its outcome is no choice among carriers", fix.Name, op.ID)
+			}
+		}
+	}
+	if multi != 2 {
+		t.Fatalf("%s: %d multi-carrier ops, want 2", fix.Name, multi)
 	}
 }
 
