@@ -77,6 +77,11 @@
   "scheme-uppercase.json": {
     "reason": "scheme charset is [a-z][a-z0-9+.-]*; an op body carries the normalized form, whose scheme is lowercased"
   },
+  "unassigned-code-point.json": {
+    "reason": "U+0378 is unassigned (General_Category Cn) at Unicode 17.0.0, and a value MUST NOT carry one: Unicode's stability policies freeze normalization and case folding only for assigned code points, so a reader on newer tables could fold it differently from one on 17.0.0 (spec/identifiers.md section Value character repertoire). The schema pattern cannot express Cn, so this is enforced only at the producer (PersonValueAssignedOK)",
+    "enforced_by": "producer",
+    "producer_rule": "assigned"
+  },
   "value-over-limit-multibyte.json": {
     "reason": "value is 321 code points (642 bytes), over the bound: the bound counts code points, not octets"
   },

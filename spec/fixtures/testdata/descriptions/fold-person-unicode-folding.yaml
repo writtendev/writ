@@ -11,7 +11,10 @@ description: >
   have merged it with; and a value carrying 31 consecutive NFD non-starters —
   which WRIT-140 makes the producer refuse — still folds byte-for-byte intact
   when a foreign or buggy client writes it, because the rule is producer-side
-  only and the fold does not consult it.
+  only and the fold does not consult it; the Unicode 16 capitals Garay A and
+  Cyrillic Tje fold to their small forms, which a reader on older tables would
+  not do; and an unassigned code point, which the producer refuses, folds
+  verbatim for the same reason.
 
 refs:
   - name: refs/writ/0123456789abcdef/schema
@@ -372,6 +375,45 @@ refs:
               op_version: 1
               body:
                 add: ["user:á̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖̖"]
+            expect: accept
+
+          # Case folding the Unicode 16 additions folds as 17.0.0 says, on
+          # every reader: Garay capital A (U+10D50) folds to its small form
+          # (U+10D70) and Cyrillic capital Tje (U+1C89) to U+1C8A, so each pair
+          # is one assignee. A reader on pre-16 Unicode tables would leave the
+          # capitals alone and see two. The tables are vendored
+          # (internal/person/ucd), so no toolchain can do that to a
+          # conforming reader.
+          - id: alice-assign-unicode16
+            parents: [alice-assign-stream-safe-boundary]
+            author: alice
+            timestamp: 2026-01-01T00:10:00Z
+            op:
+              object_id: w-person-unicode
+              object_type: acme.widget
+              op_type: assign
+              op_version: 1
+              body:
+                add: ["user:\U00010D50", "user:\U00010D70", "user:Ᲊ", "user:ᲊ"]
+            expect: accept
+
+          # U+0378 is unassigned at Unicode 17.0.0 (General_Category Cn), which
+          # the producer refuses (spec/identifiers.md section Value character
+          # repertoire) -- but the rule is producer-side hygiene and the fold is
+          # total (spec/fold.md section 7.1), so a foreign or buggy client's op
+          # carrying one folds verbatim: nothing about an unassigned code point
+          # is tabled, so it has no case mapping and no decomposition to apply.
+          - id: alice-assign-unassigned
+            parents: [alice-assign-unicode16]
+            author: alice
+            timestamp: 2026-01-01T00:11:00Z
+            op:
+              object_id: w-person-unicode
+              object_type: acme.widget
+              op_type: assign
+              op_version: 1
+              body:
+                add: ["user:a͸b"]
             expect: accept
 
   - name: refs/writ/fedcba9876543210/widget

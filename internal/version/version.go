@@ -21,7 +21,7 @@ func init() {
 }
 
 // fromBuildInfo reads the module version the toolchain itself records. go.mod
-// pins go 1.25, and since Go 1.24 that alone means info.Main.Version is never
+// pins go 1.27, and since Go 1.24 that alone means info.Main.Version is never
 // "(devel)" when the binary was built inside a VCS checkout: `go install
 // pkg@version` stamps the requested version, and a plain `go build` there
 // stamps a pseudo-version with a "+dirty" suffix if the tree had changes.

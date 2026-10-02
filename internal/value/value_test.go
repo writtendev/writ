@@ -172,6 +172,20 @@ func TestPersonRefRejectionQuotesValueSafely(t *testing.T) {
 	}
 }
 
+// TestPersonRefRejectionNamesUnassignedCodePoint pins WRIT-315's producer-side
+// rule (spec/identifiers.md §Value character repertoire): a person-ref value
+// carrying a code point unassigned at Unicode 17.0.0 is refused, and the
+// message names it.
+func TestPersonRefRejectionNamesUnassignedCodePoint(t *testing.T) {
+	err := value.Validate("person-ref", value.Params{}, "user:a"+string(rune(0x0378))+"x")
+	if err == nil {
+		t.Fatal("value.Validate accepted a person-ref value carrying an unassigned code point")
+	}
+	if !strings.Contains(err.Error(), "U+0378") {
+		t.Errorf("error %q does not name the offending code point", err.Error())
+	}
+}
+
 // TestPersonRefSchemeProblemNotCodePointDecorated pins a round-1 review
 // finding on WRIT-137's PR: the (U+XXXX) suffix must be attached only when
 // person.Check's returned Problem is actually ForbiddenCodePoint, not

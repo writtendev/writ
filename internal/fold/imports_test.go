@@ -21,14 +21,14 @@ import (
 // applies transitively, because value imports nothing but person,
 // engine/internal/anchorshape, and the standard library:
 //
-//   - person imports golang.org/x/text/unicode/norm and
-//     golang.org/x/text/cases, because the normalization rule
-//     spec/identifiers.md pins is defined over Unicode tables that neither
-//     the standard library nor this repository carries. Neither x/text
-//     package performs I/O: both are table-driven computation over generated
-//     Unicode data — no filesystem, no network, no processes, no clock.
-//     cases additionally reaches x/text/language, itself table lookup over
-//     language tags.
+//   - person imports internal/person/ucd, because the normalization rule
+//     spec/identifiers.md pins is defined over Unicode 17.0.0 tables that
+//     neither the standard library nor any module this repository could
+//     trust to stay put carries. ucd is generated table data and lookup
+//     over it, importing only sort: no filesystem, no network, no
+//     processes, no clock. Person no longer reaches golang.org/x/text at
+//     all; x/text is a test-only dependency, the cross-check the vendored
+//     tables are generated from and compared against.
 //   - person also imports the root-level internal/textsafe (WRIT-137), the
 //     forbidden-code-point table shared with cmd/writ's display-side
 //     escaping. textsafe imports only strings, already on this package's own
@@ -37,9 +37,9 @@ import (
 //     anchor value type's producer check shares with engine/resolve's
 //     read-side pre-check. It is stdlib-only by its own doc comment and adds
 //     nothing to this closure beyond one more leaf.
-//   - The transitive closure through value and person does contain os,
-//     reached through fmt, which x/text and value's own error messages both
-//     use for formatting. That grants fold nothing new in practice: this
+//   - The transitive closure through value does contain os, reached through
+//     fmt, which value's own error messages use for formatting (person
+//     itself no longer reaches it). That grants fold nothing new in practice: this
 //     test reads fold's own imports, so fold calling os directly would still
 //     mean an import here that this list rejects, and value's own source
 //     imports fmt, regexp, unicode/utf8, person, anchorshape, and nothing

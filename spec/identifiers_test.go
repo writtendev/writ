@@ -319,10 +319,10 @@ func TestValidPersonVectors(t *testing.T) {
 				t.Errorf("schema rejected the normalized identifier: %v", err)
 			}
 
-			// Both producer-side rules are unreachable from the schema
+			// The producer-side rules are unreachable from the schema
 			// (TestInvalidPersonVectors' enforced_by: "producer" arm), so
 			// this is the only place a valid vector is ever checked against
-			// either. Without this, a valid vector minted to sit exactly at
+			// any of them. Without this, a valid vector minted to sit exactly at
 			// the 30-non-starter boundary, or exactly at the repertoire
 			// rule's edge, is never actually exercised on the accepting
 			// side.
@@ -331,6 +331,9 @@ func TestValidPersonVectors(t *testing.T) {
 			}
 			if !spec.PersonValueRepertoireOK(norm) {
 				t.Errorf("producer rejected %q on repertoire; want accept", norm)
+			}
+			if !spec.PersonValueAssignedOK(norm) {
+				t.Errorf("producer rejected %q as carrying an unassigned code point; want accept", norm)
 			}
 
 			for _, other := range vec.EqualTo {
@@ -358,6 +361,7 @@ func TestValidPersonVectors(t *testing.T) {
 var personProducerRules = map[string]func(string) bool{
 	"stream-safe": spec.PersonValueIsStreamSafe,
 	"repertoire":  spec.PersonValueRepertoireOK,
+	"assigned":    spec.PersonValueAssignedOK,
 }
 
 // TestInvalidPersonVectors checks that every testdata/persons/invalid vector

@@ -49,6 +49,11 @@ func DerivePersonID(cfg map[string]string) (string, error) {
 					problem = fmt.Errorf("%w: %s (U+%04X)", ErrInvalid, p, r)
 				}
 			}
+			if p == person.UnassignedCodePoint {
+				if r, ok := person.FirstUnassigned(norm); ok {
+					problem = fmt.Errorf("%w: %s (U+%04X)", ErrInvalid, p, r)
+				}
+			}
 			return "", &ConfigError{
 				Key:     PersonIDKey,
 				Value:   raw,
@@ -76,6 +81,11 @@ func DerivePersonID(cfg map[string]string) (string, error) {
 		problem := fmt.Errorf("%w: derived person identifier is not conforming: %s (set %s to override)", ErrInvalid, p, PersonIDKey)
 		if p == person.ForbiddenCodePoint {
 			if r, ok := person.FirstForbidden(norm); ok {
+				problem = fmt.Errorf("%w: derived person identifier is not conforming: %s (U+%04X) (set %s to override)", ErrInvalid, p, r, PersonIDKey)
+			}
+		}
+		if p == person.UnassignedCodePoint {
+			if r, ok := person.FirstUnassigned(norm); ok {
 				problem = fmt.Errorf("%w: derived person identifier is not conforming: %s (U+%04X) (set %s to override)", ErrInvalid, p, r, PersonIDKey)
 			}
 		}

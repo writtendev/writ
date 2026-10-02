@@ -39,9 +39,9 @@ func main() {
 // os.SameFile against a stat of os.DevNull — the latter would fix only the
 // /dev/null case and leave every other non-tty character device
 // misclassified. golang.org/x/sys, term's only dependency, is already an
-// indirect requirement of this module, and golang.org/x/text and
-// golang.org/x/crypto are already direct ones, so this promotes an
-// existing transitive dependency rather than adding a new one;
+// indirect requirement of this module, and golang.org/x/crypto is already a
+// direct one, so this promotes an existing transitive dependency rather than
+// adding a new one;
 // mattn/go-isatty, present only as an indirect dependency of something
 // else in the module graph, stays indirect rather than becoming a second
 // answer to the same question.

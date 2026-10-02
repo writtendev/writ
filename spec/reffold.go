@@ -7,17 +7,16 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"golang.org/x/text/cases"
-	"golang.org/x/text/unicode/norm"
-
+	"github.com/writtendev/writ/internal/person/ucd"
 	"github.com/writtendev/writ/internal/textsafe"
 )
 
 // personUnicodeVersion is the Unicode version spec/identifiers.md pins the
-// person-identifier normalization algorithm to. x/text selects its tables by
-// Go build tag rather than by module version, so this is checked against the
-// tables actually compiled in rather than assumed.
-const personUnicodeVersion = "17.0.0"
+// person-identifier normalization algorithm to, permanently for format v1. The
+// Unicode data is internal/person/ucd's vendored tables, shared with the
+// engine's copy of the rule: data, not algorithm, so a reference fold built on
+// it does not depend on the Unicode version of whoever compiled it.
+const personUnicodeVersion = ucd.Version
 
 // splitPerson splits a person identifier into scheme and value on the FIRST
 // colon, per spec/identifiers.md. The first colon and not "a colon": an email
@@ -105,94 +104,47 @@ func personLowerASCII(s string) string {
 	return string(b)
 }
 
-// personFoldCaser performs Unicode default case folding. cases.Fold documents the
-// returned Caser as stateless and safe for concurrent use, so one is shared.
-var personFoldCaser = cases.Fold()
-
-// Cherokee uppercase letters case-fold to themselves. Cherokee is the one
-// script whose folding maps lowercase *up* — CaseFolding.txt has
-// "AB70..ABBF; C; 13A0..13EF" and "13F8..13FD; C; 13F0..13F5" — and x/text
-// encodes case mappings as XOR deltas, which cannot express a mapping that is
-// not an involution. cases.Fold therefore toggles these code points instead of
-// holding them fixed: it answers U+AB70 for U+13A0, where CPython, ICU and
-// CaseFolding.txt all answer U+13A0 (golang/go#46101, open since 2021).
-//
-// Folding is idempotent by definition, so a toggle is a defect rather than a
-// tailoring, and a normalization built on it would not settle: U+13A0 and
-// U+AB70 would swap places on every pass.
-const personCherokeeLo, personCherokeeHi = 0x13A0, 0x13F5
-
-// personCaseFold applies Unicode default case folding, holding the Cherokee code
-// points x/text toggles at their correct fixed points.
-//
-// Folding runs of the string separately and copying the fixed points through
-// gives the same answer as folding the whole string would, because toCasefold
-// is context-free: unlike lowercasing, which has the final-sigma rule, no
-// case-folding mapping depends on neighbouring characters.
+// personCaseFold applies Unicode default case folding, the full C and F mappings of
+// CaseFolding.txt, one code point at a time. That is the whole of it because
+// toCasefold is context-free: unlike lowercasing, which has the final-sigma
+// rule, no case-folding mapping depends on neighbouring characters. Bytes
+// that are not valid UTF-8 are copied through untouched.
 func personCaseFold(s string) string {
-	if !personHasCherokee(s) {
-		return personFoldCaser.String(s)
-	}
 	var b strings.Builder
-	b.Grow(len(s))
-	run := 0
-	for i, r := range s {
-		if r < personCherokeeLo || r > personCherokeeHi {
-			continue
+	copied := 0
+	for i := 0; i < len(s); {
+		r, n := utf8.DecodeRuneInString(s[i:])
+		if f := ucd.Fold(r); f != "" {
+			if b.Len() == 0 {
+				b.Grow(len(s))
+			}
+			b.WriteString(s[copied:i])
+			b.WriteString(f)
+			copied = i + n
 		}
-		b.WriteString(personFoldCaser.String(s[run:i]))
-		b.WriteRune(r)
-		run = i + utf8.RuneLen(r)
+		i += n
 	}
-	b.WriteString(personFoldCaser.String(s[run:]))
+	if copied == 0 {
+		return s
+	}
+	b.WriteString(s[copied:])
 	return b.String()
-}
-
-func personHasCherokee(s string) bool {
-	for _, r := range s {
-		if r >= personCherokeeLo && r <= personCherokeeHi {
-			return true
-		}
-	}
-	return false
 }
 
 // personNFC returns s in Normalization Form C.
 //
-// It does not ask x/text to normalize anything larger than a single rune or a
-// single pair, because x/text's answer for a whole string is wrong in four
-// ways. The first three are defects; the fourth is a deliberate behaviour that
-// this specification does not want:
+// The composition is done here, segment by segment, over a canonically
+// ordered decomposition, rather than by a library's whole-string NFC, because
+// of what spec/identifiers.md says no implementation may do: apply
+// Stream-Safe Text. A library that implements UAX #15 §13 applies it
+// unconditionally — past 30 consecutive non-starters it inserts U+034F and
+// stops composing — and that is reachable well inside the 320-code-point
+// bound. Its segment boundaries are Stream-Safe's too, a cut after 30
+// non-starters rather than at a position nothing composes across.
 //
-//  1. Over-composition. A composition pair is packed into a 32-bit key as
-//     uint16(a)<<16|uint16(b) (unicode/norm/forminfo.go), so a starter above
-//     U+FFFF is truncated to its low 16 bits and matches the BMP entry sharing
-//     them: NFC of U+10041 U+0300 returns "À". 16,956 (starter, mark) pairs
-//     compose falsely this way, and each one merges two distinct people.
-//  2. Stream-Safe Text, applied unconditionally through String, Bytes and Iter
-//     alike: past 30 consecutive non-starters it inserts U+034F and stops
-//     composing. spec/identifiers.md forbids that, and it is reachable well
-//     inside the 320-code-point bound.
-//  3. Composing across a blocker. NFC of U+00C5 U+0BD7 U+0316 U+0301 returns
-//     U+01FA U+0BD7 U+0316: the acute composed onto the base across a ccc-0
-//     mark that blocks it, and was then dropped from the output.
-//  4. Stream-safe *boundaries*. norm.NextBoundaryInString is driven by
-//     streamSafe.next, so it reports a cut after 30 non-starters rather than a
-//     position nothing composes across. x/text carries a TODO at
-//     unicode/norm/normalize.go saying the two are not the same thing.
-//
-// A round-trip guard alone cannot cover this. NFD(NFC(x)) == NFD(x) catches
-// (1), because a false composition is not canonically equivalent. It is blind
-// to (2), because NFD inserts the same joiner and it is present on both sides
-// of the comparison. It sees (3) only because a code point goes missing, and
-// the only repair available to a guard — fall back to NFD — then discards the
-// composition that was legitimate.
-//
-// So the composition is done here, segment by segment, over a canonically
-// ordered decomposition, with x/text asked only the three questions it answers
-// correctly: what one rune decomposes to, what a code point's combining class
-// is, and whether one specific pair composes. All three are swept exhaustively
-// against CPython, which shares no code with x/text.
+// The Unicode facts come from internal/person/ucd; this code is the
+// algorithm, and is swept exhaustively against CPython, which shares nothing
+// with it.
 func personNFC(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
@@ -208,29 +160,24 @@ func personNFC(s string) string {
 // s: its first rune, plus every following rune that cannot begin a segment of
 // its own.
 //
-// The rule is Properties.BoundaryBefore — ccc == 0 and does not combine
-// backwards — applied rune by rune. That is the definition of a position
-// nothing can compose across, so cutting there cannot separate a composing
-// pair, and it has no length limit. See personNFC (4) for why this is not
-// norm.NextBoundaryInString.
+// The rule is ucd.BoundaryBefore — ccc == 0 and does not combine backwards —
+// applied rune by rune. That is the definition of a position nothing can
+// personCompose across, so cutting there cannot separate a composing pair, and it
+// has no length limit.
 //
 // Combining backwards, and not merely being a non-starter, is what keeps
 // Hangul whole: V (U+1161..U+1175) and T (U+11A8..U+11C2) have ccc == 0 and
-// compose onto the syllable before them, as do spacing marks such as Grantha
+// personCompose onto the syllable before them, as do spacing marks such as Grantha
 // U+1133E and Tamil U+0BBE. All of them report BoundaryBefore false and stay
 // with their base.
 func personSegmentLen(s string) int {
 	for i := 0; i < len(s); {
-		p := norm.NFC.PropertiesString(s[i:])
-		if i > 0 && p.BoundaryBefore() {
+		// Invalid UTF-8 decodes one byte at a time, so this always advances
+		// and cannot loop; a person identifier is not required to be well
+		// formed for the fold to terminate on it.
+		r, n := utf8.DecodeRuneInString(s[i:])
+		if i > 0 && ucd.BoundaryBefore(r) {
 			return i
-		}
-		n := p.Size()
-		if n <= 0 {
-			// Invalid UTF-8. Advance a byte so this cannot loop; a person
-			// identifier is not required to be well formed for the fold to
-			// terminate on it.
-			n = 1
 		}
 		i += n
 	}
@@ -255,18 +202,19 @@ func personNFCSegment(seg string) string {
 // is measurably worth computing once.
 //
 // Decomposition is applied one rune at a time because it is context-free —
-// NFD(xy) is NFD(x) followed by NFD(y), reordered — and because no single
-// rune's decomposition is long enough to reach the stream-safe limit, so
-// x/text answers each one correctly even where it cannot answer for the whole
-// segment.
+// NFD(xy) is NFD(x) followed by NFD(y), reordered.
 func personDecompose(seg string) ([]rune, []uint8) {
 	rs := make([]rune, 0, len(seg))
 	for _, r := range seg {
-		rs = append(rs, []rune(norm.NFD.String(string(r)))...)
+		if d := ucd.Decompose(r); d != "" {
+			rs = append(rs, []rune(d)...)
+		} else {
+			rs = append(rs, r)
+		}
 	}
 	cc := make([]uint8, len(rs))
 	for i, r := range rs {
-		cc[i] = personCCC(r)
+		cc[i] = ucd.CCC(r)
 	}
 	personCanonicalOrder(rs, cc)
 	return rs, cc
@@ -341,8 +289,7 @@ func personSortByCCC(rs []rune, cc []uint8) {
 
 // personCompose applies UAX #15's Canonical Composition Algorithm to a canonically
 // ordered decomposition. Every Unicode fact it needs — the combining classes,
-// and whether a given pair composes — comes from x/text; nothing here is a
-// table this repository has to keep current.
+// and whether a given pair composes — comes from internal/person/ucd.
 //
 // It tracks the last-retained starter (L) per UAX #15 so that
 // backward-combining starters that appear as first elements of compositions
@@ -362,7 +309,7 @@ func personCompose(rs []rune, cc []uint8) string {
 	for i, c := range rs[1:] {
 		n := int(cc[i+1])
 		if lastStarter >= 0 && maxRetained < n {
-			if p, ok := personCombine(out[lastStarter], c); ok {
+			if p, ok := ucd.Compose(out[lastStarter], c); ok {
 				out[lastStarter] = p
 				continue
 			}
@@ -378,36 +325,10 @@ func personCompose(rs []rune, cc []uint8) string {
 	return string(out)
 }
 
-// personCombine reports the primary composite of a and b, if there is one. It asks
-// x/text, on a two-rune string that cannot reach the stream-safe limit, and
-// applies the round-trip guard so a composition invented by the truncated key
-// (personNFC (1)) is refused.
-func personCombine(a, b rune) (rune, bool) {
-	in := string([]rune{a, b})
-	out := norm.NFC.String(in)
-	if norm.NFD.String(out) != norm.NFD.String(in) {
-		return 0, false
-	}
-	rs := []rune(out)
-	if len(rs) == 1 {
-		return rs[0], true
-	}
-	return 0, false
-}
-
-// personCCC reports a rune's canonical combining class. It encodes into a stack
-// buffer rather than calling PropertiesString(string(r)), which heap-allocates
-// on every call and is invoked once per code point of every identifier folded.
-func personCCC(r rune) uint8 {
-	var buf [utf8.UTFMax]byte
-	n := utf8.EncodeRune(buf[:], r)
-	return norm.NFC.Properties(buf[:n]).CCC()
-}
-
 // personMaxNonStarterRun mirrors engine/internal/person's MaxNonStarterRun
 // (spec/identifiers.md §Value shape: Stream-Safe Text). It sits outside the
 // block TestReffoldIsTheSameAlgorithmAsTheEngine compares source-for-source,
-// which stops at personCCC above, because the rule it backs is producer-side:
+// which stops at personCompose above, because the rule it backs is producer-side:
 // reffold.go is the reference fold, not a reference producer, and has no
 // Check of its own to mirror in full.
 const personMaxNonStarterRun = 30
@@ -429,12 +350,9 @@ const personMaxNonStarterRun = 30
 // engine's public API baseline, and engine/internal/person can import spec
 // with no cycle — spec has no engine imports at all.
 //
-// The decomposition discipline matches engine/internal/person's maxRunLen and
-// for the same reason: decomposing the whole value in one call would let
-// x/text apply Stream-Safe Text and insert U+034F past 30 non-starters,
-// hiding the very run this function exists to measure. A single rune's
-// canonical decomposition is always far shorter than the limit, so
-// decomposing rune by rune cannot trigger the same defect.
+// The decomposition discipline matches engine/internal/person's maxRunLen: a
+// run is measured rune by rune off each code point's canonical decomposition,
+// which needs no reordering because a run cannot cross a starter.
 func PersonValueIsStreamSafe(id string) bool {
 	_, value, ok := splitPerson(id)
 	if !ok {
@@ -442,8 +360,12 @@ func PersonValueIsStreamSafe(id string) bool {
 	}
 	run := 0
 	for _, r := range value {
-		for _, d := range norm.NFD.String(string(r)) {
-			if personCCC(d) == 0 {
+		d := ucd.Decompose(r)
+		if d == "" {
+			d = string(r)
+		}
+		for _, dr := range d {
+			if ucd.CCC(dr) == 0 {
 				run = 0
 				continue
 			}
@@ -462,7 +384,7 @@ func PersonValueIsStreamSafe(id string) bool {
 //
 // It exists for the same reason PersonValueIsStreamSafe does, and sits
 // beside it rather than in the source-for-source parity block above
-// (personSplitPerson through personCCC): this is producer-side hygiene, not
+// (foldPersonValue through personCompose): this is producer-side hygiene, not
 // part of the fold, so there is no engine algorithm for
 // TestReffoldIsTheSameAlgorithmAsTheEngine to compare it against
 // line-for-line. TestInvalidPersonVectors uses it to check a
@@ -485,6 +407,33 @@ func PersonValueRepertoireOK(id string) bool {
 	}
 	_, bad := textsafe.First(value)
 	return !bad
+}
+
+// PersonValueAssignedOK reports whether a person identifier's value conforms to
+// spec/identifiers.md §Value character repertoire's unassigned-code-point rule:
+// it carries no code point whose General_Category is Cn at Unicode 17.0.0.
+//
+// It sits beside PersonValueRepertoireOK on the same terms — producer-side
+// hygiene, outside the parity block, there so TestInvalidPersonVectors can pin
+// a testdata/persons/invalid vector to the one rule that rejects it. The rule
+// is separate from the forbidden-code-point table because it is a different
+// kind of rule: that table is a blocklist of what renders deceptively, this
+// one exists because Unicode's stability policies freeze normalization and
+// case folding only for assigned code points. Private use is assigned (Co);
+// noncharacters are Cn.
+func PersonValueAssignedOK(id string) bool {
+	_, value, ok := splitPerson(id)
+	if !ok {
+		value = id
+	}
+	for i := 0; i < len(value); {
+		r, n := utf8.DecodeRuneInString(value[i:])
+		if !(r == utf8.RuneError && n == 1) && !ucd.Assigned(r) {
+			return false
+		}
+		i += n
+	}
+	return true
 }
 
 // EffectiveTimes computes the causality-monotone effective timestamp

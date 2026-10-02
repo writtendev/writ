@@ -13,12 +13,6 @@ var (
 	CaseFold = caseFold
 )
 
-// CaseFoldRaw is x/text's case folding with the Cherokee fixed points not
-// corrected — the defect this package works around, kept reachable so
-// TestDifferentialCatchesTheDefects can show the guard is load-bearing rather
-// than decorative.
-func CaseFoldRaw(s string) string { return foldCaser.String(s) }
-
 // ComposeSegment exposes the hand-written composition path so
 // TestComposePathMatchesLibrary can check it against x/text everywhere x/text
 // is trustworthy — which is every input the exhaustive differential covers.
