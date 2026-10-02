@@ -56,7 +56,8 @@ Consequently:
    the same position key, both operations succeed and both items retain that
    position key.
 3. Every implementation resolves ties identically by comparing the operation's
-   unique identifier (`op_id`, the git commit SHA) in ASCII byte order.
+   unique identifier (`op_id`, the lowest-sorting git commit SHA carrying the
+   operation's signed payload) in ASCII byte order.
 
 Producers MUST NOT append random jitter or UUID suffixes to fractional index keys;
 Writ's existing tiebreak machinery handles collisions cleanly and deterministically.
@@ -269,7 +270,7 @@ When presenting or querying an ordered collection of objects:
 
 1. **Primary Sort Key:** `position` ascending (standard ASCII byte comparison).
 2. **Secondary Sort Key (Tiebreak):** `op_id` (git commit SHA of the winning
-   operation) ascending (standard ASCII byte comparison).
+   operation: the lowest-sorting carrier of its signed payload) ascending (standard ASCII byte comparison).
 
 In SQLite projections, this corresponds directly to:
 

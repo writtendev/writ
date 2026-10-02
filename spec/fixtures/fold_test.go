@@ -73,6 +73,10 @@ func runFoldFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 		return nil, fmt.Errorf("store.Enumerate failed: %w", err)
 	}
 
+	if fix.Name == "fold-replayed-op" {
+		requireReplayedOpExercised(t, fix, enumRes)
+	}
+
 	// Map commit SHA to description label
 	shaToLabel := make(map[string]string)
 	commitIdx := 0
@@ -304,6 +308,59 @@ func runFoldFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 		return nil, fmt.Errorf("marshal fold golden: %w", err)
 	}
 	return append(b, '\n'), nil
+}
+
+// requireReplayedOpExercised pins what fold-replayed-op is for (WRIT-312), so
+// the fixture cannot silently stop exercising it: Alice's revision and its
+// armor-rewrapped replay are two commits but one op, whose id is the
+// lowest-sorting of them; and Bob's commit names the carrier that did NOT
+// become the op id as its parent line, so the golden only comes out right if
+// the reader rewrote that edge to the op id.
+func requireReplayedOpExercised(t *testing.T, fix *fixtures.Fixture, enumRes *dag.EnumerateResult) {
+	t.Helper()
+	sha := func(label string) string {
+		s, ok := fix.CommitSHA(label)
+		if !ok {
+			t.Fatalf("%s: no commit labelled %q", fix.Name, label)
+		}
+		return s
+	}
+	original, replay, bob := sha("widget-revision"), sha("widget-revision-replay"), sha("bob-update")
+	if original == replay {
+		t.Fatalf("%s: armor-rewrap left the replay's SHA unchanged (%s)", fix.Name, original)
+	}
+	survivor, dropped := original, replay
+	if replay < original {
+		survivor, dropped = replay, original
+	}
+
+	if got := enumRes.Carriers[survivor]; len(got) != 2 || got[0] != survivor || got[1] != dropped {
+		t.Fatalf("%s: Carriers[%s] = %v, want [%s %s]", fix.Name, survivor, got, survivor, dropped)
+	}
+	if _, ok := enumRes.Carriers[dropped]; ok {
+		t.Fatalf("%s: dropped carrier %s is itself an op", fix.Name, dropped)
+	}
+
+	bobCommit, err := fix.Repo.CommitObject(plumbing.NewHash(bob))
+	if err != nil {
+		t.Fatalf("%s: lookup bob's commit: %v", fix.Name, err)
+	}
+	if len(bobCommit.ParentHashes) != 1 || bobCommit.ParentHashes[0].String() != dropped {
+		t.Fatalf("%s: bob's parent line is %v, want the non-surviving carrier %s — repoint bob-update's parents at the other revision label",
+			fix.Name, bobCommit.ParentHashes, dropped)
+	}
+	var bobOp *codec.Op
+	for i, op := range enumRes.Ops["w-replayed-op"] {
+		if op.ID == bob {
+			bobOp = &enumRes.Ops["w-replayed-op"][i]
+		}
+	}
+	if bobOp == nil {
+		t.Fatalf("%s: bob's op %s not enumerated", fix.Name, bob)
+	}
+	if len(bobOp.Parents) != 1 || bobOp.Parents[0] != survivor {
+		t.Fatalf("%s: bob's op parents = %v, want [%s] (the op id)", fix.Name, bobOp.Parents, survivor)
+	}
 }
 
 // TestFoldCoverage asserts that every field rule a fold-* fixture's schema

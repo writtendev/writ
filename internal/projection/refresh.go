@@ -130,19 +130,24 @@ func (c *refreshConfig) enumerateOptions() []dag.EnumerateOption {
 	return []dag.EnumerateOption{dag.WithLiveTrustStore(c.trustStore)}
 }
 
-// incrementalSeenOption prepares a dag.WithSeen option backed by the ops
-// table's op_id primary key, for Refresh's incremental path only (WRIT-273).
-// A commit already recorded there had everything the reader walk reaches
-// from it (WRIT-289: ancestry the walk would have stopped short of, behind
-// a rejected commit, was never reachable in the first place) walked by
-// whichever pass first inserted it — see dag.WithSeen's doc comment for why
-// that invariant holds for this projection specifically — so EnumerateSince can
-// treat it as an already-seen stop point instead of re-decoding its whole
-// ancestry every time a new op's causal parent happens to sit deep inside
-// another chain. The prepared statement is a point lookup on the primary
-// key, reused across every candidate commit in one pass; the caller must
-// call the returned close func once this pass's EnumerateSince call
-// returns, and check its error.
+// incrementalSeenOption prepares a dag.WithSeen option backed by the
+// op_carriers table's commit_id primary key, for Refresh's incremental path
+// only (WRIT-273). op_carriers holds every commit carrying a recorded op's
+// signed payload, not just the lowest-sorting one that became its op_id
+// (WRIT-312), so a dropped carrier counts as seen too: it shares the
+// op's parents byte for byte, so everything the walk would reach from it
+// was walked with the op. A commit already recorded there had everything
+// the reader walk reaches from it (WRIT-289: ancestry the walk would have
+// stopped short of, behind a rejected commit, was never reachable in the
+// first place) walked by whichever pass first inserted it — see
+// dag.WithSeen's doc comment for why that invariant holds for this
+// projection specifically — so EnumerateSince can treat it as an
+// already-seen stop point instead of re-decoding its whole ancestry every
+// time a new op's causal parent happens to sit deep inside another chain.
+// The prepared statement is a point lookup on the primary key, reused
+// across every candidate commit in one pass; the caller must call the
+// returned close func once this pass's EnumerateSince call returns, and
+// check its error.
 //
 // The predicate itself can only return bool — dag.WithSeen has no way to
 // carry an error out of the walk — so "not seen" and "the seen lookup
@@ -157,7 +162,7 @@ func (c *refreshConfig) enumerateOptions() []dag.EnumerateOption {
 // seenErr and returned by the close func so the caller fails the pass
 // instead of silently reverting to a full ancestry walk.
 func (d *DB) incrementalSeenOption() (dag.EnumerateOption, func() error, error) {
-	stmt, err := d.db.Prepare("SELECT 1 FROM ops WHERE op_id = ?")
+	stmt, err := d.db.Prepare("SELECT 1 FROM op_carriers WHERE commit_id = ?")
 	if err != nil {
 		return nil, nil, fmt.Errorf("projection: prepare seen lookup: %w", err)
 	}
@@ -431,6 +436,29 @@ func (d *DB) Refresh(store *dag.Store, opts ...Option) (Stats, error) {
 		return d.rebuildWithConfig(store, cfg, targetTips)
 	}
 
+	// WRIT-312: two commits whose signed payloads are byte-identical are one
+	// op, whose id is the lowest-sorting such commit. A newly enumerated
+	// commit carrying the payload of an op this cache already holds under
+	// another id — a replay, an armor re-wrap, or Alice signing the same op
+	// twice — can move that op's id (when the new carrier sorts lower) and
+	// always changes what its verification is the best of. Neither is
+	// something a delta on top of the stored rows can express, and every
+	// child recorded so far names the old id, so this takes the
+	// full-rebuild path exactly as a rewound tip does: the cold walk
+	// re-picks the survivor and re-merges verification, so an incremental
+	// pass can never disagree with a rebuild about it.
+	if moved, err := d.opIdentityMoved(enumRes); err != nil {
+		return Stats{}, err
+	} else if moved {
+		return d.rebuildWithConfig(store, cfg, targetTips)
+	}
+	// The walk stopped at every commit this cache already holds, so a new
+	// op's parent line can still name a carrier that is not its op's id:
+	// rewrite those the way the walk itself does for carriers it saw.
+	if err := d.rewriteStoredParents(enumRes); err != nil {
+		return Stats{}, err
+	}
+
 	// 4. Fast-forward incremental path in a single transaction
 	tx, err := d.db.Begin()
 	if err != nil {
@@ -482,12 +510,8 @@ func (d *DB) Refresh(store *dag.Store, opts ...Option) (Stats, error) {
 	}
 
 	// Insert newly enumerated ops into ops table
-	for _, ops := range enumRes.Ops {
-		for _, op := range ops {
-			if err := insertOp(tx, op); err != nil {
-				return Stats{}, err
-			}
-		}
+	if err := insertEnumeratedOps(tx, enumRes); err != nil {
+		return Stats{}, err
 	}
 
 	// Refold only touched objects
@@ -659,12 +683,8 @@ func (d *DB) rebuildWithConfig(store *dag.Store, cfg *refreshConfig, targetTips 
 	}
 
 	// Insert all ops
-	for _, ops := range enumRes.Ops {
-		for _, op := range ops {
-			if err := insertOp(tx, op); err != nil {
-				return Stats{}, err
-			}
-		}
+	if err := insertEnumeratedOps(tx, enumRes); err != nil {
+		return Stats{}, err
 	}
 
 	// Fold all objects
@@ -739,7 +759,98 @@ func (d *DB) loadChainTips() (dag.CursorSet, error) {
 	return cursors, rows.Err()
 }
 
-func insertOp(tx *sql.Tx, op codec.Op) error {
+// opIdentityMoved reports whether any newly enumerated op carries the signed
+// payload of an op already recorded under a different id (WRIT-312). An
+// enumeration result that carries no payload ids, as one built by hand in a
+// test does, never reports a move.
+func (d *DB) opIdentityMoved(res *dag.EnumerateResult) (bool, error) {
+	stmt, err := d.db.Prepare("SELECT op_id FROM ops WHERE payload_id = ?")
+	if err != nil {
+		return false, fmt.Errorf("projection: prepare payload lookup: %w", err)
+	}
+	defer stmt.Close()
+	for _, ops := range res.Ops {
+		for _, op := range ops {
+			payloadID := res.PayloadIDs[op.ID]
+			if payloadID == "" {
+				continue
+			}
+			var stored string
+			err := stmt.QueryRow(payloadID).Scan(&stored)
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			if err != nil {
+				return false, fmt.Errorf("projection: look up payload %s: %w", payloadID, err)
+			}
+			if stored != op.ID {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+// rewriteStoredParents rewrites, in place, every parent of every newly
+// enumerated op that names a recorded carrier to the op id that carrier
+// belongs to, collapsing repeats and keeping each first occurrence's
+// position — the same rule dag.EnumerateSince applies to carriers it saw
+// itself (spec/ref-layout.md §Reader enumeration step 3). The walk stops at
+// every commit this cache already holds, so it never sees a carrier recorded
+// by an earlier pass; op_carriers is how the rewrite reaches one.
+func (d *DB) rewriteStoredParents(res *dag.EnumerateResult) error {
+	stmt, err := d.db.Prepare("SELECT op_id FROM op_carriers WHERE commit_id = ?")
+	if err != nil {
+		return fmt.Errorf("projection: prepare carrier lookup: %w", err)
+	}
+	defer stmt.Close()
+	for _, ops := range res.Ops {
+		for i := range ops {
+			parents := make([]string, 0, len(ops[i].Parents))
+			seen := make(map[string]bool, len(ops[i].Parents))
+			for _, p := range ops[i].Parents {
+				var opID string
+				switch err := stmt.QueryRow(p).Scan(&opID); {
+				case err == nil:
+					p = opID
+				case !errors.Is(err, sql.ErrNoRows):
+					return fmt.Errorf("projection: look up carrier %s: %w", p, err)
+				}
+				if !seen[p] {
+					seen[p] = true
+					parents = append(parents, p)
+				}
+			}
+			ops[i].Parents = parents
+		}
+	}
+	return nil
+}
+
+// insertEnumeratedOps records every op res holds and every commit carrying
+// its signed payload. An enumeration result that carries no carriers, as one
+// built by hand in a test does, records each op as its own only carrier.
+func insertEnumeratedOps(tx *sql.Tx, res *dag.EnumerateResult) error {
+	for _, ops := range res.Ops {
+		for _, op := range ops {
+			if err := insertOp(tx, op, res.PayloadIDs[op.ID]); err != nil {
+				return err
+			}
+			carriers := res.Carriers[op.ID]
+			if len(carriers) == 0 {
+				carriers = []string{op.ID}
+			}
+			for _, c := range carriers {
+				if _, err := tx.Exec("INSERT OR REPLACE INTO op_carriers (commit_id, op_id) VALUES (?, ?)", c, op.ID); err != nil {
+					return fmt.Errorf("projection: insert carrier %s of op %s: %w", c, op.ID, err)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func insertOp(tx *sql.Tx, op codec.Op, payloadID string) error {
 	parentsJSON, err := json.Marshal(op.Parents)
 	if err != nil {
 		return fmt.Errorf("projection: marshal parents for op %s: %w", op.ID, err)
@@ -774,13 +885,13 @@ func insertOp(tx *sql.Tx, op codec.Op) error {
 			op_id, object_id, object_type, op_type, op_version,
 			parents, author_name, author_email, author_time, author_tz,
 			committer_name, committer_email, committer_time, committer_tz,
-			message, signature, payload, verification, key_fingerprint
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			message, signature, payload, verification, key_fingerprint, payload_id
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		op.ID, op.ObjectID, op.ObjectType, op.OpType, op.OpVersion,
 		string(parentsJSON), op.Author.Name, op.Author.Email, authorTime, authorTZ,
 		op.Committer.Name, op.Committer.Email, committerTime, committerTZ,
-		op.Message, sig, payload, string(op.Verification.Outcome), fingerprint,
+		op.Message, sig, payload, string(op.Verification.Outcome), fingerprint, payloadID,
 	)
 	if err != nil {
 		return fmt.Errorf("projection: insert op %s: %w", op.ID, err)

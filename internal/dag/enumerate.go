@@ -41,9 +41,26 @@ const RejectObjectUnavailable codec.RejectReason = "object-unavailable"
 // EnumerateResult is the output of an enumeration pass across all writers' chains.
 type EnumerateResult struct {
 	// Ops groups valid ops by envelope ObjectID.
-	// Each slice is sorted lexicographically by op ID (commit SHA) for stable
-	// grouping, and must be passed through Order before folding.
+	// Each slice is sorted lexicographically by op ID for stable grouping,
+	// and must be passed through Order before folding. An op's ID is the
+	// lowest-sorting commit SHA among the commits carrying its signed
+	// payload (see Carriers), and every op's Parents name op IDs, not raw
+	// carrier SHAs: spec/ref-layout.md §Reader enumeration step 3, WRIT-312.
 	Ops map[string][]codec.Op `json:"ops"`
+
+	// Carriers maps every op ID in Ops to the sorted commit SHAs carrying
+	// that op's signed payload, the op ID itself included (it is always the
+	// first). Two commits whose signed payloads are byte-identical are one
+	// op, however differently their signatures are armored (WRIT-312).
+	// Internal bookkeeping for the projection cache, like
+	// ObjectUnavailableExpands: not part of any caller-visible shape.
+	Carriers map[string][]string `json:"carriers,omitempty"`
+
+	// PayloadIDs maps every op ID in Ops to its payload id: the git object
+	// hash of the signed payload bytes (the commit with its gpgsig header
+	// removed). Equal payload ids are what make two commits one op.
+	// Internal bookkeeping for the projection cache, like Carriers.
+	PayloadIDs map[string]string `json:"payload_ids,omitempty"`
 
 	// Cursors maps every discovered chain ref name to its current tip SHA.
 	Cursors CursorSet `json:"cursors"`
@@ -208,9 +225,10 @@ func WithLiveTrustStore(ts codec.TrustStore) EnumerateOption {
 // commit is marked visited but neither decoded nor expanded to its
 // parents. Nil (the default, and the zero value) keeps today's behaviour
 // of walking every commit back to the stored cursors. match is called
-// with a commit's hex SHA — the same string codec.DecodeCommit reports as
-// that commit's op.ID, so a caller keying off op IDs it already holds
-// needs no translation.
+// with a commit's hex SHA. That is an op ID only for the lowest-sorting
+// carrier of an op's signed payload (EnumerateResult.Carriers); a caller
+// keying off op IDs it already holds must also answer true for every other
+// carrier of those ops, or the walk re-decodes them (WRIT-312).
 //
 // Caller invariant: every commit the reader walk would reach from a
 // commit match accepts — not "every ancestor" in the plain git sense, but
@@ -310,8 +328,10 @@ func (s *Store) EnumerateSince(cursors CursorSet, opts ...EnumerateOption) (*Enu
 	}
 
 	result := &EnumerateResult{
-		Ops:     make(map[string][]codec.Op),
-		Cursors: make(CursorSet, len(chains)),
+		Ops:        make(map[string][]codec.Op),
+		Carriers:   make(map[string][]string),
+		PayloadIDs: make(map[string]string),
+		Cursors:    make(CursorSet, len(chains)),
 	}
 
 	// One packidx cache for this whole pass: every commit decoded below —
@@ -397,13 +417,6 @@ func (s *Store) EnumerateSince(cursors CursorSet, opts ...EnumerateOption) (*Enu
 		}
 	}
 
-	// decodedCommit pairs a kept commit's pure form with its decoded op, so
-	// Step 4 below can verify and group each one without decoding it a
-	// second time.
-	type decodedCommit struct {
-		pure codec.Commit
-		op   codec.Op
-	}
 	var decoded []decodedCommit
 
 	for len(queue) > 0 {
@@ -485,9 +498,26 @@ func (s *Store) EnumerateSince(cursors CursorSet, opts ...EnumerateOption) (*Enu
 		}
 	}
 
-	// Step 4: verify and group the commits Step 3 kept. No second decode —
-	// decodeOpCommit above already produced each one's pure Commit and Op.
+	// Step 4: collapse the commits Step 3 kept into ops, then verify and
+	// group them. No second decode — decodeOpCommit above already produced
+	// each one's pure Commit and Op.
 	//
+	// An op's identity is its signed payload, not the bytes its signature
+	// happens to be armored in (WRIT-312, spec/signing.md §Signed Payload
+	// and Op Identity): two commits whose signed payloads are byte-identical
+	// are one op, whatever their gpgsig headers say. Each such commit is a
+	// carrier of the op; the op's ID is the lowest-sorting carrier SHA, so
+	// it is still a real commit in the store, and every op's Parents are
+	// rewritten to name op IDs rather than whichever carrier a parent line
+	// happened to spell.
+	groups := groupCarriers(decoded)
+	carrierToOp := make(map[string]string, len(decoded))
+	for _, g := range groups {
+		for _, c := range g.carriers {
+			carrierToOp[c.op.ID] = g.carriers[0].op.ID
+		}
+	}
+
 	// matchedObjects and pendingByObject exist only to make VerifyOnly's
 	// membership scoping (see that option's doc comment) hold regardless
 	// of decode order; cfg.verifyMatch == nil (verify everything) never
@@ -510,65 +540,68 @@ func (s *Store) EnumerateSince(cursors CursorSet, opts ...EnumerateOption) (*Enu
 	// that every op sharing that ObjectID is in scope. pendingByObject
 	// records exactly the ops skipped before that moment, by their
 	// position in result.Ops[objectID], so the backfill pass below can
-	// verify them once the object is confirmed — without a second walk of
-	// the repository: only the specific commits named there are re-fetched
-	// by ID, through this same cachedStorer, and only for objects that
-	// end up matched at all.
+	// verify them once the object is confirmed — from the carriers this
+	// pass already holds, without a second walk or a re-fetch.
+	type pendingOp struct {
+		idx   int
+		group *carrierGroup
+	}
 	var matchedObjects map[string]bool
-	var pendingByObject map[string][]int
+	var pendingByObject map[string][]pendingOp
 	if cfg.verifyMatch != nil {
 		matchedObjects = make(map[string]bool)
-		pendingByObject = make(map[string][]int)
+		pendingByObject = make(map[string][]pendingOp)
 	}
 
-	for _, dc := range decoded {
-		// pureCommit.Payload comes from FromGitCommit (gogit.go), which
-		// builds it with commit.EncodeWithoutSignature — see
-		// decodeOpCommit's doc comment for why it is trustworthy as the
-		// signed payload. dc.pure and dc.op are exactly what decodeOpCommit
-		// produced for this commit in Step 3 above; nothing here re-decodes
-		// or re-fetches it.
-		pureCommit := dc.pure
-		op := dc.op
+	for _, g := range groups {
+		// op is the lowest-sorting carrier's decode. Every carrier signs
+		// byte-identical bytes, so every field except ID and Signature is
+		// the same whichever carrier it came from.
+		op := g.carriers[0].op
+		op.Parents = rewriteParents(op.Parents, carrierToOp)
 
 		// Ingest-time verification (spec/signing.md): the outcome travels
 		// with the op as data and never gates whether it folds (ruling 1,
 		// WRIT-251). Not a Rejection — WRIT-271 owns surfacing those.
 		// Scoped to match's ops when cfg.verifyMatch is set (VerifyOnly);
 		// nil means every decoded op is verified, still using this pass's
-		// own pureCommit and never a value retained across calls.
+		// own pure commits and never a value retained across calls.
 		switch {
 		case cfg.verifyMatch == nil:
-			op.Verification = codec.Verify(pureCommit, cfg.trustStore)
+			g.verifyInto(&op, cfg.trustStore)
 		case cfg.verifyMatch(op):
-			op.Verification = codec.Verify(pureCommit, cfg.trustStore)
+			g.verifyInto(&op, cfg.trustStore)
 			matchedObjects[op.ObjectID] = true
 		case matchedObjects[op.ObjectID]:
 			// A prior op decoded earlier in this same pass already put
 			// this ObjectID in scope (see matchedObjects' doc comment
 			// above), so this one is too even though it does not itself
 			// satisfy cfg.verifyMatch.
-			op.Verification = codec.Verify(pureCommit, cfg.trustStore)
+			g.verifyInto(&op, cfg.trustStore)
 		default:
 			// Not yet known to be in scope. Recorded for the backfill
 			// pass below in case a later-decoded op for this same
 			// ObjectID does satisfy cfg.verifyMatch.
-			pendingByObject[op.ObjectID] = append(pendingByObject[op.ObjectID], len(result.Ops[op.ObjectID]))
+			pendingByObject[op.ObjectID] = append(pendingByObject[op.ObjectID], pendingOp{idx: len(result.Ops[op.ObjectID]), group: g})
 		}
 
 		result.Ops[op.ObjectID] = append(result.Ops[op.ObjectID], op)
+
+		shas := make([]string, len(g.carriers))
+		for i, c := range g.carriers {
+			shas[i] = c.op.ID
+		}
+		result.Carriers[op.ID] = shas
+		result.PayloadIDs[op.ID] = g.payloadID
 	}
 
 	// Backfill: verify every op this pass deferred (the switch's default
 	// case above) whose ObjectID a later-decoded op confirmed was in
-	// scope after all. Each is a single commit lookup by the ID already
-	// decoded onto it, through the same cachedStorer this whole pass
-	// uses — not a second walk of the ancestry, and bounded by that one
-	// object's own out-of-scope-looking op count, not the size of the
-	// repository (WRIT-251 round 3).
+	// scope after all. Bounded by that one object's own out-of-scope-looking
+	// op count, not the size of the repository (WRIT-251 round 3).
 	for objID := range matchedObjects {
-		for _, idx := range pendingByObject[objID] {
-			result.Ops[objID][idx].Verification = verifyCommitByID(cachedStorer, result.Ops[objID][idx].ID, cfg.trustStore)
+		for _, p := range pendingByObject[objID] {
+			p.group.verifyInto(&result.Ops[objID][p.idx], cfg.trustStore)
 		}
 	}
 
@@ -589,25 +622,112 @@ func (s *Store) EnumerateSince(cursors CursorSet, opts ...EnumerateOption) (*Enu
 	return result, nil
 }
 
-// verifyCommitByID re-derives one already-decoded commit's pure form and
-// verifies it, for EnumerateSince's backfill pass only: id is always a
-// commit this same call already decoded successfully once (it comes from
-// an Op already sitting in result.Ops), so a failure here is not expected
-// in practice — a zero Verification (Outcome "") on the rare error path
-// is distinguishable from every real outcome and is preferable to
-// silently reporting a wrong one. This is one targeted object lookup, not
-// a walk: it costs what one commit and its tree already known to exist
-// cost, the same as any other single entry of the loop above.
-func verifyCommitByID(s storage.Storer, id string, ts codec.TrustStore) codec.Verification {
-	commitObj, err := object.GetCommit(s, plumbing.NewHash(id))
-	if err != nil {
-		return codec.Verification{}
+// decodedCommit pairs a kept commit's pure form with its decoded op, so
+// Step 4 can verify and group each one without decoding it a second time.
+type decodedCommit struct {
+	pure codec.Commit
+	op   codec.Op
+}
+
+// carrierGroup is one op as Step 4 sees it: every kept commit whose signed
+// payload is byte-identical to the others', sorted by commit SHA. The first
+// carrier is the op's ID (WRIT-312).
+type carrierGroup struct {
+	payloadID string
+	carriers  []decodedCommit
+}
+
+// groupCarriers collapses decoded into one group per distinct signed payload,
+// in the order each payload was first decoded, each group's carriers sorted
+// by commit SHA. The payload id is the git object hash of the signed
+// payload bytes, so it is a function of those bytes alone.
+func groupCarriers(decoded []decodedCommit) []*carrierGroup {
+	var groups []*carrierGroup
+	byPayload := make(map[string]*carrierGroup, len(decoded))
+	for _, dc := range decoded {
+		id := payloadID(dc)
+		g, ok := byPayload[id]
+		if !ok {
+			g = &carrierGroup{payloadID: id}
+			byPayload[id] = g
+			groups = append(groups, g)
+		}
+		g.carriers = append(g.carriers, dc)
 	}
-	pureCommit, err := codec.FromGitCommit(s, commitObj)
-	if err != nil {
-		return codec.Verification{}
+	for _, g := range groups {
+		sort.Slice(g.carriers, func(i, j int) bool { return g.carriers[i].op.ID < g.carriers[j].op.ID })
 	}
-	return codec.Verify(pureCommit, ts)
+	return groups
+}
+
+// payloadID names a decoded commit's signed payload. codec.FromGitCommit
+// builds Payload with commit.EncodeWithoutSignature and never reports its
+// failure; a commit that somehow came back with no payload bytes at all is
+// its own payload (keyed by its commit SHA) rather than being merged with
+// every other such commit.
+func payloadID(dc decodedCommit) string {
+	if len(dc.pure.Payload) == 0 {
+		return dc.op.ID
+	}
+	return plumbing.ComputeHash(plumbing.CommitObject, dc.pure.Payload).String()
+}
+
+// carrierOutcomeRank orders verification outcomes best-first for choosing
+// among an op's carriers (spec/signing.md §Signed Payload and Op Identity):
+// valid, wrong-key, payload-mutated, corrupted-signature, unsigned. Unlike
+// codec.WorstOutcome's ordering, which summarizes an object across its ops,
+// this one answers "what is the best evidence that this payload was signed":
+// an unsigned carrier is no evidence at all, so it ranks last.
+var carrierOutcomeRank = map[codec.VerificationOutcome]int{
+	codec.OutcomeValid:              0,
+	codec.OutcomeWrongKey:           1,
+	codec.OutcomePayloadMutated:     2,
+	codec.OutcomeCorruptedSignature: 3,
+	codec.OutcomeUnsigned:           4,
+}
+
+// verifyInto verifies every carrier of g and sets op's Verification and
+// Signature from the best outcome, ties broken by the smallest carrier SHA.
+// The best outcome, not the lowest-SHA carrier's own, is what makes dedupe
+// safe: otherwise anyone able to push could grind a lower-SHA unsigned or
+// garbage-signed carrier of a valid op and flip it to unsigned
+// (WRIT-312). Sound because every carrier signs the same bytes: a valid
+// signature on any one of them is a valid signature on the payload.
+func (g *carrierGroup) verifyInto(op *codec.Op, ts codec.TrustStore) {
+	best := -1
+	var bestV codec.Verification
+	for i, c := range g.carriers {
+		v := codec.Verify(c.pure, ts)
+		if best < 0 || carrierOutcomeRank[v.Outcome] < carrierOutcomeRank[bestV.Outcome] {
+			best, bestV = i, v
+		}
+	}
+	op.Verification = bestV
+	op.Signature = g.carriers[best].pure.Signature
+}
+
+// rewriteParents replaces every parent that is a non-surviving carrier with
+// the op ID of the op it carries and drops repeats, keeping each first
+// occurrence's position (spec/ref-layout.md §Reader enumeration step 3).
+// A parent that is not a carrier of any op this pass enumerated is left as
+// it is.
+func rewriteParents(parents []string, carrierToOp map[string]string) []string {
+	if len(parents) == 0 {
+		return parents
+	}
+	out := make([]string, 0, len(parents))
+	seen := make(map[string]bool, len(parents))
+	for _, p := range parents {
+		if opID, ok := carrierToOp[p]; ok {
+			p = opID
+		}
+		if seen[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	return out
 }
 
 // ObjectUnavailableVerdict is StillObjectUnavailable's per-commit answer.

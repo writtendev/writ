@@ -26,9 +26,50 @@ the normative verification algorithm and outcome vocabulary.
 - **Signed Bytes:** The bytes covered by the signature are the exact commit
   object bytes excluding the `gpgsig` signature header (the byte sequence
   produced by git's `EncodeWithoutSignature`).
-- **Op Identity:** The op id is the git commit object identifier (SHA) of
-  the **signed** commit object. Two conforming producers given the same logical
-  op and signing key generate the same op id.
+- **Op Identity:** An op is identified by what was signed, not by the bytes
+  its signature happens to be wrapped in. Two op commits whose signed bytes
+  are byte-identical are **one op**; each such commit is a **carrier** of it.
+  The op id is the lowest-sorting commit SHA (ASCII order of the hexadecimal
+  object id) among the enumerated carriers, so an op id is always the SHA of
+  a real commit in the store. Every other carrier is *dropped*: it is not an
+  op of its own, and a parent edge that names it
+  ([`spec/ref-layout.md`](ref-layout.md) §Reader enumeration step 3) is read
+  as naming the op id.
+  The id of an op can therefore move to a lower SHA when a new carrier
+  arrives; nothing durable may key off a carrier that is not the op id.
+  Two conforming producers given the same logical op and a deterministic
+  signing key (Ed25519 signs deterministically) generate the same commit;
+  given a randomized one (ECDSA) they generate different commits, which are
+  still one op.
+- **Why the identity is the signed payload (WRIT-312).** The signature does
+  not cover its own armoring, so a commit can be rewritten into a second,
+  differently-spelled commit whose signature is still valid over the same
+  signed bytes: re-wrapping the base64 body of the `gpgsig` header at another
+  column width yields the same signature bytes under a new commit SHA, and an
+  ECDSA signature `(r, s)` may be replaced by `(r, N-s)`, which verifies over
+  the same payload. A principal with push access could otherwise write such
+  a commit as a new op, attributed to the original author with a valid
+  verification outcome, and double-apply every `append` or `set-union`-style
+  field and any count of ops. Deduplicating on the signed payload closes the
+  class (any future signature algorithm's malleability included) rather than
+  the known instances, and does so without a validation rule on the armor
+  that would have to be re-litigated per algorithm.
+- **Verification across carriers:** An op's verification outcome is the
+  *best* outcome over its carriers, ranked `valid` > `wrong-key` >
+  `payload-mutated` > `corrupted-signature` > `unsigned`, ties broken by the
+  smallest carrier SHA; the op's reported key fingerprint and principal come
+  from that carrier. This is sound because every carrier signs the same
+  bytes: one valid signature on any carrier is a valid signature on the
+  payload. The surviving carrier's own signature MUST NOT decide it alone —
+  otherwise anyone able to push could grind an unsigned or garbage-signed
+  carrier of a valid op at a lower SHA and flip it from `valid` to
+  `unsigned`.
+- **Accepted residual: lowering an op id.** Because the op id is the lowest
+  carrier SHA, a third party who can write a ref can grind armor variants of
+  someone else's op until one sorts lower, and so lower the op's id and with
+  it its tiebreak position ([`spec/fold.md`](fold.md) §3). It can only go
+  down, bounded by the same SHA-grinding that §3 already accepts from
+  authors; it is documented, not fixed.
 
 ## Verification Model
 

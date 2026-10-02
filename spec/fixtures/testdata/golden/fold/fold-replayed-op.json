@@ -1,0 +1,34 @@
+{
+  "objects": [
+    {
+      "object_id": "w-replayed-op",
+      "object_type": "acme.widget",
+      "total_order": [
+        {
+          "commit": "7c8634df62b59fa24ea317bf56874738ca30d83d",
+          "label": "widget-create",
+          "t_star": 1767225600
+        },
+        {
+          "commit": "3acf434d7cc8aae71c65d4cd87e3a9a2040cf952",
+          "label": "widget-revision",
+          "t_star": 1767226200
+        },
+        {
+          "commit": "e31eebde0eaf6db3eca9c4a53f58130fc968e191",
+          "label": "bob-update",
+          "t_star": 1767226200
+        }
+      ],
+      "state": {
+        "base": [
+          "0123456789abcdef0123456789abcdef01234567"
+        ],
+        "head": [
+          "89abcdef0123456789abcdef0123456789abcdef"
+        ],
+        "title": "Bob's Title"
+      }
+    }
+  ]
+}

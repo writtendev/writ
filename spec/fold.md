@@ -31,8 +31,13 @@ set of operations that are present in the local repository and belong to the
 target object.
 
 Each operation $u \in S$ carries:
-- `id`: the git commit SHA (lowercase hex string).
-- `parents`: the list of parent commit SHAs from the git commit carrier.
+- `id`: the op id (lowercase hex string): the lowest-sorting SHA among the
+  commits carrying the op's signed payload (`spec/signing.md` §Signed Payload
+  and Op Identity). It is the SHA of a real commit.
+- `parents`: the list of parent op ids: the commit carrier's parent SHAs, each
+  rewritten by the reader to the id of the op it names and with repeats
+  collapsed (`spec/ref-layout.md` §Reader enumeration step 3). Fold takes the
+  list as given; it never sees a carrier that is not an op id.
 - `time`: the commit author timestamp as an integer (seconds since Unix epoch UTC, `1970-01-01T00:00:00Z`).
 - `object_id`: the target object identifier from the payload carrier.
 - `object_type`: the target object type string from the payload carrier.
@@ -122,7 +127,15 @@ a fast clock was accidental skew or intentional grinding. A writer with a clock
 set far in the future will win last-writer-wins races against contemporary
 writers until other writers advance past that time. Similarly, git commit SHAs
 can be ground to produce a lexicographically smaller op ID to win tiebreaks.
-This is an accepted trade-off of pure, offline, decentralized CRDT/event-fold
+Because an op's id is the lowest-sorting commit SHA carrying its signed
+payload (`spec/signing.md` §Signed Payload and Op Identity), this is no longer
+only something an author can do to their own op: anyone able to write a ref
+can grind armor variants of someone else's signed op until one sorts lower
+and so lower that op's id, and with it its tiebreak position. The id can only
+go down, by the same grinding already accepted from authors above, and
+nothing else about the op changes (its payload, author, time and parents are
+the signed bytes). That is a bounded residual (WRIT-312), and like the rest
+an accepted trade-off of pure, offline, decentralized CRDT/event-fold
 systems; trust and key authorization are handled at the signing and
 verification layers (WRIT-22), not inside fold.
 

@@ -1,0 +1,189 @@
+name: fold-replayed-op
+description: >
+  One signed op reachable as two commits (WRIT-312, spec/signing.md §Signed
+  Payload and Op Identity). Alice's revision op appends to two `append`
+  fields. A second ref in another writer's namespace holds a byte-identical
+  declaration of it whose gpgsig armor is re-wrapped at 40 columns
+  (tamper: armor-rewrap): the same signature bytes, so it still verifies,
+  and a new commit SHA, so it used to be a second op that double-applied
+  every append. A conforming reader holds one op — its id the lowest-sorting
+  of the two commits — and the fold golden pins a single revision in
+  total_order and each append field holding one entry. Bob's update names
+  the carrier that did NOT become the op id as its causal parent, with an
+  author timestamp earlier than Alice's revision: a reader that fails to
+  rewrite that parent edge loses Bob's ancestry (the carrier is not an op),
+  and the golden shows Bob ordered before the revision at his own time
+  instead of after it. The fold fixture test asserts Bob's parent line
+  really is the non-surviving carrier, so the fixture cannot silently stop
+  exercising the rewrite.
+
+refs:
+  - name: refs/writ/0123456789abcdef/schema
+    history:
+      - commits:
+          - id: schema-create
+            author: alice
+            timestamp: 2025-12-01T00:00:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: create
+              op_version: 1
+              body:
+                namespace: "acme"
+            expect: accept
+
+          - id: schema-define-type
+            parents: [schema-create]
+            author: alice
+            timestamp: 2025-12-01T00:01:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-type
+              op_version: 1
+              body:
+                type: "acme.widget"
+            expect: accept
+
+          - id: schema-define-create-title
+            parents: [schema-define-type]
+            author: alice
+            timestamp: 2025-12-01T00:02:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "create"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: schema-define-update-title
+            parents: [schema-define-create-title]
+            author: alice
+            timestamp: 2025-12-01T00:03:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "update"
+                op_version: "1"
+                field: "title"
+                value_type: "string"
+                strategy: "lww"
+            expect: accept
+
+          - id: schema-define-revision-base
+            parents: [schema-define-update-title]
+            author: alice
+            timestamp: 2025-12-01T00:04:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "revision"
+                op_version: "1"
+                field: "base"
+                value_type: "git-oid"
+                strategy: "append"
+            expect: accept
+
+          - id: schema-define-revision-head
+            parents: [schema-define-revision-base]
+            author: alice
+            timestamp: 2025-12-01T00:05:00Z
+            op:
+              object_id: schema:acme
+              object_type: schema
+              op_type: define-field
+              op_version: 1
+              body:
+                type: "acme.widget"
+                op_type: "revision"
+                op_version: "1"
+                field: "head"
+                value_type: "git-oid"
+                strategy: "append"
+            expect: accept
+
+  - name: refs/writ/0123456789abcdef/widget
+    history:
+      - commits:
+          - id: widget-create
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: w-replayed-op
+              object_type: acme.widget
+              op_type: create
+              op_version: 1
+              body:
+                title: "Initial Title"
+            expect: accept
+
+          - id: widget-revision
+            parents: [widget-create]
+            author: alice
+            timestamp: 2026-01-01T00:10:00Z
+            op:
+              object_id: w-replayed-op
+              object_type: acme.widget
+              op_type: revision
+              op_version: 1
+              body:
+                base: "0123456789abcdef0123456789abcdef01234567"
+                head: "89abcdef0123456789abcdef0123456789abcdef"
+            expect: accept
+
+  # The replay: the same declaration as widget-revision — same parent,
+  # author, timestamp, op, and signer — under a writer namespace of its own,
+  # with the armor of its signature re-wrapped. Nothing the signature covers
+  # differs; only the commit's own SHA does.
+  - name: refs/writ/fedcba9876543210/widget
+    history:
+      - commits:
+          - id: widget-revision-replay
+            parents: [widget-create]
+            author: alice
+            timestamp: 2026-01-01T00:10:00Z
+            tamper: armor-rewrap
+            op:
+              object_id: w-replayed-op
+              object_type: acme.widget
+              op_type: revision
+              op_version: 1
+              body:
+                base: "0123456789abcdef0123456789abcdef01234567"
+                head: "89abcdef0123456789abcdef0123456789abcdef"
+            expect: accept
+
+  # Bob's update names one carrier of Alice's revision as its causal parent.
+  # Its timestamp is earlier than the revision's, so only the rewritten
+  # parent edge (t* lifted past the revision's) orders it after the revision.
+  - name: refs/writ/1111111111111111/widget
+    history:
+      - commits:
+          - id: bob-update
+            parents: [widget-revision-replay]
+            author: bob
+            timestamp: 2026-01-01T00:05:00Z
+            op:
+              object_id: w-replayed-op
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "Bob's Title"
+            expect: accept

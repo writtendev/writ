@@ -163,7 +163,25 @@ operations. A conforming reader:
    writer with push access can already produce a valid-operation chain of
    any length, so the exception adds no bound-stepping leverage beyond
    what the format already permits.
-3. Deduplicates visited operations by commit SHA (the op id).
+3. Deduplicates visited operations by signed payload (WRIT-312). Two
+   commits that pass step 2 and whose signed bytes
+   ([`spec/signing.md`](signing.md) §Signed Payload and Op Identity: the
+   commit object minus its `gpgsig` header) are byte-identical are one
+   operation, whichever refs they were reached from and however their
+   signatures are armored. Each is a *carrier* of it. The operation's id is
+   the lowest-sorting carrier SHA (ASCII order), and its verification
+   outcome is the best over its carriers (`spec/signing.md`). Every parent
+   of every operation that names a carrier is replaced by the id of the
+   operation it carries; a parent list that then repeats an id keeps only
+   the first occurrence, in position. Why: the signature does not cover its
+   own armoring, so re-wrapping the `gpgsig` base64, or negating an ECDSA
+   signature's `s`, mints a second, still-valid commit of the same
+   operation under a new SHA; keyed on the commit SHA alone, the reader
+   held the operation twice, attributed to its author and `valid`, and
+   every `append` field applied it twice. Carriers share their parents
+   byte for byte (the parent lines are part of the signed bytes), so a walk
+   that stops at one carrier already holds everything reachable from the
+   others.
 4. Groups operations by the `object_id` found in each op commit's `op.json`
    payload.
 
@@ -357,3 +375,12 @@ This fallback:
   (a commit missing `op.json` and one whose `op.json` is present but
   non-canonical), pinning exactly which operations a conforming reader
   holds and which it does not.
+- `spec/fixtures/testdata/descriptions/fold-replayed-op.yaml` and its
+  goldens (`spec/fixtures/testdata/golden/fold-replayed-op.json`, the
+  manifest, and `spec/fixtures/testdata/golden/fold/fold-replayed-op.json`)
+  — the §Reader enumeration step 3 payload dedupe (WRIT-312): a signed
+  revision op and a second commit of it in another writer's namespace whose
+  `gpgsig` armor is re-wrapped (`tamper: armor-rewrap`), plus a third
+  writer's op whose parent line names the carrier that does not become the
+  op id, pinning one operation in the total order, one entry in each
+  `append` field, and the rewritten parent edge.
