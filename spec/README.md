@@ -52,7 +52,7 @@ producer would have refused. A blank cell means the split does not apply
 | `testdata/corpus.json` | Normative | | The corpus manifest: `format`, the version of the corpus's machine-readable shapes (vector, index, golden, and description shapes) an implementation was written against |
 | `testdata/canonicalization/vectors.json` | Normative | producer | Canonicalization test vectors: input → exact canonical bytes, or input → rejection |
 | `testdata/ordering/vectors.json` | Normative | producer | Fractional indexing test vectors: generation across boundaries, canonical validation, and comparison |
-| `testdata/ref-names/vectors.json` | Normative | producer | Ref-naming test vectors (valid/invalid) and pinned refspecs |
+| `testdata/ref-names/vectors.json` | Normative | producer | Ref-naming test vectors (valid/invalid, local and remote-tracking) and pinned refspecs |
 | `testdata/envelopes/` | Normative | producer | Envelope payload instances, valid and invalid; `invalid/index.json` records each expected rejection |
 | `testdata/forward-compat/` | Normative | reader | Forward-compatibility instances (unknown types, future versions, unknown fields) and synthetic reader profile (+ index.json) |
 | `testdata/anchors/valid/`, `testdata/anchors/invalid/` | Normative | producer | Anchor instances; `invalid/index.json` records each expected rejection and whether the schema or an invariant catches it, and, for an invariant, which one in a sibling `invariant_rule` field |

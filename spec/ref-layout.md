@@ -48,13 +48,21 @@ state the local form. A remote-tracking chain
 (`refs/remotes/<remote>/writ/<writer-id>/<object-type>`) conforms when the
 part after `refs/remotes/<remote>/` matches them with `refs/` read as
 `refs/remotes/<remote>/`; the three-segment rule then counts the segments
-after that prefix. `<remote>` ends at the first path component after
-`refs/remotes/` that is `writ`. A remote whose name itself contains a `writ`
-component (git accepts `team/writ`) therefore has no conforming
-remote-tracking chains: `refs/remotes/team/writ/writ/<writer-id>/<object-type>`
-is read as remote `team`, whose second segment `writ` is reserved and
-ignored under §Reader enumeration, never as a chain of remote `team/writ`.
-This is a known limitation, not a design: WRIT-321 moves the tracking
+after that prefix. `<remote>` is the one or more path components between
+`refs/remotes/` and the first component equal to `writ` that follows at least
+one component; equivalently, split the part after `refs/remotes/` at its
+first `/writ/`. A remote name may itself contain a `writ` component (a remote
+named `writ`, `writ/fork` or `team/writ` is accepted), and the split reads it
+by position. A leading `writ` belongs to `<remote>`:
+`refs/remotes/writ/writ/<writer-id>/<object-type>` is a chain of remote
+`writ`, and `refs/remotes/writ/fork/writ/<writer-id>/<object-type>` is a chain
+of remote `writ/fork`. A later one does not: a remote named `team/writ` has no
+conforming remote-tracking chains, because
+`refs/remotes/team/writ/writ/<writer-id>/<object-type>` is read as remote
+`team`, whose second segment `writ` is reserved and ignored under §Reader
+enumeration, never as a chain of remote `team/writ`. The `remote_valid` and
+`remote_invalid` vectors in `spec/testdata/ref-names/vectors.json` pin this
+split. It is a known limitation, not a design: WRIT-321 moves the tracking
 destination out of `refs/remotes/`, which retires this clause.
 
 1. **Prefix:** The ref name MUST start with `refs/writ/`.
@@ -371,7 +379,11 @@ This fallback:
 ## Conformance data
 
 - `spec/testdata/ref-names/vectors.json` — normative test vectors for ref
-  name parsing, valid and invalid forms, and pinned refspec strings.
+  name parsing, valid and invalid forms, and pinned refspec strings. Its
+  `remote_valid` and `remote_invalid` lists pin where `<remote>` ends in a
+  remote-tracking ref (remotes `origin`, `writ`, `writ/fork` and `team/fork`,
+  and the ignored `team/writ` split), each valid entry naming the expected
+  `remote`.
 - `spec/ref_layout_test.go` — test suite asserting grammar conformance and
   `git check-ref-format` validation.
 - `spec/fixtures/testdata/descriptions/multi-writer-chains.yaml` and its
