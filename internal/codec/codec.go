@@ -13,13 +13,12 @@ type Identity struct {
 	When  time.Time `json:"when"`
 }
 
-// TreeEntry represents a file or subtree entry in an op commit's tree.
+// TreeEntry represents an entry in an op commit's root tree.
 type TreeEntry struct {
-	Name    string      `json:"name"`
-	Mode    string      `json:"mode"`
-	Hash    string      `json:"hash,omitempty"`
-	Data    []byte      `json:"data,omitempty"`
-	Entries []TreeEntry `json:"entries,omitempty"`
+	Name string `json:"name"`
+	Mode string `json:"mode"`
+	Hash string `json:"hash,omitempty"`
+	Data []byte `json:"data,omitempty"`
 }
 
 // Commit is the pure, repository-independent representation of an op commit.
@@ -32,6 +31,11 @@ type Commit struct {
 	Signature string      `json:"signature,omitempty"`
 	Payload   []byte      `json:"-"`
 	Tree      []TreeEntry `json:"tree"`
+	// TreeSize is the root tree object's size in bytes as FromGitCommit
+	// sized it before loading it (spec/op-envelope.md §Reader validation
+	// rule 1), or 0 for a Commit never read from a repository. Above
+	// MaxTreeBytes the tree was not loaded and Tree is empty.
+	TreeSize int64 `json:"tree_size,omitempty"`
 }
 
 // Envelope represents the logical payload of a Writ operation (op.json).

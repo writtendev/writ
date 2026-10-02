@@ -1,0 +1,90 @@
+{
+  "ops": [
+    {
+      "ref": "refs/writ/0123456789abcdef/widget",
+      "commit": "e401663e5a1d1e409a27374edabb32eac79adc3b",
+      "parents": [],
+      "author": "Alice Example \u003calice@example.test\u003e",
+      "committer": "Alice Example \u003calice@example.test\u003e",
+      "timestamp": "2026-01-01T00:00:00Z",
+      "tree_size": 4096,
+      "payload": "{\"body\":{},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"create\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"create\",\"op_version\":1}",
+      "signed": true,
+      "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
+      "verification_outcome": "valid",
+      "expected": {
+        "disposition": "reject",
+        "reason": "extra-tree-entry"
+      },
+      "observed": {
+        "disposition": "reject",
+        "reason": "extra-tree-entry"
+      }
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/widget",
+      "commit": "34208408ccc715c91a72af7729bd0a685e1e7d95",
+      "parents": [
+        "e401663e5a1d1e409a27374edabb32eac79adc3b"
+      ],
+      "author": "Alice Example \u003calice@example.test\u003e",
+      "committer": "Alice Example \u003calice@example.test\u003e",
+      "timestamp": "2026-01-01T00:01:00Z",
+      "tree_size": 4097,
+      "signed": true,
+      "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
+      "verification_outcome": "valid",
+      "expected": {
+        "disposition": "reject",
+        "reason": "tree-too-large"
+      },
+      "observed": {
+        "disposition": "reject",
+        "reason": "tree-too-large"
+      }
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/widget",
+      "commit": "0893207ef37609c92f6985c801fd7c2579b239f0",
+      "parents": [
+        "34208408ccc715c91a72af7729bd0a685e1e7d95"
+      ],
+      "author": "Alice Example \u003calice@example.test\u003e",
+      "committer": "Alice Example \u003calice@example.test\u003e",
+      "timestamp": "2026-01-01T00:02:00Z",
+      "tree_entries": [
+        {
+          "name": "op.json",
+          "mode": "0100644",
+          "sha": "a1bf10afb6057b1e441f1b503004506bc59398d1"
+        }
+      ],
+      "payload": "{\"body\":{\"title\":\"at the commit bound\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"title\":\"at the commit bound\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "signed": true,
+      "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
+      "verification_outcome": "valid",
+      "expected_verification": "valid",
+      "expected": {
+        "disposition": "accept"
+      },
+      "observed": {
+        "disposition": "accept"
+      }
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/widget",
+      "commit": "b0a0e9036ee2e59afebe0c1b0de5931f43c5fe17",
+      "commit_size": 65537,
+      "expected": {
+        "disposition": "reject",
+        "reason": "commit-too-large"
+      },
+      "observed": {
+        "disposition": "reject",
+        "reason": "commit-too-large"
+      }
+    }
+  ]
+}

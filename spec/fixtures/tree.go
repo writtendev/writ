@@ -21,6 +21,66 @@ type treeNode struct {
 	children map[string]*treeNode
 }
 
+// commitFiles resolves the files cd's root tree holds: its op block's
+// canonical op.json (padded to op_json_size when set) or its files:, plus
+// tree_size's padding entry when set.
+func commitFiles(cd CommitDesc) (map[string]string, error) {
+	files := cd.Files
+	if cd.Op != nil {
+		var payloadBytes []byte
+		var err error
+		if cd.OpJSONSize != 0 {
+			payloadBytes, err = PadOpJSON(cd.Op, cd.OpJSONSize)
+		} else {
+			payloadBytes, err = BuildOpPayload(cd.Op)
+		}
+		if err != nil {
+			return nil, err
+		}
+		files = map[string]string{
+			"op.json": string(payloadBytes),
+		}
+	}
+	if cd.TreeSize != 0 {
+		return PadTreeFiles(files, cd.TreeSize)
+	}
+	return files, nil
+}
+
+// PadTreeFiles returns files plus one padding entry — a regular file with
+// empty content, named by a run of "x" — sized so the root tree object
+// holding them is exactly size bytes (tree_size): a fixture pinning an exact
+// tree object size, as reader-validation rule 1's bound on it does, needs no
+// literal kilobytes of padding checked in. A tree object holds each entry as
+// `<mode> <name>\0<20-byte SHA-1>`, so a regular file costs
+// len("100644 ") + len(name) + 1 + 20 bytes and the padding name's length is
+// computed rather than searched for. files must name root-level regular files
+// only.
+func PadTreeFiles(files map[string]string, size int) (map[string]string, error) {
+	const entryOverhead = len("100644 ") + 1 + 20
+	treeBytes := 0
+	for name := range files {
+		if strings.Contains(name, "/") {
+			return nil, fmt.Errorf("fixtures: tree_size requires root-level files only, got %q", name)
+		}
+		treeBytes += entryOverhead + len(name)
+	}
+	padLen := size - treeBytes - entryOverhead
+	if padLen < 1 {
+		return nil, fmt.Errorf("fixtures: tree_size %d is too small: the tree is already %d bytes before its padding entry", size, treeBytes)
+	}
+	pad := strings.Repeat("x", padLen)
+	if _, exists := files[pad]; exists {
+		return nil, fmt.Errorf("fixtures: tree_size padding entry %q collides with an existing file", pad)
+	}
+	padded := make(map[string]string, len(files)+1)
+	for name, content := range files {
+		padded[name] = content
+	}
+	padded[pad] = ""
+	return padded, nil
+}
+
 // buildTree writes files as a (possibly nested) git tree with default regular
 // file mode (100644) and returns its hash. files maps a slash-separated path
 // to full file content — each commit specifies its complete tree, not a diff

@@ -145,6 +145,10 @@ func readCommonDir(gitDir string) string {
 	return filepath.Clean(filepath.Join(gitDir, relCommon))
 }
 
+// largeObjectThreshold is the object size, in bytes, above which OpenStorage's
+// storer streams an object instead of loading it into memory.
+const largeObjectThreshold = 1 << 20
+
 // OpenStorage initializes a filesystem-backed Storage storer for the given git info.
 //
 // We deliberately bypass go-git's porcelain repository loader, whose extension
@@ -159,7 +163,14 @@ func OpenStorage(info Info) (*filesystem.Storage, error) {
 		commonDot := osfs.New(info.CommonDir)
 		repositoryFs = dotgit.NewRepositoryFilesystem(dot, commonDot)
 	}
-	s := filesystem.NewStorage(repositoryFs, cache.NewObjectLRUDefault())
+	// LargeObjectThreshold makes the filesystem storer stream an object
+	// over largeObjectThreshold from disk instead of copying it wholly
+	// into memory (and, for a loose object, copying it again to learn it
+	// is the wrong type) — defence in depth for the loads the codec's
+	// pre-load size checks do not front (WRIT-313).
+	s := filesystem.NewStorageWithOptions(repositoryFs, cache.NewObjectLRUDefault(), filesystem.Options{
+		LargeObjectThreshold: largeObjectThreshold,
+	})
 	if err := verifyLayout(s); err != nil {
 		return nil, err
 	}

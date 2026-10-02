@@ -1,0 +1,68 @@
+name: envelope-object-size
+description: >
+  Reader-validation rule 1's size bounds on the two git objects a reader
+  sizes before it loads anything: the root tree object at most 4,096 bytes
+  and the commit object at most 65,536 bytes, both inclusive. A tree of
+  exactly 4,096 bytes (op.json plus one padding entry) is not too large, so
+  the check that follows size, tree shape, still runs and rejects it as
+  extra-tree-entry: that pins the order, size before shape, and shows the
+  bound does not bite at the boundary. A tree of 4,097 bytes is rejected as
+  tree-too-large without being read. A commit of exactly 65,536 bytes is
+  accepted and one of 65,537 bytes is rejected as commit-too-large without
+  being loaded, which is why its golden record carries no fields that need
+  the decoded commit. Each described commit is decoded and checked directly,
+  not reached by walking ancestry from a chain tip.
+
+refs:
+  - name: refs/writ/0123456789abcdef/widget
+    history:
+      - commits:
+          - id: tree-at-max
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: widget-01
+              object_type: acme.widget
+              op_type: create
+              op_version: 1
+              body: {}
+            tree_size: 4096
+            expect:
+              reject: extra-tree-entry
+          - id: tree-over-max
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: widget-01
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body: {}
+            tree_size: 4097
+            expect:
+              reject: tree-too-large
+          - id: commit-at-max
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: widget-01
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "at the commit bound"
+            commit_size: 65536
+            expect: accept
+          - id: commit-over-max
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: widget-01
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "over the commit bound"
+            commit_size: 65537
+            expect:
+              reject: commit-too-large

@@ -198,13 +198,19 @@ envelope-level constraint.
 A conforming producer MUST NOT sign an op it could have known was
 invalid. It also MUST NOT write an `op.json` longer than 1,048,576 bytes
 (1 MiB), checked on the canonical bytes (rejection reason
-`payload-too-large`) — the identical bound
+`payload-too-large`), and MUST NOT write a commit object longer than
+65,536 bytes (rejection reason `commit-too-large`) — the identical bounds
 [Reader validation](#reader-validation) rule 1 enforces on the read side.
-Because readers refuse the same bytes a producer would refuse, this is
-not a producer-only tightening, and the `spec/testdata/producer/` corpus
-below, whose whole point is that every producer-rejected case is
-reader-accepted, MUST NOT gain a case for it. Before the op commit is
-built, the producer MUST also verify that:
+The op tree a producer writes is one 35-byte entry, within the tree bound
+by construction. The commit bound also caps how many causal parents one op
+can carry: each is a 48-byte `parent` line, so a commit with the rest of a
+typical op commit (under 4 KiB) holds about 1,300 of them, and a producer
+whose causal frontier is wider MUST refuse the append rather than write a
+commit its own readers would reject. Because readers refuse the same
+bytes a producer would refuse, these are not producer-only tightenings,
+and the `spec/testdata/producer/` corpus below, whose whole point is that
+every producer-rejected case is reader-accepted, MUST NOT gain a case for
+them. Before the op commit is built, the producer MUST also verify that:
 
 1. The payload satisfies this document's envelope schema
    (`spec/schemas/op-envelope.schema.json`).
@@ -619,16 +625,38 @@ A conforming reader, given a commit reached via a writ ref, MUST reject
 the op (not repair, not skip silently — the reader's error surface says
 why) if any of the following fail:
 
-1. The commit tree does not contain exactly one entry, `op.json`, mode
-   `100644`, whose blob is at most 1,048,576 bytes (1 MiB), inclusive.
-   (Rejection reason: `payload-too-large`.) A shared bound is part of
-   the contract: without one, an `op.json` a producer signs compresses
-   to a negligible push while every reader that decodes it must hold
-   the full payload in memory, and downstream in a projection store
-   with its own blob limit — an unbounded blob exhausts both on every
-   reader, not just the one that wrote it. A conforming reader MUST
-   check tree shape, then this size bound, then the byte-equality rule
-   below, in that order, so it never canonicalizes an oversized blob.
+1. The commit object is at most 65,536 bytes, inclusive (rejection
+   reason: `commit-too-large`), and its root tree object is at most
+   4,096 bytes, inclusive (rejection reason: `tree-too-large`); and the
+   root tree contains exactly one entry, `op.json`, mode `100644`,
+   whose blob is at most 1,048,576 bytes (1 MiB), inclusive. (Rejection
+   reason for the blob: `payload-too-large`.) Rule 1 looks at the root
+   tree only: a commit whose tree holds no `op.json` entry is
+   `missing-op-json` whatever else the tree names, including a
+   directory that holds an `op.json`. Shared bounds are part of the
+   contract: without them, an `op.json`, a commit message, or a tree
+   hash a producer signs compresses to a negligible push while every
+   reader that loads it must hold the full object in memory — a git
+   object loaded to learn its type is held whole, so a `tree` header
+   naming a giant blob costs as much as the blob — and downstream in a
+   projection store with its own blob limit, an unbounded object
+   exhausts both on every reader, not just the one that wrote it. The
+   bounds are generous on purpose. A legitimate op tree is 35 bytes; the
+   tree bound is far above that so that each tree-shape reason stays
+   reachable behind the size check (the smallest two-entry tree is over
+   55 bytes). A legitimate op commit is under 4 KiB, with an RSA-4096
+   signature included; the one part of it with no fixed size is its
+   causal parents, 48 bytes each, so the commit bound allows about 1,300
+   of them (see §Producer validation). A conforming reader MUST check, in
+   this order: the commit object's size, the root tree object's size,
+   tree shape, the `op.json` blob's size, then the byte-equality rule
+   below. It MUST size the commit and the tree object from the object's
+   declared size, whatever type the object turns out to be, before
+   reading any of its content, so it never loads an oversized commit or
+   tree, never reads a tree entry, and never canonicalizes an oversized
+   blob. A tree hash naming an object over 4,096 bytes is
+   `tree-too-large` even when that object is a blob, and a reader never
+   follows an entry of the root tree that is not `op.json`.
 2. The payload fails the byte-equality rule above.
 3. The payload fails schema validation: a required field is missing or
    a defined field violates its type or form. Unknown *additional*
@@ -674,6 +702,13 @@ enumeration for the stopping rule (WRIT-289).
   validation rule 1's size bound: one commit at exactly 1,048,576 bytes
   (`expect: accept`) and one at 1,048,577 bytes
   (`expect: {reject: payload-too-large}`).
+  `envelope-object-size.yaml` is the boundary fixture for rule 1's two
+  object-size bounds: a root tree of exactly 4,096 bytes
+  (`expect: {reject: extra-tree-entry}`, pinning that size is checked
+  first and does not bite at the boundary) and one of 4,097 bytes
+  (`expect: {reject: tree-too-large}`), and a commit object of exactly
+  65,536 bytes (`expect: accept`) and one of 65,537 bytes
+  (`expect: {reject: commit-too-large}`).
 - `spec/testdata/producer/` (WRIT-188) — tiers 2, 3, and 4 of the four-tier
   producer precedence above, exercised as paired verdicts: `index.json`
   names, per case under `cases/`, the producer's verdict (with a reason

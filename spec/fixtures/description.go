@@ -150,6 +150,8 @@ type CommitDesc struct {
 	Files       map[string]string `yaml:"files,omitempty"`
 	Op          *OpDesc           `yaml:"op,omitempty"`
 	OpJSONSize  int               `yaml:"op_json_size,omitempty"`
+	TreeSize    int               `yaml:"tree_size,omitempty"`
+	CommitSize  int               `yaml:"commit_size,omitempty"`
 	SignAs      string            `yaml:"sign_as,omitempty"`
 	Tamper      string            `yaml:"tamper,omitempty"`
 	Unsigned    bool              `yaml:"unsigned,omitempty"`
@@ -227,11 +229,12 @@ var validRejectReasons = map[string]bool{
 	"lone-surrogate":        true,
 	"schema-violation":      true,
 	"extra-tree-entry":      true,
-	"op-json-subdirectory":  true,
 	"missing-op-json":       true,
 	"invalid-op-json-mode":  true,
 	"committer-mismatch":    true,
 	"payload-too-large":     true,
+	"commit-too-large":      true,
+	"tree-too-large":        true,
 }
 
 // validVerificationOutcomes is codec.VerificationOutcome's closed set,
@@ -340,6 +343,19 @@ func Load(data []byte) (*Description, error) {
 					}
 					if _, err := PadOpJSON(c.Op, c.OpJSONSize); err != nil {
 						return nil, fmt.Errorf("fixtures: description %q ref %q generation %d commit %d invalid op_json_size: %w", d.Name, r.Name, gi, ci, err)
+					}
+				}
+				if c.TreeSize != 0 {
+					if _, err := commitFiles(c); err != nil {
+						return nil, fmt.Errorf("fixtures: description %q ref %q generation %d commit %d invalid tree_size: %w", d.Name, r.Name, gi, ci, err)
+					}
+				}
+				if c.CommitSize != 0 {
+					if c.CommitSize < 0 {
+						return nil, fmt.Errorf("fixtures: description %q ref %q generation %d commit %d invalid commit_size %d: must be positive", d.Name, r.Name, gi, ci, c.CommitSize)
+					}
+					if c.Tamper != "" {
+						return nil, fmt.Errorf("fixtures: description %q ref %q generation %d commit %d specifies 'commit_size' with 'tamper': a tamper changes the commit's size after it is padded", d.Name, r.Name, gi, ci)
 					}
 				}
 				if c.SignAs != "" {

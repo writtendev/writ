@@ -38,5 +38,8 @@ type CommitState struct {
 	Author    string   `json:"author"`
 	Timestamp string   `json:"timestamp"`
 	Message   string   `json:"message"`
-	Signed    bool     `json:"signed"`
+	// MessageSize is the message's byte length, recorded in place of the
+	// message for a commit padded to a pinned size (commit_size).
+	MessageSize int  `json:"message_size,omitempty"`
+	Signed      bool `json:"signed"`
 }
