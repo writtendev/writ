@@ -22,6 +22,16 @@ type refVectorsDoc struct {
 		Ref    string `json:"ref"`
 		Reason string `json:"reason"`
 	} `json:"invalid"`
+	RemoteValid []struct {
+		Ref        string `json:"ref"`
+		Remote     string `json:"remote"`
+		WriterID   string `json:"writer_id"`
+		ObjectType string `json:"object_type"`
+	} `json:"remote_valid"`
+	RemoteInvalid []struct {
+		Ref    string `json:"ref"`
+		Reason string `json:"reason"`
+	} `json:"remote_invalid"`
 }
 
 func loadVectors(t *testing.T) refVectorsDoc {
@@ -70,6 +80,44 @@ func TestParseChainRef_Vectors(t *testing.T) {
 			_, err := dag.ParseChainRef(v.Ref)
 			if err == nil {
 				t.Fatalf("ParseChainRef(%q) expected error for reason: %s", v.Ref, v.Reason)
+			}
+		})
+	}
+}
+
+// TestParseChainRef_RemoteVectors pins where <remote> ends in
+// refs/remotes/<remote>/writ/... against the normative vectors
+// (spec/ref-layout.md §Ref naming grammar).
+func TestParseChainRef_RemoteVectors(t *testing.T) {
+	doc := loadVectors(t)
+	if len(doc.RemoteValid) == 0 || len(doc.RemoteInvalid) == 0 {
+		t.Fatal("remote-tracking vectors missing")
+	}
+
+	for _, v := range doc.RemoteValid {
+		v := v
+		t.Run("valid_"+v.Ref, func(t *testing.T) {
+			cr, err := dag.ParseChainRef(v.Ref)
+			if err != nil {
+				t.Fatalf("ParseChainRef(%q) unexpected error: %v", v.Ref, err)
+			}
+			if cr.Remote != v.Remote {
+				t.Errorf("remote = %q, want %q", cr.Remote, v.Remote)
+			}
+			if string(cr.WriterID) != v.WriterID {
+				t.Errorf("writer_id = %q, want %q", cr.WriterID, v.WriterID)
+			}
+			if cr.ObjectType != v.ObjectType {
+				t.Errorf("object_type = %q, want %q", cr.ObjectType, v.ObjectType)
+			}
+		})
+	}
+
+	for _, v := range doc.RemoteInvalid {
+		v := v
+		t.Run("invalid_"+v.Ref, func(t *testing.T) {
+			if _, err := dag.ParseChainRef(v.Ref); err == nil {
+				t.Fatalf("ParseChainRef(%q) expected error: %s", v.Ref, v.Reason)
 			}
 		})
 	}
@@ -166,6 +214,13 @@ func TestChains(t *testing.T) {
 	_ = s.SetReference(plumbing.NewHashReference(plumbing.ReferenceName("refs/remotes/origin/writ/fedcba9876543210/waypoint"), h2))
 	_ = s.SetReference(plumbing.NewHashReference(plumbing.ReferenceName("refs/heads/main"), h3))
 	_ = s.SetReference(plumbing.NewHashReference(plumbing.ReferenceName("refs/tags/v1.0.0"), h3))
+	// Refs under the writ namespaces that fail the naming grammar are
+	// ignored, not errors (spec/ref-layout.md §Reader enumeration): a
+	// reserved extra segment, a non-hex writer segment, and a remote-tracking
+	// ref with a reserved extra segment.
+	_ = s.SetReference(plumbing.NewHashReference(plumbing.ReferenceName("refs/writ/v2/0123456789abcdef/widget"), h3))
+	_ = s.SetReference(plumbing.NewHashReference(plumbing.ReferenceName("refs/writ/zz-not-hex/widget"), h3))
+	_ = s.SetReference(plumbing.NewHashReference(plumbing.ReferenceName("refs/remotes/origin/writ/v2/0123456789abcdef/widget"), h3))
 
 	chains, err := dag.Chains(s)
 	if err != nil {

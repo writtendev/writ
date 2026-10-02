@@ -20,16 +20,16 @@ import (
 //
 // This test compares the two as source, which is cruder than a behavioural
 // test on purpose: it compares the entire shared person normalization
-// algorithm (FoldValue/foldPersonValue down through ccc/personCCC) and fails
+// algorithm (FoldValue/foldPersonValue down through compose/personCompose) and fails
 // on any edit made to one copy and not the other, including edits whose
 // behaviour a test table would not distinguish.
 const (
 	engineSource  = "../internal/person/person.go"
 	engineFirst   = "// FoldValue applies the value half of the normalization rule in"
-	engineLast    = "func ccc(r rune) uint8 {"
+	engineLast    = "func compose(rs []rune, cc []uint8) string {"
 	reffoldSource = "reffold.go"
 	reffoldFirst  = "// foldPersonValue applies the value half of the normalization rule in"
-	reffoldLast   = "func personCCC(r rune) uint8 {"
+	reffoldLast   = "func personCompose(rs []rune, cc []uint8) string {"
 )
 
 // reffoldRenames maps the reference copy's names onto the engine's. Longest
@@ -38,21 +38,15 @@ var reffoldRenames = [][2]string{
 	{"personSortRunInsertionMax", "sortRunInsertionMax"},
 	{"personUnicodeVersion", "UnicodeVersion"},
 	{"personCanonicalOrder", "canonicalOrder"},
-	{"personHasCherokee", "hasCherokeeFoldedRune"},
-	{"personCherokeeHi", "cherokeeFoldedHi"},
-	{"personCherokeeLo", "cherokeeFoldedLo"},
 	{"personNFCSegment", "nfcSegment"},
 	{"personLowerASCII", "lowerASCII"},
 	{"personSegmentLen", "segmentLen"},
 	{"foldPersonValue", "FoldValue"},
-	{"personFoldCaser", "foldCaser"},
 	{"personSortByCCC", "sortByCCC"},
 	{"personDecompose", "decompose"},
 	{"personCaseFold", "caseFold"},
 	{"personIsASCII", "isASCII"},
 	{"personCompose", "compose"},
-	{"personCombine", "combine"},
-	{"personCCC", "ccc"},
 	{"personNFC", "nfc"},
 }
 

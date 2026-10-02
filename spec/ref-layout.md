@@ -41,7 +41,33 @@ ref name.
 
 ### Ref naming grammar
 
-A conforming Writ ref MUST match the following structure:
+A conforming Writ ref MUST match the following structure. A reader
+recognizes a chain by the ref's name alone: rules 1 through 3 and rule 4's
+`<object-type>` syntax (its pattern, its length, and the `.lock`
+exclusion) are what it checks. Rule 4's byte-identity with the ops'
+`object_type` is the one rule it does not check — a producer obligation
+only, with the reader's treatment of a mismatch stated in rule 4. What a
+reader does with a ref under `refs/writ/` that fails recognition is
+§Reader enumeration's rule. The rules below state the local form. A remote-tracking chain
+(`refs/remotes/<remote>/writ/<writer-id>/<object-type>`) conforms when the
+part after `refs/remotes/<remote>/` matches them with `refs/` read as
+`refs/remotes/<remote>/`; the three-segment rule then counts the segments
+after that prefix. `<remote>` is the one or more path components between
+`refs/remotes/` and the first component equal to `writ` that follows at least
+one component; equivalently, split the part after `refs/remotes/` at its
+first `/writ/`. A remote name may itself contain a `writ` component (a remote
+named `writ`, `writ/fork` or `team/writ` is accepted), and the split reads it
+by position. A leading `writ` belongs to `<remote>`:
+`refs/remotes/writ/writ/<writer-id>/<object-type>` is a chain of remote
+`writ`, and `refs/remotes/writ/fork/writ/<writer-id>/<object-type>` is a chain
+of remote `writ/fork`. A later one does not: a remote named `team/writ` has no
+conforming remote-tracking chains, because
+`refs/remotes/team/writ/writ/<writer-id>/<object-type>` is read as remote
+`team`, whose second segment `writ` is reserved and ignored under §Reader
+enumeration, never as a chain of remote `team/writ`. The `remote_valid` and
+`remote_invalid` vectors in `spec/testdata/ref-names/vectors.json` pin this
+split. It is a known limitation, not a design: WRIT-321 moves the tracking
+destination out of `refs/remotes/`, which retires this clause.
 
 1. **Prefix:** The ref name MUST start with `refs/writ/`.
 2. **Path segments:** Exactly three path segments MUST follow `refs/`:
@@ -55,8 +81,17 @@ A conforming Writ ref MUST match the following structure:
    `^[a-z][a-z0-9-]{0,63}(\.[a-z][a-z0-9-]{0,63})?$` with a length of at
    least 1 and at most 129 characters (64 per segment, plus the
    separating dot for the namespace-qualified form,
-   `spec/op-envelope.md`). It MUST be byte-identical to the `object_type`
-   field of the ops stored on that chain. `<object-type>` MUST NOT end
+   `spec/op-envelope.md`). A producer MUST make it byte-identical to the
+   `object_type` field of the ops it stores on that chain. A reader does
+   not check this: it recognizes the chain from the name's syntax alone
+   and never compares the ref's `<object-type>` to its ops'
+   `object_type`. A mismatch is not a failure of ref recognition, is not
+   a rejection under [`spec/op-envelope.md`](op-envelope.md) §Reader
+   validation, and does not stop the walk: each op is grouped and folded
+   by the `object_type` in its own `op.json`, whatever object type the ref
+   that carried it names (many corpus fixtures, `multi-writer-chains`
+   among them, carry `acme.widget` ops on `.../widget` refs).
+   `<object-type>` MUST NOT end
    in `.lock`: git rejects any slash-separated ref path component ending
    in `.lock` outright (verified against real git: `git
    check-ref-format refs/writ/<writer-id>/acme.lock` fails, while
@@ -116,7 +151,19 @@ Readers MUST NOT rely on verifying the chain spine to discover or group
 operations. A conforming reader:
 
 1. Enumerates all refs under `refs/writ/*` (local writer) and
-   `refs/remotes/*/writ/*` (remote-tracking chains fetched from remotes).
+   `refs/remotes/*/writ/*` (remote-tracking chains fetched from remotes)
+   that a reader recognizes as chains under §Ref naming grammar (the name's
+   shape; rule 4's byte-identity with the ops' `object_type` is a producer
+   obligation, not a recognition rule). A ref under `refs/writ/` (or
+   `refs/remotes/<remote>/writ/`) that fails recognition MUST be
+   ignored by a reader: not enumerated, not walked, and not reported as an
+   error or a rejection. A second path segment (the one immediately after
+   `writ/`) that is not a 16-lowercase-hex `<writer-id>` (for example
+   `refs/writ/v2/...`) is reserved for future revisions of this format.
+   The `+refs/writ/*` fetch refspec still transfers such refs. Why: a future format change that is not additive can
+   then live in its own namespace beside this one, readable by readers that
+   know it and invisible to readers that do not, instead of forking every
+   repository's writ data.
 2. Walks commit ancestry from every enumerated ref tip. A commit that fails
    [`spec/op-envelope.md`](op-envelope.md) §Reader validation is rejected,
    and the walk MUST NOT follow that commit's parents: a chain is a chain,
@@ -365,7 +412,11 @@ This fallback:
 ## Conformance data
 
 - `spec/testdata/ref-names/vectors.json` — normative test vectors for ref
-  name parsing, valid and invalid forms, and pinned refspec strings.
+  name parsing, valid and invalid forms, and pinned refspec strings. Its
+  `remote_valid` and `remote_invalid` lists pin where `<remote>` ends in a
+  remote-tracking ref (remotes `origin`, `writ`, `writ/fork` and `team/fork`,
+  and the ignored `team/writ` split), each valid entry naming the expected
+  `remote`.
 - `spec/ref_layout_test.go` — test suite asserting grammar conformance and
   `git check-ref-format` validation.
 - `spec/fixtures/testdata/descriptions/multi-writer-chains.yaml` and its
@@ -399,3 +450,10 @@ This fallback:
   fold golden pins `verification` and `key_fingerprint` on every op with
   more than one carrier, and nothing else; the surviving carrier's own
   outcome would be wrong for every op but the ties.
+- `spec/fixtures/testdata/descriptions/reserved-ref-namespaces.yaml` and its
+  fold golden (`spec/fixtures/testdata/golden/fold/reserved-ref-namespaces.json`)
+  — the §Reader enumeration MUST-ignore rule (WRIT-314): a conforming chain
+  beside a `refs/writ/v2/...` ref, a `refs/writ/zz-not-hex/...` ref, and a
+  `refs/remotes/origin/writ/v2/...` ref, each carrying something a reader
+  would surface if it walked the ref, pinning that only the conforming
+  chain's operations are held and the fold golden records no rejections.

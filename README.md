@@ -9,7 +9,7 @@ behind each decision.
 
 ## Install
 
-With Go (1.25+):
+With Go (1.27+):
 
 ```
 go install github.com/writtendev/writ/cmd/writ@latest

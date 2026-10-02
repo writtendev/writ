@@ -28,14 +28,25 @@ func TestFoldFamily(t *testing.T) {
 		Name:      "fold",
 		GoldenDir: "testdata/golden/fold",
 		Filter: func(desc *fixtures.Description) bool {
-			return strings.HasPrefix(desc.Name, "fold-") || strings.HasPrefix(desc.Name, "forward-compat-") || desc.Name == "multi-writer-chains"
+			return strings.HasPrefix(desc.Name, "fold-") || strings.HasPrefix(desc.Name, "forward-compat-") || desc.Name == "multi-writer-chains" || desc.Name == "reserved-ref-namespaces"
 		},
 		Runner: runFoldFixture,
 	})
 }
 
 type FoldGolden struct {
-	Objects []FoldObjectGolden `json:"objects"`
+	Objects    []FoldObjectGolden `json:"objects"`
+	Rejections []FoldRejection    `json:"rejections,omitempty"`
+}
+
+// FoldRejection is one commit the reader walk rejected under
+// spec/op-envelope.md §Reader validation, in the enumeration's own sorted
+// order. Omitted from the golden when there are none, so a fixture with no
+// rejections (reserved-ref-namespaces) pins "zero" by their absence.
+type FoldRejection struct {
+	Commit string `json:"commit"`
+	Label  string `json:"label,omitempty"`
+	Reason string `json:"reason"`
 }
 
 type FoldObjectGolden struct {
@@ -113,6 +124,13 @@ func runFoldFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 	}
 
 	var golden FoldGolden
+	for _, rej := range enumRes.Rejections {
+		golden.Rejections = append(golden.Rejections, FoldRejection{
+			Commit: rej.CommitID,
+			Label:  shaToLabel[rej.CommitID],
+			Reason: string(rej.Reason),
+		})
+	}
 
 	opsByObject := enumRes.Ops
 	if len(opsByObject) == 0 {

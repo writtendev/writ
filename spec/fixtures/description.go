@@ -5,6 +5,7 @@ package fixtures
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -58,6 +59,14 @@ type TrustStoreRuleDesc struct {
 type RefDesc struct {
 	Name    string       `yaml:"name"`
 	History []Generation `yaml:"history"`
+
+	// Ignored marks a ref deliberately outside the spec/ref-layout.md §Ref
+	// naming grammar, under refs/writ/ or refs/remotes/<remote>/writ/: a
+	// conforming reader must ignore it (§Reader enumeration). The corpus-wide
+	// ref-grammar guard inverts for it — it must fail dag.ParseChainRef,
+	// rather than parse — so the knob can't hide a typo'd writer-id on a ref
+	// meant to be a real chain.
+	Ignored bool `yaml:"ignored,omitempty"`
 }
 
 // Generation is one contiguous commit chain, rooted (its first commit has
@@ -238,6 +247,16 @@ var validVerificationOutcomes = map[string]bool{
 	"payload-mutated":     true,
 }
 
+// isWritNamespaceRef reports whether ref is under a namespace where a writ
+// chain ref belongs: refs/writ/ or refs/remotes/<remote>/writ/, the same two
+// prefixes dag.ParseChainRef recognizes.
+func isWritNamespaceRef(ref string) bool {
+	if strings.HasPrefix(ref, "refs/writ/") {
+		return true
+	}
+	return strings.HasPrefix(ref, "refs/remotes/") && strings.Contains(ref, "/writ/")
+}
+
 // Load parses a single fixture description from YAML and validates its integrity.
 func Load(data []byte) (*Description, error) {
 	var d Description
@@ -262,6 +281,9 @@ func Load(data []byte) (*Description, error) {
 			return nil, fmt.Errorf("fixtures: description %q: ref %q collides with %s", d.Name, r.Name, src)
 		}
 		seenRefNames[r.Name] = fmt.Sprintf("ref %q", r.Name)
+		if r.Ignored && !isWritNamespaceRef(r.Name) {
+			return nil, fmt.Errorf("fixtures: description %q ref %q is marked ignored but is not under refs/writ/ or refs/remotes/<remote>/writ/", d.Name, r.Name)
+		}
 		if len(r.History) == 0 {
 			return nil, fmt.Errorf("fixtures: description %q ref %q has no history", d.Name, r.Name)
 		}

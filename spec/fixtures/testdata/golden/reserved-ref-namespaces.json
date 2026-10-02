@@ -1,0 +1,84 @@
+{
+  "refs": [
+    {
+      "name": "refs/writ/0123456789abcdef/acme.widget",
+      "commit": "a18d84420195c943882160bb1415457a77931368"
+    },
+    {
+      "name": "refs/writ/v2/0123456789abcdef/acme.widget",
+      "commit": "42ba79cad692ae5b8f5e5fa9d7acef45ae7de2f0"
+    },
+    {
+      "name": "refs/writ/zz-not-hex/acme.widget",
+      "commit": "3ca3c2e472a51943392901faaab4c7f29f393a97"
+    },
+    {
+      "name": "refs/remotes/origin/writ/v2/0123456789abcdef/acme.widget",
+      "commit": "34070c72b8ac0301f7ac49f678a821a3bb02fa33"
+    }
+  ],
+  "generations": [
+    {
+      "ref": "refs/writ/0123456789abcdef/acme.widget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "a18d84420195c943882160bb1415457a77931368",
+          "tree": "db2cf9381fc296cea62c0f40889434ec78c364ef",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "message": "writ: create acme.widget/widget-01\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/v2/0123456789abcdef/acme.widget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "42ba79cad692ae5b8f5e5fa9d7acef45ae7de2f0",
+          "tree": "41b5b0e7794f603553ef8a5c6a807d3831e49b4f",
+          "parents": [
+            "a18d84420195c943882160bb1415457a77931368"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:01:00Z",
+          "message": "writ: update acme.widget/widget-01\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/zz-not-hex/acme.widget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "3ca3c2e472a51943392901faaab4c7f29f393a97",
+          "tree": "b7657468690bf9cc92b9bd76fbc5d2771b3ee300",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:02:00Z",
+          "message": "not an op\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/remotes/origin/writ/v2/0123456789abcdef/acme.widget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "34070c72b8ac0301f7ac49f678a821a3bb02fa33",
+          "tree": "4a2c2436a121ba7e18bb5ef205ab51fe4887cf63",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:03:00Z",
+          "message": "writ: create acme.widget/widget-02\n",
+          "signed": true
+        }
+      ]
+    }
+  ]
+}

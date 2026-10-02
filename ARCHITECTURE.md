@@ -235,3 +235,5 @@ Schema-parametric fixtures are WRIT-190's target, not what ships today: the corp
 ## Known-hard list (tracked, not feared)
 
 Anchoring across force-pushes; canonical encoding; compaction/GC for unbounded op history; repo permission semantics; identity mapping (signing key → directory identity), which is deliberately out of spec scope; host ref-namespace compatibility (the foundational spike — some namespaces like `refs/pull/*` are read-only on some hosts; verify `refs/writ/*` across GitHub, GitLab, Bitbucket, Gitea/Forgejo, Codeberg, and bare-SSH before anything else, with a branch-namespace-encoding fallback sketched in case any major host is restrictive).
+
+Compaction can be added without breaking v0.1 readers: an archive namespace outside `refs/writ/*`, plus a `checkpoint`-typed op at each surviving chain root. A v0.1 reader sees an unknown op, and reports an `object-unavailable` rejection at each pruned parent (`spec/ref-layout.md` §Reader enumeration step 2). Any compaction design that rewrites op ids is a v2.

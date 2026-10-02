@@ -250,6 +250,31 @@ func TestDerivePersonIDForbiddenCodePointNamed(t *testing.T) {
 	}
 }
 
+// TestDerivePersonIDUnassignedCodePointNamed is the same acceptance criterion
+// for WRIT-315's rule that a value carries no code point unassigned at Unicode
+// 17.0.0: both DerivePersonID arms refuse it, naming it.
+func TestDerivePersonIDUnassignedCodePointNamed(t *testing.T) {
+	_, err := identity.DerivePersonID(map[string]string{
+		"writ.personid": "user:" + string(rune(0x0378)) + "x",
+	})
+	if err == nil {
+		t.Fatal("DerivePersonID: want an error")
+	}
+	if !strings.Contains(err.Error(), "U+0378") {
+		t.Errorf("error = %v, want it to name U+0378", err)
+	}
+
+	_, err = identity.DerivePersonID(map[string]string{
+		"user.email": "ali" + string(rune(0x0378)) + "ce@example.com",
+	})
+	if err == nil {
+		t.Fatal("DerivePersonID: want an error")
+	}
+	if !strings.Contains(err.Error(), "U+0378") {
+		t.Errorf("error = %v, want it to name U+0378", err)
+	}
+}
+
 // TestDerivePersonIDSchemeProblemNotCodePointDecorated pins a round-1 review
 // finding on WRIT-137's PR: the (U+XXXX) suffix must be attached only when
 // person.Check's returned Problem is actually ForbiddenCodePoint, not
