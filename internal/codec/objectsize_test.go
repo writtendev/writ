@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -337,11 +338,15 @@ func TestWriteCommitRefusesOverBoundCommit(t *testing.T) {
 
 // TestFromGitCommitNeverRetainsMoreThanTheBound is the property test the
 // ticket's ruling asks for: for random legal root trees — random entry counts,
-// modes, and names, with directory entries naming large subtrees — FromGitCommit
-// never returns more tree entries than fit in codec.MaxTreeBytes, and a tree
-// over the bound is never loaded at all. (An entry naming a subtree is
-// reported as one entry; nothing beneath it is ever read — TreeEntry has no
-// field to hold it.)
+// modes, and names, with directory entries naming large subtrees, and with
+// `op.json`-named entries — one, or many duplicates, in any mode, naming a
+// payload-sized blob — FromGitCommit never returns more tree entries than fit
+// in codec.MaxTreeBytes, never returns the content of more than one blob, and
+// reads none unless the tree is a single regular `op.json` entry; a tree over
+// the bound is never loaded at all. (An entry naming a subtree is reported as
+// one entry; nothing beneath it is ever read — TreeEntry has no field to hold
+// it.) The DecodeCommit reason for each tree shape is checked alongside, so
+// not reading a blob never changes which rejection a tree gets.
 func TestFromGitCommitNeverRetainsMoreThanTheBound(t *testing.T) {
 	// Smallest possible entry: `40000 a\0<20 bytes>`.
 	const minEntry = len("40000 a") + 1 + 20
@@ -350,6 +355,7 @@ func TestFromGitCommitNeverRetainsMoreThanTheBound(t *testing.T) {
 	s := memory.NewStorage()
 	var bigSubtree []object.TreeEntry
 	blob := storeObject(t, s, plumbing.BlobObject, []byte("x"))
+	payloadBlob := storeObject(t, s, plumbing.BlobObject, bytes.Repeat([]byte("x"), codec.MaxPayloadBytes))
 	for i := 0; i < 20000; i++ {
 		bigSubtree = append(bigSubtree, object.TreeEntry{Name: fmt.Sprintf("f%06d", i), Mode: filemode.Regular, Hash: blob})
 	}
@@ -359,6 +365,9 @@ func TestFromGitCommitNeverRetainsMoreThanTheBound(t *testing.T) {
 	rng := rand.New(rand.NewSource(313))
 	for i := 0; i < 300; i++ {
 		n := rng.Intn(400)
+		if rng.Intn(4) == 0 {
+			n = rng.Intn(3)
+		}
 		names := map[string]bool{}
 		for len(names) < n {
 			b := make([]byte, 1+rng.Intn(12))
@@ -382,6 +391,19 @@ func TestFromGitCommitNeverRetainsMoreThanTheBound(t *testing.T) {
 			}
 			entries = append(entries, object.TreeEntry{Name: name, Mode: mode, Hash: hash})
 		}
+		// op.json entries, in sorted position: usually one, sometimes
+		// duplicates (which fail fsck, but not every host runs it), in any
+		// mode, each naming a blob at the payload bound.
+		if rng.Intn(3) != 0 {
+			for k := []int{1, 1, 1, 2, 3, 10, 50, 117}[rng.Intn(8)]; k > 0; k-- {
+				mode := filemode.Regular
+				if rng.Intn(4) == 0 {
+					mode = modes[rng.Intn(len(modes))]
+				}
+				entries = append(entries, object.TreeEntry{Name: "op.json", Mode: mode, Hash: payloadBlob})
+			}
+			sort.Stable(object.TreeEntrySorter(entries))
+		}
 		treeHash := storeTree(t, s, entries)
 		size, err := s.EncodedObjectSize(treeHash)
 		if err != nil {
@@ -400,19 +422,128 @@ func TestFromGitCommitNeverRetainsMoreThanTheBound(t *testing.T) {
 		if len(pure.Tree) > maxEntries {
 			t.Fatalf("returned %d tree entries, more than the %d that fit in %d bytes", len(pure.Tree), maxEntries, codec.MaxTreeBytes)
 		}
+		_, decErr := codec.DecodeCommit(pure)
 		if size > codec.MaxTreeBytes {
 			if len(pure.Tree) != 0 || pure.TreeSize != size {
 				t.Fatalf("%d-byte tree: %d entries, TreeSize %d; want none loaded and TreeSize %d", size, len(pure.Tree), pure.TreeSize, size)
+			}
+			if rejectReason(decErr) != codec.RejectTreeTooLarge {
+				t.Fatalf("%d-byte tree: DecodeCommit %v, want tree-too-large", size, decErr)
 			}
 			continue
 		}
 		if len(pure.Tree) != len(entries) {
 			t.Fatalf("%d-byte tree: %d entries returned, want %d", size, len(pure.Tree), len(entries))
 		}
+		opJSONs := 0
 		for j, e := range pure.Tree {
 			if e.Name != entries[j].Name || e.Hash != entries[j].Hash.String() {
 				t.Fatalf("entry %d: got %+v, want %+v", j, e, entries[j])
 			}
+			if e.Name == "op.json" {
+				opJSONs++
+			}
 		}
+
+		// A blob is read only for a tree that is exactly one regular op.json
+		// entry; any other shape retains none, so what is retained is the tree
+		// plus at most one payload-bounded blob, whatever the tree names.
+		retained := 0
+		for _, e := range pure.Tree {
+			retained += len(e.Data)
+		}
+		singleRegular := len(entries) == 1 && opJSONs == 1 && entries[0].Mode == filemode.Regular
+		if singleRegular {
+			if retained != codec.MaxPayloadBytes {
+				t.Fatalf("a single regular op.json entry: %d bytes of content, want %d", retained, codec.MaxPayloadBytes)
+			}
+		} else if retained != 0 {
+			t.Fatalf("%d entries (%d op.json): %d bytes of blob content retained, want none", len(entries), opJSONs, retained)
+		}
+
+		// The tree-shape reason does not depend on the blob having been read.
+		switch {
+		case opJSONs == 0:
+			if rejectReason(decErr) != codec.RejectMissingOpJSON {
+				t.Fatalf("no op.json: DecodeCommit %v, want missing-op-json", decErr)
+			}
+		case len(entries) > 1:
+			if rejectReason(decErr) != codec.RejectExtraTreeEntry {
+				t.Fatalf("%d entries (%d op.json): DecodeCommit %v, want extra-tree-entry", len(entries), opJSONs, decErr)
+			}
+		case entries[0].Mode != filemode.Regular:
+			if rejectReason(decErr) != codec.RejectInvalidOpJSONMode {
+				t.Fatalf("op.json mode %s: DecodeCommit %v, want invalid-op-json-mode", entries[0].Mode, decErr)
+			}
+		}
+	}
+}
+
+// TestFromGitCommitDuplicateOpJSONEntriesAreNotRead is the reproduction
+// behind the round 1 review of WRIT-313: a tree of 117 duplicate `op.json`
+// entries, every one naming the same 1 MiB blob, is 4,095 bytes — under
+// codec.MaxTreeBytes, so it is loaded — and FromGitCommit used to read the
+// blob once per entry before its shape was ever checked, retaining 117 MiB
+// and allocating 255 MiB. Rule 1 checks tree shape before it reads any blob,
+// so a tree that is not a single `op.json` entry reads none: nothing here may
+// be retained, and the allocation must stay far below 117 reads of the blob.
+// The tree would fail fsck, but a host or fetch that does not run fsck
+// accepts it.
+func TestFromGitCommitDuplicateOpJSONEntriesAreNotRead(t *testing.T) {
+	const (
+		duplicates = 117
+		blobBytes  = codec.MaxPayloadBytes
+		// What this path still does: size each entry's blob, to tell absent
+		// from present, at about 9 KB a header read — roughly 1 MB for 117
+		// entries, however large the blob. Reading the blob once per entry
+		// was 255 MB, so a regression reading even two of them is over.
+		allocBudget = 2 << 20
+	)
+	dir := t.TempDir()
+	repo, err := git.PlainInit(dir, false)
+	if err != nil {
+		t.Fatalf("PlainInit: %v", err)
+	}
+	s := repo.Storer
+	blob := storeObject(t, s, plumbing.BlobObject, bytes.Repeat([]byte("x"), blobBytes))
+	entries := make([]object.TreeEntry, duplicates)
+	for i := range entries {
+		entries[i] = object.TreeEntry{Name: "op.json", Mode: filemode.Regular, Hash: blob}
+	}
+	tree := storeTree(t, s, entries)
+	if size, err := s.EncodedObjectSize(tree); err != nil || size != 4095 {
+		t.Fatalf("tree is %d bytes (err %v), want 4095", size, err)
+	}
+	commit := commitOfSize(t, s, tree, 200)
+
+	gc, err := codec.GetCommit(s, commit)
+	if err != nil {
+		t.Fatalf("GetCommit: %v", err)
+	}
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	pure, err := codec.FromGitCommit(s, gc)
+	runtime.ReadMemStats(&after)
+	if err != nil {
+		t.Fatalf("FromGitCommit: %v", err)
+	}
+
+	if len(pure.Tree) != duplicates {
+		t.Errorf("%d entries reported, want %d", len(pure.Tree), duplicates)
+	}
+	retained := 0
+	for _, e := range pure.Tree {
+		retained += len(e.Data)
+	}
+	if retained != 0 {
+		t.Errorf("retained %d bytes of op.json blob content from a tree that is not a single op.json entry, want none", retained)
+	}
+	if _, err := codec.DecodeCommit(pure); rejectReason(err) != codec.RejectExtraTreeEntry {
+		t.Errorf("DecodeCommit: %v, want extra-tree-entry", err)
+	}
+	delta := after.TotalAlloc - before.TotalAlloc
+	t.Logf("FromGitCommit allocated %d bytes for %d duplicate op.json entries over a %d-byte blob", delta, duplicates, blobBytes)
+	if delta > allocBudget {
+		t.Errorf("FromGitCommit allocated %d bytes, want under %d", delta, allocBudget)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 
@@ -236,6 +237,22 @@ func evaluateOpCommit(t *testing.T, fix *fixtures.Fixture, refName string, commi
 		})
 		if entry.Name == "op.json" {
 			opBlobContent = string(entry.Data)
+			if entry.Data == nil {
+				// A reader reads op.json's blob only once the tree is a
+				// single regular op.json entry (rule 1 checks shape first),
+				// so a commit rejected on its tree's shape carries no Data.
+				// The golden still records what the blob held, so the
+				// harness reads it directly.
+				if blob, err := fix.Repo.BlobObject(plumbing.NewHash(entry.Hash)); err == nil {
+					if r, err := blob.Reader(); err == nil {
+						content, rerr := io.ReadAll(r)
+						_ = r.Close()
+						if rerr == nil {
+							opBlobContent = string(content)
+						}
+					}
+				}
+			}
 		}
 	}
 

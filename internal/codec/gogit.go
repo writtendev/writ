@@ -66,9 +66,18 @@ func fromGitCommit(s storage.Storer, commit *object.Commit) (Commit, error) {
 	}
 
 	// Only the root tree's own entries are read: a directory entry is
-	// reported as an entry and never descended into, so what this
-	// retains is bounded by MaxTreeBytes, however many entries name
-	// the same large subtree.
+	// reported as an entry and never descended into, so what the entries
+	// themselves retain is bounded by MaxTreeBytes, however many entries
+	// name the same large subtree. A blob is read only once the tree's
+	// shape is known to be a single regular-mode op.json entry — rule 1
+	// checks shape before it reads any blob, and DecodeCommit rejects every
+	// other shape (missing-op-json, extra-tree-entry, invalid-op-json-mode)
+	// without looking at the blob. Reading per entry named op.json instead
+	// would let a tree of duplicates, each naming the same large blob (a
+	// tree that fails fsck, but not every host runs it), retain one blob per
+	// entry. So the most this retains beyond the entries is one blob,
+	// capped at MaxPayloadBytes+1.
+	readOpJSON := len(tree.Entries) == 1 && tree.Entries[0].Name == "op.json" && tree.Entries[0].Mode == filemode.Regular
 	var treeEntries []TreeEntry
 	for _, entry := range tree.Entries {
 		te := TreeEntry{
@@ -76,7 +85,7 @@ func fromGitCommit(s storage.Storer, commit *object.Commit) (Commit, error) {
 			Mode: entry.Mode.String(),
 			Hash: entry.Hash.String(),
 		}
-		if entry.Name == "op.json" {
+		if readOpJSON {
 			data, err := readOpJSONBlob(s, entry.Hash, func() (*object.File, error) {
 				return tree.TreeEntryFile(&entry)
 			})
@@ -84,6 +93,17 @@ func fromGitCommit(s storage.Storer, commit *object.Commit) (Commit, error) {
 				return Commit{}, fmt.Errorf("codec: read op.json blob: %w", err)
 			}
 			te.Data = data
+		} else if entry.Name == "op.json" {
+			// Not read, but still a blob this clone may not have: an
+			// op.json entry whose object is absent has always surfaced as
+			// plumbing.ErrObjectNotFound (dag: object-unavailable), whatever
+			// else is wrong with the tree, and sizing is all it takes to
+			// tell absent from present — a header read, never the content.
+			if _, known, err := objectSize(s, entry.Hash); err != nil {
+				return Commit{}, fmt.Errorf("codec: read op.json blob: determine op.json blob size: %w", err)
+			} else if !known {
+				return Commit{}, fmt.Errorf("codec: read op.json blob: open op.json blob: %w", plumbing.ErrObjectNotFound)
+			}
 		}
 		treeEntries = append(treeEntries, te)
 	}
