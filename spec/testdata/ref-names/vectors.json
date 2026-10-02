@@ -230,5 +230,53 @@
       "ref": "refs/writ/0123456789abcdef/widget test",
       "reason": "object-type contains space"
     }
+  ],
+  "remote_valid": [
+    {
+      "ref": "refs/remotes/origin/writ/0123456789abcdef/widget",
+      "remote": "origin",
+      "writer_id": "0123456789abcdef",
+      "object_type": "widget"
+    },
+    {
+      "ref": "refs/remotes/writ/writ/0123456789abcdef/widget",
+      "remote": "writ",
+      "writer_id": "0123456789abcdef",
+      "object_type": "widget"
+    },
+    {
+      "ref": "refs/remotes/writ/fork/writ/0123456789abcdef/widget",
+      "remote": "writ/fork",
+      "writer_id": "0123456789abcdef",
+      "object_type": "widget"
+    },
+    {
+      "ref": "refs/remotes/team/fork/writ/0123456789abcdef/widget",
+      "remote": "team/fork",
+      "writer_id": "0123456789abcdef",
+      "object_type": "widget"
+    }
+  ],
+  "remote_invalid": [
+    {
+      "ref": "refs/remotes/team/writ/writ/0123456789abcdef/widget",
+      "reason": "remote is team (the first writ component that follows a component ends it); the second segment writ is reserved and the tail has three segments, not two"
+    },
+    {
+      "ref": "refs/remotes/writ/writ/writ/0123456789abcdef/widget",
+      "reason": "remote is writ; the tail writ/<writer-id>/<object-type> has three segments, not two"
+    },
+    {
+      "ref": "refs/remotes/writ/0123456789abcdef/widget",
+      "reason": "no component precedes the first writ component, so there is no remote"
+    },
+    {
+      "ref": "refs/remotes/origin/writ/v2/0123456789abcdef/widget",
+      "reason": "tail has three segments; the second segment v2 is reserved"
+    },
+    {
+      "ref": "refs/remotes/writ/fork/writ/zz-not-hex/widget",
+      "reason": "remote is writ/fork; the writer-id segment is not 16 lowercase hex characters"
+    }
   ]
 }

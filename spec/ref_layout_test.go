@@ -27,6 +27,16 @@ type refVectorsDoc struct {
 		Ref    string `json:"ref"`
 		Reason string `json:"reason"`
 	} `json:"invalid"`
+	RemoteValid []struct {
+		Ref        string `json:"ref"`
+		Remote     string `json:"remote"`
+		WriterID   string `json:"writer_id"`
+		ObjectType string `json:"object_type"`
+	} `json:"remote_valid"`
+	RemoteInvalid []struct {
+		Ref    string `json:"ref"`
+		Reason string `json:"reason"`
+	} `json:"remote_invalid"`
 }
 
 func loadRefVectors(t *testing.T) refVectorsDoc {
@@ -77,6 +87,28 @@ func parseRefName(ref string) (writerID, objectType string, err error) {
 		return "", "", fmt.Errorf("invalid object-type %q: must match %s with length 1..%d and not end in \".lock\"", objType, objectTypeRegexp.String(), objectTypeMaxLength)
 	}
 	return wID, objType, nil
+}
+
+// parseRemoteRefName parses a remote-tracking chain per spec/ref-layout.md
+// §Ref naming grammar: <remote> is the one or more components between
+// refs/remotes/ and the first component equal to "writ" that follows at
+// least one component; what follows that component is the local grammar's
+// <writer-id>/<object-type>.
+func parseRemoteRefName(ref string) (remote, writerID, objectType string, err error) {
+	const prefix = "refs/remotes/"
+	if !strings.HasPrefix(ref, prefix) {
+		return "", "", "", fmt.Errorf("ref %q must start with %q", ref, prefix)
+	}
+	comps := strings.Split(strings.TrimPrefix(ref, prefix), "/")
+	for i := 1; i < len(comps); i++ {
+		if comps[i] != "writ" {
+			continue
+		}
+		local := "refs/writ/" + strings.Join(comps[i+1:], "/")
+		writerID, objectType, err = parseRefName(local)
+		return strings.Join(comps[:i], "/"), writerID, objectType, err
+	}
+	return "", "", "", fmt.Errorf("ref %q has no writ component after a remote name", ref)
 }
 
 func requireGit(t *testing.T) {
@@ -161,6 +193,58 @@ func TestInvalidRefNames(t *testing.T) {
 			if err == nil {
 				t.Errorf("parseRefName(%q) accepted invalid ref (got writerID=%q, objType=%q); expected rejection: %s",
 					v.Ref, writerID, objType, v.Reason)
+			}
+		})
+	}
+}
+
+func TestRemoteTrackingRefNames(t *testing.T) {
+	doc := loadRefVectors(t)
+	if len(doc.RemoteValid) == 0 || len(doc.RemoteInvalid) == 0 {
+		t.Fatal("remote-tracking ref vectors missing")
+	}
+
+	for _, v := range doc.RemoteValid {
+		v := v
+		t.Run(v.Ref, func(t *testing.T) {
+			remote, writerID, objType, err := parseRemoteRefName(v.Ref)
+			if err != nil {
+				t.Fatalf("parseRemoteRefName(%q) failed: %v", v.Ref, err)
+			}
+			if remote != v.Remote || writerID != v.WriterID || objType != v.ObjectType {
+				t.Errorf("parseRemoteRefName(%q) = (%q, %q, %q), want (%q, %q, %q)",
+					v.Ref, remote, writerID, objType, v.Remote, v.WriterID, v.ObjectType)
+			}
+		})
+	}
+
+	for _, v := range doc.RemoteInvalid {
+		v := v
+		t.Run(v.Ref, func(t *testing.T) {
+			if v.Reason == "" {
+				t.Error("invalid remote-tracking ref vector has empty reason")
+			}
+			if remote, writerID, objType, err := parseRemoteRefName(v.Ref); err == nil {
+				t.Errorf("parseRemoteRefName(%q) accepted (remote=%q, writerID=%q, objType=%q); expected rejection: %s",
+					v.Ref, remote, writerID, objType, v.Reason)
+			}
+		})
+	}
+}
+
+func TestRemoteTrackingRefNamesGitCheckRefFormat(t *testing.T) {
+	requireGit(t)
+	doc := loadRefVectors(t)
+
+	for _, v := range doc.RemoteValid {
+		v := v
+		t.Run(v.Ref, func(t *testing.T) {
+			out, err := exec.Command("git", "check-ref-format", "--normalize", v.Ref).Output()
+			if err != nil {
+				t.Fatalf("git check-ref-format --normalize %q failed: %v (output: %q)", v.Ref, err, string(out))
+			}
+			if got := strings.TrimSpace(string(out)); got != v.Ref {
+				t.Errorf("normalized ref = %q, want %q", got, v.Ref)
 			}
 		})
 	}
