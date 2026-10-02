@@ -85,6 +85,86 @@
         "disposition": "reject",
         "reason": "commit-too-large"
       }
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/widget",
+      "commit": "7e59b587b77dd468150af50f4e394fe9c3778dc0",
+      "parents": [
+        "b0a0e9036ee2e59afebe0c1b0de5931f43c5fe17"
+      ],
+      "author": "Alice Example \u003calice@example.test\u003e",
+      "committer": "Alice Example \u003calice@example.test\u003e",
+      "timestamp": "2026-01-01T00:04:00Z",
+      "tree_size": 4097,
+      "signed": true,
+      "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
+      "verification_outcome": "valid",
+      "expected": {
+        "disposition": "reject",
+        "reason": "tree-too-large"
+      },
+      "observed": {
+        "disposition": "reject",
+        "reason": "tree-too-large"
+      }
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/widget",
+      "commit": "945fa445dc56cd1109bf6de01f83b2da704a4a82",
+      "commit_size": 65537,
+      "tree_size": 4097,
+      "expected": {
+        "disposition": "reject",
+        "reason": "commit-too-large"
+      },
+      "observed": {
+        "disposition": "reject",
+        "reason": "commit-too-large"
+      }
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/widget",
+      "commit": "1f8450ba08d8cd65f72da4320e9b392617142356",
+      "parents": [
+        "945fa445dc56cd1109bf6de01f83b2da704a4a82"
+      ],
+      "author": "Alice Example \u003calice@example.test\u003e",
+      "committer": "Alice Example \u003calice@example.test\u003e",
+      "timestamp": "2026-01-01T00:06:00Z",
+      "tree_size": 4096,
+      "signed": true,
+      "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
+      "verification_outcome": "valid",
+      "expected": {
+        "disposition": "reject",
+        "reason": "missing-op-json"
+      },
+      "observed": {
+        "disposition": "reject",
+        "reason": "missing-op-json"
+      }
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/widget",
+      "commit": "ca2815eb9d9a367c3a10dc2dc1c9da798c18a57b",
+      "parents": [
+        "1f8450ba08d8cd65f72da4320e9b392617142356"
+      ],
+      "author": "Alice Example \u003calice@example.test\u003e",
+      "committer": "Alice Example \u003calice@example.test\u003e",
+      "timestamp": "2026-01-01T00:07:00Z",
+      "tree_size": 4097,
+      "signed": true,
+      "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
+      "verification_outcome": "valid",
+      "expected": {
+        "disposition": "reject",
+        "reason": "tree-too-large"
+      },
+      "observed": {
+        "disposition": "reject",
+        "reason": "tree-too-large"
+      }
     }
   ]
 }

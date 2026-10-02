@@ -2,7 +2,7 @@
   "refs": [
     {
       "name": "refs/writ/0123456789abcdef/widget",
-      "commit": "b0a0e9036ee2e59afebe0c1b0de5931f43c5fe17"
+      "commit": "ca2815eb9d9a367c3a10dc2dc1c9da798c18a57b"
     }
   ],
   "generations": [
@@ -52,6 +52,52 @@
           "timestamp": "2026-01-01T00:03:00Z",
           "message": "",
           "message_size": 65015,
+          "signed": true
+        },
+        {
+          "sha": "7e59b587b77dd468150af50f4e394fe9c3778dc0",
+          "tree": "67dd12778fa1988ae9e96a6846a5156ff73173a3",
+          "parents": [
+            "b0a0e9036ee2e59afebe0c1b0de5931f43c5fe17"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:04:00Z",
+          "message": "",
+          "message_size": 65014,
+          "signed": true
+        },
+        {
+          "sha": "945fa445dc56cd1109bf6de01f83b2da704a4a82",
+          "tree": "141741464f7151a0ba000a0c8eefa0f7b13b86a6",
+          "parents": [
+            "7e59b587b77dd468150af50f4e394fe9c3778dc0"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:05:00Z",
+          "message": "",
+          "message_size": 65015,
+          "signed": true
+        },
+        {
+          "sha": "1f8450ba08d8cd65f72da4320e9b392617142356",
+          "tree": "ead9ade7e29cd824ef4663ebd0ea17c0ebd1d2ec",
+          "parents": [
+            "945fa445dc56cd1109bf6de01f83b2da704a4a82"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:06:00Z",
+          "message": "writ: update widget/widget-01\n",
+          "signed": true
+        },
+        {
+          "sha": "ca2815eb9d9a367c3a10dc2dc1c9da798c18a57b",
+          "tree": "92ae490eba240abb01ad50b113e35d0ad44fa4e4",
+          "parents": [
+            "1f8450ba08d8cd65f72da4320e9b392617142356"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:07:00Z",
+          "message": "writ: update widget/widget-01\n",
           "signed": true
         }
       ]

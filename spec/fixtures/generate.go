@@ -140,7 +140,13 @@ func buildCommit(repo *git.Repository, sgnr *signer, cd CommitDesc, parents []pl
 		committerSig = object.Signature{Name: committerId.Name, Email: committerId.Email, When: cd.Timestamp.UTC()}
 	}
 
-	treeHash, err := buildTree(repo.Storer, cd.Files)
+	var treeHash plumbing.Hash
+	if cd.TreeBlobSize != 0 {
+		// tree_blob_size: the commit's tree header names a blob, not a tree.
+		treeHash, err = writeBlob(repo.Storer, strings.Repeat("x", cd.TreeBlobSize))
+	} else {
+		treeHash, err = buildTree(repo.Storer, cd.Files)
+	}
 	if err != nil {
 		return nil, plumbing.ZeroHash, err
 	}

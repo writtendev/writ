@@ -22,10 +22,18 @@ type treeNode struct {
 }
 
 // commitFiles resolves the files cd's root tree holds: its op block's
-// canonical op.json (padded to op_json_size when set) or its files:, plus
-// tree_size's padding entry when set.
+// canonical op.json (padded to op_json_size when set) or its files: (their
+// op.json padded to op_json_size when set), plus tree_size's padding entry
+// when set.
 func commitFiles(cd CommitDesc) (map[string]string, error) {
 	files := cd.Files
+	if cd.Op == nil && cd.OpJSONSize != 0 {
+		padded, err := PadOpJSONFile(files, cd.OpJSONSize)
+		if err != nil {
+			return nil, err
+		}
+		files = padded
+	}
 	if cd.Op != nil {
 		var payloadBytes []byte
 		var err error
@@ -45,6 +53,30 @@ func commitFiles(cd CommitDesc) (map[string]string, error) {
 		return PadTreeFiles(files, cd.TreeSize)
 	}
 	return files, nil
+}
+
+// PadOpJSONFile returns files with its op.json padded with trailing spaces to
+// exactly size bytes (op_json_size alongside files:), for a fixture pinning
+// what a reader does with an op.json of a given length whose bytes are not
+// canonical: reader-validation rule 1 checks the size bound before the
+// byte-equality rule, so an over-bound payload of this kind is
+// payload-too-large, not non-canonical-payload. The spaces make the bytes
+// non-canonical whatever the content was, so unlike the padding field of an
+// op block this cannot produce an accepted op.
+func PadOpJSONFile(files map[string]string, size int) (map[string]string, error) {
+	content, ok := files["op.json"]
+	if !ok {
+		return nil, fmt.Errorf("fixtures: op_json_size without an op block needs a files op.json")
+	}
+	if len(content) >= size {
+		return nil, fmt.Errorf("fixtures: op_json_size %d is not larger than the op.json given (%d bytes): padding adds at least one byte", size, len(content))
+	}
+	padded := make(map[string]string, len(files))
+	for name, c := range files {
+		padded[name] = c
+	}
+	padded["op.json"] = content + strings.Repeat(" ", size-len(content))
+	return padded, nil
 }
 
 // PadTreeFiles returns files plus one padding entry — a regular file with

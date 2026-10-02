@@ -1,6 +1,7 @@
 package fixtures
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/go-git/go-git/v5/storage/memory"
@@ -407,6 +408,80 @@ refs:
             tamper: message
 `,
 		},
+		{
+			name: "tree_blob_size with files",
+			yaml: `
+name: tree-blob-size-files
+refs:
+  - name: refs/heads/main
+    history:
+      - commits:
+          - author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            message: m
+            files: {f: "1"}
+            tree_blob_size: 4097
+`,
+		},
+		{
+			name: "tree_blob_size with tree_size",
+			yaml: `
+name: tree-blob-size-tree-size
+refs:
+  - name: refs/heads/main
+    history:
+      - commits:
+          - author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            message: m
+            tree_size: 4097
+            tree_blob_size: 4097
+`,
+		},
+		{
+			name: "tree_blob_size negative",
+			yaml: `
+name: tree-blob-size-negative
+refs:
+  - name: refs/heads/main
+    history:
+      - commits:
+          - author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            message: m
+            tree_blob_size: -1
+`,
+		},
+		{
+			name: "op_json_size with files and no op.json",
+			yaml: `
+name: op-json-size-no-op-json
+refs:
+  - name: refs/heads/main
+    history:
+      - commits:
+          - author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            message: m
+            files: {f: "1"}
+            op_json_size: 100
+`,
+		},
+		{
+			name: "op_json_size not larger than the files op.json",
+			yaml: `
+name: op-json-size-too-small-for-files
+refs:
+  - name: refs/heads/main
+    history:
+      - commits:
+          - author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            message: m
+            files: {op.json: "{}"}
+            op_json_size: 2
+`,
+		},
 	}
 
 	for _, tc := range cases {
@@ -721,5 +796,28 @@ func TestPadTreeFilesIsExact(t *testing.T) {
 	}
 	if len(files) != 1 {
 		t.Errorf("PadTreeFiles mutated its input: %v", files)
+	}
+}
+
+// TestPadOpJSONFileIsExact checks op_json_size's arithmetic alongside files:
+// the padded op.json is exactly the requested size, is still the original
+// content followed by spaces only, and the input map is left alone.
+func TestPadOpJSONFileIsExact(t *testing.T) {
+	files := map[string]string{"op.json": "{}", "other": "x"}
+	for _, size := range []int{3, 1 << 20, 1<<20 + 1} {
+		padded, err := PadOpJSONFile(files, size)
+		if err != nil {
+			t.Fatalf("PadOpJSONFile(%d): %v", size, err)
+		}
+		got := padded["op.json"]
+		if len(got) != size || got[:2] != "{}" || strings.Trim(got[2:], " ") != "" {
+			t.Errorf("op_json_size %d: op.json is %d bytes, not {} plus spaces", size, len(got))
+		}
+		if padded["other"] != "x" {
+			t.Errorf("op_json_size %d: other file changed", size)
+		}
+	}
+	if files["op.json"] != "{}" {
+		t.Errorf("PadOpJSONFile mutated its input: %v", files)
 	}
 }

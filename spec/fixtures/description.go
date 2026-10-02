@@ -141,22 +141,23 @@ func (e *ExpectDesc) UnmarshalYAML(value *yaml.Node) error {
 // an identity naming a signer from the keyring in keys/, a fixed timestamp,
 // and optional parent labels, committer override, signing override, or tamper instruction.
 type CommitDesc struct {
-	ID          string            `yaml:"id,omitempty"`
-	Parents     []string          `yaml:"parents,omitempty"`
-	Author      string            `yaml:"author"`
-	Committer   string            `yaml:"committer,omitempty"`
-	Timestamp   time.Time         `yaml:"timestamp"`
-	Message     string            `yaml:"message,omitempty"`
-	Files       map[string]string `yaml:"files,omitempty"`
-	Op          *OpDesc           `yaml:"op,omitempty"`
-	OpJSONSize  int               `yaml:"op_json_size,omitempty"`
-	TreeSize    int               `yaml:"tree_size,omitempty"`
-	CommitSize  int               `yaml:"commit_size,omitempty"`
-	SignAs      string            `yaml:"sign_as,omitempty"`
-	Tamper      string            `yaml:"tamper,omitempty"`
-	Unsigned    bool              `yaml:"unsigned,omitempty"`
-	Expect      *ExpectDesc       `yaml:"expect,omitempty"`
-	Disposition string            `yaml:"disposition,omitempty"`
+	ID           string            `yaml:"id,omitempty"`
+	Parents      []string          `yaml:"parents,omitempty"`
+	Author       string            `yaml:"author"`
+	Committer    string            `yaml:"committer,omitempty"`
+	Timestamp    time.Time         `yaml:"timestamp"`
+	Message      string            `yaml:"message,omitempty"`
+	Files        map[string]string `yaml:"files,omitempty"`
+	Op           *OpDesc           `yaml:"op,omitempty"`
+	OpJSONSize   int               `yaml:"op_json_size,omitempty"`
+	TreeSize     int               `yaml:"tree_size,omitempty"`
+	TreeBlobSize int               `yaml:"tree_blob_size,omitempty"`
+	CommitSize   int               `yaml:"commit_size,omitempty"`
+	SignAs       string            `yaml:"sign_as,omitempty"`
+	Tamper       string            `yaml:"tamper,omitempty"`
+	Unsigned     bool              `yaml:"unsigned,omitempty"`
+	Expect       *ExpectDesc       `yaml:"expect,omitempty"`
+	Disposition  string            `yaml:"disposition,omitempty"`
 }
 
 // ResolutionDesc describes one resolution case in an orphan-anchors fixture.
@@ -338,11 +339,19 @@ func Load(data []byte) (*Description, error) {
 					}
 				}
 				if c.OpJSONSize != 0 {
-					if c.Op == nil {
-						return nil, fmt.Errorf("fixtures: description %q ref %q generation %d commit %d specifies 'op_json_size' without 'op'", d.Name, r.Name, gi, ci)
+					if c.Op == nil && c.Files["op.json"] == "" {
+						return nil, fmt.Errorf("fixtures: description %q ref %q generation %d commit %d specifies 'op_json_size' without 'op' or a 'files' op.json", d.Name, r.Name, gi, ci)
 					}
-					if _, err := PadOpJSON(c.Op, c.OpJSONSize); err != nil {
+					if _, err := commitFiles(c); err != nil {
 						return nil, fmt.Errorf("fixtures: description %q ref %q generation %d commit %d invalid op_json_size: %w", d.Name, r.Name, gi, ci, err)
+					}
+				}
+				if c.TreeBlobSize != 0 {
+					switch {
+					case c.TreeBlobSize < 0:
+						return nil, fmt.Errorf("fixtures: description %q ref %q generation %d commit %d invalid tree_blob_size %d: must be positive", d.Name, r.Name, gi, ci, c.TreeBlobSize)
+					case c.Op != nil || len(c.Files) > 0 || c.TreeSize != 0 || c.OpJSONSize != 0 || c.Tamper != "":
+						return nil, fmt.Errorf("fixtures: description %q ref %q generation %d commit %d specifies 'tree_blob_size' with 'op', 'files', 'tree_size', 'op_json_size' or 'tamper': the commit's tree header names a blob, so it has no tree of its own", d.Name, r.Name, gi, ci)
 					}
 				}
 				if c.TreeSize != 0 {

@@ -66,3 +66,45 @@ refs:
             commit_size: 65537
             expect:
               reject: commit-too-large
+          - id: commit-at-max-tree-over-max
+            author: alice
+            timestamp: 2026-01-01T00:04:00Z
+            op:
+              object_id: widget-01
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "commit at its bound, tree over its own"
+            tree_size: 4097
+            commit_size: 65536
+            expect:
+              reject: tree-too-large
+          - id: commit-over-max-tree-over-max
+            author: alice
+            timestamp: 2026-01-01T00:05:00Z
+            op:
+              object_id: widget-01
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "commit and tree both over"
+            tree_size: 4097
+            commit_size: 65537
+            expect:
+              reject: commit-too-large
+          - id: tree-header-blob-at-max
+            author: alice
+            timestamp: 2026-01-01T00:06:00Z
+            message: "writ: update widget/widget-01\n"
+            tree_blob_size: 4096
+            expect:
+              reject: missing-op-json
+          - id: tree-header-blob-over-max
+            author: alice
+            timestamp: 2026-01-01T00:07:00Z
+            message: "writ: update widget/widget-01\n"
+            tree_blob_size: 4097
+            expect:
+              reject: tree-too-large

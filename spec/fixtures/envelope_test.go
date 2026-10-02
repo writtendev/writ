@@ -42,11 +42,16 @@ type EnvelopeGolden struct {
 // nothing that needs the decoded commit — parents, identities, tree entries,
 // signature — can be recorded for it. The commit SHA pins all of that.
 type UnloadedCommitState struct {
-	Ref        string           `json:"ref"`
-	Commit     string           `json:"commit"`
-	CommitSize int              `json:"commit_size"`
-	Expected   DispositionState `json:"expected"`
-	Observed   DispositionState `json:"observed"`
+	Ref        string `json:"ref"`
+	Commit     string `json:"commit"`
+	CommitSize int    `json:"commit_size"`
+	// TreeSize is the size of the commit's root tree object (or of the
+	// object its tree header names), recorded when the description pins it:
+	// a commit that is over the bound whose tree is also over it pins that
+	// the commit bound is checked first.
+	TreeSize int              `json:"tree_size,omitempty"`
+	Expected DispositionState `json:"expected"`
+	Observed DispositionState `json:"observed"`
 }
 
 type OpGoldenState struct {
@@ -125,7 +130,7 @@ func runEnvelopeFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 				commitHash := plumbing.NewHash(cState.SHA)
 				commit, err := codec.GetCommit(fix.Repo.Storer, commitHash)
 				if err != nil {
-					state, serr := unloadedCommitState(fix, ref.Name, cState.SHA, cd, err)
+					state, serr := unloadedCommitState(fix, ref.Name, cState.SHA, cState.Tree, cd, err)
 					if serr != nil {
 						return nil, serr
 					}
@@ -152,7 +157,7 @@ func runEnvelopeFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 // unloadedCommitState builds the golden record of a commit codec.GetCommit
 // refused to load, after checking the refusal is the one the description
 // declares: commit-too-large, at the size commit_size pins.
-func unloadedCommitState(fix *fixtures.Fixture, refName, sha string, cd fixtures.CommitDesc, loadErr error) (*UnloadedCommitState, error) {
+func unloadedCommitState(fix *fixtures.Fixture, refName, sha, tree string, cd fixtures.CommitDesc, loadErr error) (*UnloadedCommitState, error) {
 	var rej *codec.RejectError
 	if !errors.As(loadErr, &rej) {
 		return nil, fmt.Errorf("lookup commit %s: %w", sha, loadErr)
@@ -167,6 +172,19 @@ func unloadedCommitState(fix *fixtures.Fixture, refName, sha string, cd fixtures
 	if size != int64(cd.CommitSize) {
 		return nil, fmt.Errorf("fixture %s commit %s: commit_size %d, commit object is %d bytes", fix.Name, sha, cd.CommitSize, size)
 	}
+	// A pinned tree size is checked here too, so a commit meant to pin that
+	// its own bound is checked before its tree's cannot silently have a tree
+	// within the bound.
+	treeSize := pinnedTreeSize(cd)
+	if treeSize != 0 {
+		got, err := fix.Repo.Storer.EncodedObjectSize(plumbing.NewHash(tree))
+		if err != nil {
+			return nil, fmt.Errorf("size tree %s of commit %s: %w", tree, sha, err)
+		}
+		if got != int64(treeSize) {
+			return nil, fmt.Errorf("fixture %s commit %s: tree size %d pinned, tree header names a %d-byte object", fix.Name, sha, treeSize, got)
+		}
+	}
 
 	expected := DispositionState{Disposition: "accept"}
 	if cd.Expect != nil && !cd.Expect.Accept && cd.Expect.Reject != "" {
@@ -180,9 +198,20 @@ func unloadedCommitState(fix *fixtures.Fixture, refName, sha string, cd fixtures
 		Ref:        refName,
 		Commit:     sha,
 		CommitSize: cd.CommitSize,
+		TreeSize:   treeSize,
 		Expected:   expected,
 		Observed:   observed,
 	}, nil
+}
+
+// pinnedTreeSize is the size of the object cd's tree header names that cd's
+// description pins — tree_size for a root tree, tree_blob_size for a blob —
+// or 0 when it pins none.
+func pinnedTreeSize(cd fixtures.CommitDesc) int {
+	if cd.TreeBlobSize != 0 {
+		return cd.TreeBlobSize
+	}
+	return cd.TreeSize
 }
 
 // checkChainsDiscoverable asserts that every ref the fixture's manifest
@@ -278,14 +307,16 @@ func evaluateOpCommit(t *testing.T, fix *fixtures.Fixture, refName string, commi
 	// size (the envelope-object-size family) records that size instead of
 	// the tree's entries, which carry a padding entry whose name is a
 	// kilobyte of "x". A tree over the bound is never loaded, so it has no
-	// entries to record in any case; commit_size's check that the size is
-	// the one pinned is made here, where the tree's size is known.
+	// entries to record in any case. The check that the size is the one
+	// pinned is made here, where the tree's size is known; a tree header
+	// naming a blob (tree_blob_size) is sized the same way and has no
+	// entries either.
 	treeSize := 0
-	if cd.TreeSize != 0 {
-		if pureCommit.TreeSize != int64(cd.TreeSize) {
-			return nil, fmt.Errorf("fixture %s commit %s: tree_size %d, root tree object is %d bytes", fix.Name, commit.Hash.String(), cd.TreeSize, pureCommit.TreeSize)
+	if pinned := pinnedTreeSize(cd); pinned != 0 {
+		if pureCommit.TreeSize != int64(pinned) {
+			return nil, fmt.Errorf("fixture %s commit %s: tree size %d pinned, the object its tree header names is %d bytes", fix.Name, commit.Hash.String(), pinned, pureCommit.TreeSize)
 		}
-		treeSize = cd.TreeSize
+		treeSize = pinned
 		treeEntries = nil
 	}
 

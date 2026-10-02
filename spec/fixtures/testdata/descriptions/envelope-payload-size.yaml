@@ -52,3 +52,56 @@ refs:
               body:
                 title: "still fine"
             expect: accept
+
+  # Rule 1's order of checks around the blob bound: tree shape, then the size
+  # bound, then byte-equality. Each case below is oversized or at the bound
+  # and wrong in one other way, so a reader that checks in another order
+  # reports another reason. Padding here is not canonical (trailing spaces,
+  # or a tree padded past one entry), so none of these can be accepted.
+  - name: refs/writ/0123456789abcdef/gadget
+    history:
+      - commits:
+          - id: noncanonical-at-max
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            message: "writ: create gadget/gadget-01\n"
+            files:
+              op.json: '{"body":{},"object_id":"gadget-01","object_type":"acme.gadget","op_type":"create","op_version":1}'
+            op_json_size: 1048576
+            expect:
+              reject: non-canonical-payload
+          - id: noncanonical-over-max
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            message: "writ: create gadget/gadget-01\n"
+            files:
+              op.json: '{"body":{},"object_id":"gadget-01","object_type":"acme.gadget","op_type":"create","op_version":1}'
+            op_json_size: 1048577
+            expect:
+              reject: payload-too-large
+          - id: extra-entry-over-max
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: gadget-01
+              object_type: acme.gadget
+              op_type: update
+              op_version: 1
+              body: {}
+            op_json_size: 1048577
+            tree_size: 100
+            expect:
+              reject: extra-tree-entry
+          - id: executable-mode-over-max
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: gadget-01
+              object_type: acme.gadget
+              op_type: update
+              op_version: 1
+              body: {}
+            op_json_size: 1048577
+            tamper: op-json-mode-exec
+            expect:
+              reject: invalid-op-json-mode
