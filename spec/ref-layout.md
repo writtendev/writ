@@ -43,7 +43,12 @@ ref name.
 
 A conforming Writ ref MUST match the following structure. The same grammar
 is what a reader recognizes as a chain; what a reader does with a ref under
-`refs/writ/` that fails it is §Reader enumeration's rule.
+`refs/writ/` that fails it is §Reader enumeration's rule. The rules below
+state the local form. A remote-tracking chain
+(`refs/remotes/<remote>/writ/<writer-id>/<object-type>`) conforms when the
+part after `refs/remotes/<remote>/` matches them with `refs/` read as
+`refs/remotes/<remote>/`; the three-segment rule then counts the segments
+after that prefix.
 
 1. **Prefix:** The ref name MUST start with `refs/writ/`.
 2. **Path segments:** Exactly three path segments MUST follow `refs/`:
@@ -122,11 +127,10 @@ operations. A conforming reader:
    that match §Ref naming grammar. A ref under `refs/writ/` (or
    `refs/remotes/<remote>/writ/`) that does not match that grammar MUST be
    ignored by a reader: not enumerated, not walked, and not reported as an
-   error or a rejection. Path segments after `writ/` that are not a
-   16-lowercase-hex `<writer-id>` (for example `refs/writ/v2/...`) are
-   reserved for future revisions of this format. The `+refs/writ/*` fetch
-   refspec still transfers such refs, and the writer-scoped push refspec
-   never writes them. Why: a future format change that is not additive can
+   error or a rejection. A second path segment (the one immediately after
+   `writ/`) that is not a 16-lowercase-hex `<writer-id>` (for example
+   `refs/writ/v2/...`) is reserved for future revisions of this format.
+   The `+refs/writ/*` fetch refspec still transfers such refs. Why: a future format change that is not additive can
    then live in its own namespace beside this one, readable by readers that
    know it and invisible to readers that do not, instead of forking every
    repository's writ data.
