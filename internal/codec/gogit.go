@@ -412,6 +412,23 @@ func WriteCommit(ctx context.Context, s storage.Storer, commit *Commit, signer S
 	}
 
 	if signer != nil {
+		// The unsigned encoding is a lower bound on the signed size, so a
+		// commit already over the bound is refused before the signer runs:
+		// signing can mean a hardware touch or a passphrase prompt, and a
+		// producer MUST NOT sign what it could have known was invalid
+		// (spec/op-envelope.md §Producer validation). The check after
+		// encoding stays, since the signature adds bytes.
+		unsigned, err := ToGitCommit(*commit)
+		if err != nil {
+			return plumbing.ZeroHash, fmt.Errorf("codec: build commit object: %w", err)
+		}
+		unsignedObj := &plumbing.MemoryObject{}
+		if err := unsigned.EncodeWithoutSignature(unsignedObj); err != nil {
+			return plumbing.ZeroHash, fmt.Errorf("codec: encode commit: %w", err)
+		}
+		if size := unsignedObj.Size(); size > MaxCommitBytes {
+			return plumbing.ZeroHash, &RejectError{Reason: RejectCommitTooLarge, Err: fmt.Errorf("commit object is %d bytes unsigned, exceeds %d", size, MaxCommitBytes)}
+		}
 		if err := SignCommit(ctx, signer, commit); err != nil {
 			return plumbing.ZeroHash, err
 		}

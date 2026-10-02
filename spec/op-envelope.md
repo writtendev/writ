@@ -206,7 +206,9 @@ within the tree bound by construction. The commit bound also caps how many
 causal parents one op can carry: each is a 48-byte `parent` line, so a
 commit with the rest of a typical op commit (under 4 KiB) holds about
 21,000 of them, and a producer whose causal frontier is wider MUST refuse
-the append rather than write a commit its own readers would reject. That
+the append rather than write a commit its own readers would reject, and
+MUST do so before signing when the unsigned commit is already over the
+bound, then check again after signing, since the signature adds bytes. That
 is a residual, stated plainly: a peer able to push more concurrent heads
 onto one object than fit in one commit can block further writes to that
 object, because every honest append names the whole frontier as its

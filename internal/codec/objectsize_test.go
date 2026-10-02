@@ -341,6 +341,43 @@ func TestWriteCommitRefusesOverBoundCommit(t *testing.T) {
 	}
 }
 
+// TestWriteCommitDoesNotSignOverBoundCommit pins the signer seam: a commit
+// whose unsigned encoding is already over codec.MaxCommitBytes is refused
+// without the signer ever being invoked (signing can mean a hardware touch or
+// a passphrase prompt), and a commit under the bound is still signed.
+func TestWriteCommitDoesNotSignOverBoundCommit(t *testing.T) {
+	alice := codec.Identity{Name: "Alice", Email: "alice@example.test", When: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	tree := []codec.TreeEntry{{Name: "op.json", Mode: "100644", Data: []byte("{}")}}
+	build := func(parents int) *codec.Commit {
+		c := &codec.Commit{Author: alice, Committer: alice, Message: "writ: create widget/w-1\n", Tree: tree}
+		for i := 0; i < parents; i++ {
+			c.Parents = append(c.Parents, plumbing.ComputeHash(plumbing.BlobObject, []byte(fmt.Sprint(i))).String())
+		}
+		return c
+	}
+	calls := 0
+	signer := codec.SignerFunc(func(ctx context.Context, payload []byte) (string, error) {
+		calls++
+		return "-----BEGIN SSH SIGNATURE-----\nstub\n-----END SSH SIGNATURE-----\n", nil
+	})
+
+	s := memory.NewStorage()
+	_, err := codec.WriteCommit(context.Background(), s, build(22000), signer)
+	if rejectReason(err) != codec.RejectCommitTooLarge {
+		t.Fatalf("WriteCommit of 22000 parents: %v, want commit-too-large", err)
+	}
+	if calls != 0 {
+		t.Errorf("signer invoked %d times for an over-bound unsigned commit, want 0", calls)
+	}
+
+	if _, err := codec.WriteCommit(context.Background(), s, build(1000), signer); err != nil {
+		t.Fatalf("WriteCommit of 1000 parents: %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("signer invoked %d times for an in-bound commit, want 1", calls)
+	}
+}
+
 // TestFromGitCommitNeverRetainsMoreThanTheBound is the property test the
 // ticket's ruling asks for: for random legal root trees — random entry counts,
 // modes, and names, with directory entries naming large subtrees, and with

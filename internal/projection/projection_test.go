@@ -26,7 +26,7 @@ func TestOpenCloseMemory(t *testing.T) {
 	// not kept before v0.1.0 (AGENTS.md; see schema.go's own doc comment) —
 	// this literal is the current value, not a changelog.
 	if v := projection.SchemaVersion(); v != 21 {
-		t.Fatalf("expected schema version 20, got %d", v)
+		t.Fatalf("expected schema version 21, got %d", v)
 	}
 
 	var version string
