@@ -1,0 +1,78 @@
+{
+  "objects": [
+    {
+      "object_id": "w-carrier-verification",
+      "object_type": "acme.widget",
+      "total_order": [
+        {
+          "commit": "e5c4ef09d8d4bb114febcfb021357ee33bcdb21a",
+          "label": "widget-create",
+          "t_star": 1767225600
+        },
+        {
+          "commit": "5b43d813a8111223b29aa65b223eef040e253698",
+          "label": "widget-revision-unsigned",
+          "t_star": 1767226200,
+          "verification": "valid",
+          "key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA"
+        },
+        {
+          "commit": "4a979d71b4552f742baf1ccd00d55173a5b15de4",
+          "label": "update-valid-over-wrong-key-wrong",
+          "t_star": 1767226800,
+          "verification": "valid",
+          "key_fingerprint": "SHA256:O/tazBDLdOtpewVOG55l3W8ZJOSCXXSbkFws9gBOhYc"
+        },
+        {
+          "commit": "3fb4c68d01579f99e7c10b9c0ac599a1b3807414",
+          "label": "update-wrong-key-over-unsigned-unsigned",
+          "t_star": 1767227100,
+          "verification": "wrong-key",
+          "key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA"
+        },
+        {
+          "commit": "1f0a45197854127c055c05bea1f6ba05b67ea0b3",
+          "label": "update-unsigned-over-corrupted-corrupted",
+          "t_star": 1767227400,
+          "verification": "unsigned"
+        },
+        {
+          "commit": "58d89140d52fd8351ddaae3d4c75061d444bd4b4",
+          "label": "update-corrupted-over-mutated-mutated",
+          "t_star": 1767227700,
+          "verification": "corrupted-signature"
+        },
+        {
+          "commit": "1f0fc3d1454791a6c2353971f7252cc60a3dde7f",
+          "label": "update-tie-valid-alice",
+          "t_star": 1767228000,
+          "verification": "valid",
+          "key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA"
+        },
+        {
+          "commit": "45f1e8503805245f528cb639a8cee6b49370cce9",
+          "label": "update-tie-wrong-key-bob",
+          "t_star": 1767228300,
+          "verification": "wrong-key",
+          "key_fingerprint": "SHA256:O/tazBDLdOtpewVOG55l3W8ZJOSCXXSbkFws9gBOhYc"
+        },
+        {
+          "commit": "47e37154647950a81156e59ca5f9abba34cedbc6",
+          "label": "update-tie-mutated-alice",
+          "t_star": 1767228600,
+          "verification": "payload-mutated",
+          "key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA"
+        }
+      ],
+      "state": {
+        "base": [
+          "0123456789abcdef0123456789abcdef01234567"
+        ],
+        "head": [
+          "89abcdef0123456789abcdef0123456789abcde2"
+        ],
+        "title": "Tie mutated v98"
+      }
+    }
+  ]
+}

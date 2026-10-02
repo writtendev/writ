@@ -16,8 +16,8 @@ across two carriers, and each field has exactly one home:
 
 | Logical field | Carrier |
 | --- | --- |
-| op id | the op commit's id (SHA) |
-| parent op ids | the commit's parent ids |
+| op id | the lowest-sorting id (SHA) among the op commits carrying the op's signed payload ([`spec/signing.md`](signing.md) §Signed Payload and Op Identity) |
+| parent op ids | the commit's parent ids, each read as the op id of the op it names ([`spec/ref-layout.md`](ref-layout.md) §Reader enumeration step 3) |
 | author | the commit author identity (`Name <email>`) |
 | timestamp | the commit author time |
 | signature | the commit signature header (`gpgsig`) |
@@ -44,13 +44,17 @@ ancestry, authorship, and signature.
 
 ## The commit carrier
 
-Because the op id *is* the commit id, every byte the commit id derives
-from is part of this spec. A producer MUST construct op commits exactly
-as follows; two conforming producers given the same logical op and the
-same signing key then mint the same op id.
+The op id is always the id of a commit — the lowest-sorting one among the
+commits carrying the op's signed payload — and every byte of the signed
+payload (the commit object minus its `gpgsig` header) is part of this spec.
+A producer MUST construct op commits exactly as follows; two conforming
+producers given the same logical op and a deterministic signing key then
+mint the same commit, and so the same op id. Which bytes make two commits
+the same op is [`spec/signing.md`](signing.md) §Signed Payload and Op
+Identity: the signed payload, not the signature's armoring.
 
 - **Object format.** Commits are standard git commit objects in the
-  repository's object format. The op id is the commit id under that
+  repository's object format. An op id is a commit id under that
   format — SHA-1 in today's repositories, SHA-256 in SHA-256
   repositories. Op ids are therefore repository-scoped, like every other
   git object id.
@@ -58,7 +62,9 @@ same signing key then mint the same op id.
   `op.json` with file mode `100644` at the root of the tree, holding the
   payload described in the next section. No subdirectories, no other
   files.
-- **Parents.** Every commit parent is a happens-before edge. For a
+- **Parents.** Every commit parent is a happens-before edge. A parent
+  line may spell any carrier of the op it names; a reader reads it as that
+  op's id. For a
   non-empty chain, `parents[0]` MUST be the writer's previous op commit
   on that chain (the chain predecessor). Additional parents
   (`parents[1:]`) are causal references to other ops that this op
@@ -91,8 +97,9 @@ same signing key then mint the same op id.
   never validate it against the payload, which would make the message a
   second source of truth for fields the payload owns. The message is
   therefore the one place the payload's own fields are restated, and it
-  is deliberately unverifiable: two commits with identical payloads and
-  different messages are both valid ops, with different op ids. Op-id
+  is deliberately unverifiable: two commits with identical `op.json`
+  payloads and different messages sign different bytes, so they are both
+  valid ops, with different op ids. Op-id
   reproducibility across producers rests on producers following this
   rule, not on readers enforcing it — which is the trade the no-mirroring
   principle accepts to keep `git log` legible.

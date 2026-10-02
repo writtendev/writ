@@ -1,0 +1,152 @@
+{
+  "refs": [
+    {
+      "name": "refs/writ/0123456789abcdef/schema",
+      "commit": "1a7c3af3353290ab70ed95db4e11fac8486a5882"
+    },
+    {
+      "name": "refs/writ/0123456789abcdef/widget",
+      "commit": "3acf434d7cc8aae71c65d4cd87e3a9a2040cf952"
+    },
+    {
+      "name": "refs/writ/fedcba9876543210/widget",
+      "commit": "595ab439abd5242660e36274ccadce89d5a7058d"
+    },
+    {
+      "name": "refs/writ/1111111111111111/widget",
+      "commit": "e31eebde0eaf6db3eca9c4a53f58130fc968e191"
+    }
+  ],
+  "generations": [
+    {
+      "ref": "refs/writ/0123456789abcdef/schema",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "6878f32e6ceba5d25b58018d4349cddbfb8921eb",
+          "tree": "34ea76857b187dc8c8861abb7cb50918cb719bba",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:00:00Z",
+          "message": "writ: create schema/schema:acme\n",
+          "signed": true
+        },
+        {
+          "sha": "bc8e7c1f1c78f9de75b6fad53a582223bf0c66e7",
+          "tree": "ca78439bb9815d37872edb62cd893ea301ceddd2",
+          "parents": [
+            "6878f32e6ceba5d25b58018d4349cddbfb8921eb"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:01:00Z",
+          "message": "writ: define-type schema/schema:acme\n",
+          "signed": true
+        },
+        {
+          "sha": "17cd6d8ee707b4273bc134ea5edd5c6b2e21132e",
+          "tree": "a1a1a3fa236a140a09cb40dd8570eac36c162408",
+          "parents": [
+            "bc8e7c1f1c78f9de75b6fad53a582223bf0c66e7"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:02:00Z",
+          "message": "writ: define-field schema/schema:acme\n",
+          "signed": true
+        },
+        {
+          "sha": "9d62ad64fd198760054a7cb16b211a5650ab470a",
+          "tree": "d83958d0c207dbaadf97ef2b264535042aa6ffb8",
+          "parents": [
+            "17cd6d8ee707b4273bc134ea5edd5c6b2e21132e"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:03:00Z",
+          "message": "writ: define-field schema/schema:acme\n",
+          "signed": true
+        },
+        {
+          "sha": "f219cc351cf1023544e4241bdb5daf61f8f55b5b",
+          "tree": "2cb7fa0c2496481dc54d214c993d86c20ab81ea0",
+          "parents": [
+            "9d62ad64fd198760054a7cb16b211a5650ab470a"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:04:00Z",
+          "message": "writ: define-field schema/schema:acme\n",
+          "signed": true
+        },
+        {
+          "sha": "1a7c3af3353290ab70ed95db4e11fac8486a5882",
+          "tree": "b7a45fa4f19aeae9d4cb759201f7eea2c46cc3cd",
+          "parents": [
+            "f219cc351cf1023544e4241bdb5daf61f8f55b5b"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:05:00Z",
+          "message": "writ: define-field schema/schema:acme\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/widget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "7c8634df62b59fa24ea317bf56874738ca30d83d",
+          "tree": "ced333c5600cc05aa01eedc99edb3b9a5b0236b7",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "message": "writ: create acme.widget/w-replayed-op\n",
+          "signed": true
+        },
+        {
+          "sha": "3acf434d7cc8aae71c65d4cd87e3a9a2040cf952",
+          "tree": "e782ffacb3746d585362603c9ab4671c61a61d3b",
+          "parents": [
+            "7c8634df62b59fa24ea317bf56874738ca30d83d"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:10:00Z",
+          "message": "writ: revision acme.widget/w-replayed-op\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/fedcba9876543210/widget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "595ab439abd5242660e36274ccadce89d5a7058d",
+          "tree": "e782ffacb3746d585362603c9ab4671c61a61d3b",
+          "parents": [
+            "7c8634df62b59fa24ea317bf56874738ca30d83d"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:10:00Z",
+          "message": "writ: revision acme.widget/w-replayed-op\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/1111111111111111/widget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "e31eebde0eaf6db3eca9c4a53f58130fc968e191",
+          "tree": "ad9bec4ca4c1f2a0f192cc046ee421846b65f98a",
+          "parents": [
+            "595ab439abd5242660e36274ccadce89d5a7058d"
+          ],
+          "author": "Bob Example \u003cbob@example.test\u003e",
+          "timestamp": "2026-01-01T00:05:00Z",
+          "message": "writ: update acme.widget/w-replayed-op\n",
+          "signed": true
+        }
+      ]
+    }
+  ]
+}

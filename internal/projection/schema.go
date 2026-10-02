@@ -9,8 +9,9 @@ package projection
 // normalization change reaches an existing checkout.
 //
 // This covers only the substrate tables below (meta, chain_tips, code_tips,
-// ops, objects, unknown_ops, anchor_resolutions): a schema change to the
-// per-type generated tables invalidates the cache through a different key,
+// ops, op_carriers, objects, unknown_ops, anchor_resolutions): a schema
+// change to the per-type generated tables invalidates the cache through a
+// different key,
 // the descriptor digest ApplySchema computes from the current rule index and
 // compares against the one recorded in meta on the previous apply. Two keys,
 // two jobs — schemaVersion for substrate shape, the digest for generated
@@ -20,19 +21,20 @@ package projection
 // v0.1.0 (AGENTS.md): nothing has shipped, so there are no external readers
 // for a changelog of internal cache-invalidation bumps to serve, and several
 // of the entries it once carried named tables no release ever produced.
-const schemaVersion = 19
+const schemaVersion = 20
 
 // substrateTables lists the type-agnostic tables created unconditionally at
 // Open, before any schema is ever applied: meta, chain_tips, code_tips, ops,
-// objects, unknown_ops, and anchor_resolutions (generalized, but neither
-// per-type nor dropped on a schema change the way a generated table is —
-// ApplySchema truncates it instead, since which targets are anchors is a
+// op_carriers, objects, unknown_ops, and anchor_resolutions (generalized, but
+// neither per-type nor dropped on a schema change the way a generated table
+// is — ApplySchema truncates it instead, since which targets are anchors is a
 // function of the schema even though its own shape is not).
 var substrateTables = []string{
 	"meta",
 	"chain_tips",
 	"code_tips",
 	"ops",
+	"op_carriers",
 	"objects",
 	"unknown_ops",
 	"anchor_resolutions",
@@ -43,6 +45,7 @@ var substrateTableQueries = map[string]string{
 	"chain_tips":         "SELECT * FROM chain_tips ORDER BY ref_name ASC",
 	"code_tips":          "SELECT * FROM code_tips ORDER BY ref_name ASC",
 	"ops":                "SELECT * FROM ops ORDER BY op_id ASC",
+	"op_carriers":        "SELECT * FROM op_carriers ORDER BY commit_id ASC",
 	"objects":            "SELECT * FROM objects ORDER BY object_id ASC",
 	"unknown_ops":        "SELECT * FROM unknown_ops ORDER BY object_id ASC, op_index ASC",
 	"anchor_resolutions": "SELECT * FROM anchor_resolutions ORDER BY object_id ASC, target ASC, target_commit ASC, side ASC",
@@ -88,9 +91,20 @@ CREATE TABLE IF NOT EXISTS ops (
     signature TEXT,
     payload BLOB NOT NULL,
     verification TEXT NOT NULL DEFAULT '',
-    key_fingerprint TEXT
+    key_fingerprint TEXT,
+    payload_id TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ops_object_id ON ops(object_id);
+CREATE INDEX IF NOT EXISTS idx_ops_payload_id ON ops(payload_id);
+
+-- Every commit carrying an op's signed payload, the op's own id included:
+-- two commits with byte-identical signed payloads are one op (WRIT-312).
+-- ops.op_id is the lowest-sorting carrier; the rest are recorded here so a
+-- parent line, or a later pass's walk, naming any carrier still resolves.
+CREATE TABLE IF NOT EXISTS op_carriers (
+    commit_id TEXT PRIMARY KEY,
+    op_id TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS objects (
     object_id TEXT PRIMARY KEY,
