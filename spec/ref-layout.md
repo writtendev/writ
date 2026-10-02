@@ -41,10 +41,14 @@ ref name.
 
 ### Ref naming grammar
 
-A conforming Writ ref MUST match the following structure. The same grammar
-is what a reader recognizes as a chain; what a reader does with a ref under
-`refs/writ/` that fails it is §Reader enumeration's rule. The rules below
-state the local form. A remote-tracking chain
+A conforming Writ ref MUST match the following structure. A reader
+recognizes a chain by the ref's name alone: rules 1 through 3 and rule 4's
+`<object-type>` syntax (its pattern, its length, and the `.lock`
+exclusion) are what it checks. Rule 4's byte-identity with the ops'
+`object_type` is the one rule it does not check — a producer obligation
+only, with the reader's treatment of a mismatch stated in rule 4. What a
+reader does with a ref under `refs/writ/` that fails recognition is
+§Reader enumeration's rule. The rules below state the local form. A remote-tracking chain
 (`refs/remotes/<remote>/writ/<writer-id>/<object-type>`) conforms when the
 part after `refs/remotes/<remote>/` matches them with `refs/` read as
 `refs/remotes/<remote>/`; the three-segment rule then counts the segments
@@ -77,8 +81,17 @@ destination out of `refs/remotes/`, which retires this clause.
    `^[a-z][a-z0-9-]{0,63}(\.[a-z][a-z0-9-]{0,63})?$` with a length of at
    least 1 and at most 129 characters (64 per segment, plus the
    separating dot for the namespace-qualified form,
-   `spec/op-envelope.md`). It MUST be byte-identical to the `object_type`
-   field of the ops stored on that chain. `<object-type>` MUST NOT end
+   `spec/op-envelope.md`). A producer MUST make it byte-identical to the
+   `object_type` field of the ops it stores on that chain. A reader does
+   not check this: it recognizes the chain from the name's syntax alone
+   and never compares the ref's `<object-type>` to its ops'
+   `object_type`. A mismatch is not a failure of ref recognition, is not
+   a rejection under [`spec/op-envelope.md`](op-envelope.md) §Reader
+   validation, and does not stop the walk: each op is grouped and folded
+   by the `object_type` in its own `op.json`, whatever object type the ref
+   that carried it names (many corpus fixtures, `multi-writer-chains`
+   among them, carry `acme.widget` ops on `.../widget` refs).
+   `<object-type>` MUST NOT end
    in `.lock`: git rejects any slash-separated ref path component ending
    in `.lock` outright (verified against real git: `git
    check-ref-format refs/writ/<writer-id>/acme.lock` fails, while
@@ -139,8 +152,10 @@ operations. A conforming reader:
 
 1. Enumerates all refs under `refs/writ/*` (local writer) and
    `refs/remotes/*/writ/*` (remote-tracking chains fetched from remotes)
-   that match §Ref naming grammar. A ref under `refs/writ/` (or
-   `refs/remotes/<remote>/writ/`) that does not match that grammar MUST be
+   that a reader recognizes as chains under §Ref naming grammar (the name's
+   shape; rule 4's byte-identity with the ops' `object_type` is a producer
+   obligation, not a recognition rule). A ref under `refs/writ/` (or
+   `refs/remotes/<remote>/writ/`) that fails recognition MUST be
    ignored by a reader: not enumerated, not walked, and not reported as an
    error or a rejection. A second path segment (the one immediately after
    `writ/`) that is not a 16-lowercase-hex `<writer-id>` (for example

@@ -145,8 +145,10 @@ this corpus to verify compatibility:
    the `envelope` family specifically, refs are discovered the same way,
    then reader validation and signature verification run on each commit
    the golden lists by `commit`.
-   A ref under `refs/writ/` or `refs/remotes/<remote>/writ/` that does not
-   match the `spec/ref-layout.md` naming grammar is ignored, not an error
+   A ref under `refs/writ/` or `refs/remotes/<remote>/writ/` whose name
+   fails the `spec/ref-layout.md` naming grammar's recognition rules (name
+   shape only; the ref-vs-`object_type` byte-identity is a producer
+   obligation a reader never checks) is ignored, not an error
    (`reserved-ref-namespaces`).
 3. Serialize the folded state to canonical JSON.
 4. Compare byte-for-byte against the golden files in

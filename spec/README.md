@@ -23,8 +23,8 @@ split (§What each corpus pins, below) the row belongs to: **producer**
 pins what a producer MUST NOT emit (payload instances checked against JSON
 Schema, no fold runs); **reader** pins what a reader MUST do when folding
 or resolving an already-written log, including tolerating input a
-producer would have refused. A blank cell means the split does not apply
-(prose, schema files, informative GitHub-interop vectors, and Go tooling).
+producer would have refused. A row that pins both halves lists both. A
+blank cell means the split does not apply (prose, schema files, informative GitHub-interop vectors, and Go tooling).
 
 | File | Force | Pins | Contents |
 | --- | --- | --- | --- |
@@ -52,7 +52,7 @@ producer would have refused. A blank cell means the split does not apply
 | `testdata/corpus.json` | Normative | | The corpus manifest: `format`, the version of the corpus's machine-readable shapes (vector, index, golden, and description shapes) an implementation was written against |
 | `testdata/canonicalization/vectors.json` | Normative | producer | Canonicalization test vectors: input → exact canonical bytes, or input → rejection |
 | `testdata/ordering/vectors.json` | Normative | producer | Fractional indexing test vectors: generation across boundaries, canonical validation, and comparison |
-| `testdata/ref-names/vectors.json` | Normative | producer | Ref-naming test vectors (valid/invalid, local and remote-tracking) and pinned refspecs |
+| `testdata/ref-names/vectors.json` | Normative | producer, reader | Ref-naming test vectors (valid/invalid, local and remote-tracking) and pinned refspecs. The valid/invalid lists pin which names a producer may and may not emit and what a reader recognizes as a chain (a ref that fails is ignored, `ref-layout.md` §Reader enumeration); `remote_valid`/`remote_invalid` pin only the reader half, where `<remote>` ends, since no producer emits a remote-tracking ref |
 | `testdata/envelopes/` | Normative | producer | Envelope payload instances, valid and invalid; `invalid/index.json` records each expected rejection |
 | `testdata/forward-compat/` | Normative | reader | Forward-compatibility instances (unknown types, future versions, unknown fields) and synthetic reader profile (+ index.json) |
 | `testdata/anchors/valid/`, `testdata/anchors/invalid/` | Normative | producer | Anchor instances; `invalid/index.json` records each expected rejection and whether the schema or an invariant catches it, and, for an invariant, which one in a sibling `invariant_rule` field |
