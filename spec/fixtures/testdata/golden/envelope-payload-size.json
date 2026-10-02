@@ -3,6 +3,10 @@
     {
       "name": "refs/writ/0123456789abcdef/widget",
       "commit": "30ec824aeb610b0cec118b03f9230886d779f124"
+    },
+    {
+      "name": "refs/writ/0123456789abcdef/gadget",
+      "commit": "5f030b41d9c76bfe5aaa87566705e9bd1faeb48c"
     }
   ],
   "generations": [
@@ -39,6 +43,54 @@
           "author": "Alice Example \u003calice@example.test\u003e",
           "timestamp": "2026-01-01T00:02:00Z",
           "message": "writ: update acme.widget/widget-01\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/gadget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "39d61ae58e6a3c1cb2ef4c0b65713ffa3feae6de",
+          "tree": "1eb33afa422d04d6b13d3a9af6c2dc902775a8b6",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "message": "writ: create gadget/gadget-01\n",
+          "signed": true
+        },
+        {
+          "sha": "0d4aad14a035832b9b07ad37fed98093780fef98",
+          "tree": "b5fb0f7c3b3b9dbe0c11961dae5be8379fae4cad",
+          "parents": [
+            "39d61ae58e6a3c1cb2ef4c0b65713ffa3feae6de"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:01:00Z",
+          "message": "writ: create gadget/gadget-01\n",
+          "signed": true
+        },
+        {
+          "sha": "78ced9f0b4dcea22b81014ea7f8e3c36c47b9336",
+          "tree": "29aaff5801133635962061f0ab39e4410d8f8a8e",
+          "parents": [
+            "0d4aad14a035832b9b07ad37fed98093780fef98"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:02:00Z",
+          "message": "writ: update acme.gadget/gadget-01\n",
+          "signed": true
+        },
+        {
+          "sha": "5f030b41d9c76bfe5aaa87566705e9bd1faeb48c",
+          "tree": "44efe917f7c91fbf37917c6e1571e52c0eadbd7e",
+          "parents": [
+            "78ced9f0b4dcea22b81014ea7f8e3c36c47b9336"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:03:00Z",
+          "message": "writ: update acme.gadget/gadget-01\n",
           "signed": true
         }
       ]

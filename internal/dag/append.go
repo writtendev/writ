@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/storage"
 	"github.com/writtendev/writ/internal/codec"
 )
@@ -58,11 +57,14 @@ func (s *Store) Append(ctx context.Context, env codec.Envelope, causalParents []
 		if pHash.IsZero() {
 			return nil, fmt.Errorf("%w: invalid hash %q", ErrInvalidParent, p)
 		}
-		commitObj, err := object.GetCommit(s.storer, pHash)
+		// codec.GetCommit and codec.GetTree size the objects before loading
+		// them: a causal parent is any hash the caller names, and one that is
+		// not a bounded op commit is refused unread (WRIT-313).
+		commitObj, err := codec.GetCommit(s.storer, pHash)
 		if err != nil {
 			return nil, fmt.Errorf("%w: commit %s: %v", ErrInvalidParent, p, err)
 		}
-		tree, err := commitObj.Tree()
+		tree, err := codec.GetTree(s.storer, commitObj.TreeHash)
 		if err != nil {
 			return nil, fmt.Errorf("%w: tree for commit %s: %v", ErrInvalidParent, p, err)
 		}

@@ -304,3 +304,26 @@ func decodeDeltaSizeVarint(b []byte) (uint64, []byte, error) {
 	}
 	return 0, nil, io.ErrUnexpectedEOF
 }
+
+// objectSize is the one place an object's declared size is read before the
+// object itself is loaded: packfileObjectSize first, which is bounded-memory
+// for every on-disk shape, then s.EncodedObjectSize for a storer
+// packfileObjectSize cannot see into (an in-memory one, in tests). known is
+// false when neither could place the object — absent from s — leaving the
+// caller's own lookup to report that. A sizing error from
+// packfileObjectSize is returned, not swallowed: the caller must fail
+// closed rather than load an object whose size it could not determine.
+// size is the object's declared size whatever its type.
+func objectSize(s storage.Storer, hash plumbing.Hash) (size int64, known bool, err error) {
+	size, found, err := packfileObjectSize(s, hash)
+	if err != nil {
+		return 0, false, err
+	}
+	if found {
+		return size, true, nil
+	}
+	if size, err := s.EncodedObjectSize(hash); err == nil {
+		return size, true, nil
+	}
+	return 0, false, nil
+}

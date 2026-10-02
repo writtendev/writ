@@ -741,8 +741,8 @@ func TestEnumerate_RootOpJSONBlobAbsentTreeShapes(t *testing.T) {
 		},
 		{
 			// Reviewer shape 2: op.json present as a directory, its
-			// subtree absent. op-json-subdirectory/invalid-op-json-mode
-			// territory — op.json is not a blob at all.
+			// subtree absent. invalid-op-json-mode territory — op.json is
+			// not a blob at all.
 			name:        "op_json_as_absent_directory",
 			wantDecoded: 1,
 			buildEntries: func(repo *git.Repository) ([]object.TreeEntry, error) {

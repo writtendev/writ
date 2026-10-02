@@ -1,7 +1,10 @@
 package fixtures
 
 import (
+	"strings"
 	"testing"
+
+	"github.com/go-git/go-git/v5/storage/memory"
 
 	"github.com/writtendev/writ/internal/dag"
 )
@@ -336,6 +339,149 @@ refs:
             op_json_size: 1
 `,
 		},
+		{
+			name: "tree_size smaller than its own entries",
+			yaml: `
+name: tree-size-too-small
+refs:
+  - name: refs/heads/main
+    history:
+      - commits:
+          - author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: r1
+              object_type: widget
+              op_type: create
+              op_version: 1
+              body: {}
+            tree_size: 63
+`,
+		},
+		{
+			name: "tree_size over nested files",
+			yaml: `
+name: tree-size-nested
+refs:
+  - name: refs/heads/main
+    history:
+      - commits:
+          - author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            message: m
+            files: {dir/f: "1"}
+            tree_size: 4096
+`,
+		},
+		{
+			name: "commit_size negative",
+			yaml: `
+name: commit-size-negative
+refs:
+  - name: refs/heads/main
+    history:
+      - commits:
+          - author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            message: m
+            files: {f: "1"}
+            commit_size: -1
+`,
+		},
+		{
+			name: "commit_size with tamper",
+			yaml: `
+name: commit-size-tamper
+refs:
+  - name: refs/heads/main
+    history:
+      - commits:
+          - author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: r1
+              object_type: widget
+              op_type: create
+              op_version: 1
+              body: {}
+            commit_size: 1048576
+            tamper: message
+`,
+		},
+		{
+			name: "tree_blob_size with files",
+			yaml: `
+name: tree-blob-size-files
+refs:
+  - name: refs/heads/main
+    history:
+      - commits:
+          - author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            message: m
+            files: {f: "1"}
+            tree_blob_size: 4097
+`,
+		},
+		{
+			name: "tree_blob_size with tree_size",
+			yaml: `
+name: tree-blob-size-tree-size
+refs:
+  - name: refs/heads/main
+    history:
+      - commits:
+          - author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            message: m
+            tree_size: 4097
+            tree_blob_size: 4097
+`,
+		},
+		{
+			name: "tree_blob_size negative",
+			yaml: `
+name: tree-blob-size-negative
+refs:
+  - name: refs/heads/main
+    history:
+      - commits:
+          - author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            message: m
+            tree_blob_size: -1
+`,
+		},
+		{
+			name: "op_json_size with files and no op.json",
+			yaml: `
+name: op-json-size-no-op-json
+refs:
+  - name: refs/heads/main
+    history:
+      - commits:
+          - author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            message: m
+            files: {f: "1"}
+            op_json_size: 100
+`,
+		},
+		{
+			name: "op_json_size not larger than the files op.json",
+			yaml: `
+name: op-json-size-too-small-for-files
+refs:
+  - name: refs/heads/main
+    history:
+      - commits:
+          - author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            message: m
+            files: {op.json: "{}"}
+            op_json_size: 2
+`,
+		},
 	}
 
 	for _, tc := range cases {
@@ -622,5 +768,56 @@ resolutions:
 	}
 	if desc.Resolutions[1].Name != "res2" || desc.Resolutions[1].Expect.Status != "partially-resolved" {
 		t.Errorf("unexpected resolution 1: %+v", desc.Resolutions[1])
+	}
+}
+
+// TestPadTreeFilesIsExact checks tree_size's arithmetic against a tree
+// actually encoded: the padded files' root tree object is exactly the
+// requested size, at both ends of the bound envelope-object-size pins.
+func TestPadTreeFilesIsExact(t *testing.T) {
+	files := map[string]string{"op.json": "{}"}
+	for _, size := range []int{64, 4096, 4097} {
+		padded, err := PadTreeFiles(files, size)
+		if err != nil {
+			t.Fatalf("PadTreeFiles(%d): %v", size, err)
+		}
+		store := memory.NewStorage()
+		hash, err := buildTree(store, padded)
+		if err != nil {
+			t.Fatalf("buildTree: %v", err)
+		}
+		got, err := store.EncodedObjectSize(hash)
+		if err != nil {
+			t.Fatalf("EncodedObjectSize: %v", err)
+		}
+		if got != int64(size) {
+			t.Errorf("tree_size %d: root tree object is %d bytes", size, got)
+		}
+	}
+	if len(files) != 1 {
+		t.Errorf("PadTreeFiles mutated its input: %v", files)
+	}
+}
+
+// TestPadOpJSONFileIsExact checks op_json_size's arithmetic alongside files:
+// the padded op.json is exactly the requested size, is still the original
+// content followed by spaces only, and the input map is left alone.
+func TestPadOpJSONFileIsExact(t *testing.T) {
+	files := map[string]string{"op.json": "{}", "other": "x"}
+	for _, size := range []int{3, 1 << 20, 1<<20 + 1} {
+		padded, err := PadOpJSONFile(files, size)
+		if err != nil {
+			t.Fatalf("PadOpJSONFile(%d): %v", size, err)
+		}
+		got := padded["op.json"]
+		if len(got) != size || got[:2] != "{}" || strings.Trim(got[2:], " ") != "" {
+			t.Errorf("op_json_size %d: op.json is %d bytes, not {} plus spaces", size, len(got))
+		}
+		if padded["other"] != "x" {
+			t.Errorf("op_json_size %d: other file changed", size)
+		}
+	}
+	if files["op.json"] != "{}" {
+		t.Errorf("PadOpJSONFile mutated its input: %v", files)
 	}
 }
