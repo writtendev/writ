@@ -166,6 +166,13 @@ func TestChains(t *testing.T) {
 	_ = s.SetReference(plumbing.NewHashReference(plumbing.ReferenceName("refs/remotes/origin/writ/fedcba9876543210/waypoint"), h2))
 	_ = s.SetReference(plumbing.NewHashReference(plumbing.ReferenceName("refs/heads/main"), h3))
 	_ = s.SetReference(plumbing.NewHashReference(plumbing.ReferenceName("refs/tags/v1.0.0"), h3))
+	// Refs under the writ namespaces that fail the naming grammar are
+	// ignored, not errors (spec/ref-layout.md §Reader enumeration): a
+	// reserved extra segment, a non-hex writer segment, and a remote-tracking
+	// ref with a reserved extra segment.
+	_ = s.SetReference(plumbing.NewHashReference(plumbing.ReferenceName("refs/writ/v2/0123456789abcdef/widget"), h3))
+	_ = s.SetReference(plumbing.NewHashReference(plumbing.ReferenceName("refs/writ/zz-not-hex/widget"), h3))
+	_ = s.SetReference(plumbing.NewHashReference(plumbing.ReferenceName("refs/remotes/origin/writ/v2/0123456789abcdef/widget"), h3))
 
 	chains, err := dag.Chains(s)
 	if err != nil {

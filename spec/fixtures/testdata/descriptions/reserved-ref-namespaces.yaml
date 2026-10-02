@@ -1,0 +1,82 @@
+name: reserved-ref-namespaces
+description: >
+  Refs deliberately outside the spec/ref-layout.md §Ref naming grammar, under
+  both refs/writ/ and refs/remotes/<remote>/writ/ (WRIT-314): a four-segment
+  refs/writ/v2/... ref, a refs/writ/zz-not-hex/... ref whose second segment is
+  not a 16-lowercase-hex writer-id, and a remote-tracking refs/remotes/origin/
+  writ/v2/... ref. §Reader enumeration requires a conforming reader to ignore
+  each one: not enumerated, not walked, and not reported as a rejection, so a
+  future non-additive format revision can live in its own namespace beside
+  this one instead of forking the repository's writ data. Each ignored ref
+  carries something that would be visible if a reader walked it, so the golden
+  pins "ignored" rather than "happened to find nothing".
+
+# Expected result: widget-01 = {alice-1}, and no rejections.
+#   v2-1 would add an op to widget-01's total order if refs/writ/v2/... were
+#   walked, since its causal parent is alice-1.
+#   zz-not-hex-tip carries no op.json; walking its ref would add a
+#   missing-op-json rejection.
+#   remote-v2-1 would add a whole object, widget-02, if its ref were walked.
+# The conforming ref comes first because the generator points HEAD at it.
+
+refs:
+  - name: refs/writ/0123456789abcdef/acme.widget
+    history:
+      - commits:
+          - id: alice-1
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: widget-01
+              object_type: acme.widget
+              op_type: create
+              op_version: 1
+              body:
+                title: "Alice widget 1"
+            expect: accept
+
+  - name: refs/writ/v2/0123456789abcdef/acme.widget
+    ignored: true
+    history:
+      - commits:
+          - id: v2-1
+            parents: [alice-1]
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: widget-01
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "Reserved namespace update"
+            expect: accept
+
+  - name: refs/writ/zz-not-hex/acme.widget
+    ignored: true
+    history:
+      - commits:
+          - id: zz-not-hex-tip
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            message: "not an op\n"
+            files:
+              README.md: "no op.json in this commit"
+            expect:
+              reject: missing-op-json
+
+  - name: refs/remotes/origin/writ/v2/0123456789abcdef/acme.widget
+    ignored: true
+    history:
+      - commits:
+          - id: remote-v2-1
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: widget-02
+              object_type: acme.widget
+              op_type: create
+              op_version: 1
+              body:
+                title: "Remote reserved namespace widget"
+            expect: accept

@@ -1,0 +1,25 @@
+{
+  "objects": [
+    {
+      "object_id": "widget-01",
+      "object_type": "acme.widget",
+      "total_order": [
+        {
+          "commit": "a18d84420195c943882160bb1415457a77931368",
+          "label": "alice-1",
+          "t_star": 1767225600
+        }
+      ],
+      "state": {},
+      "unknown_ops": [
+        {
+          "commit": "a18d84420195c943882160bb1415457a77931368",
+          "label": "alice-1",
+          "object_type": "acme.widget",
+          "op_type": "create",
+          "op_version": 1
+        }
+      ]
+    }
+  ]
+}

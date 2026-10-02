@@ -78,5 +78,17 @@
         }
       ]
     }
+  ],
+  "rejections": [
+    {
+      "commit": "ba59570f27fc55706be618d7daad5c151e550430",
+      "label": "alice-malformed",
+      "reason": "missing-op-json"
+    },
+    {
+      "commit": "ea73b4cee7030597e69d0ad7c538ad37dd94fa75",
+      "label": "remote-malformed",
+      "reason": "non-canonical-payload"
+    }
   ]
 }

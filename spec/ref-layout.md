@@ -41,7 +41,9 @@ ref name.
 
 ### Ref naming grammar
 
-A conforming Writ ref MUST match the following structure:
+A conforming Writ ref MUST match the following structure. The same grammar
+is what a reader recognizes as a chain; what a reader does with a ref under
+`refs/writ/` that fails it is §Reader enumeration's rule.
 
 1. **Prefix:** The ref name MUST start with `refs/writ/`.
 2. **Path segments:** Exactly three path segments MUST follow `refs/`:
@@ -116,7 +118,18 @@ Readers MUST NOT rely on verifying the chain spine to discover or group
 operations. A conforming reader:
 
 1. Enumerates all refs under `refs/writ/*` (local writer) and
-   `refs/remotes/*/writ/*` (remote-tracking chains fetched from remotes).
+   `refs/remotes/*/writ/*` (remote-tracking chains fetched from remotes)
+   that match §Ref naming grammar. A ref under `refs/writ/` (or
+   `refs/remotes/<remote>/writ/`) that does not match that grammar MUST be
+   ignored by a reader: not enumerated, not walked, and not reported as an
+   error or a rejection. Path segments after `writ/` that are not a
+   16-lowercase-hex `<writer-id>` (for example `refs/writ/v2/...`) are
+   reserved for future revisions of this format. The `+refs/writ/*` fetch
+   refspec still transfers such refs, and the writer-scoped push refspec
+   never writes them. Why: a future format change that is not additive can
+   then live in its own namespace beside this one, readable by readers that
+   know it and invisible to readers that do not, instead of forking every
+   repository's writ data.
 2. Walks commit ancestry from every enumerated ref tip. A commit that fails
    [`spec/op-envelope.md`](op-envelope.md) §Reader validation is rejected,
    and the walk MUST NOT follow that commit's parents: a chain is a chain,
@@ -357,3 +370,10 @@ This fallback:
   (a commit missing `op.json` and one whose `op.json` is present but
   non-canonical), pinning exactly which operations a conforming reader
   holds and which it does not.
+- `spec/fixtures/testdata/descriptions/reserved-ref-namespaces.yaml` and its
+  fold golden (`spec/fixtures/testdata/golden/fold/reserved-ref-namespaces.json`)
+  — the §Reader enumeration MUST-ignore rule (WRIT-314): a conforming chain
+  beside a `refs/writ/v2/...` ref, a `refs/writ/zz-not-hex/...` ref, and a
+  `refs/remotes/origin/writ/v2/...` ref, each carrying something a reader
+  would surface if it walked the ref, pinning that only the conforming
+  chain's operations are held and the fold golden records no rejections.

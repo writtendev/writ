@@ -1,24 +1,10 @@
 package fixtures
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/writtendev/writ/internal/dag"
 )
-
-// isWritChainRefCandidate reports whether ref is under a namespace where a
-// writ chain ref belongs -- refs/writ/ or refs/remotes/<remote>/writ/ --
-// the same two prefixes dag.ParseChainRef itself recognizes. A ref outside
-// both (refs/heads/*, the orphan-anchors/force-pushed-branch families'
-// refs/fixture-history/*) names no writer-id at all and is out of this
-// guard's scope by construction.
-func isWritChainRefCandidate(ref string) bool {
-	if strings.HasPrefix(ref, "refs/writ/") {
-		return true
-	}
-	return strings.HasPrefix(ref, "refs/remotes/") && strings.Contains(ref, "/writ/")
-}
 
 // TestCorpusRefsAreDiscoverableChains is a corpus-wide static guard: every
 // ref name and keep_as any description in the corpus declares under
@@ -29,29 +15,39 @@ func isWritChainRefCandidate(ref string) bool {
 // ref a conforming reader's dag.Chains silently skips, so a description
 // that names one describes a repo that isn't a conforming writ
 // repository -- across every family, not just envelope's, including the
-// remote-tracking ref multi-writer-chains.yaml declares. No repo
-// generation is needed for this check, so it's cheap.
+// remote-tracking ref multi-writer-chains.yaml declares. A ref outside both
+// namespaces (refs/heads/*, the orphan-anchors/force-pushed-branch families'
+// refs/fixture-history/*) names no writer-id at all and is out of scope by
+// construction. The one inversion is a ref marked ignored: it is
+// deliberately outside the grammar (reserved-ref-namespaces.yaml), so it
+// must fail to parse, which keeps the knob from hiding a typo'd writer-id
+// on a ref meant to be a real chain. No repo generation is needed for this
+// check, so it's cheap.
 func TestCorpusRefsAreDiscoverableChains(t *testing.T) {
 	descs, err := LoadCorpus()
 	if err != nil {
 		t.Fatalf("load corpus: %v", err)
 	}
 
-	check := func(descName, ref string) {
-		if !isWritChainRefCandidate(ref) {
+	check := func(descName, ref string, ignored bool) {
+		if !isWritNamespaceRef(ref) {
 			return
 		}
-		if _, err := dag.ParseChainRef(ref); err != nil {
+		_, err := dag.ParseChainRef(ref)
+		switch {
+		case ignored && err == nil:
+			t.Errorf("description %q: ref %q is marked ignored but parses as a writ chain ref", descName, ref)
+		case !ignored && err != nil:
 			t.Errorf("description %q: ref %q does not parse as a writ chain ref: %v", descName, ref, err)
 		}
 	}
 
 	for _, d := range descs {
 		for _, r := range d.Refs {
-			check(d.Name, r.Name)
+			check(d.Name, r.Name, r.Ignored)
 			for _, g := range r.History {
 				if g.KeptAs != "" {
-					check(d.Name, g.KeptAs)
+					check(d.Name, g.KeptAs, false)
 				}
 			}
 		}
