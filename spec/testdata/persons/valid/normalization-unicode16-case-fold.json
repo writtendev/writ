@@ -1,0 +1,14 @@
+{
+  "identifier": "user:𐵐Ᲊ",
+  "scheme": "user",
+  "value": "𐵰ᲊ",
+  "normalized": "user:𐵰ᲊ",
+  "equal_to": [
+    "user:𐵰ᲊ",
+    "user:𐵐ᲊ",
+    "user:𐵰Ᲊ"
+  ],
+  "distinct_from": [
+    "user:𐵐Ᲊx"
+  ]
+}

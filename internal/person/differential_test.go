@@ -9,6 +9,7 @@ import (
 	"testing"
 	"unicode"
 
+	"golang.org/x/text/cases"
 	"golang.org/x/text/unicode/norm"
 	"golang.org/x/text/unicode/rangetable"
 
@@ -158,7 +159,9 @@ func TestDifferentialAgainstCPython(t *testing.T) {
 // TestDifferentialCatchesTheDefects is the differential's own test: a sweep
 // that agrees with everything proves nothing. It runs the raw x/text pipeline
 // — no Cherokee fixed points, no composition of its own — past CPython and
-// requires CPython to reject it.
+// requires CPython to reject it. These are the defects that kept this package
+// from asking x/text for more than per-rune facts, and that the vendored tables
+// are generated around.
 //
 // Comparing the naive pipeline against FoldValue would be the weaker test:
 // two implementations that broke the same way would agree, and the comparison
@@ -166,7 +169,7 @@ func TestDifferentialAgainstCPython(t *testing.T) {
 // this compares against.
 func TestDifferentialCatchesTheDefects(t *testing.T) {
 	naive := func(s string) string {
-		return norm.NFC.String(person.CaseFoldRaw(norm.NFC.String(s)))
+		return norm.NFC.String(cases.Fold().String(norm.NFC.String(s)))
 	}
 	cases := []struct {
 		in  string

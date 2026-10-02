@@ -224,6 +224,12 @@
     "reader_disposition": "interpretable",
     "reason": "WRIT-137: a person-ref value carrying an interior C0 control character is refused at the producer by person.Check; the reader has no repertoire check and folds the op with the value intact"
   },
+  "person-ref-unassigned.json": {
+    "producer_verdict": "reject",
+    "reason_code": "schema-violation",
+    "reader_disposition": "interpretable",
+    "reason": "WRIT-315: a person-ref value carrying an unassigned code point (U+0378, General_Category Cn at Unicode 17.0.0) is refused at the producer by person.Check, because Unicode freezes normalization and case folding only for assigned code points (spec/identifiers.md section Value character repertoire); the reader has no repertoire check, is total over what a foreign client writes, and folds the op with the value intact"
+  },
   "unrecognized-value-type-field.json": {
     "producer_verdict": "reject",
     "reason_code": "schema-violation",

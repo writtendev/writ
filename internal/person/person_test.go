@@ -186,38 +186,95 @@ func TestCheckForbiddenCodePoints(t *testing.T) {
 	// accepted, so every range is pinned at both edges rather than just
 	// somewhere inside it. 0x206A moved into forbidden above: it sits inside
 	// the widened bidi-isolate/reserved range (U+2066-U+206F) and is no
-	// longer a safe neighbour.
+	// longer a safe neighbour. A neighbour that is unassigned at Unicode 17.0.0
+	// is not Valid either, for the other rule; TestCheckUnassignedCodePoints
+	// pins those.
 	neighbours := []rune{
 		0x0020, 0x007E, 0x00A0,
 		0x00AC, 0x00AE,
-		0x05FF, 0x0606,
+		0x0606,
 		0x061B, 0x061D,
 		0x06DC, 0x06DE,
-		0x070E, 0x0710,
-		0x088F, 0x0892,
+		0x0710,
+		0x088F,
 		0x08E1, 0x08E3,
 		0x115E, 0x1161,
 		0x180D, 0x180F,
 		0x200A, 0x2010,
 		0x2029, 0x202F,
-		0x205F, 0x2065, 0x2070,
+		0x205F, 0x2070,
 		0x3163, 0x3165,
-		0xFEFE, 0xFF00,
 		0xFF9F, 0xFFA1,
-		0xFFF8, 0xFFFC,
+		0xFFFC,
 		0x110BC, 0x110BE,
-		0x110CC, 0x110CE,
 		0x1342F, 0x13440,
-		0x1BC9F, 0x1BCA4,
+		0x1BC9F,
 		0x1D172, 0x1D17B,
-		0xE0000, 0xE0002,
-		0xE001F, 0xE0080,
 	}
 	for _, r := range neighbours {
 		id := "email:ali" + string(r) + "ce@example.com"
 		if got := person.Check(id); got != person.Valid {
 			t.Errorf("Check(%q) with neighbour %U = %v, want Valid", id, r, got)
 		}
+	}
+}
+
+// TestCheckUnassignedCodePoints pins the producer-side rule that a value
+// carries no unassigned code point (General_Category Cn at Unicode 17.0.0;
+// spec/identifiers.md §Value character repertoire): the ones neighbouring the
+// forbidden ranges, a plain unassigned BMP and supplementary code point, every
+// noncharacter, and the edges of private use, which is assigned (Co) and stays
+// accepted. FirstUnassigned names the code point.
+func TestCheckUnassignedCodePoints(t *testing.T) {
+	unassigned := []rune{
+		0x0378,                                 // an unassigned code point in a script block
+		0x05FF, 0x070E, 0x0892, 0x2065, 0xFEFE, // neighbours of forbidden ranges
+		0xFF00, 0xFFF8, 0x110CC, 0x110CE, 0x1BCA4,
+		0xE0000, 0xE0002, 0xE001F, 0xE0080, // around the tag block
+		0x3FFFD,                        // unassigned supplementary plane
+		0xFDD0, 0xFDEF, 0xFFFE, 0xFFFF, // noncharacters
+		0x1FFFE, 0x1FFFF, 0x10FFFE, 0x10FFFF,
+	}
+	for _, r := range unassigned {
+		id := "email:ali" + string(r) + "ce@example.com"
+		if got := person.Check(id); got != person.UnassignedCodePoint {
+			t.Errorf("Check(%q) with %U = %v, want UnassignedCodePoint", id, r, got)
+		}
+		gotR, ok := person.FirstUnassigned(id)
+		if !ok || gotR != r {
+			t.Errorf("FirstUnassigned(%q) = %U, %v, want %U, true", id, gotR, ok, r)
+		}
+	}
+
+	assigned := []rune{
+		0x0377, 0x037A, // either side of U+0378..U+0379
+		0xE000, 0xF8FF, // private use, BMP
+		0xF0000, 0xFFFFD, 0x100000, 0x10FFFD, // private use, planes 15 and 16
+		0x1F600, // an emoji
+	}
+	for _, r := range assigned {
+		id := "email:ali" + string(r) + "ce@example.com"
+		if got := person.Check(id); got != person.Valid {
+			t.Errorf("Check(%q) with %U = %v, want Valid", id, r, got)
+		}
+		if gotR, ok := person.FirstUnassigned(id); ok {
+			t.Errorf("FirstUnassigned(%q) = %U, true, want false", id, gotR)
+		}
+	}
+}
+
+// TestCheckUnassignedOrderedAfterForbiddenAndBeforeLength pins Check's order:
+// a forbidden code point is named ahead of an unassigned one, and an
+// unassigned one ahead of the length, for the same reason a forbidden one
+// outranks the length.
+func TestCheckUnassignedOrderedAfterForbiddenAndBeforeLength(t *testing.T) {
+	both := "email:a" + string(rune(0x0378)) + string(rune(0x202E))
+	if got := person.Check(both); got != person.ForbiddenCodePoint {
+		t.Errorf("Check(unassigned AND forbidden) = %v, want ForbiddenCodePoint", got)
+	}
+	long := "email:" + strings.Repeat("a", 320) + string(rune(0x0378))
+	if got := person.Check(long); got != person.UnassignedCodePoint {
+		t.Errorf("Check(over-long AND unassigned) = %v, want UnassignedCodePoint", got)
 	}
 }
 

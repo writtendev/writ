@@ -127,6 +127,11 @@ func Validate(valueType string, params Params, v any) error {
 					return fmt.Errorf("value: person-ref value %q: %s (U+%04X)", s, p, r)
 				}
 			}
+			if p == person.UnassignedCodePoint {
+				if r, ok := person.FirstUnassigned(s); ok {
+					return fmt.Errorf("value: person-ref value %q: %s (U+%04X)", s, p, r)
+				}
+			}
 			return fmt.Errorf("value: person-ref value %q: %s", s, p)
 		}
 		return nil

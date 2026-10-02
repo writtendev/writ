@@ -4,9 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"golang.org/x/text/cases"
-	"golang.org/x/text/unicode/norm"
-
+	"github.com/writtendev/writ/internal/person/ucd"
 	"github.com/writtendev/writ/internal/state"
 	"github.com/writtendev/writ/spec"
 )
@@ -20,8 +18,9 @@ import (
 // Since WRIT-117 it also pins every step of the folding algorithm, because two
 // copies of a three-step rule have far more ways to drift than two copies of
 // strings.ToLower did: composition, the case fold itself, the second
-// composition, and the four x/text behaviours each copy has to work around.
-// The last of those is what this table missed once already — see below.
+// composition, and the defects of a fold built naively on a Unicode library
+// that each copy has to avoid. The last of those is what this table missed
+// once already — see below.
 var normalizePersonInputs = []string{
 	"",
 	" ",
@@ -63,7 +62,7 @@ var normalizePersonInputs = []string{
 	"user:Jos\u0065\u0301",      // NFC composes a decomposed value
 	"user:Jos\u00e9",            // and leaves the precomposed spelling alone
 	"user:\u017f\u0301",         // folding leaves s+U+0301, which the second NFC composes
-	"user:\u13a0",               // Cherokee uppercase: a fold fixed point x/text toggles
+	"user:\u13a0",               // Cherokee uppercase: a fold fixed point some libraries toggle
 	"user:\uab70",               // Cherokee lowercase, which folds up (AB70..ABBF -> 13A0..13EF)
 	"user:\u13f8",               // and Cherokee's *second* fold range (13F8..13FD -> 13F0..13F5)
 	"user:\U00010041\u0300",     // a supplementary starter that must not compose with its mark
@@ -75,8 +74,8 @@ var normalizePersonInputs = []string{
 	"user:x\U000113c2\U000113c2y",  // Unicode 17 backward-combining starter in context
 	"\u0130:alice",                 // a non-conforming scheme, where the two copies still must agree
 	"\U00010041\u0300@example.com", // colonless, and past the ASCII fast path
-	// One input per defect the folding implementations work around, mirroring
-	// the list in the nfc doc comment. Every one of these has actually
+	// One input per defect the folding implementations avoid, each one a way a
+	// fold built naively on a Unicode library goes wrong. Every one of these has actually
 	// diverged between the two copies at some point: a hand-written table only
 	// covers the cases somebody thought to write down, and these are the ones
 	// that were paid for.
@@ -88,24 +87,25 @@ var normalizePersonInputs = []string{
 	"user:a\xff\u0341", // invalid UTF-8, where the two copies took different exits
 }
 
-// longMarkRun is thirty U+0316: one more than x/text will compose before it
-// gives up and inserts U+034F.
+// longMarkRun is thirty U+0316: one more than a library applying Stream-Safe
+// Text will compose before it gives up and inserts U+034F.
 var longMarkRun = strings.Repeat("\u0316", 30)
 
-// TestReffoldPinnedUnicodeVersion binds the reference fold's copy of the rule
-// to the Unicode tables x/text actually compiled in. x/text selects tables by
-// Go build tag rather than by module version, so a toolchain bump would
-// otherwise change the reference implementation's answers — and with them the
-// conformance goldens every other implementation is checked against — with no
-// change to this repository at all.
+// TestReffoldPinnedUnicodeVersion states the version the reference fold is
+// pinned to, so changing it is a visible edit here rather than a side effect
+// of regenerating internal/person/ucd. The tables are vendored, so this no
+// longer guards against whoever compiled the reference — only against the pin
+// moving without spec/identifiers.md, where it is permanent for format v1,
+// and the conformance goldens every other implementation is checked against
+// moving with it.
 func TestReffoldPinnedUnicodeVersion(t *testing.T) {
-	if norm.Version != spec.PersonUnicodeVersion {
-		t.Errorf("x/text/unicode/norm is Unicode %s, but spec/identifiers.md pins %s",
-			norm.Version, spec.PersonUnicodeVersion)
+	if spec.PersonUnicodeVersion != "17.0.0" {
+		t.Errorf("reffold is pinned to Unicode %s, but spec/identifiers.md pins 17.0.0 permanently for format v1",
+			spec.PersonUnicodeVersion)
 	}
-	if cases.UnicodeVersion != spec.PersonUnicodeVersion {
-		t.Errorf("x/text/cases is Unicode %s, but spec/identifiers.md pins %s",
-			cases.UnicodeVersion, spec.PersonUnicodeVersion)
+	if spec.PersonUnicodeVersion != ucd.Version {
+		t.Errorf("reffold is pinned to Unicode %s, but internal/person/ucd carries %s",
+			spec.PersonUnicodeVersion, ucd.Version)
 	}
 }
 

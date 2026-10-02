@@ -462,6 +462,29 @@ algorithm](#the-value-folding-algorithm) already applies by pinning 17.0.0).
 truncate or repair it, and MUST name the offending code point in the
 rejection.
 
+**No unassigned code points.** A value MUST NOT contain a code point whose
+General_Category is `Cn` (unassigned) at Unicode 17.0.0 — the code points
+Unicode 17.0.0 has not assigned a character, and the noncharacters
+(U+FDD0–U+FDEF, U+FFFE, U+FFFF, and the last two code points of every
+plane), which are `Cn`. Like the table above, the normative set is frozen at
+17.0.0: it is the `Cn` entries of that version's `DerivedGeneralCategory.txt`,
+and does not move when a later version assigns one of them. Private use (`Co`)
+is assigned and stays permitted, as does everything not named here.
+
+The reason is the fold, not rendering. Unicode's stability policies guarantee
+that Normalization Form C and case folding never change for an *assigned*
+code point, and say nothing about an unassigned one: a later Unicode version
+may give it a case mapping or a canonical decomposition. A value free of
+unassigned code points therefore folds to the same bytes under the tables of
+every Unicode version from 17.0.0 on, which is the property the permanence of
+the pin in §[The value folding algorithm](#the-value-folding-algorithm) rests
+on for conforming values. **Producers MUST reject** a value carrying one, never
+truncate or repair it, and MUST name the offending code point in the
+rejection. It is a producer-side rule on the same terms as the table above:
+the fold does not consult it, and a non-conforming value that carries an
+unassigned code point folds verbatim at that code point, because there is
+nothing in the 17.0.0 tables to apply to it.
+
 **Why these four exceptions.** `Cc ∪ Cf` alone closes every point WRIT-276
 reported (U+00AD, U+061C, U+180E, U+2060–U+2064, and the tag block), but the
 value repertoire is a blocklist rather than an allowlist, so anything it does
@@ -593,8 +616,18 @@ algorithm for **every scheme**:
 3. **Normalize to NFC again.**
 
 All three steps are evaluated against **Unicode 17.0.0**, which this document
-pins. An implementation MUST state the Unicode version it folds against, and a
-change of version is a change to this specification.
+pins, **permanently for format v1**. The pin does not move with the platform:
+the fold runs at every reader, over every value a log holds — including the
+non-conforming ones a foreign or buggy client wrote, which can carry code
+points §[Value character repertoire](#value-character-repertoire) has
+producers refuse, unassigned ones among them, whose normalization and case
+folding Unicode does not freeze — so an implementation MUST embed Unicode
+17.0.0 tables for the fold rather than use the platform's. A reader whose
+standard library or normalization library carries another Unicode version
+would fold the same signed log to different state than a reader on 17.0.0. An
+implementation MUST state the Unicode version it folds against, and a change
+of version is a change to this specification, which for format v1 does not
+happen.
 
 $$\text{fold}(v) = \text{NFC}(\text{toCasefold}(\text{NFC}(v)))$$
 
@@ -623,8 +656,13 @@ entries) is exposed by the standard library of neither Go, Python nor Rust, so
 specifying it would give an implementer nothing to target and every implementer
 a table to transcribe.
 Default case folding is one call in each: Go `golang.org/x/text/cases.Fold`,
-Python `str.casefold()`, ICU `u_strFoldCase` with `U_FOLD_CASE_DEFAULT`. The
-cost is that folding can lengthen a value — `ß` folds to `ss` — which
+Python `str.casefold()`, ICU `u_strFoldCase` with `U_FOLD_CASE_DEFAULT`. That
+is a statement about the algorithm, not about the tables behind the call: each
+of those answers with the Unicode version of its platform, and the fold is
+pinned to 17.0.0 (above). Such a call is the fold only where the platform's
+tables *are* 17.0.0's; elsewhere an implementation embeds 17.0.0 tables, or a
+normalizer built on them, rather than call the platform's. The cost of full
+folding is that it can lengthen a value — `ß` folds to `ss` — which
 §[Length bounds](#length-bounds) already accounts for by measuring the bound
 after normalization.
 
@@ -715,10 +753,11 @@ the consequence of the one that does.
 - **Producers MUST** emit normalized, scheme-prefixed person identifiers when
   writing operation payloads, and MUST reject — never truncate, never repair —
   an identifier that violates the grammar, the bounds, the value character
-  repertoire (§[Value character repertoire](#value-character-repertoire)), or
-  the Stream-Safe Text run-length limit (§[Value shape: Stream-Safe
-  Text](#value-shape-stream-safe-text)), naming the offending code point when
-  the rejection is a repertoire violation.
+  repertoire (§[Value character repertoire](#value-character-repertoire)),
+  including its prohibition on unassigned code points, or the Stream-Safe Text
+  run-length limit (§[Value shape: Stream-Safe Text](#value-shape-stream-safe-text)),
+  naming the offending code point when the rejection is a repertoire
+  violation.
 - **Producers MUST NOT** write a `writer-id` where a `person-id` is expected,
   nor derive one from the other
   (§[Relationship to `writer-id`](#relationship-to-writer-id)).
@@ -762,10 +801,15 @@ enforce §[Value shape: Stream-Safe Text](#value-shape-stream-safe-text)'s
 non-starter-run limit: ECMA-262 has no `Canonical_Combining_Class` property
 escape, and `\p{Mn}` is not the same set, so a value whose NFD carries more
 than 30 consecutive non-starters is a shape the schema accepts and a
-conforming producer refuses. `testdata/persons/invalid/index.json` marks a
+conforming producer refuses. Nor can it enforce the prohibition on unassigned
+code points: ECMA-262's `\p{Cn}` reads the Unicode version of whichever engine
+runs the pattern, not 17.0.0, so a value carrying one is a shape the schema
+accepts and a conforming producer refuses.
+`testdata/persons/invalid/index.json` marks a
 vector rejected only by one of these producer-side rules `enforced_by:
 "producer"` rather than expecting the schema to catch it, and names which
-rule in a sibling `producer_rule` field (`stream-safe` or `repertoire`) —
+rule in a sibling `producer_rule` field (`stream-safe`, `repertoire` or
+`assigned`) —
 the categorized-rejection discipline
 [`spec/canonicalization.md`](canonicalization.md)
 §[Test vectors](canonicalization.md#test-vectors) already asks of a
@@ -821,8 +865,8 @@ normalized form, and identifiers it must and must not compare equal to;
 repertoire, or the Stream-Safe Text run-length limit rejects, with
 `invalid/index.json` recording why — and, for a rejection only the producer
 can make (not the JSON Schema), an `enforced_by: "producer"` marker naming,
-in a sibling `producer_rule` field, which producer-side rule (`stream-safe`
-or `repertoire`) it pins. Between
+in a sibling `producer_rule` field, which producer-side rule (`stream-safe`,
+`repertoire` or `assigned`) it pins. Between
 them they pin first-colon parsing with a quoted local part, cross-scheme
 non-equality, case and whitespace normalization, unknown-scheme preservation,
 a maximal-length value and one code point more, a value that crosses the
@@ -833,11 +877,17 @@ soft hyphen, the Arabic letter mark, the Mongolian vowel separator, the word
 joiner, an invisible operator, the Hangul filler — the invisible-but-not-`Cf`
 class — and a tag character, the one vector this list marks `enforced_by:
 "producer"` with `producer_rule: "repertoire"`, since the schema pattern
-cannot reach a code point above the Basic Multilingual Plane), what is
+cannot reach a code point above the Basic Multilingual Plane), an unassigned
+code point
+([`invalid/unassigned-code-point.json`](testdata/persons/invalid/unassigned-code-point.json),
+`producer_rule: "assigned"`), what is
 deliberately still permitted despite the repertoire rule (an emoji value,
 an interior space, and unmarked right-to-left script),
 backward-combining starters composed in context under Unicode 17.0.0
 ([`normalization-unicode17-backward-combining-starter.json`](testdata/persons/valid/normalization-unicode17-backward-combining-starter.json)),
+case folding of two Unicode 16 additions, Garay capital A and Cyrillic capital
+Tje, which a reader on pre-16 tables leaves unfolded and so fails loudly on
+([`normalization-unicode16-case-fold.json`](testdata/persons/valid/normalization-unicode16-case-fold.json)),
 and the Stream-Safe Text boundary: a value accepted at exactly 30 consecutive NFD
 non-starters, one refused at 31, one refused well past the limit, and a
 legitimate multi-mark identifier well inside it (a Vietnamese name whose
@@ -850,7 +900,9 @@ Fold-level behaviour is pinned separately, by
 [`fold-person-unicode-folding.yaml`](fixtures/testdata/descriptions/fold-person-unicode-folding.yaml)
 (denormalized identifiers fold to one member, including a 31-NFD-non-starter
 value a producer now refuses but the fold still folds, unchanged, when a
-foreign client writes it), and
+foreign client writes it; the Unicode 16 capitals above, which fold to their
+small forms; and an unassigned code point, which a producer refuses and the
+fold carries through verbatim), and
 [`fold-person-hostile-repertoire.yaml`](fixtures/testdata/descriptions/fold-person-hostile-repertoire.yaml)
 (a foreign client's op carrying a bidi override folds byte-for-byte intact —
 the proof that §[Value character repertoire](#value-character-repertoire) is

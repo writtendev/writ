@@ -5,28 +5,27 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"golang.org/x/text/cases"
 	"golang.org/x/text/unicode/norm"
 
 	"github.com/writtendev/writ/internal/person"
+	"github.com/writtendev/writ/internal/person/ucd"
 )
 
-// TestPinnedUnicodeVersion binds the version spec/identifiers.md pins to the
-// Unicode tables actually compiled in. x/text selects its tables by Go build
-// tag, not by module version: go1.27 switches both packages to Unicode 17.0.0.
-// Normalization is applied to every person identifier in every repository, so
-// a toolchain bump silently changing the tables would silently change who is
-// the same person. This test makes that a build failure and a deliberate spec
-// amendment instead.
+// TestPinnedUnicodeVersion states the version spec/identifiers.md pins, so
+// changing it is a visible edit here rather than a side effect of
+// regenerating internal/person/ucd. The tables are vendored, not read from the
+// toolchain, so this is no longer a check on whoever compiled the reader. The
+// pin is permanent for format v1: normalization is applied to every person
+// identifier in every repository, so moving it silently changes who is the
+// same person.
 func TestPinnedUnicodeVersion(t *testing.T) {
-	if norm.Version != person.UnicodeVersion {
-		t.Errorf("x/text/unicode/norm is Unicode %s, but spec/identifiers.md pins %s — "+
+	if person.UnicodeVersion != "17.0.0" {
+		t.Errorf("person.UnicodeVersion is %s, but spec/identifiers.md pins 17.0.0 permanently for format v1 — "+
 			"changing the version changes normalization for every identifier; amend the spec deliberately",
-			norm.Version, person.UnicodeVersion)
+			person.UnicodeVersion)
 	}
-	if cases.UnicodeVersion != person.UnicodeVersion {
-		t.Errorf("x/text/cases is Unicode %s, but spec/identifiers.md pins %s",
-			cases.UnicodeVersion, person.UnicodeVersion)
+	if ucd.Version != person.UnicodeVersion {
+		t.Errorf("ucd.Version is %s, person.UnicodeVersion is %s", ucd.Version, person.UnicodeVersion)
 	}
 }
 
