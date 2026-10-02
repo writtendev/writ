@@ -48,7 +48,14 @@ state the local form. A remote-tracking chain
 (`refs/remotes/<remote>/writ/<writer-id>/<object-type>`) conforms when the
 part after `refs/remotes/<remote>/` matches them with `refs/` read as
 `refs/remotes/<remote>/`; the three-segment rule then counts the segments
-after that prefix.
+after that prefix. `<remote>` ends at the first path component after
+`refs/remotes/` that is `writ`. A remote whose name itself contains a `writ`
+component (git accepts `team/writ`) therefore has no conforming
+remote-tracking chains: `refs/remotes/team/writ/writ/<writer-id>/<object-type>`
+is read as remote `team`, whose second segment `writ` is reserved and
+ignored under §Reader enumeration, never as a chain of remote `team/writ`.
+This is a known limitation, not a design: WRIT-321 moves the tracking
+destination out of `refs/remotes/`, which retires this clause.
 
 1. **Prefix:** The ref name MUST start with `refs/writ/`.
 2. **Path segments:** Exactly three path segments MUST follow `refs/`:
