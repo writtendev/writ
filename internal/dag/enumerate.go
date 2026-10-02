@@ -240,11 +240,12 @@ func WithLiveTrustStore(ts codec.TrustStore) EnumerateOption {
 // predicate simply said "already have it".
 //
 // projection.Refresh's incremental path satisfies the invariant: its
-// predicate is backed by the ops table's op_id primary key, and every op
-// in that table had everything the reader walk reaches from it walked by
-// whichever pass first inserted it, because rebuildWithConfig always
-// truncates ops and chain_tips together before a cold EnumerateSince(nil,
-// …) repopulates them, and both a rewound chain and a disappeared chain
+// predicate is backed by the op_carriers table's commit_id primary key
+// (every carrier of every recorded op, the op's own id included), and every
+// op in the ops table had everything the reader walk reaches from it
+// walked by whichever pass first inserted it, because rebuildWithConfig
+// always truncates ops, op_carriers and chain_tips together before a cold
+// EnumerateSince(nil, …) repopulates them, and both a rewound chain and a disappeared chain
 // force that same full rebuild (Step 2 above, which this option never
 // touches) instead of ever reaching an incremental pass with a gap in
 // what ops records. What the walk reaches from a given commit is fixed by

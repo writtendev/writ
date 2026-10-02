@@ -59,8 +59,8 @@ var outcomeRank = map[VerificationOutcome]int{
 // every one of them, including payload-mutated — it is not a value
 // verification ever emits, and WorstOutcome must still treat it as the
 // least trustworthy possibility rather than silently preferring it to a
-// real outcome. Unexported: WorstOutcome, in this same file, is its only
-// caller (WRIT-251 round 2 API finding).
+// real outcome. Unexported: WorstOutcome and BetterOutcome, in this same
+// file, are its only callers (WRIT-251 round 2 API finding).
 func (o VerificationOutcome) rank() int {
 	if r, ok := outcomeRank[o]; ok {
 		return r
