@@ -495,9 +495,10 @@ func TestFromGitCommitDuplicateOpJSONEntriesAreNotRead(t *testing.T) {
 		blobBytes  = codec.MaxPayloadBytes
 		// What this path still does: size each entry's blob, to tell absent
 		// from present, at about 9 KB a header read — roughly 1 MB for 117
-		// entries, however large the blob. Reading the blob once per entry
-		// was 255 MB, so a regression reading even two of them is over.
-		allocBudget = 2 << 20
+		// entries, however large the blob, and about 2.6 MB under the race
+		// detector. Reading the blob once per entry was 255 MB, so a budget
+		// of 16 MB is far above the one and a sixteenth of the other.
+		allocBudget = 16 << 20
 	)
 	dir := t.TempDir()
 	repo, err := git.PlainInit(dir, false)
