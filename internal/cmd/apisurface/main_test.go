@@ -414,3 +414,191 @@ func write(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+// An alias into the module's own packages is listed with the fields and the
+// method set of the type it names, because that is what a caller of the
+// aliasing package sees; a bare `type X = pkg.Y` hides every field added to Y.
+// The targets cover each body shape, a renamed alias, an import whose package
+// clause differs from its directory, a two-hop chain, and a standard-library
+// alias, which stays as spelled.
+const aliasFixture = `package demo
+
+import (
+	"context"
+	odd "example.com/m/pkg/internal/inner"
+	"example.com/m/pkg/internal/inner/chain"
+	"example.com/m/pkg/internal/inner/dirname"
+)
+
+type RefreshStats = odd.Stats
+
+type Signer = odd.Signer
+
+type Outcome = odd.Outcome
+
+type Named = realname.Thing
+
+type Hop = chain.First
+
+type Std = context.Context
+`
+
+const innerFixture = `package inner
+
+type Stats struct {
+	Count int ` + "`json:\"count\"`" + `
+	Items []Item
+	hidden int
+}
+
+type Item struct{}
+
+func (s *Stats) Reset() {}
+
+func (s Stats) Total() int { return 0 }
+
+func (s *Stats) drop() {}
+
+type Signer interface {
+	Sign(p []byte) (string, error)
+	private()
+}
+
+type Outcome string
+
+func (o Outcome) String() string { return string(o) }
+`
+
+const wantAliases = `
+type Hop = chain.First struct {
+	Leaf bool
+}
+func (*Hop) Reach()
+
+type Named = realname.Thing struct {
+	ID string
+}
+func (Named) Label() string
+
+type Outcome = odd.Outcome string
+func (Outcome) String() string
+
+type RefreshStats = odd.Stats struct {
+	Count int ` + "`json:\"count\"`" + `
+	Items []Item
+	// unexported fields
+}
+func (*RefreshStats) Reset()
+func (RefreshStats) Total() int
+
+type Signer = odd.Signer interface {
+	Sign(p []byte) (string, error)
+	// unexported methods
+}
+
+type Std = context.Context
+`
+
+// aliasTree is a module whose pkg aliases into pkg/internal. chain.First is
+// reached through two further aliases, each in its own package, each resolving
+// the next hop through its own file's imports.
+func aliasTree(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	files := map[string]string{
+		"go.mod":                          "module example.com/m\n",
+		"pkg/demo.go":                     aliasFixture,
+		"pkg/internal/inner/inner.go":     innerFixture,
+		"pkg/internal/inner/dirname/x.go": "package realname\n\ntype Thing struct{ ID string }\n\nfunc (t Thing) Label() string { return \"\" }\n",
+		"pkg/internal/inner/chain/c.go":   "package chain\n\nimport hop \"example.com/m/pkg/internal/inner/far\"\n\ntype First = hop.Second\n",
+		"pkg/internal/inner/far/f.go":     "package far\n\nimport \"example.com/m/pkg/internal/inner/last\"\n\ntype Second = last.Leaf\n",
+		"pkg/internal/inner/last/l.go":    "package last\n\ntype Leaf struct{ Leaf bool }\n\nfunc (l *Leaf) Reach() {}\n",
+	}
+	for name, content := range files {
+		write(t, filepath.Join(root, filepath.FromSlash(name)), content)
+	}
+	return root
+}
+
+func listing(t *testing.T, root string) string {
+	t.Helper()
+	var out strings.Builder
+	if err := run(&out, filepath.Join(root, "pkg")); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	return out.String()
+}
+
+func TestRunExpandsInModuleAliases(t *testing.T) {
+	got := listing(t, aliasTree(t))
+	_, body, _ := strings.Cut(got, "package demo // example.com/m/pkg\n")
+	if body != wantAliases {
+		t.Errorf("alias listing mismatch\n--- got ---\n%s\n--- want ---\n%s", body, wantAliases)
+	}
+	if strings.Count(got, "\npackage ") != 1 {
+		t.Errorf("an internal package was listed as its own package:\n%s", got)
+	}
+}
+
+// The regression the expansion exists for: a field added to an aliased
+// internal struct reaches callers, so it has to change the listing.
+func TestRunSeesFieldAddedToAliasedStruct(t *testing.T) {
+	root := aliasTree(t)
+	before := listing(t, root)
+	write(t, filepath.Join(root, "pkg", "internal", "inner", "inner.go"),
+		strings.Replace(innerFixture, "hidden int", "hidden int\n\tExpands bool", 1))
+	after := listing(t, root)
+	if before == after || !strings.Contains(after, "\tExpands bool\n") {
+		t.Errorf("a field added to the aliased struct did not change the listing\n--- before ---\n%s\n--- after ---\n%s", before, after)
+	}
+}
+
+func TestRunRejectsUnresolvableAliases(t *testing.T) {
+	tests := []struct {
+		name  string
+		files map[string]string
+		want  string
+	}{
+		{
+			name: "no such type",
+			files: map[string]string{
+				"pkg/demo.go":           "package demo\n\nimport \"example.com/m/pkg/internal/in\"\n\ntype X = in.Missing\n",
+				"pkg/internal/in/in.go": "package in\n\ntype Present struct{}\n",
+			},
+			want: "declares no type Missing",
+		},
+		{
+			name: "no such package",
+			files: map[string]string{
+				"pkg/demo.go": "package demo\n\nimport \"example.com/m/pkg/internal/gone\"\n\ntype X = gone.Y\n",
+			},
+			want: "gone",
+		},
+		{
+			name: "cycle",
+			files: map[string]string{
+				"pkg/demo.go":         "package demo\n\nimport \"example.com/m/pkg/internal/a\"\n\ntype X = a.A\n",
+				"pkg/internal/a/a.go": "package a\n\nimport \"example.com/m/pkg/internal/b\"\n\ntype A = b.B\n",
+				"pkg/internal/b/b.go": "package b\n\nimport \"example.com/m/pkg/internal/a\"\n\ntype B = a.A\n",
+			},
+			want: "cycle",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			write(t, filepath.Join(root, "go.mod"), "module example.com/m\n")
+			for name, content := range tt.files {
+				write(t, filepath.Join(root, filepath.FromSlash(name)), content)
+			}
+			var out strings.Builder
+			err := run(&out, filepath.Join(root, "pkg"))
+			if err == nil {
+				t.Fatalf("want an error, got none:\n%s", out.String())
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("error %q should mention %q", err, tt.want)
+			}
+		})
+	}
+}

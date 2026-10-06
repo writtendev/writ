@@ -200,7 +200,11 @@ contributors on different machines and different Go versions produce the same
 file. That is why `api-check` can say "the baseline is stale" rather than
 "your toolchain differs from mine" — and it is also why it needs `api-compat`
 beside it, since a source-level listing knows names and shapes but not what
-they resolve to. The tool's doc comment records the blind spots.
+they resolve to. The tool's doc comment records the blind spots. One
+exception to "names and shapes": an alias into the module's own packages
+(`type Rejection = dag.Rejection`) is expanded from that package's source,
+fields and methods included, so a field added to an aliased internal type
+shows up as a diff here rather than slipping into the public API unseen.
 
 The baseline this replaced was apidiff export data committed to the repo,
 which embedded the generating machine's absolute paths, changed wholesale
