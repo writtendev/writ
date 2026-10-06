@@ -645,6 +645,8 @@ type (
 	Basic  = in.Count
 )
 
+type Gen[T any] = in.Real
+
 type Item struct{ N int }
 
 func (i (*Item)) Paren() {}
@@ -702,6 +704,13 @@ type Direct = Z struct {
 	Deep int
 }
 func (Direct) Zed()
+
+type Gen[T any] = in.Real struct {
+	Field int
+}
+func (*Gen) Paren()
+func (*Gen) Paren2()
+func (Gen) ViaAlias()
 
 type Item struct {
 	N int

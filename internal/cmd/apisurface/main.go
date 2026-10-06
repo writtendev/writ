@@ -862,13 +862,13 @@ func (l *loader) typeDecls(pkg *pkgSource, f *ast.File, d *ast.GenDecl) ([]typeD
 }
 
 // aliasDecl renders an alias into the module as if the alias were the type it
-// names: the head keeps the alias as written, the body is the target's, and
-// the target's exported methods follow under the alias's name, as a caller
-// writes them. Field and signature types keep the target source's spelling. A
+// names: the head keeps the alias as written, type parameters included, the
+// body is the target's, and the target's exported methods follow under the
+// alias's name, as a caller writes them. Field and signature types keep the target source's spelling. A
 // method counts whichever name of the type its receiver uses: the type's own, or
 // any alias of it in the target's package.
 func aliasDecl(ts *ast.TypeSpec, target *aliasTarget) typeDecl {
-	head := "type " + ts.Name.Name + " = " + expr(ts.Type)
+	head := "type " + ts.Name.Name + typeParams(ts.TypeParams) + " = " + expr(ts.Type)
 	decl := typeDecl{name: ts.Name.Name, lines: typeBody(head, target.spec.Type)}
 	for _, f := range target.pkg.files {
 		for _, d := range f.Decls {
