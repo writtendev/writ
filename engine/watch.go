@@ -101,7 +101,7 @@ func (s *Store) Watch(ctx context.Context) <-chan Event {
 	defer s.mu.Unlock()
 
 	ch := make(chan Event, watchBufferSize)
-	if s.closed {
+	if s.closed.Load() {
 		close(ch)
 		return ch
 	}
@@ -124,7 +124,7 @@ func (s *Store) removeSubscriber(sub *subscriber) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.closed {
+	if s.closed.Load() {
 		return
 	}
 

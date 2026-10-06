@@ -76,6 +76,9 @@ func (q *Query) Objects(f ObjectFilter) ([]ObjectResult, error) {
 	if q == nil || q.store == nil {
 		return nil, fmt.Errorf("writ: store is nil")
 	}
+	if err := q.store.checkClosed(); err != nil {
+		return nil, err
+	}
 	if err := q.store.maybeAutoRefresh(context.Background()); err != nil {
 		return nil, err
 	}
@@ -87,6 +90,9 @@ func (q *Query) Objects(f ObjectFilter) ([]ObjectResult, error) {
 func (q *Query) Object(id string) (ObjectResult, error) {
 	if q == nil || q.store == nil {
 		return ObjectResult{}, fmt.Errorf("writ: store is nil")
+	}
+	if err := q.store.checkClosed(); err != nil {
+		return ObjectResult{}, err
 	}
 	if err := q.store.maybeAutoRefresh(context.Background()); err != nil {
 		return ObjectResult{}, err

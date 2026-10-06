@@ -268,6 +268,9 @@ func (o *Objects) Get(ctx context.Context, objectID string) (Object, error) {
 	if o == nil || o.store == nil {
 		return Object{}, fmt.Errorf("writ: store is nil")
 	}
+	if err := o.store.checkClosed(); err != nil {
+		return Object{}, err
+	}
 	if objectID == "" {
 		return Object{}, fmt.Errorf("writ: object id cannot be empty")
 	}

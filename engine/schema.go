@@ -138,6 +138,9 @@ func (s *Store) Schema(ctx context.Context) ([]Schema, error) {
 	if s == nil {
 		return nil, fmt.Errorf("writ: store is nil")
 	}
+	if err := s.checkClosed(); err != nil {
+		return nil, err
+	}
 
 	// Verification is scoped to every op belonging to a "schema" object —
 	// the only ops whose outcome ever surfaces here, via
@@ -676,6 +679,9 @@ func (s *Store) checkBeforeAppend(ctx context.Context, envs ...codec.Envelope) e
 func (s *Store) Types(ctx context.Context) ([]SchemaType, error) {
 	if s == nil {
 		return nil, fmt.Errorf("writ: store is nil")
+	}
+	if err := s.checkClosed(); err != nil {
+		return nil, err
 	}
 
 	res, err := s.declaredTypes(ctx)
