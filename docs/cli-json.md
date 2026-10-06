@@ -37,7 +37,7 @@ All plumbing commands emit a single top-level JSON document on `stdout` adhering
 5. **Machine-Readable Exit Codes:** Classification uses process exit codes:
    - `0`: Success.
    - `1`: Unclassified runtime failure or transport error.
-   - `2`: Usage error (invalid flag, missing required argument, syntactically invalid remote name, an object type the installed vocabulary does not declare (`object list <type>`)).
+   - `2`: Usage error (invalid flag, missing required argument, syntactically invalid remote name, an object type the installed vocabulary does not declare (`object list <type>`)). For `sync`, any syntactically invalid remote name means no remote is fetched or pushed, and the `sync.result` `data` array holds one entry per invalid name only (each `failure.kind: invalid-name`), none for the valid names.
    - `3`: Unknown or unconfigured git remote.
    - `4`: Rejected non-fast-forward update.
    - `5`: Not a git repository (including `writ init`) or store cannot be opened.
