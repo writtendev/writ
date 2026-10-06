@@ -4244,3 +4244,84 @@ func TestProjectionHazardB_QualifiedTypesFromDifferentNamespacesGetOwnTables(t *
 		t.Fatalf("generated tables = %v, want both \"o_acme.standup\" and \"o_other.standup\"", tableNames)
 	}
 }
+
+// TestSchemaIndexNameShapesDoNotBrickReaders is WRIT-322's end-to-end repro.
+// One legal schema in the pusher's own namespace used to generate two
+// CREATE INDEX statements of the same name — type "a" with target "b_f_c"
+// against type "a-f-b" with target "c" — SQLite refused the second,
+// ApplySchema failed, and from then on every Refresh, every Query, and every
+// fresh Open of a clone failed the same way, with nothing in the log
+// removable to fix it. Both types must now be installed and queryable, here
+// and on a fresh clone.
+func TestSchemaIndexNameShapesDoNotBrickReaders(t *testing.T) {
+	store, ctx, dir := openStoreWithCoreSchema(t)
+
+	if _, err := store.Objects.Create(ctx, "acme.widget", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Still Queryable"},
+	}); err != nil {
+		t.Fatalf("Objects.Create(widget) failed: %v", err)
+	}
+
+	const src = `namespace bigco
+
+type a {
+  op create 1 {
+    b_f_c string lww
+  }
+}
+
+type a-f-b {
+  op create 1 {
+    c string lww
+  }
+}
+`
+	if err := store.ApplySchema(ctx, compileTestSchema(t, "schema:bigco", src)); err != nil {
+		t.Fatalf("ApplySchema failed: %v", err)
+	}
+	if _, err := store.Refresh(ctx); err != nil {
+		t.Fatalf("Refresh after the schema declaring both types failed: %v", err)
+	}
+
+	// A distinct needle per type: Text filters search the type's generated
+	// columns, so a type withheld from the projection would not match its own
+	// needle even though its object row exists.
+	needles := map[string]string{"acme.widget": "Still Queryable", "bigco.a": "needle-a", "bigco.a-f-b": "needle-afb"}
+	for typ, field := range map[string]string{"bigco.a": "b_f_c", "bigco.a-f-b": "c"} {
+		if _, err := store.Objects.Create(ctx, typ, writ.NewOp{
+			Type:   "create",
+			Fields: map[string]any{field: needles[typ]},
+		}); err != nil {
+			t.Fatalf("Objects.Create(%s) failed: %v", typ, err)
+		}
+	}
+
+	assertQueryable := func(label string, s *writ.Store) {
+		t.Helper()
+		for typ, needle := range needles {
+			got, err := s.Query.Objects(writ.ObjectFilter{Type: []string{typ}, Text: needle})
+			if err != nil {
+				t.Fatalf("%s: Query.Objects(%s) failed: %v", label, typ, err)
+			}
+			if len(got) != 1 {
+				t.Fatalf("%s: Query.Objects(%s) = %d objects, want 1: %+v", label, typ, len(got), got)
+			}
+		}
+	}
+	assertQueryable("writer", store)
+
+	// A fresh clone has no cache: Open runs ApplySchema over the whole log.
+	cloneDir := t.TempDir()
+	runGitCmd(t, cloneDir, "init")
+	runGitCmd(t, cloneDir, "config", "user.name", "Bob Test")
+	runGitCmd(t, cloneDir, "config", "user.email", "bob@example.com")
+	runGitCmd(t, cloneDir, "config", "writ.writerId", "fedcba9876543210")
+	runGitCmd(t, cloneDir, "fetch", dir, "+refs/writ/*:refs/writ/*")
+	clone, err := writ.Open(cloneDir)
+	if err != nil {
+		t.Fatalf("writ.Open on a fresh clone failed: %v", err)
+	}
+	defer clone.Close()
+	assertQueryable("fresh clone", clone)
+}

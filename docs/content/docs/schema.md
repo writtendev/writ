@@ -52,6 +52,10 @@ A namespace change that *also* renames or drops every type the old object declar
 
 There is no `--object-id` flag. Every case it would serve is a repository already in the state this resolution exists to prevent.
 
+## Type names containing `--`
+
+A type name may contain `--`, but it is a foot-gun worth avoiding. The query surface maps `-` to `_` in a type's table name, so type `a--b` generates the table `o_<ns>.a__b` — the same table the type `a` generates for a collection target named `b` in the same namespace. Two types cannot own one table, so the lexically later type (here `a--b`) is withheld from the query surface: it gets no generated tables, so its ops are kept as unknown ops rather than materialized, and queries that read a type's fields (such as a text search) do not see its objects. Its ops stay in the log, and `Objects.Get` still folds them. Only the author of the schema can trigger this, and only against their own namespace; avoid `--` in type names, or avoid a collection target whose name would spell one.
+
 ## `show`
 
 Reports the vocabulary actually installed and folding right now (`Store.Types`): whatever the log declares. This answers a different question than `plan`/`apply` do — theirs is the working-tree `writ.schema` file's own view; `show`'s is what the log has actually folded to. With no `<type>`, prints one bare type name per line, deliberately bare: one candidate per line, for completion scripts to read line by line. With `<type>`, prints that type's declared ops and fields, including the constraints `writ object create`/`apply` leave to the producer validator rather than re-checking at the CLI (`enum`, `max_length`, and the rest — see `object.md` and `docs/cli-json.md`'s `schema.show` field table). Each field row also names the target key it folds into when that target differs from the field's own name — the one attribute a caller needs to reconcile `-field <name>` on `object create`/`apply` with the target-keyed `fields` map `object show` reports back.

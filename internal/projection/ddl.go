@@ -92,10 +92,25 @@ func (t ddlTable) createStatement() string {
 	return "CREATE TABLE " + quoteIdent(t.Name) + " (\n" + strings.Join(lines, ",\n") + "\n);"
 }
 
+// indexStatements renders one CREATE INDEX per entry in t.Indexes. Index
+// names are collision-free by construction, never checked: a name is
+// "idx:" + table name + ":" + the indexed columns joined with ":". A table
+// name only ever contains [a-z0-9_.] and a column name only [a-z0-9_] (see
+// quoteIdent, validIdent, and the "k_"/"f_"/"__op_id" decorations), so ":"
+// appears in neither and splitting an index name on it recovers the table
+// and the column list exactly. Table names are already unique
+// (identCollision), and within one table every index's column list is
+// distinct — one single-column index per indexed column, one
+// (column, column__op_id) pair per position-typed target, one key-column
+// index per group table — so no two index names can be equal, and none can
+// equal a table name or a substrate "idx_*" index (those contain no ":").
+// The old "_"-joined form let two different (table, columns) splits spell
+// the same name (a type "a" with column f_b_f_c against a type "a-f-b" with
+// column f_c), which SQLite refuses, bricking every reader (WRIT-322).
 func (t ddlTable) indexStatements() []string {
 	var out []string
 	for _, cols := range t.Indexes {
-		name := "idx_" + t.Name + "_" + strings.Join(cols, "_")
+		name := "idx:" + t.Name + ":" + strings.Join(cols, ":")
 		out = append(out, "CREATE INDEX "+quoteIdent(name)+" ON "+quoteIdent(t.Name)+"("+strings.Join(cols, ", ")+");")
 	}
 	return out
@@ -308,11 +323,25 @@ func (d *schemaDescriptor) allTables() []ddlTable {
 
 // createSQL renders the full CREATE TABLE + CREATE INDEX text for every
 // generated table, in a stable order derived purely from sorted object types
-// and sorted target/child names — so a shuffled rule index produces
+// and, within a type, sorted table names — so a shuffled rule index produces
 // byte-identical DDL (TestGeneratedDDLIsDeterministic).
 func (d *schemaDescriptor) createSQL() string {
 	var b strings.Builder
-	for _, t := range d.allTables() {
+	for _, objectType := range d.order {
+		b.WriteString(typeCreateSQL(d.types[objectType]))
+	}
+	return b.String()
+}
+
+// typeCreateSQL renders the CREATE TABLE + CREATE INDEX text for one object
+// type's tables: its type table and every child table, sorted by name.
+// ApplySchema runs it once per type, inside that type's own savepoint, so
+// SQLite refusing one type's DDL withholds that type alone.
+func typeCreateSQL(td *typeDescriptor) string {
+	tables := append([]ddlTable{td.Table}, td.Children...)
+	sort.Slice(tables, func(i, j int) bool { return tables[i].Name < tables[j].Name })
+	var b strings.Builder
+	for _, t := range tables {
 		b.WriteString(t.createStatement())
 		b.WriteString("\n")
 		for _, idx := range t.indexStatements() {
@@ -321,6 +350,65 @@ func (d *schemaDescriptor) createSQL() string {
 		}
 	}
 	return b.String()
+}
+
+// withhold removes the named object types from d as if buildDescriptor had
+// never produced them: every table they generated, their rules, anchor
+// columns, and query shapes, so persistedTables, persistedQueryShapes and d
+// itself describe only tables that exist and requireMaterializationPlan
+// stays consistent. A withheld type has no typeDescriptor, so its objects
+// fall to unknown_ops through materializeObject's absent-type path — the
+// same whole-type withhold buildTypeDescriptor performs for an identifier
+// collision. canonicalJSON and digest are deliberately left as the
+// un-pruned descriptor's: they are a function of the schema alone, and
+// recomputing them here would make the next apply's digest comparison miss
+// and rebuild on every Refresh.
+func (d *schemaDescriptor) withhold(objectTypes []string) {
+	if len(objectTypes) == 0 {
+		return
+	}
+	drop := make(map[string]bool, len(objectTypes))
+	dropTables := make(map[string]bool)
+	for _, objectType := range objectTypes {
+		drop[objectType] = true
+		if td, ok := d.types[objectType]; ok {
+			dropTables[td.Table.Name] = true
+			for _, c := range td.Children {
+				dropTables[c.Name] = true
+			}
+		}
+	}
+
+	var order []string
+	for _, objectType := range d.order {
+		if !drop[objectType] {
+			order = append(order, objectType)
+		}
+	}
+	d.order = order
+	d.queryOrder = order
+
+	var anchors []anchorColumnRef
+	for _, a := range d.anchorColumns {
+		if !drop[a.ObjectType] {
+			anchors = append(anchors, a)
+		}
+	}
+	d.anchorColumns = anchors
+
+	var tables []ddlTable
+	for _, t := range d.tables {
+		if !dropTables[t.Name] {
+			tables = append(tables, t)
+		}
+	}
+	d.tables = tables
+
+	for objectType := range drop {
+		delete(d.types, objectType)
+		delete(d.rulesByType, objectType)
+		delete(d.queryShapes, objectType)
+	}
 }
 
 // buildDescriptor generates a schemaDescriptor from a validated rule index
@@ -476,9 +564,15 @@ func persistedQueryShapes(desc *schemaDescriptor) []persistedQueryShape {
 // grammar, such as "widget--base", can still generate a table name
 // ("o_widget__base") another type already owns — and WRIT-188 round 3's
 // ruling applies here just as much as there: data another writer wrote must
-// never brick the repository. A withheld type's objects fall to unknown_ops
-// through the same absent-typeDescriptor path an invalid target already
-// takes (materializeObject).
+// never brick the repository. The "--" in that example is the one shape a
+// schema author can fire at themselves: type "a--b" generates "o_a__b",
+// which is also the child table type "a" generates for a collection target
+// "b", and types are processed in sorted order, so the lexically later of
+// the two ("a--b") is the one withheld. Index names are not part of this
+// check: they are collision-free by construction (ddlTable.indexStatements).
+// A withheld type's objects fall to unknown_ops through the same
+// absent-typeDescriptor path an invalid target already takes
+// (materializeObject).
 //
 // Some shapes withhold less than the whole type — see
 // typeDescriptor.WithheldTargets for the two reasons a single target can be

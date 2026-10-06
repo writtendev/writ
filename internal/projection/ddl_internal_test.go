@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -714,5 +715,199 @@ func TestColumnBudgetIsDeterministic(t *testing.T) {
 	want := map[string]bool{"f1998": true}
 	if !reflect.DeepEqual(td1.WithheldTargets, want) {
 		t.Fatalf("WithheldTargets = %v, want %v regardless of input order", td1.WithheldTargets, want)
+	}
+}
+
+// createIndexName pulls the quoted index name out of a CREATE INDEX line.
+var createIndexName = regexp.MustCompile(`(?m)^CREATE INDEX "([^"]+)" ON `)
+
+// indexNames returns every CREATE INDEX name in desc.createSQL(), in order.
+func indexNames(desc *schemaDescriptor) []string {
+	var names []string
+	for _, m := range createIndexName.FindAllStringSubmatch(desc.createSQL(), -1) {
+		names = append(names, m[1])
+	}
+	return names
+}
+
+// assertIndexNamesDistinct fails if two CREATE INDEX statements in desc share
+// a name, or an index shares a name with a generated table. SQLite keeps
+// tables and indexes in one namespace and compares names case-insensitively.
+func assertIndexNamesDistinct(t *testing.T, desc *schemaDescriptor) {
+	t.Helper()
+	seen := make(map[string]string)
+	for _, tbl := range desc.tables {
+		seen[strings.ToLower(tbl.Name)] = "table"
+	}
+	for _, name := range indexNames(desc) {
+		key := strings.ToLower(name)
+		if prev, ok := seen[key]; ok {
+			t.Fatalf("index name %q already used by a %s", name, prev)
+		}
+		seen[key] = "index"
+	}
+}
+
+// TestIndexNamesAreCollisionFree is WRIT-322's regression: the index name
+// used to be a "_"-join of table and column names, so two different
+// (table, columns) splits could spell the same name, SQLite refused the
+// second CREATE INDEX, ApplySchema failed, and every reader was bricked.
+// Both shapes are reachable from a legal schema in the pusher's own
+// namespace.
+func TestIndexNamesAreCollisionFree(t *testing.T) {
+	tests := []struct {
+		name      string
+		rules     map[string][]state.Rule
+		wantTypes []string
+	}{
+		{
+			// type "a" target "b_f_c" -> idx_o_a_f_b_f_c on o_a(f_b_f_c);
+			// type "a-f-b" target "c"  -> idx_o_a_f_b_f_c on o_a_f_b(f_c).
+			name: "cross-type",
+			rules: map[string][]state.Rule{
+				"a": {
+					{OpType: "create", OpVersion: 1, Field: "b_f_c", Strategy: "lww", ValueType: "string", ObjectType: "a"},
+				},
+				"a-f-b": {
+					{OpType: "create", OpVersion: 1, Field: "c", Strategy: "lww", ValueType: "string", ObjectType: "a-f-b"},
+				},
+			},
+			wantTypes: []string{"a", "a-f-b"},
+		},
+		{
+			// position target "x" -> composite (f_x, f_x__op_id) named
+			// idx_o_t_f_x_f_x__op_id; target "x_f_x__op_id" -> a single
+			// column index of the same name.
+			name: "within one type",
+			rules: map[string][]state.Rule{
+				"t": {
+					{OpType: "create", OpVersion: 1, Field: "x", Strategy: "lww", ValueType: "position", ObjectType: "t"},
+					{OpType: "create", OpVersion: 1, Field: "x_f_x__op_id", Strategy: "lww", ValueType: "string", ObjectType: "t"},
+				},
+			},
+			wantTypes: []string{"t"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			desc, err := buildDescriptor(tt.rules)
+			if err != nil {
+				t.Fatalf("buildDescriptor: %v", err)
+			}
+			if !reflect.DeepEqual(desc.order, tt.wantTypes) {
+				t.Fatalf("installed types = %v, want %v", desc.order, tt.wantTypes)
+			}
+			assertIndexNamesDistinct(t, desc)
+
+			db, err := Open(":memory:")
+			if err != nil {
+				t.Fatalf("Open: %v", err)
+			}
+			defer db.Close()
+			if err := db.ApplySchema(tt.rules); err != nil {
+				t.Fatalf("ApplySchema: %v", err)
+			}
+			for _, tbl := range desc.tables {
+				var n int
+				if err := db.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?", tbl.Name).Scan(&n); err != nil || n != 1 {
+					t.Fatalf("table %q missing after ApplySchema (n=%d, err=%v)", tbl.Name, n, err)
+				}
+			}
+			if raw, _ := loadMetaString(db.db, "schema_withheld_types"); raw != "[]" {
+				t.Fatalf("schema_withheld_types = %q, want []", raw)
+			}
+		})
+	}
+}
+
+// TestIndexNamesAreCollisionFreeProperty is the ticket's property test:
+// across thousands of seeded random legal type/target sets, createSQL never
+// emits two identical index names, nor an index named like a table, and on a
+// sample ApplySchema on a fresh database succeeds without withholding
+// anything. Fragments deliberately mix "-" and "_" with the "f", "k", and
+// "op_id" pieces the generated names are built from.
+func TestIndexNamesAreCollisionFreeProperty(t *testing.T) {
+	rng := rand.New(rand.NewSource(322))
+	frags := []string{"a", "b", "c", "f", "k", "t", "x", "op", "id", "op_id", "f_x", "1", "0"}
+	pick := func(sep string, min, max int) string {
+		n := min + rng.Intn(max-min+1)
+		parts := make([]string, n)
+		for i := range parts {
+			parts[i] = frags[rng.Intn(len(frags))]
+		}
+		return strings.Join(parts, sep)
+	}
+	ident := func() string { return "a" + pick("_", 0, 4) }
+	objectType := func() string {
+		sep := []string{"-", "-", "--"}[rng.Intn(3)]
+		name := "a" + pick(sep, 0, 3)
+		if rng.Intn(4) == 0 {
+			name = "ns." + name
+		}
+		return name
+	}
+	type shape struct {
+		strategy, valueType string
+	}
+	scalar := []shape{{"lww", ""}, {"lww", "string"}, {"lww", "position"}, {"lww", "int"}, {"create-once", "string"}, {"tombstone", "bool"}}
+	collection := []shape{{"set-union", "string"}, {"set-observed-remove", "string"}, {"multi-value", "string"}, {"append", "string"}}
+
+	const iterations, applyEvery = 3000, 25
+	indexes := 0
+	for i := 0; i < iterations; i++ {
+		rules := make(map[string][]state.Rule)
+		for n := 1 + rng.Intn(4); n > 0; n-- {
+			ot := objectType()
+			for m := 1 + rng.Intn(5); m > 0; m-- {
+				r := state.Rule{OpType: "create", OpVersion: 1, Target: ident(), ObjectType: ot}
+				r.Field = r.Target
+				switch rng.Intn(3) {
+				case 0, 1:
+					sh := scalar[rng.Intn(len(scalar))]
+					r.Strategy, r.ValueType = sh.strategy, sh.valueType
+				default:
+					if rng.Intn(2) == 0 {
+						sh := collection[rng.Intn(len(collection))]
+						r.Strategy, r.ValueType = sh.strategy, sh.valueType
+					} else {
+						r.Strategy, r.ValueType = "keyed-lww", "string"
+						r.Key = []string{ident()}
+						r.KeyTypes = map[string]string{r.Key[0]: "string"}
+						if k2 := ident(); k2 != r.Key[0] && rng.Intn(2) == 0 {
+							r.Key = append(r.Key, k2)
+							r.KeyTypes[k2] = "string"
+						}
+						r.OpType = "link"
+					}
+				}
+				rules[ot] = append(rules[ot], r)
+			}
+		}
+		desc, err := buildDescriptor(rules)
+		if err != nil {
+			t.Fatalf("iteration %d: buildDescriptor: %v", i, err)
+		}
+		assertIndexNamesDistinct(t, desc)
+		indexes += len(indexNames(desc))
+
+		if i%applyEvery != 0 {
+			continue
+		}
+		db, err := Open(":memory:")
+		if err != nil {
+			t.Fatalf("Open: %v", err)
+		}
+		if err := db.ApplySchema(rules); err != nil {
+			db.Close()
+			t.Fatalf("iteration %d: ApplySchema: %v", i, err)
+		}
+		if raw, _ := loadMetaString(db.db, "schema_withheld_types"); raw != "[]" {
+			db.Close()
+			t.Fatalf("iteration %d: schema_withheld_types = %q, want []", i, raw)
+		}
+		db.Close()
+	}
+	if indexes == 0 {
+		t.Fatal("property test generated no indexes; the generator is not exercising anything")
 	}
 }
