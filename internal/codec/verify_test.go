@@ -5,6 +5,8 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -124,6 +126,28 @@ func TestVerify_Outcomes(t *testing.T) {
 	verCorrupted := codec.Verify(corruptedCommit, ts)
 	if verCorrupted.Outcome != codec.OutcomeCorruptedSignature || verCorrupted.Valid {
 		t.Errorf("expected corrupted-signature outcome, got %+v", verCorrupted)
+	}
+
+	// 7. A signature in a format the spec does not define (PGP)
+	pgpCommit := *commit
+	pgpCommit.Signature = "-----BEGIN PGP SIGNATURE-----\n\niHUEABYIAB0WIQRSGVn0WFUb7xV1Qm2x0UtqHyPUUwUCZ9rDHAAKCRCx0UtqHyPU\n=Zk3T\n-----END PGP SIGNATURE-----\n"
+	verPGP := codec.Verify(pgpCommit, ts)
+	if verPGP.Outcome != codec.OutcomeCorruptedSignature || verPGP.Valid {
+		t.Errorf("expected corrupted-signature outcome for PGP signature, got %+v", verPGP)
+	}
+
+	// 8. An SSHSIG version the spec does not define: case 2's valid signature
+	// with its version field set to 2.
+	raw, err := sshsig.Unarmor(commit.Signature)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary.BigEndian.PutUint32(raw[len(sshsig.Magic):], sshsig.Version+1)
+	v2Commit := *commit
+	v2Commit.Signature = sshsig.ArmorHeader + "\n" + base64.StdEncoding.EncodeToString(raw) + "\n" + sshsig.ArmorFooter + "\n"
+	verV2 := codec.Verify(v2Commit, ts)
+	if verV2.Outcome != codec.OutcomeCorruptedSignature || verV2.Valid {
+		t.Errorf("expected corrupted-signature outcome for SSHSIG version 2, got %+v", verV2)
 	}
 }
 

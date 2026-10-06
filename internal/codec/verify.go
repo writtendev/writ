@@ -29,6 +29,7 @@ const (
 	OutcomePayloadMutated VerificationOutcome = "payload-mutated"
 
 	// OutcomeCorruptedSignature indicates the signature header is malformed or unparseable.
+	// It also covers a signature in a format or SSHSIG version the spec does not define.
 	OutcomeCorruptedSignature VerificationOutcome = "corrupted-signature"
 )
 

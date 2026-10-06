@@ -4,7 +4,10 @@ description: >
   key, op payload mutated after signing, corrupted armored signature
   header, unsigned commit, and an author email that case-mismatches the
   trust store's principal line (WRIT-278: principal matching is
-  case-sensitive, like OpenSSH's match_pattern_list, not case-folded).
+  case-sensitive, like OpenSSH's match_pattern_list, not case-folded),
+  and a signature in a format or SSHSIG version the spec does not define
+  (a PGP-armored block; an SSHSIG of version 2), which is reported as
+  corrupted-signature (WRIT-347).
   Every one of these still folds (WRIT-251 ruling 1: verification never
   gates fold), so each commit is accepted and pins the verification
   outcome codec.Verify must observe rather than a reject reason.
@@ -82,3 +85,31 @@ refs:
             expect:
               accept: true
               verification: wrong-key
+          - id: bad-sig-unsupported-pgp
+            author: alice
+            tamper: signature-pgp
+            timestamp: 2026-01-01T00:05:00Z
+            op:
+              object_id: widget-01
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "PGP-armored signature, a format the spec does not define"
+            expect:
+              accept: true
+              verification: corrupted-signature
+          - id: bad-sig-unsupported-sshsig-version
+            author: alice
+            tamper: signature-sshsig-version
+            timestamp: 2026-01-01T00:06:00Z
+            op:
+              object_id: widget-01
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "SSHSIG version 2, a version the spec does not define"
+            expect:
+              accept: true
+              verification: corrupted-signature
