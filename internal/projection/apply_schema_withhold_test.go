@@ -177,8 +177,15 @@ func TestApplySchemaPropagatesNonLogicErrors(t *testing.T) {
 	if _, err := db.DB().Exec("PRAGMA query_only = ON"); err != nil {
 		t.Fatalf("PRAGMA query_only: %v", err)
 	}
-	if err := db.ApplySchema(testRules()); err == nil {
+	// The error must come from the type DDL itself, not from a later
+	// statement after a swallowed withhold: widening the withhold class to
+	// every sqlite error would push the failure to "truncate anchor_resolutions".
+	err = db.ApplySchema(testRules())
+	if err == nil {
 		t.Fatal("ApplySchema on a read-only database returned nil; a non-SQLITE_ERROR failure must propagate")
+	}
+	if !strings.Contains(err.Error(), "exec generated schema") {
+		t.Fatalf("ApplySchema error = %v; want the READONLY failure of the type DDL, not a later statement", err)
 	}
 	if _, err := db.DB().Exec("PRAGMA query_only = OFF"); err != nil {
 		t.Fatalf("PRAGMA query_only off: %v", err)
