@@ -1352,3 +1352,61 @@ func TestObject_NonRepoExitCode(t *testing.T) {
 		}
 	})
 }
+
+func TestObjectShow_CreateOncePersonRefRendersBare(t *testing.T) {
+	const testSchema = `namespace acme
+description "Standup vocabulary"
+
+type standup {
+  op create 1 {
+    author person-ref create-once
+  }
+}
+`
+	env := initTestRepo(t)
+	writeSchemaFile(t, env.repoDir, testSchema)
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-C", env.repoDir, "schema", "apply"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("schema apply failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code := run(context.Background(), []string{
+		"object", "create", "-C", env.repoDir, "acme.standup", "create",
+		"-field", "author=user:a",
+		"--json",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("object create failed with %d; stderr: %s", code, stderr.String())
+	}
+	var created wire.ObjectCreated
+	unmarshalEnvelopeData(t, stdout.Bytes(), wire.KindObjectCreate, &created)
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run(context.Background(), []string{
+		"object", "show", "-C", env.repoDir, created.ObjectID,
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("object show failed with %d; stderr: %s", code, stderr.String())
+	}
+
+	out := stdout.String()
+	foundAuthor := false
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[0] == "author" {
+			foundAuthor = true
+			if fields[1] != "user:a" {
+				t.Errorf("author rendered as %q, want bare user:a", fields[1])
+			}
+		}
+	}
+	if !foundAuthor {
+		t.Errorf("author line not found in output:\n%s", out)
+	}
+	if strings.Contains(out, `"user:a"`) {
+		t.Errorf("object show output contains quoted author \"user:a\":\n%s", out)
+	}
+}
