@@ -23,7 +23,7 @@ import (
 // itself run through ValidateFieldRule — is held to. A type with a target or
 // key component failing this grammar gets no tables at all: its objects fall
 // to unknown_ops, the same no-winner idiom RulesFromSchemas already uses for
-// a contested object_type. TestIdentPatternMatchesWireGrammar ties this copy
+// an unresolvable declaration. TestIdentPatternMatchesWireGrammar ties this copy
 // to the wire pattern so the two cannot drift silently.
 var identPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 

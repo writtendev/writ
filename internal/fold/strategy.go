@@ -12,7 +12,7 @@ import (
 // Accumulator defines the interface for state reducers in the closed strategy catalogue.
 type Accumulator interface {
 	// Apply updates the accumulator with an operation in total order L according to the matched rule.
-	Apply(rule Rule, op codec.Op, body map[string]any, rawBody map[string]json.RawMessage) error
+	Apply(rule Rule, op codec.Op, body map[string]any) error
 	// HasValue returns true if at least one operation has contributed to this accumulator.
 	HasValue() bool
 	// Result returns the folded value for this field in serialized representation.
@@ -54,7 +54,7 @@ func newLWWAccumulator(rule Rule, _ ReachOracle) (Accumulator, error) {
 	return &lwwAccumulator{field: rule.Field}, nil
 }
 
-func (a *lwwAccumulator) Apply(rule Rule, op codec.Op, body map[string]any, _ map[string]json.RawMessage) error {
+func (a *lwwAccumulator) Apply(rule Rule, op codec.Op, body map[string]any) error {
 	if val, ok := body[rule.Field]; ok && val != nil {
 		// Empty scalar contract (spec/fold.md §5.1): empty strings (including
 		// person identifiers that normalize to empty) are preserved in the
@@ -82,22 +82,9 @@ func newCreateOnceAccumulator(rule Rule, _ ReachOracle) (Accumulator, error) {
 	return &createOnceAccumulator{field: rule.Field}, nil
 }
 
-func (a *createOnceAccumulator) Apply(rule Rule, _ codec.Op, body map[string]any, rawBody map[string]json.RawMessage) error {
+func (a *createOnceAccumulator) Apply(rule Rule, _ codec.Op, body map[string]any) error {
 	if !a.hasVal {
-		if raw, ok := rawBody[rule.Field]; ok && len(raw) > 0 && string(raw) != "null" {
-			// create-once is a scalar position (spec/value-types.md
-			// §Normalization), so a person-ref value normalizes here exactly
-			// as it does under lww. The raw JSON bytes are otherwise kept
-			// verbatim (byte-exact preservation for every non-normalizing
-			// value); only a normalizing string write is re-encoded.
-			if s, ok := body[rule.Field].(string); ok && rule.NormalizesValue() {
-				if norm, err := json.Marshal(value.Normalize(rule.ValueType, s)); err == nil {
-					raw = norm
-				}
-			}
-			a.val = raw
-			a.hasVal = true
-		} else if val, ok := body[rule.Field]; ok && val != nil {
+		if val, ok := body[rule.Field]; ok && val != nil {
 			if s, ok := val.(string); ok && rule.NormalizesValue() {
 				val = value.Normalize(rule.ValueType, s)
 			}
@@ -125,7 +112,7 @@ func newSetUnionAccumulator(rule Rule, _ ReachOracle) (Accumulator, error) {
 	}, nil
 }
 
-func (a *setUnionAccumulator) Apply(rule Rule, _ codec.Op, body map[string]any, _ map[string]json.RawMessage) error {
+func (a *setUnionAccumulator) Apply(rule Rule, _ codec.Op, body map[string]any) error {
 	raw, ok := body[rule.Field]
 	if !ok || raw == nil {
 		return nil
@@ -198,7 +185,7 @@ func newSetObservedRemoveAccumulator(rule Rule, reach ReachOracle) (Accumulator,
 	}, nil
 }
 
-func (a *setObservedRemoveAccumulator) Apply(rule Rule, op codec.Op, body map[string]any, _ map[string]json.RawMessage) error {
+func (a *setObservedRemoveAccumulator) Apply(rule Rule, op codec.Op, body map[string]any) error {
 	var adds, removes []string
 	if rule.Field == "add" || rule.Field == "remove" {
 		if m, ok := body["add"].(map[string]any); ok {
@@ -322,7 +309,7 @@ func newAppendAccumulator(rule Rule, _ ReachOracle) (Accumulator, error) {
 	return &appendAccumulator{field: rule.Field}, nil
 }
 
-func (a *appendAccumulator) Apply(rule Rule, _ codec.Op, body map[string]any, _ map[string]json.RawMessage) error {
+func (a *appendAccumulator) Apply(rule Rule, _ codec.Op, body map[string]any) error {
 	raw, ok := body[rule.Field]
 	if !ok || raw == nil {
 		return nil
@@ -372,7 +359,7 @@ func newTombstoneAccumulator(rule Rule, reach ReachOracle) (Accumulator, error) 
 // "delete"/"undelete" op type only when the operation writes no value for
 // the field at all. A field present but not a bool never reaches here: §7.1
 // makes such an operation uninterpretable before any accumulator sees it.
-func (a *tombstoneAccumulator) Apply(rule Rule, op codec.Op, body map[string]any, _ map[string]json.RawMessage) error {
+func (a *tombstoneAccumulator) Apply(rule Rule, op codec.Op, body map[string]any) error {
 	if val, hasField := body[rule.Field]; hasField {
 		if val == true {
 			a.deletes = append(a.deletes, op.ID)
@@ -443,7 +430,7 @@ func newLatticeAccumulator(rule Rule, _ ReachOracle) (Accumulator, error) {
 	}, nil
 }
 
-func (a *latticeAccumulator) Apply(rule Rule, _ codec.Op, body map[string]any, _ map[string]json.RawMessage) error {
+func (a *latticeAccumulator) Apply(rule Rule, _ codec.Op, body map[string]any) error {
 	raw, ok := body[rule.Field]
 	if !ok || raw == nil {
 		return nil
@@ -490,7 +477,7 @@ func newKeyedLWWAccumulator(rule Rule, _ ReachOracle) (Accumulator, error) {
 	}, nil
 }
 
-func (a *keyedLWWAccumulator) Apply(rule Rule, op codec.Op, body map[string]any, _ map[string]json.RawMessage) error {
+func (a *keyedLWWAccumulator) Apply(rule Rule, op codec.Op, body map[string]any) error {
 	normVal := rule.NormalizesValue()
 
 	val, ok := body[rule.Field]
@@ -570,7 +557,7 @@ func newMultiValueAccumulator(rule Rule, reach ReachOracle) (Accumulator, error)
 	}, nil
 }
 
-func (a *multiValueAccumulator) Apply(rule Rule, op codec.Op, body map[string]any, _ map[string]json.RawMessage) error {
+func (a *multiValueAccumulator) Apply(rule Rule, op codec.Op, body map[string]any) error {
 	raw, ok := body[rule.Field]
 	if !ok || raw == nil {
 		return nil

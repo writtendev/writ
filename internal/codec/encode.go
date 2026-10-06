@@ -64,7 +64,7 @@ func EncodePayload(env Envelope) ([]byte, error) {
 //
 // BuildCommit is the producer boundary, so it is where the op is checked
 // against the vocabulary that applies to its object type under the
-// four-tier precedence spec/op-envelope.md §Producer validation defines:
+// three-tier precedence spec/op-envelope.md §Producer validation defines:
 // its op_type and op_version are ones that tier defines (rule 4), and its
 // payload satisfies that tier's field rules (rules 3, 5, and 6). The check
 // belongs here and not in EncodePayload: EncodePayload is also on the read
@@ -76,7 +76,7 @@ func EncodePayload(env Envelope) ([]byte, error) {
 // dag.Store.Append, before its CAS retry loop — not once per BuildCommit,
 // which that loop can call up to 16 times on one contended append. nil
 // means the log declares nothing (a bare dag.Store, or a scenario harness
-// that never resolves it); tiers 1, 3, and 4 of the precedence decide the
+// that never resolves it); tiers 1 and 3 of the precedence decide the
 // same regardless.
 //
 // The cost is one JSON Schema validation per appended op — roughly 17 µs,

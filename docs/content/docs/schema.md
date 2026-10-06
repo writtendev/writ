@@ -33,7 +33,7 @@ Nothing is ever removed from the log, so `plan` refuses any edit that would sile
 - A removed type, op, or field. Mark it `deprecated` instead.
 - A removed `description`. No merge strategy in this vocabulary can clear one once written.
 - An un-deprecation. No op clears `deprecated` once it is set.
-- A namespace change, when it can be told apart from declaring an unrelated, brand-new namespace — see "Which schema object `apply` writes to" below. `create`'s `namespace` field folds `create-once`: the first value ever written is permanent.
+- A namespace change. A schema object's identity is its namespace, and `create`'s `namespace` field folds `create-once`: the first value ever written is permanent.
 
 ## `apply`
 
@@ -43,12 +43,8 @@ Runs the same computation as `plan` — it never trusts a previous run, since th
 
 Computed fresh on every run by folding the schema objects present in the repository and matching the file's `namespace`:
 
-1. **Exactly one match** → that object is the target; its id is reused. If the file also declares an `object_type` a *different* schema object already binds, this is refused too, exactly as case 3 below — reuse is not exempt from the contested-type guard.
-2. **No match, and no other schema object binds any `object_type` the file declares** → the target id is derived from the namespace, `schema:<namespace>` (`spec/identifiers.md`'s schema carve-out), and `apply` reports `created`. Two writers bootstrapping the same namespace offline derive the same id, so they converge on one schema object instead of minting two that bind the same types.
-3. **No match, but another schema object already binds a type the file declares** → refused, naming the object id(s) and the contested type(s). Applying would bind the same `object_type` to two schema objects, and `RulesFromSchemas` responds to that collision by withholding **every** rule for the contested type — permanently, since nothing is ever removed and `deprecate-type` does not unbind a type. When every contested type traces back to one single existing object, the message reads as what it is: a namespace change (that object's own namespace, set once by its first `create` op, would differ from the file's) rather than a generic collision between two independent objects.
-4. **More than one namespace match** → refused, naming the object ids. The repository already has a namespace collision to resolve before `apply` can pick between them.
-
-A namespace change that *also* renames or drops every type the old object declared leaves no signal behind to catch: resolution is computed fresh from the file and the folded log, with no stored association between them, so a file that no longer names any of its old object's types is indistinguishable from a legitimate, brand-new, independent namespace. Keep at least one type name across a rename if you want the mistake caught.
+1. **Existing schema object matches namespace** → that object is the target; its id is reused.
+2. **No match** → the target id is derived from the namespace, `schema:<namespace>` (`spec/identifiers.md`'s schema carve-out), and `apply` reports `created`. Two writers bootstrapping the same namespace offline derive the same id, so they converge on one schema object instead of minting two that bind the same types.
 
 There is no `--object-id` flag. Every case it would serve is a repository already in the state this resolution exists to prevent.
 

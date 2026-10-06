@@ -190,26 +190,17 @@ func Fold(ops []codec.Op, rules []Rule) (ObjectState, error) {
 	reach := newLazyReachOracle(orderedOps)
 
 	bodyMap := make(map[string]map[string]any, len(orderedOps))
-	rawBodyMap := make(map[string]map[string]json.RawMessage, len(orderedOps))
 	for _, o := range orderedOps {
 		var bm map[string]any
-		var rbm map[string]json.RawMessage
 		if len(o.Op.Body) > 0 {
 			if err := json.Unmarshal(o.Op.Body, &bm); err != nil {
 				return ObjectState{}, fmt.Errorf("fold: unmarshaling op %s body: %w", o.Op.ID, err)
-			}
-			if err := json.Unmarshal(o.Op.Body, &rbm); err != nil {
-				return ObjectState{}, fmt.Errorf("fold: unmarshaling op %s raw body: %w", o.Op.ID, err)
 			}
 		}
 		if bm == nil {
 			bm = make(map[string]any)
 		}
-		if rbm == nil {
-			rbm = make(map[string]json.RawMessage)
-		}
 		bodyMap[o.Op.ID] = bm
-		rawBodyMap[o.Op.ID] = rbm
 	}
 
 	// Quarantine, in total order, the ops that contribute no field writes: ops
@@ -349,12 +340,11 @@ func Fold(ops []codec.Op, rules []Rule) (ObjectState, error) {
 			continue
 		}
 		bm := bodyMap[o.Op.ID]
-		rbm := rawBodyMap[o.Op.ID]
 		for targetKey, fieldRules := range matchedRulesByField {
 			for _, r := range fieldRules {
 				if opMatchesRule(o.Op, r) {
 					acc := accumulators[targetKey]
-					if err := acc.Apply(r, o.Op, bm, rbm); err != nil {
+					if err := acc.Apply(r, o.Op, bm); err != nil {
 						return ObjectState{}, fmt.Errorf("fold: applying op %s to target %q: %w", o.Op.ID, targetKey, err)
 					}
 				}

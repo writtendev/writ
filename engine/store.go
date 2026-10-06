@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-git/go-git/v5/storage"
@@ -58,7 +59,7 @@ type Store struct {
 	signerErr   error
 	autoRefresh bool
 	targetRefs  []string
-	closed      bool
+	closed      atomic.Bool
 	subscribers []*subscriber
 	mu          sync.Mutex
 
@@ -189,10 +190,9 @@ func (s *Store) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.closed {
+	if s.closed.Swap(true) {
 		return nil
 	}
-	s.closed = true
 
 	for _, sub := range s.subscribers {
 		if sub.stop != nil {
@@ -211,6 +211,16 @@ func (s *Store) Close() error {
 	return errors.Join(errs...)
 }
 
+func (s *Store) checkClosed() error {
+	if s == nil {
+		return fmt.Errorf("writ: store is nil")
+	}
+	if s.closed.Load() {
+		return fmt.Errorf("writ: store is closed")
+	}
+	return nil
+}
+
 // resolveRulesForProjection checks s.closed and, if the store is open,
 // resolves the fold-rule index a Refresh/Rebuild pass needs — with s.mu
 // released across the resolve. Store.rules delegates to Store.vocabularies,
@@ -222,11 +232,8 @@ func (s *Store) Close() error {
 // caller's own second closed-check (taken under mu, after this returns)
 // reports if Close races the resolve.
 func (s *Store) resolveRulesForProjection(ctx context.Context, verb string) error {
-	s.mu.Lock()
-	closed := s.closed
-	s.mu.Unlock()
-	if closed {
-		return fmt.Errorf("writ: store is closed")
+	if err := s.checkClosed(); err != nil {
+		return err
 	}
 
 	if _, err := s.rules(ctx); err != nil {
@@ -252,7 +259,7 @@ func (s *Store) Refresh(ctx context.Context) (RefreshStats, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.closed {
+	if s.closed.Load() {
 		return RefreshStats{}, fmt.Errorf("writ: store is closed")
 	}
 
@@ -280,7 +287,7 @@ func (s *Store) Refresh(ctx context.Context) (RefreshStats, error) {
 }
 
 // Rebuild completely discards and recreates the folded projection cache from a cold walk of all writ chains.
-// Local-only state (read marks, sync cursors) is preserved. The cache file may also simply be deleted.
+// Local-only state (sync cursors) is preserved. The cache file may also simply be deleted.
 //
 // Rule resolution runs before s.mu is taken for the projection pass itself:
 // see resolveRulesForProjection. Only the projection pass and the emit that
@@ -297,7 +304,7 @@ func (s *Store) Rebuild(ctx context.Context) (RefreshStats, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.closed {
+	if s.closed.Load() {
 		return RefreshStats{}, fmt.Errorf("writ: store is closed")
 	}
 
@@ -339,6 +346,9 @@ func (s *Store) Writer() Writer {
 }
 
 func (s *Store) ensureWritable() error {
+	if err := s.checkClosed(); err != nil {
+		return err
+	}
 	if !s.hasIdentity || s.identErr != nil {
 		return ErrNoIdentity
 	}

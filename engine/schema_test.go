@@ -1796,14 +1796,8 @@ func TestRulesFromSchemas_InvalidAndUnrecognizedRuleGetsOnlyDropConflict(t *test
 }
 
 // TestRulesFromSchemas_EveryReachableKindReachedOnce exercises one minimal
-// schema shape per reachable SchemaConflictKind (spec/schema-ops.md §6),
-// proving RulesFromSchemas actually sets each of the ten codes a schema can
-// still reach. SchemaConflictTypeContested is deliberately exempt here:
-// WRIT-254 made a namespace-qualified object_type collision structurally
-// unreachable (kind 1's own doc comment above), leaving only the bare
-// "schema" special case, which is SchemaConflictSchemaRedefined's shape,
-// not this one's -- so there is no schema left that produces
-// SchemaConflictTypeContested for this test to exercise.
+// schema shape per SchemaConflictKind (spec/schema-ops.md §6), proving
+// RulesFromSchemas actually sets each of the ten codes.
 func TestRulesFromSchemas_EveryReachableKindReachedOnce(t *testing.T) {
 	unrecognizedIdent := mkField("widget", "set-ident", 1, "ident", "lww")
 	unrecognizedIdent.ValueType = "x-uuid"
@@ -2666,69 +2660,8 @@ func TestDeclaredTypeWithNoFieldsIsWritable(t *testing.T) {
 	}
 }
 
-// TestContestedObjectTypeStaysWritable is the ruling's carve-out
-// (spec/op-envelope.md §Producer validation, tier 3): a codec.Vocabulary
-// with Contested set permits the write, unvalidated — the opposite of
-// what an earlier draft of the WRIT-199 ticket proposed (fail-closed on a
-// contested type would be a *permanent* write outage, since nothing is
-// ever removed from the log and there is no resolution step; see that
-// ticket's RULED block). The reader still degrades a contested type's ops
-// to UnknownOp (spec/schema-ops.md §6), unaffected by this test — the
-// write/read asymmetry is the point.
-//
-// Before WRIT-254 this test built its Contested vocabulary the same way a
-// real repository's log could: two schema objects sharing a namespace and
-// binding the same bare type name. WRIT-254 change 2 closes that route —
-// engine/schema.go's resolveSchemaTypes now drops any schema object whose
-// id disagrees with "schema:" + its own namespace before its types are
-// ever compared to another object's, so two schema objects can no longer
-// share a namespace and survive to contest a type
-// (TestRulesFromSchemas_ObjectTypeCollisionInstallsNoRules pins the new
-// shape). writ.VocabulariesFromSchemas can therefore no longer produce
-// Vocabulary{Contested: true} for any type — the engine's own resolver
-// path to tier 3 is closed (flagged in the PR description as a question
-// for Matt: whether to keep the mechanism at all). Per Matt's ruling,
-// codec.Vocabulary.Contested and tier 3 itself stay: this test now builds
-// the Contested vocabulary by hand, the way a caller who resolves
-// Vocabularies some other way still could, and pins that engine/dag and
-// engine/codec still honor it correctly — the mechanism, not the
-// engine's one way of reaching it, is what this test is really about.
-func TestContestedObjectTypeStaysWritable(t *testing.T) {
-	dir, _ := setupConfiguredRepo(t)
-	ctx := context.Background()
-
-	ident, err := identity.Load(ctx, dir)
-	if err != nil {
-		t.Fatalf("identity.Load failed: %v", err)
-	}
-
-	resolve := func() (codec.Vocabularies, error) {
-		return codec.Vocabularies{
-			"alpha.standup": codec.Vocabulary{Contested: true},
-		}, nil
-	}
-
-	dagStore, err := dag.Open(dir, ident, dag.WithProducerVocabularies(resolve))
-	if err != nil {
-		t.Fatalf("dag.Open failed: %v", err)
-	}
-
-	env := codec.Envelope{
-		ObjectID:   "standup-1",
-		ObjectType: "alpha.standup",
-		OpType:     "anything-at-all",
-		OpVersion:  1,
-		Body:       json.RawMessage(`{"unvalidated":true}`),
-	}
-	if _, err := dagStore.Append(ctx, env, nil); err != nil {
-		t.Fatalf("Append refused a write to a contested object_type; it must be permitted unvalidated: %v", err)
-	}
-}
-
-// TestUndeclaredObjectTypeIsRefused is the genuine-absence tier (4): an
-// object_type no schema in the log declares is refused — distinct from
-// TestContestedObjectTypeStaysWritable's tier 3, so the two cannot be
-// collapsed by accident.
+// TestUndeclaredObjectTypeIsRefused is the undeclared tier (3): an
+// object_type no schema in the log declares is refused.
 func TestUndeclaredObjectTypeIsRefused(t *testing.T) {
 	store, ctx := openWritableStore(t)
 

@@ -107,13 +107,12 @@ The reason is convergence, not aesthetics. `writ schema apply` creates a
 schema object with no coordination, the same way any other object is
 created — but two writers who each bootstrap the same namespace offline,
 with no chance to fetch each other's ops first, would otherwise mint two
-different random ids for what is meant to be one object. Both push; the
-repository now holds two schema objects each binding the same
-`object_type`(s), and `RulesFromSchemas` withholds every rule for those
-types, permanently, because it has no way to pick a winner between them
-(see [`spec/schema-ops.md`](schema-ops.md) §6). Deriving the id from the
-namespace makes that collision unreachable: both writers compute the same
-id and append to the same object, and their ops merge through the same
+different random ids for what is meant to be one object. Both push; under
+the old random mint, the repository held two schema objects each binding
+the same `object_type`(s), and `RulesFromSchemas` withheld every rule for
+those types (see [`spec/schema-ops.md`](schema-ops.md) §6). Deriving the id
+from the namespace makes that collision unreachable: both writers compute the
+same id and append to the same object, and their ops merge through the same
 keyed-lww resolution that already handles any other concurrent edit.
 
 The derivation is total. A namespace is constrained to
@@ -137,8 +136,7 @@ connected — a remote added, a fetch of both into one place — grouping ops
 by `object_id` folds them into one schema object holding the union of
 both vocabularies, the same mechanism that makes the two-writer,
 one-repository case in the scenario above converge. Under the old random
-mint, that same situation produced two distinct objects and a loud
-`resolveSchemaTarget` `default:` refusal on the second `create`, with
+mint, that same situation produced two distinct objects, with
 `RulesFromSchemas` withholding rules for any type both bound.
 
 That is a behavior change in the opposite direction from the rest of this

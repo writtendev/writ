@@ -25,8 +25,8 @@ func TestOpenCloseMemory(t *testing.T) {
 	// its cache. The per-bump history that used to be spelled out here is
 	// not kept before v0.1.0 (AGENTS.md; see schema.go's own doc comment) —
 	// this literal is the current value, not a changelog.
-	if v := projection.SchemaVersion(); v != 21 {
-		t.Fatalf("expected schema version 21, got %d", v)
+	if v := projection.SchemaVersion(); v != 22 {
+		t.Fatalf("expected schema version 22, got %d", v)
 	}
 
 	var version string

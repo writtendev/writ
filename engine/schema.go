@@ -58,18 +58,6 @@ const (
 	// qualified with its own schema object's namespace.
 	SchemaConflictTypeUnqualified SchemaConflictKind = "type-unqualified"
 
-	// SchemaConflictTypeContested: an object_type is bound by more than one
-	// schema object. Currently unreachable for any object_type, including
-	// the literal bare type "schema" (WRIT-254): the schema-object-id-
-	// matches-namespace gate makes at most one schema object own a given
-	// namespace, so two surviving schema objects can never bind the
-	// identical qualified object_type, and "schema" itself is caught by a
-	// separate, unconditional branch that never falls through to this
-	// comparison. Kept rather than deleted, as the one remaining owner-
-	// comparison SchemaConflict construction site this file has for a
-	// non-"schema" type (resolveSchemaTypes's WRIT-254 note).
-	SchemaConflictTypeContested SchemaConflictKind = "type-contested"
-
 	// SchemaConflictOpTypeUngrammatical: a define-field's or a define-op's
 	// declared op_type fails the op_type grammar.
 	SchemaConflictOpTypeUngrammatical SchemaConflictKind = "op-type-ungrammatical"
@@ -149,6 +137,9 @@ type SchemaConflict struct {
 func (s *Store) Schema(ctx context.Context) ([]Schema, error) {
 	if s == nil {
 		return nil, fmt.Errorf("writ: store is nil")
+	}
+	if err := s.checkClosed(); err != nil {
+		return nil, err
 	}
 
 	// Verification is scoped to every op belonging to a "schema" object —
@@ -676,7 +667,7 @@ func (s *Store) checkBeforeAppend(ctx context.Context, envs ...codec.Envelope) e
 // Types differs from Store.Schema in what it answers: Schema returns the
 // `schema` objects present in the log (what `writ schema plan`/`apply`
 // reason about), while Types answers "what is installed and folding this
-// moment" — the resolved, non-contested types those objects declare.
+// moment" — the resolved types those objects declare.
 //
 // A type's Fields, Ops, Description, and Deprecated come straight from
 // resolveSchemaTypes's own resolved shape — descriptions and Deprecated
@@ -689,6 +680,9 @@ func (s *Store) Types(ctx context.Context) ([]SchemaType, error) {
 	if s == nil {
 		return nil, fmt.Errorf("writ: store is nil")
 	}
+	if err := s.checkClosed(); err != nil {
+		return nil, err
+	}
 
 	res, err := s.declaredTypes(ctx)
 	if err != nil {
@@ -697,7 +691,7 @@ func (s *Store) Types(ctx context.Context) ([]SchemaType, error) {
 
 	sortedNames := make([]string, 0, len(res.declared))
 	for name := range res.declared {
-		if name == "schema" || res.contested[name] {
+		if name == "schema" {
 			continue
 		}
 		sortedNames = append(sortedNames, name)
@@ -719,8 +713,8 @@ type schemaOpVersionKey struct {
 	OpVersion int64
 }
 
-// schemaTypeFromResolved converts one non-contested, log-declared object
-// type's resolveSchemaTypes result into the SchemaType shape Store.Types
+// schemaTypeFromResolved converts one log-declared object type's
+// resolveSchemaTypes result into the SchemaType shape Store.Types
 // returns. Ops is the union of res.ops[name] (explicit define-op
 // declarations, which is where a description comes from) with the
 // (op_type, op_version) pairs res.fields[name] imply (a field targeting an
@@ -1091,7 +1085,7 @@ func validObjectTypeGrammar(typeName string) bool {
 // gates), the type name must satisfy the object_type grammar, and the
 // type name must be qualified with that namespace (WRIT-217).
 // resolveSchemaTypes' two passes share this exact predicate — the first
-// to decide what may be declared, bound, or contested at all (with its
+// to decide what may be declared or bound at all (with its
 // own per-reason SchemaConflict), the second to decide what may
 // contribute fields/ops/descriptions — so a type gated out by either
 // grammar check can never reach buildTypeDescriptor by either path, the
@@ -1127,10 +1121,9 @@ func declarationInstallable(typeName, namespace string) bool {
 // Callers see the answer in the shapes the resolver already returns — an
 // unqualified declaration is absent from the rules/vocabularies and
 // present as a SchemaConflict naming why — which is the schema-shaped
-// form of it. An earlier revision exported this for cmd/writ's
-// contested-type guard to filter against; that guard no longer exists,
-// so the export went with it rather than sitting in api/engine.txt with
-// no caller.
+// form of it. An earlier revision exported this for a CLI guard to filter
+// against; that guard no longer exists, so the export went with it rather
+// than sitting in api/engine.txt with no caller.
 func typeIsQualifiedForNamespace(typeName, namespace string) bool {
 	if namespace == "" {
 		return false
@@ -1146,34 +1139,19 @@ func typeIsQualifiedForNamespace(typeName, namespace string) bool {
 // schema objects (spec/schema-ops.md §6, §7, §9), computed once and
 // consumed by both RulesFromSchemas (the fold engine's []Rule shape) and
 // VocabulariesFromSchemas (the producer's codec.Vocabularies shape) so
-// neither call site has to infer "contested" from SchemaConflict's shape,
-// or answer "is this type declared at all" from whether rules[t] happens
-// to be non-empty.
+// neither call site has to answer "is this type declared at all" from
+// whether rules[t] happens to be non-empty.
 type resolvedSchemaTypes struct {
 	// declared lists every object type at least one schema object binds,
-	// via define-type, define-field, or define-op — contested or not, and
-	// regardless of whether it ends up with any installed fields or ops.
+	// via define-type, define-field, or define-op, regardless of whether
+	// it ends up with any installed fields or ops.
 	// A type declared with no fields (define-type/define-op alone) is
 	// still declared: VocabulariesFromSchemas must not treat that the same
 	// as "no schema in the log ever named this type"
 	// (TestDeclaredTypeWithNoFieldsIsWritable).
 	declared map[string]bool
-	// contested lists every object type two or more schema objects bind.
-	// Neither schema's rules are installed for it (§6): fields[t] and
-	// ops[t] are absent, and VocabulariesFromSchemas would report
-	// Vocabulary{Contested: true} for it — except VocabulariesFromSchemas
-	// never even looks up "schema" here (it special-cases and skips that
-	// key unconditionally), and WRIT-254's schema-object-id gate above
-	// means no other t can ever reach this map with two distinct owners
-	// (see the comment on that branch, and
-	// state.SchemaObjectIDMatchesNamespace's doc comment). contested["schema"]
-	// can still be set — see the
-	// unconditional t.Name == "schema" branch — so this map is not always
-	// empty; it is codec.Vocabulary{Contested: true} specifically that has
-	// no reachable writer left, which the PR description flags for Matt.
-	contested map[string]bool
-	// fields holds, per non-contested non-"schema" object type, every
-	// field declaration that survived grammar, spec.ValidateFieldRule, and
+	// fields holds, per non-"schema" object type, every field declaration
+	// that survived grammar, spec.ValidateFieldRule, and
 	// spec.CheckTargetAgreement — the original state.SchemaField, not the
 	// spec.FieldRule built from it for validation, so Deprecated and the
 	// rest of its shape are not lost building it back into a Rule. This
@@ -1188,21 +1166,21 @@ type resolvedSchemaTypes struct {
 	// demotion is what the fold path needs, not what a producer validates
 	// against or a caller reading declared types back expects to see.
 	fields map[string][]state.SchemaField
-	// ops holds, per non-contested non-"schema" object type, every
-	// define-op declaration that survived the same grammar check.
+	// ops holds, per non-"schema" object type, every define-op declaration
+	// that survived the same grammar check.
 	ops map[string][]state.SchemaOp
-	// descriptions holds, per non-contested non-"schema" object type, the
-	// type's own Description (set on define-type, empty when never given
-	// one) — the metadata Store.Types (WRIT-192 MEDIUM-1) needs and that
-	// fields/ops alone cannot carry.
+	// descriptions holds, per non-"schema" object type, the type's own
+	// Description (set on define-type, empty when never given one) — the
+	// metadata Store.Types (WRIT-192 MEDIUM-1) needs and that fields/ops
+	// alone cannot carry.
 	descriptions map[string]string
-	// deprecatedTypes holds, per non-contested non-"schema" object type,
-	// the type's own Deprecated (set by deprecate-type).
+	// deprecatedTypes holds, per non-"schema" object type, the type's own
+	// Deprecated (set by deprecate-type).
 	deprecatedTypes map[string]bool
-	// boundBy maps a non-contested object type to the ObjectID of the one
-	// schema object that binds it, so a producer rejection
-	// (VocabulariesFromSchemas -> codec.Vocabularies) can name which
-	// schema is responsible.
+	// boundBy maps an object type to the ObjectID of the one schema object
+	// that binds it, so a producer rejection
+	// (VocabulariesFromSchemas -> codec.Vocabularies) can name which schema
+	// is responsible.
 	boundBy   map[string]string
 	conflicts []SchemaConflict
 }
@@ -1233,9 +1211,9 @@ func keyColumnKeyLess(a, b keyColumnKey) bool {
 
 // toFieldRule builds the spec.FieldRule form of a schema-declared field,
 // used to run it through spec.ValidateFieldRule and spec.CheckTargetAgreement
-// (both defined against that type) and, for a non-contested type, to
-// populate a codec.Vocabulary's Fields directly: spec.FieldRule is the
-// field-rule currency engine/codec already imports spec for.
+// (both defined against that type) and to populate a codec.Vocabulary's
+// Fields directly: spec.FieldRule is the field-rule currency engine/codec
+// already imports spec for.
 func toFieldRule(objectType string, f state.SchemaField) spec.FieldRule {
 	return spec.FieldRule{
 		OpType: f.OpType, OpVersion: f.OpVersion, Field: f.Name, Target: f.Target,
@@ -1251,13 +1229,12 @@ func toFieldRule(objectType string, f state.SchemaField) spec.FieldRule {
 // build the same result from the same input regardless of enumeration
 // order. RulesFromSchemas and VocabulariesFromSchemas are thin, disjoint
 // projections of this shared result: neither reruns the pass, and neither
-// can disagree with the other about what is contested or declared.
+// can disagree with the other about what is declared.
 func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 	sorted := append([]state.Schema(nil), schemas...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ObjectID < sorted[j].ObjectID })
 
 	boundBy := make(map[string]string) // object_type -> owning schema ObjectID
-	contested := make(map[string]bool) // object_type -> withheld from installation
 	declared := make(map[string]bool)
 	var conflicts []SchemaConflict
 
@@ -1311,7 +1288,6 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 		for _, t := range sch.Types {
 			if t.Name == "schema" {
 				declared[t.Name] = true
-				contested["schema"] = true
 				conflicts = append(conflicts, SchemaConflict{
 					Kind:       SchemaConflictSchemaRedefined,
 					ObjectType: "schema",
@@ -1328,8 +1304,8 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 			// declared type name on the read path, so a define-type is
 			// otherwise free to declare any bytes at all — including ones
 			// that break out of a SQL string literal or a shell word.
-			// Dropped and reported here, never touching boundBy/declared/
-			// contested for t.Name, the same reasoning the qualification
+			// Dropped and reported here, never touching boundBy/declared
+			// for t.Name, the same reasoning the qualification
 			// check below already uses: a malformed declaration must not
 			// contest a legitimate binding of some other, well-formed
 			// type.
@@ -1351,10 +1327,10 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 			// is, so it cannot enforce this — this resolver is the one
 			// place that can. Anything else — bare, one dot but a foreign
 			// namespace, more than one dot — is dropped and reported here,
-			// never installed, and never touches boundBy/contested for
-			// t.Name: a hand-crafted define-type squatting a name outside
-			// its own namespace must not contest another schema's
-			// legitimate binding of that same wire type.
+			// never installed, and never touches boundBy: a hand-crafted
+			// define-type squatting a name outside its own namespace must
+			// not contest another schema's legitimate binding of that same
+			// wire type.
 			if !typeIsQualifiedForNamespace(t.Name, sch.Namespace) {
 				conflicts = append(conflicts, SchemaConflict{
 					Kind:       SchemaConflictTypeUnqualified,
@@ -1366,41 +1342,7 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 				continue
 			}
 			declared[t.Name] = true
-
-			// WRIT-254 note on reachability, left in place rather than
-			// resolved by deletion (Matt's ruling: narrow the prose that
-			// depends on this branch, keep the mechanism). For a real,
-			// namespace-qualified t.Name, this branch is no longer
-			// reachable: two entries in sorted can never both pass the
-			// schema-object-id gate above with the same namespace, since
-			// at most one ObjectID equals "schema:" + any given
-			// namespace, and typeIsQualifiedForNamespace requires t.Name
-			// to carry that exact namespace as its prefix — so two
-			// surviving schema objects can never bind the identical
-			// qualified t.Name here. It stays reachable only for the
-			// literal bare type "schema", via the unconditional branch
-			// above this loop (t.Name == "schema"), which sets
-			// contested["schema"] on any single qualifying declaration
-			// with no owner comparison at all — that branch never reaches
-			// this one. Left installed rather than removed: deleting it
-			// would also retire the one remaining contested[...] writer
-			// this file has for a non-"schema" type, which is the
-			// producer tier-3 / codec.Vocabulary.Contested question the
-			// PR description flags for Matt rather than settling here.
-			owner, bound := boundBy[t.Name]
-			if !bound {
-				boundBy[t.Name] = sch.ObjectID
-				continue
-			}
-			if owner != sch.ObjectID && !contested[t.Name] {
-				contested[t.Name] = true
-				conflicts = append(conflicts, SchemaConflict{
-					Kind:       SchemaConflictTypeContested,
-					ObjectType: t.Name,
-					ObjectIDs:  []string{owner, sch.ObjectID},
-					Reason:     fmt.Sprintf("object_type %q is bound by more than one schema object", t.Name),
-				})
-			}
+			boundBy[t.Name] = sch.ObjectID
 		}
 	}
 
@@ -1416,10 +1358,8 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 			// declarationInstallable/state.SchemaObjectIDMatchesNamespace
 			// predicates that pass uses: a type or a whole schema object
 			// that failed any of them above never touched
-			// boundBy/declared and was never a candidate for contested
-			// either, so it must be excluded here by the exact same
-			// tests, not inferred from contested[t.Name] alone —
-			// otherwise a gated declaration's own fields would still
+			// boundBy/declared, so it must be excluded here by the exact same
+			// tests — otherwise a gated declaration's own fields would still
 			// populate fields[t.Name] and end up installed regardless.
 			// state.SchemaObjectIDMatchesNamespace(sch) matters here
 			// independently of declarationInstallable: this loop ranges
@@ -1429,14 +1369,14 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 			// otherwise still look grammar-valid and correctly
 			// qualified — must be excluded here too, or its fields would
 			// install anyway despite never having reached boundBy.
-			if t.Name == "schema" || contested[t.Name] || !declarationInstallable(t.Name, sch.Namespace) || !state.SchemaObjectIDMatchesNamespace(sch) {
+			if t.Name == "schema" || !declarationInstallable(t.Name, sch.Namespace) || !state.SchemaObjectIDMatchesNamespace(sch) {
 				continue
 			}
 
-			// A non-contested type is, by construction, declared by
-			// exactly one schema object, so this runs at most once per
-			// type name: no last-writer-wins ambiguity to resolve here,
-			// unlike fields[t.Name]/ops[t.Name] below.
+			// A type is, by construction, declared by exactly one schema
+			// object, so this runs at most once per type name: no
+			// last-writer-wins ambiguity to resolve here, unlike
+			// fields[t.Name]/ops[t.Name] below.
 			descriptions[t.Name] = t.Description
 			deprecatedTypes[t.Name] = t.Deprecated
 
@@ -1611,7 +1551,7 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 			// rule was "installed" and "withheld" in the same breath.
 			// ObjectIDs names the one schema object that owns t.Name here,
 			// not res.boundBy -- sch.ObjectID is the same value boundBy
-			// would hold for a non-contested type.
+			// would hold.
 			for _, f := range typeFields {
 				if positions := demotedPositions(f); len(positions) > 0 {
 					conflicts = append(conflicts, SchemaConflict{
@@ -1649,7 +1589,6 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 
 	return resolvedSchemaTypes{
 		declared:        declared,
-		contested:       contested,
 		fields:          fields,
 		ops:             ops,
 		descriptions:    descriptions,
@@ -1677,16 +1616,7 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 //     candidate rule is validated through spec.ValidateFieldRule before it
 //     can be installed; one that fails is dropped and reported here, never
 //     handed to the fold driver.
-//   - Conflicts (spec/schema-ops.md §6). object_type reaches the wire
-//     namespace-qualified (§2, WRIT-217): the load-bearing collision is two
-//     schema objects binding the identical qualified object_type, which
-//     now requires them to share a namespace — two different namespaces
-//     can never produce the same qualified object_type. Neither schema's
-//     rules are installed for the contested type: no winner is picked, and
-//     its ops fall through the absent-schema path to UnknownOp. Two
-//     schemas declaring the same namespace is a weaker, mostly cosmetic
-//     case, reported alongside an object_type collision when both occur,
-//     but on its own it withholds nothing. A declared type whose name does
+//   - Conflicts (spec/schema-ops.md §6). A declared type whose name does
 //     not carry its own schema object's namespace as its prefix — bare,
 //     qualified under a different namespace, or carrying more than one dot
 //     — is a distinct conflict (§6.4, typeIsQualifiedForNamespace): dropped
@@ -1843,10 +1773,10 @@ func pluralPosition(n int) string {
 // VocabulariesFromSchemas resolves every folded schema object present in a
 // repo into the codec.Vocabularies shape the generic producer validator
 // (engine/codec's BuildCommit/ValidateBody) checks tier 2 of
-// spec/op-envelope.md's four-tier precedence against — the log-sourced
+// spec/op-envelope.md's three-tier precedence against — the log-sourced
 // counterpart to RulesFromSchemas's fold-rule shape, built from the exact
 // same collision/validation pass (resolveSchemaTypes) so the two can never
-// disagree about what is contested or declared.
+// disagree about what is declared.
 //
 // "schema" is never a key in the returned map: spec/schema-ops.md §7's
 // bootstrap exception means it always validates against the engine's
@@ -1861,10 +1791,6 @@ func VocabulariesFromSchemas(schemas []Schema) (codec.Vocabularies, []SchemaConf
 	vocabularies := make(codec.Vocabularies, len(res.declared))
 	for typeName := range res.declared {
 		if typeName == "schema" {
-			continue
-		}
-		if res.contested[typeName] {
-			vocabularies[typeName] = codec.Vocabulary{Contested: true}
 			continue
 		}
 

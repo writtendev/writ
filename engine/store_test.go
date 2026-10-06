@@ -297,6 +297,64 @@ func TestStoreCloseAndRefresh(t *testing.T) {
 	}
 }
 
+func TestStoreClosedOperations(t *testing.T) {
+	store, ctx, _ := openStoreWithCoreSchema(t)
+
+	id, err := store.Objects.Create(ctx, "acme.widget", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Initial Title"},
+	})
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	assertClosed := func(name string, err error) {
+		t.Helper()
+		if err == nil {
+			t.Errorf("%s succeeded on closed store, want error containing \"store is closed\"", name)
+		} else if !strings.Contains(err.Error(), "store is closed") {
+			t.Errorf("%s returned error %v, want error containing \"store is closed\"", name, err)
+		}
+	}
+
+	_, err = store.Objects.Get(ctx, id)
+	assertClosed("Objects.Get", err)
+
+	_, err = store.Objects.Create(ctx, "acme.widget", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Another"},
+	})
+	assertClosed("Objects.Create", err)
+
+	err = store.Objects.Apply(ctx, id, writ.NewOp{
+		Type:   "update",
+		Fields: map[string]any{"title": "Updated"},
+	})
+	assertClosed("Objects.Apply", err)
+
+	_, err = store.Schema(ctx)
+	assertClosed("Schema", err)
+
+	_, err = store.Types(ctx)
+	assertClosed("Types", err)
+
+	_, err = store.Query.Objects(writ.ObjectFilter{})
+	assertClosed("Query.Objects", err)
+
+	_, err = store.Query.Object(id)
+	assertClosed("Query.Object", err)
+
+	_, err = store.Refresh(ctx)
+	assertClosed("Refresh", err)
+
+	_, err = store.Rebuild(ctx)
+	assertClosed("Rebuild", err)
+}
+
 func TestStoreMissingSigningKey(t *testing.T) {
 	dir := t.TempDir()
 	runGitCmd(t, dir, "init")

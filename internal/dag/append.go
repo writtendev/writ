@@ -93,11 +93,9 @@ func (s *Store) Append(ctx context.Context, env codec.Envelope, causalParents []
 	// built-in table, never the log (codec.validateProducerOp's
 	// unconditional top-level check does not even consult vocabularies for
 	// it), so resolving them here would only make schema bootstrap depend
-	// on a log walk it has no use for — exactly the coupling the ruling
-	// that carved out tier 3 (a permanent write outage is the failure mode
-	// to avoid) would not tolerate for tier 1 either: a schema object that
-	// fails to resolve must never block writing the very "schema" ops that
-	// could fix it.
+	// on a log walk it has no use for: a schema object that fails to resolve
+	// must never block writing the very "schema" ops that could fix it
+	// (a permanent write outage is the failure mode to avoid).
 	var vocabularies codec.Vocabularies
 	if s.resolveVocabularies != nil && env.ObjectType != "schema" {
 		var err error

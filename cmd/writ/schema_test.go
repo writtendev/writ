@@ -623,15 +623,6 @@ type standup {
 	}
 }
 
-// TestSchemaCLI_NamespaceChangeIsRefused exercises the namespace-change
-// refusal itself (resolveSchemaTarget's case-0, single-contested-owner
-// branch), distinctly from the cross-object collision case
-// TestSchemaCLI_ObjectIdentity covers: the changed file re-declares the
-// same type ("standup") as before, so no *other* schema object in this
-// repository binds it — declared types don't overlap with any third
-// object, so the generic "object_type already bound" guard has nothing to
-// catch here. The only thing that changed is the namespace, which is what
-// this test means to prove is refused, and refused for that reason.
 // TestSchemaCLI_NamespaceChangeMintsIndependentObject replaces
 // TestSchemaCLI_NamespaceChangeIsRefused (WRIT-217). The old test pinned a
 // refusal: resolveSchemaTarget used to detect "this file's type set is
@@ -641,8 +632,7 @@ type standup {
 // actually express as an update. That proxy signal was a *bare*
 // object_type collision — exactly the mechanism WRIT-217 removes: with
 // object_type namespace-qualified, "acme.standup" and "acme2.standup" are
-// different wire types that never collide, so there is no longer a
-// contested-type signal to detect a rename attempt with. The now-correct
+// different wire types that never collide. The now-correct
 // behavior is also the honest one: editing `namespace` in a working-tree
 // file that already has an applied schema object does not "rename" that
 // object (namespace is create-once and never will), it mints an
@@ -1001,33 +991,22 @@ type standup {
 	}
 }
 
-// TestSchemaCLI_ReuseRefusesContestedType and
 // TestSchemaCLI_ReuseRefusesFutureBootstrapCollision /
 // TestSchemaCLI_CreateRefusesFutureBootstrapCollision are removed
-// (WRIT-217): all three pinned resolveSchemaTarget refusals whose
+// (WRIT-217): both pinned resolveSchemaTarget refusals whose
 // triggering shape a namespace-qualified object_type makes unreachable
 // through this package's own `writ.schema` DSL.
 //
-//   - ReuseRefusesContestedType relied on two schema objects being able to
-//     bind the identical bare object_type ("sprint") from two different
-//     namespaces. Post-WRIT-217 that qualifies to two different wire
-//     types ("acme.sprint", "other.sprint") that can never collide — the
-//     resolver-level equivalent of the guard this pinned is still covered
-//     by engine/schema.go's own tests
-//     (TestRulesFromSchemas_ObjectTypeCollisionInstallsNoRules,
-//     TestRulesFromSchemas_UnqualifiedConsumerTypeDroppedNotInstalled),
-//     which construct the adversarial folded-state shape directly rather
-//     than through a DSL that can no longer produce it.
-//   - Both *FutureBootstrapCollision tests relied on `type schema` in a
-//     .schema file reaching the wire as the bare object_type "schema",
-//     the engine's one hard-coded bootstrap type. schemasrc.Compile
-//     qualifies every declared type unconditionally, `schema` included
-//     (WRIT-217 plan, "schema's exemption needs no carve-out": the DSL
-//     has no way to emit a bare type name at all any more), so `type
-//     schema` under `namespace acme` now compiles to the ordinary
-//     consumer type "acme.schema" — see
-//     TestSchemaCLI_TypeNamedSchemaIsOrdinaryConsumerType below, this
-//     pair's replacement.
+// Both *FutureBootstrapCollision tests relied on `type schema` in a
+// .schema file reaching the wire as the bare object_type "schema",
+// the engine's one hard-coded bootstrap type. schemasrc.Compile
+// qualifies every declared type unconditionally, `schema` included
+// (WRIT-217 plan, "schema's exemption needs no carve-out": the DSL
+// has no way to emit a bare type name at all any more), so `type
+// schema` under `namespace acme` now compiles to the ordinary
+// consumer type "acme.schema" — see
+// TestSchemaCLI_TypeNamedSchemaIsOrdinaryConsumerType below, this
+// pair's replacement.
 func TestSchemaCLI_TypeNamedSchemaIsOrdinaryConsumerType(t *testing.T) {
 	env := initTestRepo(t)
 	writeSchemaFile(t, env.repoDir, `namespace acme
@@ -1082,19 +1061,12 @@ func runSchemaSyncOrFatal(t *testing.T, dir string) {
 // schema object whose own namespace is "evil" — is exactly the shape
 // engine/schema.go's RulesFromSchemas drops and never installs (WRIT-217
 // §6.4, typeIsQualifiedForNamespace), so it must never be able to block a
-// legitimate namespace's own `writ schema apply`. Round 1 fixed this with
-// a type-name filter on resolveSchemaTarget's own contested-type guard
-// (contestedTypeOwners); round 2 found that filter made the guard
-// permanently unreachable for real data too (it needed the false
-// premise that a bare type name is still globally unique post-WRIT-217:
-// see resolveSchemaTarget's own doc comment), so the guard — and
-// contestedTypeOwners, contestedTypeNames and contestedTypeParts with it
-// — is gone rather than patched again: resolveSchemaTarget resolves on
-// namespace alone now, and these two tests continue to pin that a squat
-// occupying an unrelated ObjectID never perturbs that resolution, for
-// whatever reason. These call resolveSchemaTarget directly with a
-// hand-built []writ.Schema and a bare namespace string — no CLI, no
-// repo, no writ.schema source to parse.
+// legitimate namespace's own `writ schema apply`. resolveSchemaTarget
+// resolves on namespace alone, and these two tests continue to pin that a
+// squat occupying an unrelated ObjectID never perturbs that resolution,
+// for whatever reason. These call resolveSchemaTarget directly with a
+// hand-built []writ.Schema and a bare namespace string — no CLI, no repo,
+// no writ.schema source to parse.
 func TestResolveSchemaTarget_SquattedForeignTypeDoesNotBlockReuse(t *testing.T) {
 	target := writ.Schema{
 		ObjectID:  "schema:acme",

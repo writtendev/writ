@@ -2,7 +2,6 @@ package writ_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 
@@ -186,16 +185,8 @@ func TestQueryFullSuite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Objects.Get(n2): %v", err)
 	}
-	// in_reply_to declares no normalizing value type, so create-once's
-	// byte-exact-preservation rule (spec/fold.md §5.2) returns it as raw
-	// JSON bytes rather than a decoded string.
-	inReplyToRaw, _ := objN2.Fields["in_reply_to"].(json.RawMessage)
-	var inReplyTo string
-	if err := json.Unmarshal(inReplyToRaw, &inReplyTo); err != nil {
-		t.Fatalf("unmarshal in_reply_to: %v", err)
-	}
-	if inReplyTo != n1 {
-		t.Errorf("expected n2.in_reply_to = %s, got %v", n1, inReplyTo)
+	if objN2.Fields["in_reply_to"] != n1 {
+		t.Errorf("expected n2.in_reply_to = %s, got %v", n1, objN2.Fields["in_reply_to"])
 	}
 }
 

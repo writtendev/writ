@@ -1,10 +1,10 @@
 package fold_test
 
 import (
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -79,7 +79,7 @@ func TestLWWNormalizationVocabularyBlind(t *testing.T) {
 			}
 			op := codec.Op{ID: "c1", Envelope: codec.Envelope{OpType: tc.rule.OpType, OpVersion: tc.rule.OpVersion}}
 			body := map[string]any{tc.rule.Field: tc.input}
-			if err := acc.Apply(tc.rule, op, body, nil); err != nil {
+			if err := acc.Apply(tc.rule, op, body); err != nil {
 				t.Fatalf("Apply failed: %v", err)
 			}
 			res, err := acc.Result()
@@ -111,7 +111,7 @@ func TestSetObservedRemoveNormalizationVocabularyBlind(t *testing.T) {
 			"add": []any{"email:Alice@Example.COM", "   ", "email:Bob@Example.COM"},
 		},
 	}
-	if err := accWithNorm.Apply(ruleWithNorm, op1, body1, nil); err != nil {
+	if err := accWithNorm.Apply(ruleWithNorm, op1, body1); err != nil {
 		t.Fatalf("Apply failed: %v", err)
 	}
 	resWithNorm, err := accWithNorm.Result()
@@ -134,7 +134,7 @@ func TestSetObservedRemoveNormalizationVocabularyBlind(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAccumulator failed: %v", err)
 	}
-	if err := accWithoutNorm.Apply(ruleWithoutNorm, op1, body1, nil); err != nil {
+	if err := accWithoutNorm.Apply(ruleWithoutNorm, op1, body1); err != nil {
 		t.Fatalf("Apply failed: %v", err)
 	}
 	resWithoutNorm, err := accWithoutNorm.Result()
@@ -163,7 +163,7 @@ func TestSetUnionNormalizationVocabularyBlind(t *testing.T) {
 	body1 := map[string]any{
 		"authors": []any{"email:Alice@Example.COM", "   ", "email:Bob@Example.COM"},
 	}
-	if err := accWithNorm.Apply(ruleWithNorm, op1, body1, nil); err != nil {
+	if err := accWithNorm.Apply(ruleWithNorm, op1, body1); err != nil {
 		t.Fatalf("Apply failed: %v", err)
 	}
 	resWithNorm, err := accWithNorm.Result()
@@ -185,7 +185,7 @@ func TestSetUnionNormalizationVocabularyBlind(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAccumulator failed: %v", err)
 	}
-	if err := accWithoutNorm.Apply(ruleWithoutNorm, op1, body1, nil); err != nil {
+	if err := accWithoutNorm.Apply(ruleWithoutNorm, op1, body1); err != nil {
 		t.Fatalf("Apply failed: %v", err)
 	}
 	resWithoutNorm, err := accWithoutNorm.Result()
@@ -220,7 +220,7 @@ func TestKeyedLWWNormalizationVocabularyBlind(t *testing.T) {
 		"voter": "email:Alice@Example.COM",
 		"topic": "Topic-One",
 	}
-	if err := accWithNorm.Apply(ruleWithNorm, op1, body1, nil); err != nil {
+	if err := accWithNorm.Apply(ruleWithNorm, op1, body1); err != nil {
 		t.Fatalf("Apply failed: %v", err)
 	}
 	resWithNorm, err := accWithNorm.Result()
@@ -248,7 +248,7 @@ func TestKeyedLWWNormalizationVocabularyBlind(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAccumulator failed: %v", err)
 	}
-	if err := accWithoutNorm.Apply(ruleWithoutNorm, op1, body1, nil); err != nil {
+	if err := accWithoutNorm.Apply(ruleWithoutNorm, op1, body1); err != nil {
 		t.Fatalf("Apply failed: %v", err)
 	}
 	resWithoutNorm, err := accWithoutNorm.Result()
@@ -313,8 +313,7 @@ func TestCreateOnceNormalizationVocabularyBlind(t *testing.T) {
 			}
 			op := codec.Op{ID: "c1", Envelope: codec.Envelope{OpType: tc.rule.OpType, OpVersion: tc.rule.OpVersion}}
 			body := map[string]any{tc.rule.Field: tc.input}
-			// rawBody nil exercises the body-only fallback path.
-			if err := acc.Apply(tc.rule, op, body, nil); err != nil {
+			if err := acc.Apply(tc.rule, op, body); err != nil {
 				t.Fatalf("Apply failed: %v", err)
 			}
 			res, err := acc.Result()
@@ -325,37 +324,6 @@ func TestCreateOnceNormalizationVocabularyBlind(t *testing.T) {
 				t.Errorf("got %v, want %v", res, tc.wantValue)
 			}
 		})
-	}
-
-	// The rawBody path (byte-exact preservation for every non-normalizing
-	// value) also normalizes a person-ref write.
-	rule := fold.Rule{
-		OpType:    "arbitrary_op",
-		OpVersion: 1,
-		Field:     "custom_actor",
-		Strategy:  "create-once",
-		ValueType: "person-ref",
-	}
-	acc, err := fold.NewAccumulator(rule, dummyOracle{})
-	if err != nil {
-		t.Fatalf("NewAccumulator failed: %v", err)
-	}
-	op := codec.Op{ID: "c1", Envelope: codec.Envelope{OpType: rule.OpType, OpVersion: rule.OpVersion}}
-	body := map[string]any{"custom_actor": "email:Alice@Example.COM"}
-	rawBody := map[string]json.RawMessage{"custom_actor": json.RawMessage(`"email:Alice@Example.COM"`)}
-	if err := acc.Apply(rule, op, body, rawBody); err != nil {
-		t.Fatalf("Apply failed: %v", err)
-	}
-	res, err := acc.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
-	}
-	raw, ok := res.(json.RawMessage)
-	if !ok {
-		t.Fatalf("expected json.RawMessage result, got %T: %v", res, res)
-	}
-	if string(raw) != `"email:alice@example.com"` {
-		t.Errorf("got %s, want %q", raw, `"email:alice@example.com"`)
 	}
 }
 
@@ -403,7 +371,7 @@ func TestMultiValueNormalizationVocabularyBlind(t *testing.T) {
 			}
 			op := codec.Op{ID: "c1", Envelope: codec.Envelope{OpType: tc.rule.OpType, OpVersion: tc.rule.OpVersion}}
 			body := map[string]any{tc.rule.Field: tc.input}
-			if err := acc.Apply(tc.rule, op, body, nil); err != nil {
+			if err := acc.Apply(tc.rule, op, body); err != nil {
 				t.Fatalf("Apply failed: %v", err)
 			}
 			res, err := acc.Result()
@@ -534,5 +502,75 @@ func TestFoldSetObservedRemoveConcurrentAddWins(t *testing.T) {
 	want := []string{"alice"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v (concurrent remove must not beat the add)", got, want)
+	}
+}
+
+func TestCreateOnceAndLWWDynamicTypesMatch(t *testing.T) {
+	testCases := []struct {
+		name     string
+		bodyJSON string
+	}{
+		{
+			name:     "string",
+			bodyJSON: `{"val":"hello world"}`,
+		},
+		{
+			name:     "number",
+			bodyJSON: `{"val":42.5}`,
+		},
+		{
+			name:     "bool",
+			bodyJSON: `{"val":true}`,
+		},
+		{
+			name:     "map",
+			bodyJSON: `{"val":{"nested":"data","count":1}}`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			op := codec.Op{
+				ID: "op-1",
+				Envelope: codec.Envelope{
+					ObjectID:   "obj-1",
+					ObjectType: "acme.test",
+					OpType:     "create",
+					OpVersion:  1,
+					Body:       []byte(tc.bodyJSON),
+				},
+				Author: codec.Identity{When: time.Unix(100, 0).UTC()},
+			}
+
+			lwwRule := []fold.Rule{
+				{ObjectType: "acme.test", OpType: "create", OpVersion: 1, Field: "val", Strategy: "lww"},
+			}
+			lwwState, err := fold.Fold([]codec.Op{op}, lwwRule)
+			if err != nil {
+				t.Fatalf("Fold lww failed: %v", err)
+			}
+			lwwVal := lwwState.State["val"]
+
+			coRule := []fold.Rule{
+				{ObjectType: "acme.test", OpType: "create", OpVersion: 1, Field: "val", Strategy: "create-once"},
+			}
+			coState, err := fold.Fold([]codec.Op{op}, coRule)
+			if err != nil {
+				t.Fatalf("Fold create-once failed: %v", err)
+			}
+			coVal := coState.State["val"]
+
+			if reflect.TypeOf(coVal) != reflect.TypeOf(lwwVal) {
+				t.Fatalf("dynamic type mismatch: create-once %T vs lww %T", coVal, lwwVal)
+			}
+			if !reflect.DeepEqual(coVal, lwwVal) {
+				t.Fatalf("value mismatch: create-once %v vs lww %v", coVal, lwwVal)
+			}
+
+			typeName := fmt.Sprintf("%T", coVal)
+			if typeName == "json.RawMessage" || strings.Contains(typeName, "jsontext") {
+				t.Errorf("create-once returned raw json type: %s", typeName)
+			}
+		})
 	}
 }

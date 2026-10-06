@@ -996,20 +996,16 @@ func TestBuildCommitAcceptsUnknownFieldsInEveryVocabulary(t *testing.T) {
 // TestBuildCommitRefusesUndeclaredObjectTypes inverts what this test used to
 // pin (TestBuildCommitAcceptsForeignObjectTypes, pre-WRIT-188): an object
 // type nothing in the log declares is a producer error
-// (spec/op-envelope.md §Producer validation, tier 4), not a silent pass.
+// (spec/op-envelope.md §Producer validation, tier 3), not a silent pass.
 //
 // The old rationale — "a reader has to tolerate it and writ's own producer
 // never emits one" — rested on writ's producer only ever emitting types it
 // embedded itself. It emits consumer-declared types instead, and for a
-// type nothing declares at all, tier 4 is the only tier that ever
+// type nothing declares at all, tier 3 is the only tier that ever
 // applies: there is no vocabulary to validate the body against, so the op
 // is refused outright rather than let through. An op of a truly foreign
 // object type is exactly the un-withdrawable mistake producer validation
 // exists to prevent.
-// This is deliberately scoped to the *genuine* absence case — a
-// *contested* object type (two schema objects binding one bare type) is a
-// different tier and stays writable (TestContestedObjectTypeStaysWritable
-// in engine/schema_test.go).
 func TestBuildCommitRefusesUndeclaredObjectTypes(t *testing.T) {
 	_, err := codec.BuildCommit(codec.Envelope{
 		ObjectID:   "g-1",
@@ -1024,8 +1020,8 @@ func TestBuildCommitRefusesUndeclaredObjectTypes(t *testing.T) {
 	if !strings.Contains(err.Error(), `"gadget"`) {
 		t.Errorf("rejection message %q does not name object_type %q", err.Error(), "gadget")
 	}
-	if !strings.Contains(err.Error(), "§Producer validation tier 4") {
-		t.Errorf("rejection message %q does not cite §Producer validation tier 4", err.Error())
+	if !strings.Contains(err.Error(), "§Producer validation tier 3") {
+		t.Errorf("rejection message %q does not cite §Producer validation tier 3", err.Error())
 	}
 }
 
@@ -1324,7 +1320,7 @@ func TestShippedVocabulariesGateOnTheProducedOpVersion(t *testing.T) {
 // exists to prevent. A defined op_type with a bad body does not exercise
 // rule 4 at all, so the unknown-op-type case is not a variation on the first
 // one — it is the other half of the guard. The last case is the type nothing
-// declares at all: tier 4, the op the projection is likeliest to meet, since
+// declares at all: tier 3, the op the projection is likeliest to meet, since
 // a repo that has not fetched the declaring schema object yet still reads
 // every op written against it.
 func TestEncodePayloadDoesNotValidateBody(t *testing.T) {
