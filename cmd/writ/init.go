@@ -161,7 +161,13 @@ func runInit(ctx context.Context, defaultDir string, args []string, stdin io.Rea
 	fs, opts := newInitFlagSet(defaultDir)
 	fs.SetOutput(stderr)
 
-	if err := fs.Parse(args); err != nil {
+	// remotes stays nil with no positionals: nil tells writ.Init to
+	// discover them via `git remote`, which is also what selects lenient
+	// treatment of an unusable one (WRIT-283) -- see
+	// writ.InitOptions.Remotes. Explicit remotes (positional args) keep the
+	// original abort-on-first-error behaviour.
+	remotes, err := parseArgs(fs, args)
+	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
@@ -188,15 +194,6 @@ func runInit(ctx context.Context, defaultDir string, args []string, stdin io.Rea
 			return 1
 		}
 		namespace = opts.namespace
-	}
-
-	// explicit remotes (positional args) keep the original abort-on-first-
-	// error behaviour; nil tells writ.Init to discover them via `git
-	// remote`, which is also what selects lenient treatment of an unusable
-	// one (WRIT-283) -- see writ.InitOptions.Remotes.
-	var remotes []string
-	if fs.NArg() > 0 {
-		remotes = fs.Args()
 	}
 
 	result, err := writ.Init(ctx, targetDir, writ.InitOptions{
@@ -263,6 +260,12 @@ func runInit(ctx context.Context, defaultDir string, args []string, stdin io.Rea
 			if jsonErr := emitJSON(stdout, wire.KindInitResult, wire.FromInitResult(result, err, namespace)); jsonErr != nil {
 				fmt.Fprintf(stderr, "writ init: marshal json: %v\n", jsonErr)
 			}
+		}
+		// Outside a git repository is the same exit 5 every other verb
+		// returns for a store that cannot be opened; every other init
+		// failure stays 1.
+		if storeOpenFailure(err) {
+			return 5
 		}
 		return 1
 	}

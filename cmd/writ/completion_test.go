@@ -76,6 +76,19 @@ func TestCompletion_Zsh(t *testing.T) {
 		t.Errorf("zsh completion for help must inspect line[1]")
 	}
 
+	// zsh defines no _git_remotes (its git completion has __git_remotes), so
+	// the remote argument completes from `git remote` through writ's own
+	// helper (WRIT-342).
+	if !strings.Contains(script, "_writ_git_remotes() {") || !strings.Contains(script, "'*:remote:_writ_git_remotes'") {
+		t.Errorf("zsh completion must define and use _writ_git_remotes")
+	}
+	if strings.Contains(strings.ReplaceAll(script, "_writ_git_remotes", ""), "_git_remotes") {
+		t.Errorf("zsh completion references a _git_remotes helper zsh does not define")
+	}
+	if !strings.Contains(script, "                version)\n") {
+		t.Errorf("zsh completion has no version arm")
+	}
+
 	if _, err := exec.LookPath("zsh"); err == nil {
 		cmd := exec.Command("zsh", "-n")
 		cmd.Stdin = strings.NewReader(script)

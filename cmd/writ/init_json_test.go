@@ -209,8 +209,8 @@ func TestInit_JSONNotAGitRepoEmitsNothing(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{"init", "-C", nonRepoDir, "--json"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("init --json on non-repo exited with %d, want 1", code)
+	if code != 5 {
+		t.Fatalf("init --json on non-repo exited with %d, want 5", code)
 	}
 	if stdout.Len() != 0 {
 		t.Errorf("stdout = %q, want empty -- writ.Init never reached git config", stdout.String())

@@ -367,7 +367,7 @@ func resolveRepoRoot(ctx context.Context, path string) (string, error) {
 		}
 	}
 
-	return "", errors.New("not a git repository (or any of the parent directories)")
+	return "", fmt.Errorf("%w (or any of the parent directories)", ErrNotRepository)
 }
 
 // discoverRemotes lists the remotes `git remote` reports for repoRoot.

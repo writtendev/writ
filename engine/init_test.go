@@ -154,6 +154,19 @@ func TestInitBareRepoNeedsNoNamespace(t *testing.T) {
 	}
 }
 
+// TestInitOutsideRepositoryIsErrNotRepository pins WRIT-342: Init outside a
+// git repository wraps ErrNotRepository, so a caller (the CLI's exit 5) can
+// tell it apart from any other Init failure.
+func TestInitOutsideRepositoryIsErrNotRepository(t *testing.T) {
+	_, err := writ.Init(context.Background(), t.TempDir(), writ.InitOptions{})
+	if !errors.Is(err, writ.ErrNotRepository) {
+		t.Fatalf("Init outside a repository: errors.Is(err, ErrNotRepository) = false; err: %v", err)
+	}
+	if !strings.Contains(err.Error(), "not a git repository") {
+		t.Errorf("err = %q, want it to say \"not a git repository\"", err)
+	}
+}
+
 func TestInitExplicitBadRemoteAborts(t *testing.T) {
 	dir := setupBareInitRepo(t)
 

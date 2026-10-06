@@ -23,7 +23,7 @@ All plumbing commands emit a single top-level JSON document on `stdout` adhering
 | Field | Type | Description |
 |---|---|---|
 | `schema_version` | integer | Envelope schema version (currently `1`). Bumps only on breaking changes. |
-| `kind` | string | Discriminator for the payload schema (`sync.status`, `sync.result`, `schema.plan`, `schema.apply`, `schema.show`, `object.create`, `object.apply`, `object.show`, `object.list`, `init.result`). |
+| `kind` | string | Discriminator for the payload schema (`sync.status`, `sync.result`, `schema.plan`, `schema.apply`, `schema.show`, `object.create`, `object.apply`, `object.show`, `object.list`, `init.result`, `version`). |
 | `data` | object or array | Verb-specific payload structure. |
 
 ---
@@ -37,10 +37,12 @@ All plumbing commands emit a single top-level JSON document on `stdout` adhering
 5. **Machine-Readable Exit Codes:** Classification uses process exit codes:
    - `0`: Success.
    - `1`: Unclassified runtime failure or transport error.
-   - `2`: Usage error (invalid flag, missing required argument, syntactically invalid remote name).
+   - `2`: Usage error (invalid flag, missing required argument, syntactically invalid remote name, an object type the installed vocabulary does not declare (`object list <type>`)). For `sync`, any syntactically invalid remote name means no remote is fetched or pushed, and the `sync.result` `data` array holds one entry per invalid name only (each `failure.kind: invalid-name`), none for the valid names.
    - `3`: Unknown or unconfigured git remote.
    - `4`: Rejected non-fast-forward update.
-   - `5`: Not a git repository or store cannot be opened.
+   - `5`: Not a git repository (including `writ init`) or store cannot be opened.
+   - `6`: Authentication or credentials failure.
+   - `7`: Network or remote unreachable.
 6. **No Null Collections:** Empty collections serialize as `[]`, never `null`.
 7. **Deterministic Formatting & Ordering:** Timestamps are formatted as ISO 8601 / RFC 3339 UTC with a trailing `Z` (e.g. `2026-01-01T00:00:00Z`). All list responses have a deterministic total order, using object ID ascending as a tiebreaker. A timestamp whose source value falls outside years 0–9999 (RFC 3339's representable range — reachable only from a peer-controlled commit author time, which is otherwise unbounded) is clamped to the nearest representable bound, and the true value is carried in the corresponding `*_epoch` field (see `ObjectSummary` below); list ordering is always computed on the true value, never the clamped rendering.
 8. **Pre-v0.1.0 exception to rule 1:** WRIT-195 removed the `review.*`, `issue.*`, `comment.*`, `label.*`, `state.*`, `settings`, and `doc.*` kinds (and their payload shapes) from this same `schema_version: 1` envelope, replacing them with the generic `object.*`/`schema.*` verbs below. Nothing has shipped yet (`AGENTS.md`: "Nothing has shipped: no tags, no users, no external implementations"), so this is a deliberate pre-v0.1.0 break, not a violation of rule 1 going forward — additive-only evolution is the promise from here on, not a retroactive one.
@@ -56,7 +58,7 @@ Runs the same one-time repository setup as `writ init` — resolving or minting 
 
 `writ init` is a *write* verb, like `object create`/`object apply`, not a read verb — this section is why §1's opening line above says "every verb," not "every read verb."
 
-**Emit-on-failure departure.** Every other `--json` verb emits no envelope at all on a failed run (see, e.g., `schema plan`'s "no `SchemaPlan` JSON is emitted" above). `writ init` is the one exception, and deliberately so: git config has no transaction, so a run that stops part-way (an explicit remote's name rejected, or a config write failing) can leave identity minted but a fetch refspec never written — exactly the half-configured state a caller needs to describe, not merely fail on. **The rule: an envelope is emitted iff the run reached git config — i.e. `writer_id` is non-empty.** A run that never got that far (a bad flag, not a git repository, the interactive-namespace refusal) writes nothing to stdout, same as every other verb; a run that stopped after minting identity emits the envelope with `outcome: "stopped"` and exits `1`.
+**Emit-on-failure departure.** Every other `--json` verb emits no envelope at all on a failed run (see, e.g., `schema plan`'s "no `SchemaPlan` JSON is emitted" above). `writ init` is the one exception, and deliberately so: git config has no transaction, so a run that stops part-way (an explicit remote's name rejected, or a config write failing) can leave identity minted but a fetch refspec never written — exactly the half-configured state a caller needs to describe, not merely fail on. **The rule: an envelope is emitted iff the run reached git config — i.e. `writer_id` is non-empty.** A run that never got that far (a bad flag, not a git repository (exit `5`), the interactive-namespace refusal) writes nothing to stdout, same as every other verb; a run that stopped after minting identity emits the envelope with `outcome: "stopped"` and exits `1`.
 
 - **Envelope `kind`**: `"init.result"`
 - **`data` Type**: `InitResult` object
@@ -492,6 +494,8 @@ Lists collaborative objects across every schema-declared type, or within one, fr
 - **Envelope `kind`**: `"object.list"`
 - **`data` Type**: Array of `ObjectSummary` objects (`[]ObjectSummary`)
 
+An undeclared `<type>` exits `2` (a usage error: the caller named a type that does not exist), with the message on `stderr` and nothing on `stdout`.
+
 `<type>` also accepts `schema`, as the one exception to "an undeclared `<type>` is refused by name": `Store.Types` never resolves `schema` (writ's one hard-coded object type, not schema-declared), but `writ schema apply` leaves real `schema` rows in the projection, and this filter finds them rather than refusing the one type that demonstrably has objects.
 
 #### `ObjectSummary` Fields
@@ -525,6 +529,29 @@ Lists collaborative objects across every schema-declared type, or within one, fr
       "verification": "valid"
     }
   ]
+}
+```
+
+---
+
+### `writ version --json`
+
+Reports the version of the writ binary.
+
+- **Envelope `kind`**: `"version"`
+- **`data` Type**: `Version` object
+
+| Field | Type | Description |
+|---|---|---|
+| `version` | string | The version of the writ binary, as `writ version` prints it after `writ `. |
+
+```json
+{
+  "schema_version": 1,
+  "kind": "version",
+  "data": {
+    "version": "dev"
+  }
 }
 ```
 

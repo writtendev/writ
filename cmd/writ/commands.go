@@ -81,6 +81,7 @@ var initCmd = &command{
 		"1  Runtime failure: the run stopped part-way (an explicit remote's name was rejected, or a\n" +
 			"   write failed)",
 		"2  Usage error (bad flag)",
+		"5  Not a git repository",
 	},
 	Examples: []string{
 		"writ init",
@@ -304,10 +305,14 @@ var syncCmd = &command{
 var versionCmd = &command{
 	Name:      "version",
 	Short:     "Print the writ version",
-	UsageLine: "Usage: writ version",
+	UsageLine: "Usage: writ version [--json]",
 	Long:      "Print the version of the writ binary.",
+	Flags: []flagSpec{
+		{Name: "json"},
+	},
 	Examples: []string{
 		"writ version",
+		"writ version --json",
 	},
 }
 
@@ -350,6 +355,7 @@ func init() {
 		"object show":   func() *flag.FlagSet { fs, _ := newObjectShowFlagSet(""); return fs },
 		"object list":   func() *flag.FlagSet { fs, _ := newObjectListFlagSet(""); return fs },
 		"sync":          func() *flag.FlagSet { fs, _ := newSyncFlagSet(""); return fs },
+		"version":       func() *flag.FlagSet { fs, _ := newVersionFlagSet(); return fs },
 	}
 }
 

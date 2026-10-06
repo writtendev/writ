@@ -901,7 +901,7 @@ func runObjectList(ctx context.Context, defaultDir string, args []string, stdout
 		}
 		if !typeIsQueryable(types, posArgs[0]) {
 			porcelainf(stderr, "writ object list: object type %q is not declared by the installed vocabulary (declares: %s)\n", posArgs[0], strings.Join(declaredTypeNames(types), ", "))
-			return 1
+			return 2
 		}
 		typeFilter = []string{posArgs[0]}
 	}

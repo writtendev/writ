@@ -127,6 +127,8 @@ func TestInit_ValidatesRepositoryBeforeWriting(t *testing.T) {
 // failed at the very end, inside sync.Open's second Resolve of the same
 // repository — identity persisted, no refspec, exit 1. Resolving once, up
 // front, and treating the failure as fatal is what makes that unreachable.
+// The refusal is gitdir.Resolve's ErrNotRepository, so it exits 5 like every
+// other verb that finds no repository.
 //
 // The injector is git's own worktree/gitdir split: GIT_DIR and GIT_WORK_TREE
 // pointed at different directories give a work tree with no .git in it or
@@ -178,8 +180,8 @@ func TestInit_RefusesARepositoryItCannotResolve(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	if code := run(context.Background(), []string{"init", "-C", workTree}, &stdout, &stderr); code != 1 {
-		t.Fatalf("init exited with %d, want 1; stderr: %s", code, stderr.String())
+	if code := run(context.Background(), []string{"init", "-C", workTree}, &stdout, &stderr); code != 5 {
+		t.Fatalf("init exited with %d, want 5; stderr: %s", code, stderr.String())
 	}
 	if !strings.Contains(stderr.String(), "not a git repository") {
 		t.Errorf("stderr does not say why the repository was refused:\n%s", stderr.String())
@@ -1221,8 +1223,8 @@ func TestInit_NonRepo(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{"init", "-C", nonRepoDir}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("init on non-repo exited with %d, want 1", code)
+	if code != 5 {
+		t.Fatalf("init on non-repo exited with %d, want 5", code)
 	}
 	if !strings.Contains(stderr.String(), "not a git repository") {
 		t.Errorf("stderr does not mention not a git repo: %s", stderr.String())

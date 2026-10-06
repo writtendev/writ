@@ -35,7 +35,8 @@ func runSync(ctx context.Context, defaultDir string, args []string, stdout, stde
 	fs, opts := newSyncFlagSet(defaultDir)
 	fs.SetOutput(stderr)
 
-	if err := fs.Parse(args); err != nil {
+	remotes, err := parseArgs(fs, args)
+	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
@@ -58,7 +59,6 @@ func runSync(ctx context.Context, defaultDir string, args []string, stdout, stde
 		porcelainln(stderr, "warning: no writer identity configured (run 'writ init' to configure)")
 	}
 
-	remotes := fs.Args()
 	if len(remotes) == 0 {
 		configuredRemotes, err := listGitRemotes(ctx, targetDir)
 		if err != nil {
@@ -82,6 +82,23 @@ func runSync(ctx context.Context, defaultDir string, args []string, stdout, stde
 		} else {
 			porcelainln(stderr, "writ sync: multiple remotes configured but none named 'origin'; specify a remote explicitly")
 			return 2
+		}
+	}
+
+	// Refuse a malformed remote name before syncing any remote: a bad name
+	// anywhere in the list must not leave earlier remotes pushed. Only the
+	// invalid names are kept, so Sync reports each through its own
+	// invalid-name path, which fails before any config write or transport.
+	// --status is offline and keeps its per-remote reporting.
+	if !opts.statusMode {
+		var invalid []string
+		for _, r := range remotes {
+			if _, err := store.SyncStatus(ctx, r); errors.Is(err, writ.ErrInvalidRemoteName) {
+				invalid = append(invalid, r)
+			}
+		}
+		if len(invalid) > 0 {
+			remotes = invalid
 		}
 	}
 

@@ -70,6 +70,7 @@ stopped-part-way repository is exactly the state a caller needs to describe.
 - `1`: Runtime failure: the run stopped part-way (an explicit remote's name was rejected, or a
    write failed)
 - `2`: Usage error (bad flag)
+- `5`: Not a git repository
 
 #### Examples
 
@@ -343,17 +344,22 @@ Print the writ version
 #### Synopsis
 
 ```console
-Usage: writ version
+Usage: writ version [--json]
 ```
 
 #### Description
 
 Print the version of the writ binary.
 
+#### Flags
+
+- `-json`: Output result as JSON
+
 #### Examples
 
 ```bash
 writ version
+writ version --json
 ```
 
 ### `writ completion`
