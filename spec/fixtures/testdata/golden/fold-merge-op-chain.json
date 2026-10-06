@@ -1,0 +1,133 @@
+{
+  "refs": [
+    {
+      "name": "refs/writ/0123456789abcdef/schema",
+      "commit": "e15cf57809a6f65c8740e5cf285e1a857d5f1cf3"
+    },
+    {
+      "name": "refs/writ/0123456789abcdef/widget",
+      "commit": "39166dafa48f2a6361bde3c90ce20686a925a3cf"
+    }
+  ],
+  "generations": [
+    {
+      "ref": "refs/writ/0123456789abcdef/schema",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "6878f32e6ceba5d25b58018d4349cddbfb8921eb",
+          "tree": "34ea76857b187dc8c8861abb7cb50918cb719bba",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:00:00Z",
+          "message": "writ: create schema/schema:acme\n",
+          "signed": true
+        },
+        {
+          "sha": "bc8e7c1f1c78f9de75b6fad53a582223bf0c66e7",
+          "tree": "ca78439bb9815d37872edb62cd893ea301ceddd2",
+          "parents": [
+            "6878f32e6ceba5d25b58018d4349cddbfb8921eb"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:01:00Z",
+          "message": "writ: define-type schema/schema:acme\n",
+          "signed": true
+        },
+        {
+          "sha": "17cd6d8ee707b4273bc134ea5edd5c6b2e21132e",
+          "tree": "a1a1a3fa236a140a09cb40dd8570eac36c162408",
+          "parents": [
+            "bc8e7c1f1c78f9de75b6fad53a582223bf0c66e7"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:02:00Z",
+          "message": "writ: define-field schema/schema:acme\n",
+          "signed": true
+        },
+        {
+          "sha": "9d62ad64fd198760054a7cb16b211a5650ab470a",
+          "tree": "d83958d0c207dbaadf97ef2b264535042aa6ffb8",
+          "parents": [
+            "17cd6d8ee707b4273bc134ea5edd5c6b2e21132e"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:03:00Z",
+          "message": "writ: define-field schema/schema:acme\n",
+          "signed": true
+        },
+        {
+          "sha": "e15cf57809a6f65c8740e5cf285e1a857d5f1cf3",
+          "tree": "4ea37faea4d753f1f3363c1b45c7db4bc5efa093",
+          "parents": [
+            "9d62ad64fd198760054a7cb16b211a5650ab470a"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2025-12-01T00:04:00Z",
+          "message": "writ: define-field schema/schema:acme\n",
+          "signed": true
+        }
+      ]
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/widget",
+      "index": 0,
+      "commits": [
+        {
+          "sha": "9fdc03fc326d64c893a884a850eebe73d4bb1ba1",
+          "tree": "ec48b44938089c00a1fbd114d64425870949bcdf",
+          "parents": [],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "message": "writ: create acme.widget/w-merge-chain\n",
+          "signed": true
+        },
+        {
+          "sha": "535fa0b281fd3f806358331d3526f50027c5de37",
+          "tree": "ee9662e61d5251d459ff33b6d4d8ce8c6476c701",
+          "parents": [
+            "9fdc03fc326d64c893a884a850eebe73d4bb1ba1"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:01:00Z",
+          "message": "writ: update acme.widget/w-merge-chain\n",
+          "signed": true
+        },
+        {
+          "sha": "ce4887594f7e166d0c750081fc8c1d628446fb7f",
+          "tree": "b42156cc3085e769cc0f49d1ca97e3dbb682c50e",
+          "parents": [
+            "9fdc03fc326d64c893a884a850eebe73d4bb1ba1"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:02:00Z",
+          "message": "writ: update acme.widget/w-merge-chain\n",
+          "signed": true
+        },
+        {
+          "sha": "084ad6bb3dc715d46b5a0f4bfd9b981658922e94",
+          "tree": "e09cf102da7af30389a1e5f2b9cfd805aa6b52d4",
+          "parents": [
+            "535fa0b281fd3f806358331d3526f50027c5de37",
+            "ce4887594f7e166d0c750081fc8c1d628446fb7f"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:03:00Z",
+          "message": "writ: merge acme.widget/w-merge-chain\n",
+          "signed": true
+        },
+        {
+          "sha": "39166dafa48f2a6361bde3c90ce20686a925a3cf",
+          "tree": "f33946c345babad113fa57e5148ed0fe27ed83f0",
+          "parents": [
+            "084ad6bb3dc715d46b5a0f4bfd9b981658922e94"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:04:00Z",
+          "message": "writ: update acme.widget/w-merge-chain\n",
+          "signed": true
+        }
+      ]
+    }
+  ]
+}

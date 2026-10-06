@@ -409,6 +409,71 @@ func TestValidateBody(t *testing.T) {
 			t.Errorf("ValidateBody accepted an object_type no schema in the log declares")
 		}
 	})
+
+	t.Run("valid merge op on schema", func(t *testing.T) {
+		env := codec.Envelope{
+			ObjectID:   "sch-1",
+			ObjectType: "schema",
+			OpType:     "merge",
+			OpVersion:  1,
+			Body:       json.RawMessage(`{}`),
+		}
+		if err := codec.ValidateBody(env, nil); err != nil {
+			t.Errorf("ValidateBody failed on valid merge op on schema: %v", err)
+		}
+	})
+
+	t.Run("valid merge op on declared type", func(t *testing.T) {
+		env := codec.Envelope{
+			ObjectID:   "w-1",
+			ObjectType: "widget",
+			OpType:     "merge",
+			OpVersion:  1,
+			Body:       json.RawMessage(`{}`),
+		}
+		if err := codec.ValidateBody(env, widgetVocabulary()); err != nil {
+			t.Errorf("ValidateBody failed on valid merge op on declared type: %v", err)
+		}
+	})
+
+	t.Run("merge op with non-empty body is refused", func(t *testing.T) {
+		env := codec.Envelope{
+			ObjectID:   "w-1",
+			ObjectType: "widget",
+			OpType:     "merge",
+			OpVersion:  1,
+			Body:       json.RawMessage(`{"field":"extra"}`),
+		}
+		if err := codec.ValidateBody(env, widgetVocabulary()); err == nil {
+			t.Errorf("ValidateBody accepted a merge op with non-empty body")
+		}
+	})
+
+	t.Run("merge op with op_version != 1 is refused", func(t *testing.T) {
+		env := codec.Envelope{
+			ObjectID:   "w-1",
+			ObjectType: "widget",
+			OpType:     "merge",
+			OpVersion:  2,
+			Body:       json.RawMessage(`{}`),
+		}
+		if err := codec.ValidateBody(env, widgetVocabulary()); err == nil {
+			t.Errorf("ValidateBody accepted a merge op with op_version 2")
+		}
+	})
+
+	t.Run("merge op on undeclared object type is refused", func(t *testing.T) {
+		env := codec.Envelope{
+			ObjectID:   "u-1",
+			ObjectType: "undeclared",
+			OpType:     "merge",
+			OpVersion:  1,
+			Body:       json.RawMessage(`{}`),
+		}
+		if err := codec.ValidateBody(env, nil); err == nil {
+			t.Errorf("ValidateBody accepted a merge op on undeclared object type")
+		}
+	})
 }
 
 func TestFromGitCommitNil(t *testing.T) {

@@ -172,7 +172,11 @@ content addressing never depend on encoder quirks.
   be scope growth with no collision to close. Which op types an
   `object_type` has is declared by the `schema` object governing it
   ([`spec/schema-ops.md`](schema-ops.md) §4.2), except for `schema`
-  itself, whose op vocabulary that document fixes.
+  itself, whose op vocabulary that document fixes. `merge` is reserved
+  across all object types for causal parent chaining when a causal frontier
+  exceeds the per-commit parent limit: it carries `op_version: 1` and
+  `"body": {}` with no field effects (see §Producer validation and
+  [`spec/fold.md`](fold.md) §7).
 - `op_version` (integer, required) — schema version of this op type's
   body, starting at 1. A small JSON integer; it MUST be ≥ 1 and ≤ 2⁵³−1
   so it is always exactly representable as a double. Any field that
@@ -209,17 +213,20 @@ on the read side. The op tree a producer writes is one 35-byte entry,
 within the tree bound by construction. The commit bound also caps how many
 causal parents one op can carry: each is a 48-byte `parent` line, so a
 commit with the rest of a typical op commit (under 4 KiB) holds about
-21,000 of them, and a producer whose causal frontier is wider MUST refuse
-the append rather than write a commit its own readers would reject, and
-MUST do so before signing when the unsigned commit is already over the
-bound, then check again after signing, since the signature adds bytes. That
-is a residual, stated plainly: a peer able to push more concurrent heads
-onto one object than fit in one commit can block further writes to that
-object, because every honest append names the whole frontier as its
-parents and every such append is refused. A producer-side remedy for an
-over-wide frontier is future work and is not specified here. Because
-readers refuse the same bytes a producer would refuse, these are not
-producer-only tightenings, and the `spec/testdata/producer/` corpus below,
+21,000 of them. A conforming producer MUST NOT author a single commit naming
+more than `MaxCommitParents` (20,000) causal parents. When an object's
+deduplicated causal frontier exceeds `MaxCommitParents`, the producer MUST
+chunk the causal parents into sequential slices of at most
+`MaxCommitParents - 1` parents and write a chain of signed `merge` link ops
+(`op_type: "merge"`, `op_version: 1`, `body: {}`) on its writer ref, each
+naming the previous link as its chain predecessor `parents[0]`. The real
+write then names the final `merge` link op commit as its chain predecessor
+`parents[0]` with no additional causal parents, collapsing the object's
+projected frontier to 1. A producer whose commit is already over the bound
+MUST refuse before signing when the unsigned commit is already over the
+bound, then check again after signing, since the signature adds bytes.
+Because readers refuse the same bytes a producer would refuse, these are
+not producer-only tightenings, and the `spec/testdata/producer/` corpus below,
 whose whole point is that every producer-rejected case is reader-accepted,
 MUST NOT gain a case for them. Before the op commit is built, the producer MUST also verify that:
 

@@ -530,6 +530,8 @@ forward compatibility rules (WRIT-15):
 - An operation carrying an unknown `op_type` or unrecognized fields MUST NOT cause fold to error or abort.
 - Unknown operations remain full members of the restricted DAG: they participate in $t^*$ calculation and the total order $L$, maintaining causal relationships for any descendant operations.
 - An unknown operation contributes no field writes to recognized fields.
+- Format-reserved `merge` operations (`op_type: "merge"`, `op_version: 1`, `body: {}`; `spec/op-envelope.md` §Producer validation) likewise remain full members of the restricted DAG, participating in $t^*$ calculation and the total order $L$. They produce no field writes to any field. Because `merge` is a format-reserved known op type, it MUST NOT be reported in `unknown_ops`.
+
 
 ### 7.1 Uninterpretable operations
 

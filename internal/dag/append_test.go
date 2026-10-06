@@ -961,3 +961,187 @@ func TestAppendOfSchemaObjectTypeNeverConsultsTheResolver(t *testing.T) {
 		t.Fatalf("expected the same failing resolver to block a non-\"schema\" append (control case), got: %v", err)
 	}
 }
+
+func TestAppendChunkedMergeOpChain(t *testing.T) {
+	dag.SetMaxCommitParentsForTest(t, 3)
+
+	_, repo := initTestRepo(t)
+	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
+
+	vocs := codec.Vocabularies{
+		"widget": declaredType("widget",
+			spec.FieldRule{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
+			spec.FieldRule{OpType: "update", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
+		),
+	}
+	store, err := dag.OpenStorage(repo.Storer, ident, dag.WithProducerVocabularies(func() (codec.Vocabularies, error) {
+		return vocs, nil
+	}))
+	if err != nil {
+		t.Fatalf("OpenStorage: %v", err)
+	}
+
+	ctx := context.Background()
+	root, err := store.Append(ctx, codec.Envelope{
+		ObjectID:   "w-1",
+		ObjectType: "widget",
+		OpType:     "create",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"title":"Root"}`),
+	}, nil)
+	if err != nil {
+		t.Fatalf("root append: %v", err)
+	}
+
+	rootCommit, err := repo.CommitObject(plumbing.NewHash(root.ID))
+	if err != nil {
+		t.Fatalf("CommitObject: %v", err)
+	}
+
+	// Create 5 concurrent causal parent commits based on root.
+	var causal []string
+	for i := 0; i < 5; i++ {
+		h := storeRawCommit(t, repo, rootCommit.TreeHash, rootCommit.Hash, fmt.Sprintf("parent %d\n", i))
+		causal = append(causal, h.String())
+	}
+
+	// With maxCommitParents=3, 5 causal parents exceeds the limit.
+	// Chunk size is 3 - 1 = 2:
+	// Chunk 0: parents = [root.ID, causal[0], causal[1]] (merge link 0)
+	// Chunk 1: parents = [merge0.ID, causal[2], causal[3]] (merge link 1)
+	// Chunk 2: parents = [merge1.ID, causal[4]] (merge link 2)
+	// Final op: parents = [merge2.ID]
+	finalOp, err := store.Append(ctx, codec.Envelope{
+		ObjectID:   "w-1",
+		ObjectType: "widget",
+		OpType:     "update",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"title":"Merged"}`),
+	}, causal)
+	if err != nil {
+		t.Fatalf("Append with chunked merge: %v", err)
+	}
+
+	if len(finalOp.Parents) != 1 {
+		t.Fatalf("finalOp parents = %v, want 1 parent", finalOp.Parents)
+	}
+
+	// Walk back through the merge links
+	merge2Hash := plumbing.NewHash(finalOp.Parents[0])
+	merge2Commit, err := repo.CommitObject(merge2Hash)
+	if err != nil {
+		t.Fatalf("CommitObject(merge2): %v", err)
+	}
+	if len(merge2Commit.ParentHashes) != 2 {
+		t.Fatalf("merge2 parents = %v, want 2 parents [merge1, causal[4]]", merge2Commit.ParentHashes)
+	}
+
+	merge1Hash := merge2Commit.ParentHashes[0]
+	merge1Commit, err := repo.CommitObject(merge1Hash)
+	if err != nil {
+		t.Fatalf("CommitObject(merge1): %v", err)
+	}
+	if len(merge1Commit.ParentHashes) != 3 {
+		t.Fatalf("merge1 parents = %v, want 3 parents [merge0, causal[2], causal[3]]", merge1Commit.ParentHashes)
+	}
+
+	merge0Hash := merge1Commit.ParentHashes[0]
+	merge0Commit, err := repo.CommitObject(merge0Hash)
+	if err != nil {
+		t.Fatalf("CommitObject(merge0): %v", err)
+	}
+	if len(merge0Commit.ParentHashes) != 3 {
+		t.Fatalf("merge0 parents = %v, want 3 parents [root, causal[0], causal[1]]", merge0Commit.ParentHashes)
+	}
+	if merge0Commit.ParentHashes[0].String() != root.ID {
+		t.Errorf("merge0 predecessor = %s, want root %s", merge0Commit.ParentHashes[0], root.ID)
+	}
+
+	// Verify all ops are enumerated
+	enum, err := store.Enumerate()
+	if err != nil {
+		t.Fatalf("Enumerate: %v", err)
+	}
+	ops := enum.Ops["w-1"]
+	// 1 root + 5 causal + 3 merge + 1 final = 10 ops in ancestry
+	if len(ops) != 10 {
+		t.Fatalf("Enumerate returned %d ops on writer ref, want 10", len(ops))
+	}
+	var mergeCount int
+	for _, o := range ops {
+		if o.Envelope.OpType == "merge" {
+			mergeCount++
+		}
+	}
+	if mergeCount != 3 {
+		t.Errorf("merge op count = %d, want 3", mergeCount)
+	}
+}
+
+func TestAppendChunkedMergeOpPreFlightRejectsInvalidEnv(t *testing.T) {
+	dag.SetMaxCommitParentsForTest(t, 3)
+
+	_, repo := initTestRepo(t)
+	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
+
+	vocs := codec.Vocabularies{
+		"widget": declaredType("widget",
+			spec.FieldRule{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
+		),
+	}
+	store, err := dag.OpenStorage(repo.Storer, ident, dag.WithProducerVocabularies(func() (codec.Vocabularies, error) {
+		return vocs, nil
+	}))
+	if err != nil {
+		t.Fatalf("OpenStorage: %v", err)
+	}
+
+	ctx := context.Background()
+	root, err := store.Append(ctx, codec.Envelope{
+		ObjectID:   "w-1",
+		ObjectType: "widget",
+		OpType:     "create",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"title":"Root"}`),
+	}, nil)
+	if err != nil {
+		t.Fatalf("root append: %v", err)
+	}
+
+	rootCommit, err := repo.CommitObject(plumbing.NewHash(root.ID))
+	if err != nil {
+		t.Fatalf("CommitObject: %v", err)
+	}
+
+	var causal []string
+	for i := 0; i < 5; i++ {
+		h := storeRawCommit(t, repo, rootCommit.TreeHash, rootCommit.Hash, fmt.Sprintf("parent %d\n", i))
+		causal = append(causal, h.String())
+	}
+
+	refName := dag.LocalRefName(ident.WriterID, "widget")
+	beforeRef, err := repo.Storer.Reference(refName)
+	if err != nil {
+		t.Fatalf("Reference: %v", err)
+	}
+
+	// Try to append an invalid envelope (undeclared field "bogus") with 5 causal parents.
+	_, err = store.Append(ctx, codec.Envelope{
+		ObjectID:   "w-1",
+		ObjectType: "widget",
+		OpType:     "create",
+		OpVersion:  1,
+		Body:       json.RawMessage(`{"title":"Test","bogus":"field"}`),
+	}, causal)
+	if err == nil {
+		t.Fatalf("expected error for invalid envelope, got nil")
+	}
+
+	afterRef, err := repo.Storer.Reference(refName)
+	if err != nil {
+		t.Fatalf("Reference: %v", err)
+	}
+	if beforeRef.Hash() != afterRef.Hash() {
+		t.Errorf("ref moved despite pre-flight rejection: %s -> %s", beforeRef.Hash(), afterRef.Hash())
+	}
+}

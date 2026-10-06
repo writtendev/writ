@@ -820,6 +820,53 @@ func TestRulesFromSchemas_InvalidOpTypeGrammarDroppedNotInstalled(t *testing.T) 
 	}
 }
 
+func TestRulesFromSchemas_ReservedOpTypeMergeDroppedNotInstalled(t *testing.T) {
+	sch := state.Schema{
+		ObjectID:  "schema:acme",
+		Namespace: "acme",
+		Types: []state.SchemaType{
+			{
+				Name: "acme.standup",
+				Fields: []state.SchemaField{
+					{Name: "field1", OpType: "merge", OpVersion: 1, ValueType: "string", Strategy: "lww"},
+					{Name: "owner", OpType: "create", OpVersion: 1, ValueType: "string", Strategy: "lww"}, // valid, control
+				},
+				Ops: []state.SchemaOp{
+					{OpType: "merge", OpVersion: 1},
+					{OpType: "define-me", OpVersion: 1}, // valid, control
+				},
+			},
+		},
+	}
+
+	rules, conflicts := writ.RulesFromSchemas([]state.Schema{sch})
+	got := rules["acme.standup"]
+	if len(got) != 1 || got[0].Field != "owner" {
+		t.Fatalf("expected only the control field rule installed, got %+v", got)
+	}
+	if len(conflicts) != 2 {
+		t.Fatalf("expected 2 conflicts for define-field merge and define-op merge, got %+v", conflicts)
+	}
+	for _, c := range conflicts {
+		if c.Kind != writ.SchemaConflictOpTypeReserved {
+			t.Errorf("conflict Kind does not name the reserved op_type violation: %+v", c)
+		}
+	}
+
+	vocabularies, _ := writ.VocabulariesFromSchemas([]state.Schema{sch})
+	voc, ok := vocabularies["acme.standup"]
+	if !ok || !voc.Declared {
+		t.Fatalf("expected acme.standup Declared, got %+v", voc)
+	}
+	wantOpTypes := map[codec.OpVersionKey]bool{
+		{OpType: "create", OpVersion: 1}:    true, // from the valid define-field
+		{OpType: "define-me", OpVersion: 1}: true, // from the valid define-op
+	}
+	if !reflect.DeepEqual(voc.OpTypes, wantOpTypes) {
+		t.Fatalf("expected only non-reserved op types installed, got %+v", voc.OpTypes)
+	}
+}
+
 // TestRulesFromSchemas_InvalidTargetOrKeyGrammarDroppedNotInstalled pins
 // WRIT-203: a define-field's target and every keyed-lww key column now
 // share field's own identifier grammar (^[a-z][a-z0-9_]*$, max 64 chars),

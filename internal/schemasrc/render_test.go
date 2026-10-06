@@ -274,6 +274,15 @@ func TestRenderRejectsUnparseableNames(t *testing.T) {
 			},
 			wantErr: `op type name "description" is a reserved word`,
 		},
+		{
+			name: "op_type is format-reserved merge",
+			mutate: func(s state.Schema) state.Schema {
+				s.Types[0].Ops[0].OpType = "merge"
+				s.Types[0].Fields[0].OpType = "merge"
+				return s
+			},
+			wantErr: `op type name "merge" is a reserved word and would not parse back; "merge" is a format-reserved op type for causal parent chaining`,
+		},
 	}
 
 	for _, tc := range cases {

@@ -931,6 +931,9 @@ func Fold(ops []MergeOp, rules []FieldRule) (FoldResult, error) {
 	var reduceOrder []string
 	for _, id := range totalOrder {
 		op := opMap[id]
+		if op.OpType == "merge" {
+			continue
+		}
 		known := false
 		for _, r := range rules {
 			if opMatchesRule(op, r) {
@@ -958,7 +961,7 @@ func Fold(ops []MergeOp, rules []FieldRule) (FoldResult, error) {
 	matchedRulesByField := make(map[string][]FieldRule)
 	for _, r := range rules {
 		for _, op := range ops {
-			if !inSet[op.ID] || rejected[op.ID] {
+			if !inSet[op.ID] || rejected[op.ID] || op.OpType == "merge" {
 				continue
 			}
 			if opMatchesRule(op, r) {
@@ -1126,7 +1129,7 @@ func Fold(ops []MergeOp, rules []FieldRule) (FoldResult, error) {
 			hasOps := false
 
 			for _, op := range ops {
-				if !inSet[op.ID] || rejected[op.ID] {
+				if !inSet[op.ID] || rejected[op.ID] || op.OpType == "merge" {
 					continue
 				}
 				for _, r := range frs {

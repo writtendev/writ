@@ -417,7 +417,8 @@ Declares one field on one op's body for one type.
   as the wire `object_type` on the terms §4.2 states for `define-type`'s
   own `type`.
 - `op_type` (string, required): The op type, within `type`'s vocabulary,
-  whose body carries this field.
+  whose body carries this field. It MUST NOT be `"merge"`, which is
+  format-reserved across all object types (`spec/op-envelope.md` §Producer validation).
 - `op_version` (string, required): The op version, as a decimal string
   (§3.1).
 - `field` (string, required): The body field this rule governs,
@@ -482,7 +483,9 @@ Declares an op type within a type's vocabulary.
 ```
 
 - `type` (string, required).
-- `op_type` (string, required): The op type being declared.
+- `op_type` (string, required): The op type being declared. It MUST NOT be
+  `"merge"`, which is format-reserved across all object types
+  (`spec/op-envelope.md` §Producer validation).
 - `op_version` (string, required): Decimal string (§3.1).
 - `description` (string, optional).
 
@@ -594,7 +597,7 @@ to carry alongside it) is informative only: its wording is never part of
 conformance and may differ, or change, between implementations and releases
 without affecting conformance.
 
-`kind` is a **closed catalogue** for this spec version — ten codes, no
+`kind` is a **closed catalogue** for this spec version — eleven codes, no
 more:
 
 | `kind` | Produced by | Effect |
@@ -605,6 +608,7 @@ more:
 | `type-ungrammatical` | shape 3 below (a `define-type` name fails §4.2's `object_type` grammar) | Withheld: the type is not installed |
 | `type-unqualified` | shape 4 below | Withheld: the type is not installed |
 | `op-type-ungrammatical` | §11 (a `define-field` or `define-op` `op_type` fails the envelope grammar) | Withheld: the rule, or the op type, is not installed |
+| `op-type-reserved` | §11 (a `define-field` or `define-op` names a format-reserved op type such as `"merge"`) | Withheld: the rule, or the op type, is not installed |
 | `rule-invalid` | §9 (`spec.ValidateFieldRule` rejects a rule) | Withheld: the rule is not installed |
 | `key-column-disagreement` | §8's key-column paragraph | Withheld: every rule participating in the disagreeing column |
 | `target-disagreement` | shape 5 below / §8 | Withheld: every rule bound to the disagreeing target |
@@ -630,6 +634,7 @@ states the difference precisely.
 | `type-ungrammatical` | present | carried, present iff non-empty | one: the schema object |
 | `type-unqualified` | present | carried, present iff non-empty | one: the schema object |
 | `op-type-ungrammatical` | present | absent | one: the schema object |
+| `op-type-reserved` | present | absent | one: the schema object |
 | `rule-invalid` | present | absent | one: the schema object |
 | `key-column-disagreement` | present | absent | one: the schema object |
 | `target-disagreement` | present | absent | one: the schema object |
@@ -638,7 +643,7 @@ states the difference precisely.
 `namespace` is carried on exactly the five declaration-level kinds
 above — the ones a schema object's own namespace is known and relevant
 for before any per-type or per-rule question is reached — and never
-carried on the other five, where only the owning schema object's id, not
+carried on the other six, where only the owning schema object's id, not
 its namespace, is named. Carried is not the same as present on the wire:
 like every other optional field in this shape, an empty `namespace` is
 omitted, and a schema object's own folded namespace can itself be
@@ -662,10 +667,11 @@ whole schema object before any of its declared types is looked at
 (`namespace-ungrammatical`, `object-id-mismatch`); present on every
 other kind. `object_ids` holds exactly one schema object id.
 
-Six of the nine withholding kinds share one of the five shapes below; the
-other three — `op-type-ungrammatical` (§11), `rule-invalid` (§9), and
-`key-column-disagreement` (§8's key-column paragraph) — are documented at
-their own sections instead of here. None of the nine ever picks a winner:
+Seven of the ten withholding kinds share one of the five shapes below; the
+other four — `op-type-ungrammatical` (§11), `op-type-reserved` (§11),
+`rule-invalid` (§9), and `key-column-disagreement` (§8's key-column paragraph) —
+are documented at their own sections instead of here. None of the ten ever picks
+a winner:
 
 1. **Redefining the built-in `schema` type.** `schema` itself cannot be
    redefined from the log: a `define-type` naming `schema` from within
@@ -1241,6 +1247,12 @@ than restating the precedence itself (WRIT-188).
   `rule-invalid`, and `empty-op-type` fires only when `ValidateFieldRule`
   is called directly, outside `resolveSchemaTypes` — validating the
   bootstrap table on load, for instance.
+- **Reserved op type `merge` is gated outside `ValidateFieldRule`.** In
+  addition to grammar, `resolveSchemaTypes` gates against format-reserved
+  operation types: `op_type == "merge"` is reserved across all object types
+  (`spec/op-envelope.md` §Producer validation) and cannot be declared by a schema.
+  A `define-field` or `define-op` specifying `op_type: "merge"` is withheld and
+  reported as `op-type-reserved` (§6).
 - **A producer refuses a write to a field or key column whose declared
   type it does not recognize (WRIT-334).** §9's resolver installs a rule
   demoted at an unrecognized `value_type` or `key_types` position rather

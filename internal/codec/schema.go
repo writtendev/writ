@@ -286,6 +286,35 @@ func ValidateBody(env Envelope, vocabularies Vocabularies) error {
 //     declaration, and only it.
 //  3. Otherwise -> refuse, naming object_type.
 func validateProducerOp(env Envelope, raw []byte, vocabularies Vocabularies) error {
+	if env.OpType == "merge" {
+		if env.OpVersion != 1 {
+			return &RejectError{
+				Reason: RejectSchemaViolation,
+				Err:    fmt.Errorf("merge op must have op_version 1, got %d", env.OpVersion),
+			}
+		}
+		var decoded struct {
+			Body map[string]any `json:"body"`
+		}
+		if err := json.Unmarshal(raw, &decoded); err != nil {
+			return &RejectError{Reason: RejectSchemaViolation, Err: err}
+		}
+		if len(decoded.Body) != 0 {
+			return &RejectError{
+				Reason: RejectSchemaViolation,
+				Err:    fmt.Errorf("merge op must have empty body {}, got %d fields", len(decoded.Body)),
+			}
+		}
+		if env.ObjectType == "schema" {
+			return nil
+		}
+		voc := vocabularies[env.ObjectType]
+		if voc.Declared {
+			return nil
+		}
+		return fmt.Errorf("codec: object_type %q is not declared by any schema in the log: spec/op-envelope.md §Producer validation tier 3", env.ObjectType)
+	}
+
 	if env.ObjectType == "schema" {
 		return validateAgainstBootstrap(env, raw)
 	}
