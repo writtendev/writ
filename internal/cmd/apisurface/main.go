@@ -21,8 +21,10 @@
 // bare alias line would hide every field later added to Y. The target is read
 // from the module's source, following alias chains, so the output stays
 // AST-only and host-independent. An alias to the standard library or a third
-// party prints as spelled. `make api-compat` does not see the fields of an
-// aliased internal type either, so this expansion is the only guard for them.
+// party prints as spelled. An alias of a pointer to, or an instantiation of, an
+// in-module type is an error rather than a pass-through, since it is not
+// expanded. `make api-compat` does not see the fields of an aliased internal
+// type either, so this expansion is the only guard for them.
 //
 // Reading the source rather than the type-checked package buys that
 // reproducibility at a known cost: five known blind spots where the baseline
@@ -516,33 +518,81 @@ func findType(pkg *pkgSource, name string) *aliasTarget {
 
 // resolveAlias follows `type X = pkg.Y` through the module's own source, hop by
 // hop with each file's own import table, to the last declaration that is in the
-// module. It returns nil when ts is not an alias into the module: a target in
-// the standard library or a third party prints as spelled. A selector that
-// names no type, or a cycle, is an error, because passing either through would
-// leave the fields of an exported type out of the baseline.
+// module. A hop inside a package that is itself an alias (`type Y = y`) is
+// followed too. It returns nil when ts is not an alias into the module: a target
+// in the standard library or a third party prints as spelled. A selector that
+// names no type, a cycle, or an alias whose type is a pointer to or an
+// instantiation of an in-module type, a form not expanded here, is an error,
+// because passing any of them through would leave the fields of an exported
+// type out of the baseline.
 func (l *loader) resolveAlias(f *ast.File, ts *ast.TypeSpec) (*aliasTarget, error) {
 	var (
 		cur  *aliasTarget
 		seen = map[*ast.TypeSpec]bool{ts: true}
 	)
 	for {
-		sel, ok := ts.Type.(*ast.SelectorExpr)
-		if !ts.Assign.IsValid() || !ok {
+		if !ts.Assign.IsValid() {
 			return cur, nil
 		}
-		pkg, err := l.importedPackage(f, sel)
-		if err != nil || pkg == nil {
-			return cur, err
-		}
-		next := findType(pkg, sel.Sel.Name)
-		if next == nil {
-			return nil, fmt.Errorf("alias %s: package %s declares no type %s", ts.Name.Name, pkg.name, sel.Sel.Name)
+		var next *aliasTarget
+		switch t := ts.Type.(type) {
+		case *ast.SelectorExpr:
+			pkg, err := l.importedPackage(f, t)
+			if err != nil || pkg == nil {
+				return cur, err
+			}
+			if next = findType(pkg, t.Sel.Name); next == nil {
+				return nil, fmt.Errorf("alias %s: package %s declares no type %s", ts.Name.Name, pkg.name, t.Sel.Name)
+			}
+		case *ast.Ident:
+			// A bare name is a same-package hop, followed only inside a chain:
+			// at the top the listed package prints it as spelled. A name that
+			// is no declaration of the package is predeclared.
+			if cur == nil {
+				return nil, nil
+			}
+			if next = findType(cur.pkg, t.Name); next == nil {
+				return cur, nil
+			}
+		default:
+			if sel := wrappedSelector(ts.Type); sel != nil {
+				pkg, err := l.importedPackage(f, sel)
+				if err != nil {
+					return nil, err
+				}
+				if pkg != nil {
+					return nil, fmt.Errorf("alias %s: %s names a type in module package %s in a form api-check does not expand; "+
+						"alias the type itself (`= %s`) and expand it there", ts.Name.Name, expr(ts.Type), pkg.name, expr(sel))
+				}
+			}
+			return cur, nil
 		}
 		if seen[next.spec] {
-			return nil, fmt.Errorf("alias %s: cycle through %s.%s", ts.Name.Name, pkg.name, sel.Sel.Name)
+			return nil, fmt.Errorf("alias %s: cycle through %s", ts.Name.Name, expr(ts.Type))
 		}
 		seen[next.spec] = true
 		cur, f, ts = next, next.file, next.spec
+	}
+}
+
+// wrappedSelector returns the selector a type reaches through pointers,
+// parentheses and instantiations (`*pkg.Y`, `pkg.G[int]`), or nil.
+func wrappedSelector(e ast.Expr) *ast.SelectorExpr {
+	for {
+		switch t := e.(type) {
+		case *ast.SelectorExpr:
+			return t
+		case *ast.StarExpr:
+			e = t.X
+		case *ast.ParenExpr:
+			e = t.X
+		case *ast.IndexExpr:
+			e = t.X
+		case *ast.IndexListExpr:
+			e = t.X
+		default:
+			return nil
+		}
 	}
 }
 

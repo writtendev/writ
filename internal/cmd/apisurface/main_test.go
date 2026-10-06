@@ -419,8 +419,9 @@ func write(t *testing.T, path, content string) {
 // method set of the type it names, because that is what a caller of the
 // aliasing package sees; a bare `type X = pkg.Y` hides every field added to Y.
 // The targets cover each body shape, a renamed alias, an import whose package
-// clause differs from its directory, a two-hop chain, and a standard-library
-// alias, which stays as spelled.
+// clause differs from its directory, a two-hop chain, a chain whose hop is an
+// alias inside its own package, and a standard-library alias, which stays as
+// spelled.
 const aliasFixture = `package demo
 
 import (
@@ -440,7 +441,11 @@ type Named = realname.Thing
 
 type Hop = chain.First
 
+type Inner = odd.Wrapped
+
 type Std = context.Context
+
+type StdPtr = *context.Context
 `
 
 const innerFixture = `package inner
@@ -467,6 +472,12 @@ type Signer interface {
 type Outcome string
 
 func (o Outcome) String() string { return string(o) }
+
+type Wrapped = wrapped
+
+type wrapped struct{ Deep int }
+
+func (w *wrapped) Peek() int { return w.Deep }
 `
 
 const wantAliases = `
@@ -474,6 +485,11 @@ type Hop = chain.First struct {
 	Leaf bool
 }
 func (*Hop) Reach()
+
+type Inner = odd.Wrapped struct {
+	Deep int
+}
+func (*Inner) Peek() int
 
 type Named = realname.Thing struct {
 	ID string
@@ -497,6 +513,8 @@ type Signer = odd.Signer interface {
 }
 
 type Std = context.Context
+
+type StdPtr = *context.Context
 `
 
 // aliasTree is a module whose pkg aliases into pkg/internal. chain.First is
