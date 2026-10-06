@@ -33,7 +33,7 @@ type ConfigError struct {
 	// a ref path through it, and a malformed segment there is usually someone
 	// else's writer id arriving over a fetch. Telling that reader to unset
 	// their own — correct — writ.writerId and mint a new one would split their
-	// device's ops across two ref namespaces. The parser says what the value
+	// clone's ops across two ref namespaces. The parser says what the value
 	// had to look like; only a caller that knows the value came from a config
 	// key can say what to do about it. See withRemedy.
 	Remedy string

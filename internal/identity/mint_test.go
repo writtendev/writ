@@ -3,8 +3,11 @@ package identity_test
 import (
 	"context"
 	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/writtendev/writ/internal/identity"
@@ -57,19 +60,49 @@ func TestEnsureWriterID_Precedence(t *testing.T) {
 		if err != nil {
 			t.Fatalf("EnsureWriterID unexpected error: %v", err)
 		}
-		if minted {
-			t.Errorf("EnsureWriterID minted = true, want false for global-only ID")
+		if !minted {
+			t.Errorf("EnsureWriterID minted = false, want true: a global-only id is not this clone's")
 		}
-		if id != globalID {
-			t.Errorf("EnsureWriterID id = %q, want %q", id, globalID)
+		if id == globalID {
+			t.Errorf("EnsureWriterID id = %q, want a freshly minted id, not the global one", id)
 		}
 
-		// Ensure it was NOT copied to local repository config
+		// The minted id, not the global one, was persisted to local config.
 		cmd := exec.Command("git", "config", "--local", "--get", "writ.writerId")
 		cmd.Dir = env.repoDir
 		out, err := cmd.CombinedOutput()
-		if err == nil {
-			t.Errorf("git config --local writ.writerId should be unset, but got %q", string(out))
+		if err != nil {
+			t.Fatalf("git config --local --get writ.writerId failed: %v (%s)", err, string(out))
+		}
+		if got := strings.TrimSpace(string(out)); identity.WriterID(got) != id {
+			t.Errorf("persisted local writ.writerId = %q, want %q", got, id)
+		}
+	})
+
+	t.Run("two_repos_one_global_mint_distinct", func(t *testing.T) {
+		env := setupTestEnv(t)
+		setFileConfig(t, env.globalCfgPath, "writ.writerId", "2222222222222222")
+
+		other := filepath.Join(filepath.Dir(env.repoDir), "repo2")
+		if err := os.Mkdir(other, 0755); err != nil {
+			t.Fatalf("creating second repo dir: %v", err)
+		}
+		cmd := exec.Command("git", "init")
+		cmd.Dir = other
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git init failed: %v (%s)", err, string(out))
+		}
+
+		a, _, err := identity.EnsureWriterID(context.Background(), env.repoDir, nil)
+		if err != nil {
+			t.Fatalf("EnsureWriterID in first repo: %v", err)
+		}
+		b, _, err := identity.EnsureWriterID(context.Background(), other, nil)
+		if err != nil {
+			t.Fatalf("EnsureWriterID in second repo: %v", err)
+		}
+		if a == b {
+			t.Errorf("two clones under one global writ.writerId share id %q, want distinct", a)
 		}
 	})
 

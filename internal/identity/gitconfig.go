@@ -24,10 +24,10 @@ func readGitConfig(ctx context.Context, repoDir string) (map[string]string, erro
 
 // readLocalGitConfig executes git config --list --null --local in repoDir,
 // restricting the read to the repository's own local configuration (no
-// global or system scope). writerId and personId source from readGitConfig
-// deliberately: one identity across a person's repositories is the point. A
-// repo-id has the opposite requirement — its whole job is telling
-// repositories apart — so it reads local config only.
+// global or system scope). writerId and repoId read it: a writer-id names one
+// clone's chain and a repo-id's whole job is telling repositories apart, so
+// neither may be inherited from outside the clone. personId sources from
+// readGitConfig deliberately: one person across their repositories is the point.
 func readLocalGitConfig(ctx context.Context, repoDir string) (map[string]string, error) {
 	return runGitConfigList(ctx, repoDir, "--local")
 }

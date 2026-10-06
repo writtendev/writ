@@ -126,7 +126,7 @@ func initMessage(err error) string {
 // and re-running genuinely finishes it. Re-running is also safe, which is the
 // part worth stating out loud -- writ.Init reuses whatever identity is
 // already in config, so a second run never mints a second writer-id for this
-// device. That would split one device's ops across two ref namespaces.
+// clone. That would split one clone's ops across two ref namespaces.
 func reportPartialInit(stderr io.Writer, writerID, repoID string, done, pending []string) {
 	fmt.Fprintf(stderr, "writ init: stopped part-way; the repository is half-configured\n")
 	fmt.Fprintf(stderr, "  in git config now: writ.writerId %s, writ.repoId %s\n", writerID, repoID)

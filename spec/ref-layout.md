@@ -260,7 +260,9 @@ attribution.
 ## Writer ID convention
 
 A writer-id is an opaque 64-bit identifier (16 lowercase hex characters)
-associated with a single writer device.
+associated with a single clone: one local repository and its ref store.
+Linked worktrees share that repository's `.git/config` and refs, and so share
+its writer-id, which is safe because they also share the chain refs.
 
 ### Sourcing precedence
 
@@ -268,23 +270,32 @@ When determining the writer-id for local operations, the engine MUST
 evaluate configuration in the following order:
 
 1. **Repository configuration:** `writ.writerId` in the local repository
-   `.git/config`.
-2. **Global configuration:** `writ.writerId` in the user's global
-   `~/.gitconfig`.
-3. **Automated / CI environments:** Automated agents and CI runners MUST
-   provide a stable, pre-configured `writ.writerId` via git configuration
-   rather than minting an ephemeral ID per run.
-4. **Minting:** If no writer-id is configured, `writ init` MUST generate
-   16 lowercase hex characters from a cryptographically secure random number
-   generator and write it to `.git/config` under `writ.writerId`.
+   `.git/config` only. A value set in global or system configuration is not
+   consulted, and a value set only there does not count: a writer-id names
+   one clone's chain, and a value inherited from outside the clone would be
+   shared by every clone of the user.
+2. **Minting:** If no writer-id is configured locally, `writ init` MUST
+   generate 16 lowercase hex characters from a cryptographically secure
+   random number generator and write it to `.git/config` under
+   `writ.writerId`.
+
+Automated agents and CI runners follow the same rule: one writer-id per
+checkout. A runner that writes ops SHOULD use a persistent checkout that
+keeps the id `writ init` minted. Two checkouts MUST NOT be configured with
+the same id, whether concurrent jobs, a second clone, or a fresh clone
+reusing an id an earlier one pushed. A clone does not adopt another clone's
+chain tip, so the second chain under one ref is rejected non-fast-forward on
+push and wedges its pusher (WRIT-270 case 2).
 
 ### Bounding ref growth
 
-Bounding ref count at $\mathcal{O}(\text{writers} \times \text{devices} \times \text{types})$
-is a core architectural requirement (ARCHITECTURE.md, WRIT-69). Sourcing from
-global or local configuration and using stable bot IDs prevents ref counts
-from growing $\mathcal{O}(\text{clone events} \times \text{types})$ over
-time.
+Bounding ref count at $\mathcal{O}(\text{writers} \times \text{clones} \times \text{types})$
+is a core architectural requirement (ARCHITECTURE.md, WRIT-69). Writer-ids
+persist in local configuration, so a clone that keeps its configuration adds
+no refs per run. An ephemeral checkout that writes adds a namespace each time
+it runs, growing ref count $\mathcal{O}(\text{clone events} \times
+\text{types})$ over time, which is why CI writers belong on persistent
+checkouts.
 
 ### Identity and key stability
 
@@ -300,11 +311,12 @@ time.
   the remote and continue to fold in normally by `object_id`.
 - **Collision recovery:** With 64 bits of cryptographic randomness,
   accidental collisions are negligible ($p < 10^{-9}$ for millions of
-  writers). If a newly minted writer-id matches an existing remote ref
-  observed during fetch, the client MUST mint a new writer-id.
-- **Multi-device writers:** Multiple clones across different machines or
-  devices use distinct writer-ids by design, dissolving concurrent writes
-  into sibling DAG branches resolved at fold time.
+  writers). At mint time `writ init` MUST NOT choose an id that already
+  names a chain in the repository. That covers local chains
+  (`refs/writ/<id>/*`) and remote-tracking ones
+  (`refs/remotes/<remote>/writ/<id>/*`, chains observed by a prior fetch). A
+  fresh clone has observed no remote writ refs yet, and the 64-bit
+  cryptographic randomness bound is what covers that case.
 
 ## Exact refspecs (`writ init`)
 

@@ -23,15 +23,18 @@ func MintWriterID() (WriterID, error) {
 // EnsureWriterID resolves or mints a WriterID for the repository at repoDir,
 // implementing spec/ref-layout.md §Sourcing precedence:
 //
-//  1. If writ.writerId is already present in merged git config (local or global),
-//     it is validated and reused as-is without modifying repository config.
+//  1. If writ.writerId is already present in the repository's local git config,
+//     it is validated and reused as-is without modifying repository config. A
+//     value set only in global or system config is neither seen nor reused: a
+//     writer-id names one clone's chain, and two clones sharing one wedge the
+//     second one's push.
 //  2. Otherwise, a new WriterID is minted (retrying if taken returns true)
 //     and persisted to local repository configuration via 'git config --local writ.writerId <id>'.
 //
 // The returned boolean reports whether a new WriterID was minted (true) or an existing
 // ID was reused (false).
 func EnsureWriterID(ctx context.Context, repoDir string, taken func(WriterID) bool) (WriterID, bool, error) {
-	cfg, err := readGitConfig(ctx, repoDir)
+	cfg, err := readLocalGitConfig(ctx, repoDir)
 	if err != nil {
 		return "", false, err
 	}

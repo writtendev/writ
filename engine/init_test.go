@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/storage/memory"
 	"github.com/writtendev/writ/engine"
 )
 
@@ -259,4 +261,66 @@ func getConfigAll(t *testing.T, dir, key string) []string {
 		}
 	}
 	return vals
+}
+
+// TestInitIgnoresGlobalWriterID is the shape of the wedge a global
+// writ.writerId used to cause: two clones under one global config both
+// resolved the same id, so the second one's chain diverged from the first's
+// under one ref. A writer-id is one clone's namespace, so each clone mints its
+// own.
+func TestInitIgnoresGlobalWriterID(t *testing.T) {
+	global := filepath.Join(t.TempDir(), "global_gitconfig")
+	if err := os.WriteFile(global, []byte("[writ]\n\twriterId = aaaaaaaaaaaaaaaa\n"), 0o600); err != nil {
+		t.Fatalf("writing global config: %v", err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", global)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+	var ids []string
+	for range 2 {
+		dir := setupBareInitRepo(t)
+		result, err := writ.Init(context.Background(), dir, writ.InitOptions{StarterNamespace: "acme"})
+		if err != nil {
+			t.Fatalf("Init: %v", err)
+		}
+		if !result.WriterIDMinted {
+			t.Errorf("WriterIDMinted = false, want true: a global id is not this clone's")
+		}
+		if result.WriterID == "aaaaaaaaaaaaaaaa" {
+			t.Errorf("WriterID = the global id, want a freshly minted one")
+		}
+		ids = append(ids, result.WriterID)
+	}
+	if ids[0] == ids[1] {
+		t.Errorf("two clones minted the same writer id %q, want distinct ids", ids[0])
+	}
+}
+
+// TestTakenWriterIDsCoversRemoteTrackingChains pins that the mint-time
+// collision check sees chains observed by a prior fetch, not only local ones.
+func TestTakenWriterIDsCoversRemoteTrackingChains(t *testing.T) {
+	s := memory.NewStorage()
+	hash := plumbing.NewHash("1111111111111111111111111111111111111111")
+	for _, name := range []string{
+		"refs/remotes/origin/writ/bbbbbbbbbbbbbbbb/x",
+		"refs/writ/cccccccccccccccc/x",
+	} {
+		if err := s.SetReference(plumbing.NewHashReference(plumbing.ReferenceName(name), hash)); err != nil {
+			t.Fatalf("SetReference(%s): %v", name, err)
+		}
+	}
+
+	taken := writ.TakenWriterIDs(s)
+	if taken == nil {
+		t.Fatal("TakenWriterIDs returned a nil predicate for a listable store")
+	}
+	if !taken("bbbbbbbbbbbbbbbb") {
+		t.Errorf("remote-tracking id not reported taken")
+	}
+	if !taken("cccccccccccccccc") {
+		t.Errorf("local id not reported taken")
+	}
+	if taken("dddddddddddddddd") {
+		t.Errorf("unrelated id reported taken")
+	}
 }

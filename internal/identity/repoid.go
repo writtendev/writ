@@ -43,8 +43,8 @@ func MintRepoID() (RepoID, error) {
 }
 
 // LoadRepoID reads the repository designator out of repoDir's local git
-// config only — never global or system config, unlike writer-id and
-// person-id, because a repo-id's whole job is telling repositories apart.
+// config only — never global or system config, unlike person-id, because a
+// repo-id's whole job is telling repositories apart.
 // If writ.repoId is unset or empty, it returns ("", nil) so repositories
 // that have never run 'writ init' can still open without error.
 func LoadRepoID(ctx context.Context, repoDir string) (RepoID, error) {

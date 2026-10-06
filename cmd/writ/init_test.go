@@ -431,17 +431,23 @@ func TestInit_WriterIDPrecedence(t *testing.T) {
 			t.Fatalf("init exited with %d; stderr: %s", code, stderr.String())
 		}
 
-		// Verify global ID was used
-		if !strings.Contains(stdout.String(), "2222222222222222") {
-			t.Errorf("stdout does not contain global writer ID: %s", stdout.String())
+		// A global id is not this clone's: init mints a local one instead.
+		if strings.Contains(stdout.String(), "2222222222222222") {
+			t.Errorf("stdout contains the global writer ID, want it ignored: %s", stdout.String())
 		}
-
-		// Verify not written to local config
-		cmd := exec.Command("git", "config", "--local", "--get", "writ.writerId")
+		if !strings.Contains(stdout.String(), "minted") {
+			t.Errorf("stdout does not indicate minted: %s", stdout.String())
+		}
+		cmd := exec.Command("git", "config", "--local", "--get-all", "writ.writerId")
 		cmd.Dir = env.repoDir
-		out, err := cmd.CombinedOutput()
-		if err == nil {
-			t.Errorf("git config --local writ.writerId should not be set, but got %q", string(out))
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("git config --local writ.writerId: %v", err)
+		}
+		got := strings.Fields(string(out))
+		re := regexp.MustCompile(`^[0-9a-f]{16}$`)
+		if len(got) != 1 || !re.MatchString(got[0]) || got[0] == "2222222222222222" {
+			t.Errorf("local writerId = %v, want one freshly minted id distinct from the global one", got)
 		}
 	})
 }

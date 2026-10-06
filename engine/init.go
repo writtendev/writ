@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/go-git/go-git/v5/storage"
 	"github.com/writtendev/writ/internal/dag"
 	"github.com/writtendev/writ/internal/gitdir"
 	"github.com/writtendev/writ/internal/identity"
@@ -97,14 +98,13 @@ type RemoteInit struct {
 // point of any failure, so a caller can render a partial-failure report
 // naming exactly what is now configured and what is not.
 type InitResult struct {
-	// WriterID is this device's writer id: read from existing git config,
-	// or minted and persisted to local config when absent. WriterIDMinted
-	// reports which.
+	// WriterID is this clone's writer id: read from local config, or minted
+	// and persisted to it when absent. WriterIDMinted reports which.
 	WriterID       string
 	WriterIDMinted bool
 
 	// RepoID is this repository's designator, resolved the same way as
-	// WriterID but from local config only.
+	// WriterID.
 	RepoID       string
 	RepoIDMinted bool
 
@@ -236,19 +236,7 @@ func Init(ctx context.Context, path string, opts InitOptions) (InitResult, error
 		remotes = discovered
 	}
 
-	// Existing chains, for writer-id collision avoidance. Best effort by
-	// design: a listing that fails costs a collision check, not the run.
-	var taken func(identity.WriterID) bool
-	if chains, err := dag.Chains(storer); err == nil {
-		existing := make(map[identity.WriterID]struct{}, len(chains))
-		for _, chain := range chains {
-			existing[chain.Ref.WriterID] = struct{}{}
-		}
-		taken = func(id identity.WriterID) bool {
-			_, ok := existing[id]
-			return ok
-		}
-	}
+	taken := takenWriterIDs(storer)
 
 	// 4. From here on Init writes to git config.
 	writerID, writerMinted, err := identity.EnsureWriterID(ctx, repoRoot, taken)
@@ -344,6 +332,27 @@ func Init(ctx context.Context, path string, opts InitOptions) (InitResult, error
 	}
 
 	return result, nil
+}
+
+// takenWriterIDs returns the collision predicate Init hands to
+// identity.EnsureWriterID: it reports whether a writer-id already names a chain
+// in the repository. It covers local chains (refs/writ/<id>/*) and
+// remote-tracking ones (refs/remotes/<remote>/writ/<id>/*, chains observed by a
+// prior fetch), both through dag.Chains. Best effort by design: a listing that
+// fails yields a nil predicate, which costs a collision check, not the run.
+func takenWriterIDs(s storage.Storer) func(identity.WriterID) bool {
+	chains, err := dag.Chains(s)
+	if err != nil {
+		return nil
+	}
+	existing := make(map[identity.WriterID]struct{}, len(chains))
+	for _, chain := range chains {
+		existing[chain.Ref.WriterID] = struct{}{}
+	}
+	return func(id identity.WriterID) bool {
+		_, ok := existing[id]
+		return ok
+	}
 }
 
 // resolveRepoRoot resolves path to its repository root the way system git
