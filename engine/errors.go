@@ -126,8 +126,8 @@ var (
 	// ErrRefRejected indicates that the remote rejected one or more ref updates.
 	ErrRefRejected = writsync.ErrRefRejected
 
-	// ErrNotRepository is returned (wrapped) by ResolveGitDir and Open when
-	// the given path is not inside a git repository.
+	// ErrNotRepository is returned (wrapped) by ResolveGitDir, Open and Init
+	// when the given path is not inside a git repository.
 	ErrNotRepository = gitdir.ErrNotRepository
 
 	// ErrRejectedOps is returned wrapped alongside ErrNotFound by

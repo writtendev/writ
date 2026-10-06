@@ -152,6 +152,12 @@ _writ() {
                 return 0
             fi
             ;;
+        version)
+            if [[ "$cur" == -* ]]; then
+                COMPREPLY=($(compgen -W "-json --json -h -help --help" -- "$cur"))
+                return 0
+            fi
+            ;;
         completion)
             if [ -z "$subcmd" ]; then
                 COMPREPLY=($(compgen -W "bash zsh fish" -- "$cur"))
@@ -307,7 +313,7 @@ _writ() {
                         '--json[Output result as JSON]' \
                         '-json[Output result as JSON]' \
                         '(-h -help --help)'{-h,-help,--help}'[Show help]' \
-                        '*:remote:_git_remotes'
+                        '*:remote:_writ_git_remotes'
                     ;;
                 sync)
                     _arguments -s -S \
@@ -317,7 +323,13 @@ _writ() {
                         '--json[Output result as JSON]' \
                         '-json[Output result as JSON]' \
                         '(-h -help --help)'{-h,-help,--help}'[Show help]' \
-                        '*:remote:_git_remotes'
+                        '*:remote:_writ_git_remotes'
+                    ;;
+                version)
+                    _arguments -s -S \
+                        '--json[Output result as JSON]' \
+                        '-json[Output result as JSON]' \
+                        '(-h -help --help)'{-h,-help,--help}'[Show help]'
                     ;;
                 completion)
                     _arguments -s -S \
@@ -342,6 +354,12 @@ _writ() {
             esac
             ;;
     esac
+}
+
+_writ_git_remotes() {
+    local -a remotes
+    remotes=(${(f)"$(git remote 2>/dev/null)"})
+    compadd -a remotes
 }
 
 _writ_schema_types() {

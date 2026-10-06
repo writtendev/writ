@@ -776,8 +776,8 @@ func TestObjectCLI_List_UnknownType(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{"object", "list", "-C", env.repoDir, "nosuchtype"}, &stdout, &stderr)
-	if code == 0 {
-		t.Fatalf("expected a non-zero exit for an unknown object type, got 0 (stdout: %s)", stdout.String())
+	if code != 2 {
+		t.Fatalf("object list of an undeclared type exited %d, want 2 (a usage error; stdout: %s)", code, stdout.String())
 	}
 	if !strings.Contains(stderr.String(), "nosuchtype") {
 		t.Errorf("stderr does not name the unknown type: %q", stderr.String())

@@ -27,7 +27,14 @@ const (
 	KindObjectShow   = "object.show"
 	KindObjectList   = "object.list"
 	KindInitResult   = "init.result"
+	KindVersion      = "version"
 )
+
+// Version is the `version` JSON payload: the version of the writ binary,
+// the one thing `writ version` prints.
+type Version struct {
+	Version string `json:"version"`
+}
 
 // Envelope wraps all machine-readable output in a single versioned container.
 type Envelope struct {

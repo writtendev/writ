@@ -192,8 +192,8 @@ func TestInit_NonRepoPrintsNoFabricatedIdentityLine(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{"init", "-C", nonRepoDir}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("init on non-repo exited with %d, want 1", code)
+	if code != 5 {
+		t.Fatalf("init on non-repo exited with %d, want 5", code)
 	}
 	if stdout.String() != "" {
 		t.Errorf("stdout = %q, want empty -- writ.Init never resolved a repository, so nothing was determined to print", stdout.String())

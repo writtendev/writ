@@ -60,8 +60,8 @@ func TestCommands_Drift(t *testing.T) {
 		cmdPath := leaf.path
 		cmd := leaf.cmd
 
-		// completion, help, and version don't have flag sets
-		if cmdPath == "completion" || cmdPath == "help" || cmdPath == "version" {
+		// completion and help don't have flag sets
+		if cmdPath == "completion" || cmdPath == "help" {
 			continue
 		}
 
