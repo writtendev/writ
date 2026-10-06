@@ -473,56 +473,8 @@ description; this is the producer-side consequence of it):
    ([`spec/schema-ops.md`](schema-ops.md) §7). This is the one permitted
    exception.
 2. Otherwise, a `schema` object present in the repository's log declares
-   `object_type` and it is not contested (see tier 3) — the log-sourced
-   declaration, and only it.
-3. Otherwise, `object_type` is **contested** — two or more `schema`
-   objects in the log bind the same `object_type`
-   ([`spec/schema-ops.md`](schema-ops.md) §6) — the write is **permitted,
-   unvalidated**. Nothing is ever removed from the log, so a contested
-   `object_type` is contested *forever*: there is no step that resolves
-   it. Refusing to write would therefore be a *permanent* write outage,
-   not a transient availability dip. That is accepted because it is
-   recoverable in principle if the contest itself ever becomes
-   recoverable, where a write refusal is a hard stop today with no such
-   path: a producer may write ops here that **no conforming reader will
-   interpret** — a reader also withholds interpretation from a contested
-   `object_type` ([`spec/schema-ops.md`](schema-ops.md) §6) — and those
-   ops are just as permanent as any other, but that is the same
-   recoverable-in-principle cost every other case reaching this tier
-   already carries.
-
-   **What WRIT-254 closes, and what is left (narrowed from an earlier
-   revision of this tier, not replaced).** Two writers bootstrapping the
-   *same* namespace offline no longer reach this tier at all — a schema
-   object's id is derived from its namespace rather than minted, so both
-   converge on one object instead of contesting each other's
-   `object_type` ([`spec/identifiers.md`](identifiers.md) §The `schema`
-   object type: a derived exception). WRIT-254 goes further: readers now
-   drop any schema object whose id disagrees with its own namespace
-   ([`spec/schema-ops.md`](schema-ops.md) §6 kind 2), so two schema
-   objects can no longer both survive sharing a namespace at all — and
-   since a namespace-qualified `object_type` can only ever be bound by a
-   schema object whose namespace it carries as its prefix, two schema
-   objects can no longer bind the identical qualified `object_type`
-   either. A real, namespace-qualified `object_type` cannot reach this
-   tier any more: every producer-visible route to it now either resolves
-   at tier 2 (declared) or refuses at tier 4 (undeclared). What remains
-   in reach of this tier is `object_type == "schema"`'s own bare-name
-   redefinition case (`spec/schema-ops.md` §6 kind 1) — and tier 1 above
-   already intercepts every op actually carrying `object_type: "schema"`
-   before this tier is ever consulted for it, so no producer currently
-   observes a write permitted by this tier either. This tier, and the
-   `Contested` field it reads
-   ([`spec/schema-ops.md`](schema-ops.md) §11), are retained rather than
-   removed on that account: a hand-crafted `Vocabularies` a caller
-   resolves some other way — not through the log-sourced resolver this
-   document otherwise assumes — can still supply a genuinely contested
-   entry, and this tier's behavior for it is specified and tested
-   regardless of whether the engine's own resolver currently has a path
-   to produce one. Whether that is the right long-term shape, given how
-   narrow its reach now is, is a question for whoever next revisits this
-   tier, not settled by this revision.
-4. Otherwise — no schema in the log declares `object_type` — the producer
+   `object_type` — the log-sourced declaration, and only it.
+3. Otherwise — no schema in the log declares `object_type` — the producer
    MUST refuse, naming `object_type` and stating that nothing declares it.
 
 Rule 3 deliberately checks less than a hand-written body schema would:
@@ -751,7 +703,7 @@ enumeration for the stopping rule (WRIT-289).
   (`missing-op-json`, including a lone subdirectory holding an `op.json`;
   `extra-tree-entry`; `invalid-op-json-mode`) are pinned by
   `envelope-malformed-tree.yaml`.
-- `spec/testdata/producer/` (WRIT-188) — tiers 2, 3, and 4 of the four-tier
+- `spec/testdata/producer/` (WRIT-188) — tiers 2 and 3 of the three-tier
   producer precedence above, exercised as paired verdicts: `index.json`
   names, per case under `cases/`, the producer's verdict (with a reason
   code where rule 3 or the envelope schema is the cause) and the

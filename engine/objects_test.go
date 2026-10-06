@@ -662,12 +662,11 @@ func TestObjectsCreate_DeclaredTypeWithNoFieldsIsCreatable(t *testing.T) {
 	// Get must not error either: define-op alone installs no fold rule
 	// (RulesFromSchemas' rules are per-field, spec/fold.md §7), so the op
 	// correctly folds to UnknownOp — the write/read asymmetry
-	// TestContestedObjectTypeStaysWritable documents elsewhere for a
-	// contested type applies here for the same reason. What MAJOR-2 is
-	// about is Create refusing the write at all with a false "not declared"
-	// error; that Get then reports the op as unknown is the correct,
-	// unrelated forward-compatibility answer, not a regression to assert
-	// against.
+	// forward compatibility relies on applies here for the same reason. What
+	// MAJOR-2 is about is Create refusing the write at all with a false
+	// "not declared" error; that Get then reports the op as unknown is the
+	// correct, unrelated forward-compatibility answer, not a regression to
+	// assert against.
 	obj, err := store.Objects.Get(ctx, id)
 	if err != nil {
 		t.Fatalf("Objects.Get failed: %v", err)

@@ -214,7 +214,7 @@ func runFoldFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 	rulesByType, conflicts := writ.RulesFromSchemas(schemas)
 	// How RulesFromSchemas reports a collision is the schema-driven family's
 	// subject. No fold fixture declares one, and a conflict here would
-	// withhold rules for the contested type and silently empty a golden's
+	// withhold rules for the affected type and silently empty a golden's
 	// state, so it fails loudly instead.
 	if len(conflicts) > 0 {
 		t.Fatalf("fixture %s declares conflicting schemas: %+v", fix.Name, conflicts)

@@ -194,25 +194,16 @@ type OpVersionKey struct {
 // Vocabulary is one object type's producer-facing declaration, resolved
 // from the schema objects folded from a repo's log
 // (writ.VocabulariesFromSchemas). It is what the generic validator checks
-// tier 2 of spec/op-envelope.md's four-tier producer precedence against,
+// tier 2 of spec/op-envelope.md's three-tier producer precedence against,
 // in place of the shipped JSON Schema + vocabularyOpTypes pair tier 1
 // uses.
-//
-// Declared and Contested are never both true: a bare object_type bound by
-// two or more schema objects installs no rules at all
-// (spec/schema-ops.md §6), and RulesFromSchemas/VocabulariesFromSchemas
-// share the collision pass that decides which one applies.
 type Vocabulary struct {
 	// Declared is true for an object_type at least one schema object
-	// binds, uncontested. A type declared with no fields at all
+	// binds. A type declared with no fields at all
 	// (define-type or define-op alone, no define-field) is still
 	// Declared: OpTypes/Fields are simply sparse, not the type's whole
 	// entry absent.
 	Declared bool
-	// Contested is true for an object_type two or more schema objects
-	// bind: the ruling's carve-out (spec/op-envelope.md §Producer
-	// validation) permits the write unvalidated rather than refusing it.
-	Contested bool
 	// SchemaObjectID is the ObjectID of the schema object that declared
 	// this type, set whenever Declared is true, so a rejection can name
 	// which schema is responsible (spec/op-envelope.md §Producer
@@ -248,13 +239,12 @@ type Vocabulary struct {
 // A nil Vocabularies is legal and means "the log declares nothing" — what
 // a bare dag.Store, or engine/scenario's test runner, can honestly know
 // without resolving anything. Looking up any key in a nil map yields the
-// zero Vocabulary and ok == false, so it falls through to tier 3 (the
-// contested carve-out) or tier 4 (refusal) exactly as an object type simply
-// absent from a non-nil Vocabularies would.
+// zero Vocabulary and ok == false, so it falls through to tier 3 (refusal)
+// exactly as an object type simply absent from a non-nil Vocabularies would.
 type Vocabularies map[string]Vocabulary
 
 // ValidateBody checks an envelope against the vocabulary that applies to
-// its object type under the four-tier precedence validateProducerOp
+// its object type under the three-tier precedence validateProducerOp
 // implements (spec/op-envelope.md §Producer validation): its op_type and
 // op_version are ones that tier defines (rule 4) and its payload satisfies
 // that tier's field rules (rules 3, 5, and 6). BuildCommit calls it, so no
@@ -262,8 +252,7 @@ type Vocabularies map[string]Vocabulary
 //
 // vocabularies is the log-sourced declarations resolved once per Append
 // (engine/dag's WithProducerVocabularies); nil means the log declares
-// nothing, which still lets tier 3 (the contested carve-out) or tier 4
-// (refusal) apply.
+// nothing, which still lets tier 3 (refusal) apply.
 //
 // The rules bind producers only. Nothing on the read path calls this: an op
 // fetched from the log with an op type writ does not define is projected and
@@ -283,7 +272,7 @@ func ValidateBody(env Envelope, vocabularies Vocabularies) error {
 
 // validateProducerOp validates an envelope whose payload bytes are already
 // encoded, so the append path does not canonicalize the same envelope
-// twice. It implements the four-tier precedence from spec/op-envelope.md
+// twice. It implements the three-tier precedence from spec/op-envelope.md
 // §Producer validation, exactly one tier of which ever applies to a given
 // op:
 //
@@ -293,47 +282,19 @@ func ValidateBody(env Envelope, vocabularies Vocabularies) error {
 //     exception is unconditional, and RulesFromSchemas/
 //     VocabulariesFromSchemas both refuse to let a log schema redefine
 //     it regardless.
-//  2. Otherwise, vocabularies declares (and does not contest) object_type
-//     -> the log-sourced declaration, and only it.
-//  3. Otherwise, object_type is contested (vocabularies has an entry with
-//     Contested set) -> permit the write, unvalidated. WRIT-199 makes the
-//     *accidental* route into this tier unreachable for schema objects —
-//     two writers bootstrapping the same namespace offline now converge
-//     on one object instead of each minting one that contests the
-//     other's type — but does not delete the tier itself: a
-//     hand-crafted op with a random object_id and a colliding
-//     object_type can still contest one deliberately, and that
-//     adversarial path is out of scope for WRIT-199 by design.
-//  4. Otherwise -> refuse, naming object_type.
+//  2. Otherwise, vocabularies declares object_type -> the log-sourced
+//     declaration, and only it.
+//  3. Otherwise -> refuse, naming object_type.
 func validateProducerOp(env Envelope, raw []byte, vocabularies Vocabularies) error {
 	if env.ObjectType == "schema" {
 		return validateAgainstBootstrap(env, raw)
 	}
 
-	// Indexing a nil or non-matching map yields the zero Vocabulary, whose
-	// Declared and Contested are both false — the same "nothing resolved"
-	// state tier 4 already falls through on, so there is no separate
-	// "found" bit to track. Declared and Contested are never both true
-	// (see Vocabulary's doc comment), so checking each in turn is
-	// exhaustive.
 	voc := vocabularies[env.ObjectType]
 	if voc.Declared {
 		return validateAgainstLogVocabulary(env, raw, voc)
 	}
-	if voc.Contested {
-		// Tier 3: the ruling's carve-out (spec/op-envelope.md §Producer
-		// validation). Nothing to check here: rules 1 and 2 of the
-		// envelope schema and canonical-encoding check already ran in
-		// BuildCommit before this was ever reached, and no conforming
-		// reader will interpret these ops until the contest resolves —
-		// WRIT-199 makes the accidental route to a contested schema type
-		// unreachable, but a deliberately hand-crafted contest is still
-		// possible and still lands here — but a permanent write outage is
-		// the alternative, and that trade is not this function's call to
-		// make.
-		return nil
-	}
-	return fmt.Errorf("codec: object_type %q is not declared by any schema in the log: spec/op-envelope.md §Producer validation tier 4", env.ObjectType)
+	return fmt.Errorf("codec: object_type %q is not declared by any schema in the log: spec/op-envelope.md §Producer validation tier 3", env.ObjectType)
 }
 
 // validateAgainstBootstrap is tier 1: `schema` ops are validated against

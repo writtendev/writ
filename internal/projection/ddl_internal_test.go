@@ -176,8 +176,8 @@ func TestOrSetPairCollapsesToOneTable(t *testing.T) {
 // log-declared string could otherwise become an arbitrary SQL identifier.
 // A type with a failing target or key component gets no tables at all,
 // rather than an ambiguous or unsafe identifier — its objects fall to
-// unknown_ops, the same no-winner idiom RulesFromSchemas already uses for a
-// contested object_type.
+// unknown_ops, the same no-winner idiom RulesFromSchemas already uses for an
+// unresolvable declaration.
 func TestInvalidTargetWithholdsTables(t *testing.T) {
 	tests := []struct {
 		name  string

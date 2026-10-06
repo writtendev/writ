@@ -134,11 +134,6 @@ checked first: a name cannot be well-formed enough to ask "is it
 qualified?" if it fails its own grammar. See §6.3, the ungrammatical-
 declaration conflict kind.
 
-On an `object_type` collision, **no winner is picked**: neither schema
-object's rules are installed for the contested type. Its ops fall through
-the absent-schema path to `UnknownOp`, reusing the existing forward-
-compatibility mechanism (§5) rather than a new one.
-
 ---
 
 ## 3. Envelope Binding
@@ -599,7 +594,7 @@ to carry alongside it) is informative only: its wording is never part of
 conformance and may differ, or change, between implementations and releases
 without affecting conformance.
 
-`kind` is a **closed catalogue** for this spec version — eleven codes, no
+`kind` is a **closed catalogue** for this spec version — ten codes, no
 more:
 
 | `kind` | Produced by | Effect |
@@ -609,7 +604,6 @@ more:
 | `schema-redefined` | shape 1 below, the bare-`schema` special case | Withheld: the `define-type` is not installed |
 | `type-ungrammatical` | shape 3 below (a `define-type` name fails §4.2's `object_type` grammar) | Withheld: the type is not installed |
 | `type-unqualified` | shape 4 below | Withheld: the type is not installed |
-| `type-contested` | shape 1 below (an `object_type` collision) | Withheld: neither schema object's rules are installed for the contested type |
 | `op-type-ungrammatical` | §11 (a `define-field` or `define-op` `op_type` fails the envelope grammar) | Withheld: the rule, or the op type, is not installed |
 | `rule-invalid` | §9 (`spec.ValidateFieldRule` rejects a rule) | Withheld: the rule is not installed |
 | `key-column-disagreement` | §8's key-column paragraph | Withheld: every rule participating in the disagreeing column |
@@ -635,7 +629,6 @@ states the difference precisely.
 | `schema-redefined` | present (`"schema"`) | carried, present iff non-empty | one: the schema object |
 | `type-ungrammatical` | present | carried, present iff non-empty | one: the schema object |
 | `type-unqualified` | present | carried, present iff non-empty | one: the schema object |
-| `type-contested` | present | absent | two: `[owner, collider]` |
 | `op-type-ungrammatical` | present | absent | one: the schema object |
 | `rule-invalid` | present | absent | one: the schema object |
 | `key-column-disagreement` | present | absent | one: the schema object |
@@ -645,7 +638,7 @@ states the difference precisely.
 `namespace` is carried on exactly the five declaration-level kinds
 above — the ones a schema object's own namespace is known and relevant
 for before any per-type or per-rule question is reached — and never
-carried on the other six, where only the owning schema object's id, not
+carried on the other five, where only the owning schema object's id, not
 its namespace, is named. Carried is not the same as present on the wire:
 like every other optional field in this shape, an empty `namespace` is
 omitted, and a schema object's own folded namespace can itself be
@@ -667,39 +660,20 @@ string — so every conflict of that kind carries a present, non-empty
 `namespace`. `object_type` is absent only on the two kinds that drop a
 whole schema object before any of its declared types is looked at
 (`namespace-ungrammatical`, `object-id-mismatch`); present on every
-other kind. `object_ids` holds exactly one schema object id except for
-`type-contested`, whose two ids are the type's original owner followed
-by the colliding schema object.
+other kind. `object_ids` holds exactly one schema object id.
 
-Seven of the ten withholding kinds share one of the five shapes below; the
+Six of the nine withholding kinds share one of the five shapes below; the
 other three — `op-type-ungrammatical` (§11), `rule-invalid` (§9), and
 `key-column-disagreement` (§8's key-column paragraph) — are documented at
-their own sections instead of here. None of the ten ever picks a winner:
+their own sections instead of here. None of the nine ever picks a winner:
 
-1. **`object_type` collision** (§2): two schema objects both bind the
-   same (namespace-qualified) `object_type`. Withholding rules for the
-   contested type is the whole remedy — no new fold rule, no new
-   mechanism. The ops of that `object_type` fall through the
-   absent-schema path (§7.1) to `UnknownOp`, exactly as if no schema had
-   ever declared it. `schema` itself cannot be redefined this way: a
-   `define-type` naming `schema` from within the log is always a
-   conflict, never installed, because `schema` is the engine's one
-   hard-coded exception (§1) — and, unlike every other declared type,
-   this check ranges over the bare name, since `schema` is the one type
-   the qualification in §2 never applies to.
-
-   **Narrowed scope (WRIT-254).** Post-WRIT-217, this required two
-   colliding objects to share a namespace; post-WRIT-254 (shape 2 below),
-   two schema objects can no longer share a namespace and both survive
-   resolution, because at most one object id can equal `schema:` + any
-   given namespace. A real, namespace-qualified `object_type` therefore
-   cannot reach this shape of conflict any more: it is unreachable for
-   every type except the bare `schema` special case above, which this
-   shape still catches on any single qualifying declaration, with no
-   owner comparison needed. The mechanism — the withholding itself, and
-   the underlying `Contested` state it drives at the producer boundary
-   (`spec/op-envelope.md`'s tier 3) — is retained rather than removed:
-   see that document's tier 3 for what remains contestable and why.
+1. **Redefining the built-in `schema` type.** `schema` itself cannot be
+   redefined from the log: a `define-type` naming `schema` from within
+   the log is always a conflict (`schema-redefined`), never installed,
+   because `schema` is the engine's one hard-coded exception (§1) —
+   and, unlike every other declared type, this check ranges over the
+   bare name, since `schema` is the one type the qualification in §2
+   never applies to.
 2. **Schema object id disagrees with namespace (WRIT-254).** A schema
    object whose `object_id` is not exactly `schema:` + its own folded
    `namespace` is dropped wholesale: none of its declarations —
@@ -1221,7 +1195,7 @@ branch is unreachable from a schema-valid body the same way
 ## 11. Producer Validation
 
 `spec/op-envelope.md` §Producer validation's rules 3, 4, 5, and 6 resolve
-"the schema object governing `object_type`" through a four-tier
+"the schema object governing `object_type`" through a three-tier
 precedence; this section states what that means for the resolver this
 document already specifies (§7's bootstrap, §6's collision pass) rather
 than restating the precedence itself (WRIT-188).
@@ -1236,25 +1210,6 @@ than restating the precedence itself (WRIT-188).
   route around — a caller-visible shape sourced from a table writ ships
   rather than the schema actually in the log is exactly what this
   project's own house rules call a finding.
-- **A contested `object_type` withholds reads but not writes.** §6
-  withholds fold rules for a contested type; nothing about that requires
-  withholding the write. The producer permits an op of a contested type
-  unvalidated (`spec/op-envelope.md`'s tier 3) precisely because refusing
-  it would be a *permanent* write outage — a contested `object_type` is
-  contested forever, since nothing is ever removed from the log — while a
-  reader degrading to `UnknownOp` is not: it is exactly the same
-  degradation an object with no schema at all already gets (§7.1), fully
-  recoverable the moment the contest itself is. The asymmetry is the
-  point, not an oversight: a producer can retract nothing it has already
-  signed, so the fence is on the side where a mistake is undoable.
-  WRIT-254 narrows how often this bullet's premise can arise (§6 shape 1's
-  note): a real, namespace-qualified `object_type` can no longer be
-  contested at all, so tier 3's write-side permission and this bullet's
-  reasoning apply, in practice, only to the bare `schema` type's own
-  redefinition case. The mechanism is unchanged and stays specified for
-  whatever else might reach it; see `spec/op-envelope.md`'s tier 3 for
-  the fuller statement of what it now guarantees and what remains
-  contestable.
 - **`field`, `target`, and `key` are grammar-gated inside
   `spec.ValidateFieldRule`; `op_type` is gated outside it.** §9's rule
   validation gate — every candidate rule passed through
