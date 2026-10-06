@@ -859,11 +859,7 @@ func materializeAnchors(tx *sql.Tx, desc *schemaDescriptor, s storage.Storer) (i
 				if err != nil {
 					return resolvedCount, fmt.Errorf("projection: materialize tree %s: %w", targetCommit, err)
 				}
-				algo := resolve.SHA1
-				if len(targetCommit) == 64 {
-					algo = resolve.SHA256
-				}
-				targetTree = resolve.NewTree(treeFiles, algo)
+				targetTree = resolve.NewTree(treeFiles)
 				treeCache[targetCommit] = targetTree
 			}
 

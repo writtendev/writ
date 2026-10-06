@@ -26,7 +26,7 @@ func TestLadderCrossFileScanWhenPathAbsent(t *testing.T) {
 	files := map[string][]byte{
 		"other/renamed.go": []byte("package other\nfunc Main() {\n\tdoA()\n\tdoB()\n}\n"),
 	}
-	tree := resolve.NewTree(files, resolve.SHA1)
+	tree := resolve.NewTree(files)
 
 	res := resolve.Resolve(anchor, tree)
 	if res.New == nil || res.New.Outcome != "resolved" {
@@ -58,7 +58,7 @@ func TestLadderTiebreakCollarScore(t *testing.T) {
 	}
 
 	content := "wrong_before\ntarget_line\nafter1\nother\nbefore1\nbefore2\ntarget_line\nafter1\nafter2\n"
-	tree := resolve.NewTree(map[string][]byte{"file.go": []byte(content)}, resolve.SHA1)
+	tree := resolve.NewTree(map[string][]byte{"file.go": []byte(content)})
 
 	res := resolve.Resolve(anchor, tree)
 	if res.New == nil || res.New.Outcome != "resolved" {
@@ -105,7 +105,7 @@ func TestLadderTiebreakDistance(t *testing.T) {
 		content += l + "\n"
 	}
 
-	tree := resolve.NewTree(map[string][]byte{"file.go": []byte(content)}, resolve.SHA1)
+	tree := resolve.NewTree(map[string][]byte{"file.go": []byte(content)})
 	res := resolve.Resolve(anchor, tree)
 	if res.New == nil || res.New.Outcome != "resolved" {
 		t.Fatalf("expected resolved, got %+v", res.New)
@@ -151,7 +151,7 @@ func TestLadderTiebreakEarliestStart(t *testing.T) {
 		content += l + "\n"
 	}
 
-	tree := resolve.NewTree(map[string][]byte{"file.go": []byte(content)}, resolve.SHA1)
+	tree := resolve.NewTree(map[string][]byte{"file.go": []byte(content)})
 	res := resolve.Resolve(anchor, tree)
 	if res.New == nil || res.New.Outcome != "resolved" {
 		t.Fatalf("expected resolved, got %+v", res.New)
@@ -185,7 +185,7 @@ func TestLadderTiebreakEarliestPath(t *testing.T) {
 		"m_file.go": []byte(content),
 	}
 
-	tree := resolve.NewTree(files, resolve.SHA1)
+	tree := resolve.NewTree(files)
 	res := resolve.Resolve(anchor, tree)
 	if res.New == nil || res.New.Outcome != "resolved" {
 		t.Fatalf("expected resolved, got %+v", res.New)
@@ -241,7 +241,7 @@ func TestLadderElidedRangeExactMatch(t *testing.T) {
 		content += l + "\n"
 	}
 
-	tree := resolve.NewTree(map[string][]byte{"long.go": []byte(content)}, resolve.SHA1)
+	tree := resolve.NewTree(map[string][]byte{"long.go": []byte(content)})
 	res := resolve.Resolve(anchor, tree)
 	if res.New == nil || res.New.Outcome != "resolved" {
 		t.Fatalf("expected resolved, got %+v", res.New)
@@ -262,14 +262,14 @@ func TestLadderWholeFileOrphanReasons(t *testing.T) {
 	}
 
 	// 1. Path exists with changed blob -> no-candidate
-	treeWithFile := resolve.NewTree(map[string][]byte{"file.txt": []byte("new content\n")}, resolve.SHA1)
+	treeWithFile := resolve.NewTree(map[string][]byte{"file.txt": []byte("new content\n")})
 	res1 := resolve.Resolve(anchor, treeWithFile)
 	if res1.New == nil || res1.New.Outcome != "orphaned" || res1.New.Reason != "no-candidate" {
 		t.Errorf("expected orphaned/no-candidate, got %+v", res1.New)
 	}
 
 	// 2. Path absent and blob absent -> path-absent
-	treeEmpty := resolve.NewTree(map[string][]byte{"other.txt": []byte("other content\n")}, resolve.SHA1)
+	treeEmpty := resolve.NewTree(map[string][]byte{"other.txt": []byte("other content\n")})
 	res2 := resolve.Resolve(anchor, treeEmpty)
 	if res2.New == nil || res2.New.Outcome != "orphaned" || res2.New.Reason != "path-absent" {
 		t.Errorf("expected orphaned/path-absent, got %+v", res2.New)

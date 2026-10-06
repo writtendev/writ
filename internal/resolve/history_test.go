@@ -98,8 +98,8 @@ func TestForcePushedBranchHistoryResolution(t *testing.T) {
 		t.Fatalf("materializeTree(main): %v", err)
 	}
 
-	treeGen0 := resolve.NewTree(gen0Files, resolve.SHA1)
-	treeMain := resolve.NewTree(mainFiles, resolve.SHA1)
+	treeGen0 := resolve.NewTree(gen0Files)
+	treeMain := resolve.NewTree(mainFiles)
 
 	gen0File, ok := gen0Files["state.json"]
 	if !ok {

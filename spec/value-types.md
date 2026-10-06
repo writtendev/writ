@@ -25,7 +25,7 @@ constraints, no cross-field validation, no custom types (WRIT-184 decision 6).
 | `enum` | JSON string | parameterised by a declared `enum` value list |
 | `person-ref` | person identifier | per `spec/identifiers.md`; normalization is intrinsic to the type (see §Normalization below), not a separate rule attribute |
 | `object-ref` | `<object-id>` or `<repo-id>#<object-id>` | per `spec/identifiers.md`; an opaque pointer, no resolution |
-| `git-oid` | hex object id (40 or 64 characters) | git-shaped, so it stays in writ (`ARCHITECTURE.md` §Schema layer) |
+| `git-oid` | hex object id (40 characters, SHA-1; 64 is reserved for SHA-256, which this version does not support) | git-shaped, so it stays in writ (`ARCHITECTURE.md` §Schema layer) |
 | `position` | base-62 fractional index | per `spec/ordering.md`; validation is the existing canonical-form check |
 | `anchor` | anchor object | per `spec/anchors.md`; git-shaped, so it stays in writ |
 

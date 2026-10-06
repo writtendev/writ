@@ -12,7 +12,6 @@ import (
 var allowedImports = map[string]bool{
 	`"bytes"`:         true,
 	`"crypto/sha1"`:   true,
-	`"crypto/sha256"`: true,
 	`"encoding/hex"`:  true,
 	`"encoding/json"`: true,
 	`"errors"`:        true,

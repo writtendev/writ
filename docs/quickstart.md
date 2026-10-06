@@ -15,7 +15,9 @@ an object tutorial second.
 ## 1. Set Up Your Repository & SSH Signing Key
 
 Writ stores all operations directly inside your git repository as signed
-commits under `refs/writ/*`.
+commits under `refs/writ/*`. Writ requires a SHA-1 repository, which is
+git's default object format; a SHA-256 repository (`git init
+--object-format=sha256`) is refused at `writ init`.
 
 Create a project directory and initialize your git repository, then ensure
 your SSH signing key and identity are configured. Step 2 chooses a

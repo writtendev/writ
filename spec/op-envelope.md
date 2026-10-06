@@ -53,11 +53,15 @@ mint the same commit, and so the same op id. Which bytes make two commits
 the same op is [`spec/signing.md`](signing.md) §Signed Payload and Op
 Identity: the signed payload, not the signature's armoring.
 
-- **Object format.** Commits are standard git commit objects in the
-  repository's object format. An op id is a commit id under that
-  format — SHA-1 in today's repositories, SHA-256 in SHA-256
-  repositories. Op ids are therefore repository-scoped, like every other
-  git object id.
+- **Object format.** Commits are standard git commit objects, and an op
+  id is a commit id, so op ids are repository-scoped, like every other
+  git object id. This version of the format is defined for SHA-1
+  repositories only; a SHA-256 (`extensions.objectFormat=sha256`)
+  repository is outside it, and writ refuses it at open rather than
+  reading or writing it. An op id depends on the hash algorithm:
+  moving a repository to another object format changes every op id,
+  every parent edge and every signed payload, so such a move is a new
+  format version, never an in-place migration.
 - **Tree.** The commit tree MUST contain exactly one entry: a blob named
   `op.json` with file mode `100644` at the root of the tree, holding the
   payload described in the next section. No subdirectories, no other

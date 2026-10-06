@@ -10,6 +10,7 @@ import (
 )
 
 func TestClassifyGitError(t *testing.T) {
+	errHashMismatch := errors.New("exit status 128")
 	tests := []struct {
 		name          string
 		remote        string
@@ -192,6 +193,28 @@ func TestClassifyGitError(t *testing.T) {
 			wantSentinel:  sync.ErrUnknownRemote,
 			wantRetryable: false,
 			wantAdviceSub: "not found or repository does not exist",
+		},
+		{
+			name:          "hash_algorithm_mismatch_push",
+			remote:        "origin",
+			args:          []string{"push", "--porcelain", "--end-of-options", "origin", "refs/writ/alice/*:refs/writ/alice/*"},
+			inputErr:      errHashMismatch,
+			stderr:        "fatal: the receiving end does not support this repository's hash algorithm\nfatal: the remote end hung up unexpectedly",
+			wantKind:      sync.FailureKindUnknown,
+			wantSentinel:  errHashMismatch,
+			wantRetryable: false,
+			wantAdviceSub: "writ supports SHA-1 repositories only",
+		},
+		{
+			name:          "hash_algorithm_mismatch_fetch",
+			remote:        "origin",
+			args:          []string{"fetch", "--end-of-options", "origin"},
+			inputErr:      errHashMismatch,
+			stderr:        "fatal: mismatched algorithms: client sha1; server sha256",
+			wantKind:      sync.FailureKindUnknown,
+			wantSentinel:  errHashMismatch,
+			wantRetryable: false,
+			wantAdviceSub: "writ supports SHA-1 repositories only",
 		},
 		{
 			name:          "context_canceled",
