@@ -20,11 +20,21 @@
 // and its exported methods under X, since those are what X's callers get and a
 // bare alias line would hide every field later added to Y. The target is read
 // from the module's source, following alias chains, so the output stays
-// AST-only and host-independent. An alias to the standard library or a third
-// party prints as spelled. An alias of a pointer to, or an instantiation of, an
-// in-module type is an error rather than a pass-through, since it is not
-// expanded. `make api-compat` does not see the fields of an aliased internal
-// type either, so this expansion is the only guard for them.
+// AST-only and host-independent. A bare type name is followed too: a hop that
+// is an alias inside its own package (`type Y = y`), a dot-imported type, and,
+// for the alias being listed, an unexported type of its own package. The
+// methods are every exported one whose receiver names the type in the target's
+// package, by its own name or any same-package alias of it, with a pointer,
+// parentheses or neither. An alias to the standard library or a third party
+// prints as spelled. Every other form that mentions an in-module type is an
+// error rather than a pass-through, since it is not expanded: a pointer, an
+// instantiation or a composite (`*pkg.Y`, `pkg.G[int]`, `[]pkg.Y`), in the
+// listed package or in a hop's. Only the aliased type is expanded; the types
+// its fields and signatures name, and what it embeds, print as spelled. A
+// package's files are all read, and one that carries a build constraint is
+// refused, including when it is only the first file of an imported package.
+// `make api-compat` does not see the fields of an aliased internal type either,
+// so this expansion is the only guard for them.
 //
 // Reading the source rather than the type-checked package buys that
 // reproducibility at a known cost: five known blind spots where the baseline
@@ -442,10 +452,13 @@ func (l *loader) moduleDir(path string) (string, bool) {
 	return filepath.Join(l.modRoot, filepath.FromSlash(rest)), true
 }
 
-// packageName reads only the package clause of dir's first non-test file. An
-// unrenamed import is known by that name, not by the last path element. Reading
-// just the clause keeps an import the file never aliases from being parsed, or
-// refused, as a whole package.
+// packageName reads only the package clause of dir's first unconstrained
+// non-test file. An unrenamed import is known by that name, not by the last path
+// element. Reading just the clause keeps an import the file never aliases from
+// being parsed, or refused, as a whole package. A constrained file is skipped
+// rather than trusted: it may be an excluded generator in another package that
+// sorts first, and trusting it would make a real match go unseen. load refuses
+// the constrained file if the import turns out to be a target.
 func (l *loader) packageName(dir string) (string, error) {
 	names, err := sourceFiles(dir)
 	if err != nil {
@@ -454,11 +467,19 @@ func (l *loader) packageName(dir string) (string, error) {
 	if len(names) == 0 {
 		return "", fmt.Errorf("%s: no Go files", dir)
 	}
-	f, err := parser.ParseFile(token.NewFileSet(), names[0], nil, parser.PackageClauseOnly)
-	if err != nil {
-		return "", err
+	var refused error
+	for _, name := range names {
+		if err := checkFileConstraints(name); err != nil {
+			refused = err
+			continue
+		}
+		f, err := parser.ParseFile(token.NewFileSet(), name, nil, parser.PackageClauseOnly)
+		if err != nil {
+			return "", err
+		}
+		return f.Name.Name, nil
 	}
-	return f.Name.Name, nil
+	return "", refused
 }
 
 // importedPackage loads the in-module package that sel's qualifier names in f.
@@ -518,82 +539,172 @@ func findType(pkg *pkgSource, name string) *aliasTarget {
 
 // resolveAlias follows `type X = pkg.Y` through the module's own source, hop by
 // hop with each file's own import table, to the last declaration that is in the
-// module. A hop inside a package that is itself an alias (`type Y = y`) is
-// followed too. It returns nil when ts is not an alias into the module: a target
-// in the standard library or a third party prints as spelled. A selector that
-// names no type, a cycle, or an alias whose type is a pointer to or an
-// instantiation of an in-module type, a form not expanded here, is an error,
-// because passing any of them through would leave the fields of an exported
-// type out of the baseline.
-func (l *loader) resolveAlias(f *ast.File, ts *ast.TypeSpec) (*aliasTarget, error) {
-	var (
-		cur  *aliasTarget
-		seen = map[*ast.TypeSpec]bool{ts: true}
-	)
-	for {
-		if !ts.Assign.IsValid() {
-			return cur, nil
+// module. A hop that is a bare type name (`type Y = y`, or a dot-imported one)
+// is followed too. It returns nil when ts is not an alias into the module: a
+// target in the standard library or a third party prints as spelled. A selector
+// that names no type, a cycle, or an alias whose right-hand side mentions an
+// in-module type in any form but a bare name (`*pkg.Y`, `pkg.G[int]`,
+// `[]pkg.Y`), none of which is expanded here, is an error, because passing it
+// through would leave the fields of an exported type out of the baseline.
+func (l *loader) resolveAlias(pkg *pkgSource, f *ast.File, ts *ast.TypeSpec) (*aliasTarget, error) {
+	cur := &aliasTarget{pkg: pkg, file: f, spec: ts}
+	seen := map[*ast.TypeSpec]bool{ts: true}
+	for cur.spec.Assign.IsValid() {
+		next, err := l.hop(cur, len(seen) == 1)
+		if err != nil {
+			return nil, err
 		}
-		var next *aliasTarget
-		switch t := ts.Type.(type) {
-		case *ast.SelectorExpr:
-			pkg, err := l.importedPackage(f, t)
-			if err != nil || pkg == nil {
-				return cur, err
-			}
-			if next = findType(pkg, t.Sel.Name); next == nil {
-				return nil, fmt.Errorf("alias %s: package %s declares no type %s", ts.Name.Name, pkg.name, t.Sel.Name)
-			}
-		case *ast.Ident:
-			// A bare name is a same-package hop, followed only inside a chain:
-			// at the top the listed package prints it as spelled. A name that
-			// is no declaration of the package is predeclared.
-			if cur == nil {
-				return nil, nil
-			}
-			if next = findType(cur.pkg, t.Name); next == nil {
-				return cur, nil
-			}
-		default:
-			if sel := wrappedSelector(ts.Type); sel != nil {
-				pkg, err := l.importedPackage(f, sel)
-				if err != nil {
-					return nil, err
-				}
-				if pkg != nil {
-					return nil, fmt.Errorf("alias %s: %s names a type in module package %s in a form api-check does not expand; "+
-						"alias the type itself (`= %s`) and expand it there", ts.Name.Name, expr(ts.Type), pkg.name, expr(sel))
-				}
-			}
-			return cur, nil
+		if next == nil {
+			break
 		}
 		if seen[next.spec] {
-			return nil, fmt.Errorf("alias %s: cycle through %s", ts.Name.Name, expr(ts.Type))
+			return nil, fmt.Errorf("alias %s: cycle through %s", ts.Name.Name, expr(cur.spec.Type))
 		}
 		seen[next.spec] = true
-		cur, f, ts = next, next.file, next.spec
+		cur = next
+	}
+	if cur.spec == ts {
+		return nil, nil
+	}
+	return cur, nil
+}
+
+// hop returns the in-module declaration that the alias cur names, or nil when
+// its type leaves the module: the standard library, a third party, a predeclared
+// type, or a composite of those. listed is true for the alias being listed
+// rather than one reached from it (see lookup).
+func (l *loader) hop(cur *aliasTarget, listed bool) (*aliasTarget, error) {
+	switch t := unparen(cur.spec.Type).(type) {
+	case *ast.SelectorExpr:
+		pkg, err := l.importedPackage(cur.file, t)
+		if err != nil || pkg == nil {
+			return nil, err
+		}
+		next := findType(pkg, t.Sel.Name)
+		if next == nil {
+			return nil, fmt.Errorf("alias %s: package %s declares no type %s", cur.spec.Name.Name, pkg.name, t.Sel.Name)
+		}
+		return next, nil
+	case *ast.Ident:
+		return l.lookup(cur, t.Name, listed)
+	}
+	// A pointer, an instantiation or a composite is not expanded, so it must not
+	// reach a type of this module.
+	named, err := l.moduleTypeIn(cur, listed)
+	if err != nil {
+		return nil, err
+	}
+	if named != "" {
+		return nil, fmt.Errorf("alias %s: %s names %s, a type of this module, in a form api-check does not expand; "+
+			"alias the type itself and expand it there", cur.spec.Name.Name, expr(cur.spec.Type), named)
+	}
+	return nil, nil
+}
+
+// lookup finds the in-module declaration a bare type name means in cur's file: a
+// type of cur's own package, or an exported type of a dot-imported package of the
+// module. It returns nil for anything else, which is predeclared or outside the
+// module. For the listed alias itself, an exported type of its own package is nil
+// too: that package lists it in its own right.
+func (l *loader) lookup(cur *aliasTarget, name string, listed bool) (*aliasTarget, error) {
+	if t := findType(cur.pkg, name); t != nil {
+		if listed && ast.IsExported(name) {
+			return nil, nil
+		}
+		return t, nil
+	}
+	if !ast.IsExported(name) {
+		return nil, nil
+	}
+	for _, imp := range cur.file.Imports {
+		if imp.Name == nil || imp.Name.Name != "." {
+			continue
+		}
+		path, err := strconv.Unquote(imp.Path.Value)
+		if err != nil {
+			return nil, err
+		}
+		dir, ok := l.moduleDir(path)
+		if !ok {
+			continue
+		}
+		pkg, err := l.load(dir)
+		if err != nil {
+			return nil, err
+		}
+		if t := findType(pkg, name); t != nil {
+			return t, nil
+		}
+	}
+	return nil, nil
+}
+
+// moduleTypeIn returns the first type of this module that the alias cur's type
+// mentions, spelled as written, or "".
+func (l *loader) moduleTypeIn(cur *aliasTarget, listed bool) (string, error) {
+	var (
+		found string
+		err   error
+		walk  func(ast.Node) bool
+	)
+	walk = func(n ast.Node) bool {
+		if found != "" || err != nil {
+			return false
+		}
+		switch n := n.(type) {
+		case *ast.Field: // its names are fields or parameters, not types
+			if n.Type != nil {
+				ast.Inspect(n.Type, walk)
+			}
+			return false
+		case *ast.SelectorExpr:
+			var pkg *pkgSource
+			if pkg, err = l.importedPackage(cur.file, n); pkg != nil {
+				found = expr(n)
+			}
+			return false
+		case *ast.Ident:
+			var t *aliasTarget
+			if t, err = l.lookup(cur, n.Name, listed); t != nil {
+				found = n.Name
+			}
+		}
+		return true
+	}
+	ast.Inspect(cur.spec.Type, walk)
+	return found, err
+}
+
+// unparen strips the parentheses around a type.
+func unparen(e ast.Expr) ast.Expr {
+	for {
+		p, ok := e.(*ast.ParenExpr)
+		if !ok {
+			return e
+		}
+		e = p.X
 	}
 }
 
-// wrappedSelector returns the selector a type reaches through pointers,
-// parentheses and instantiations (`*pkg.Y`, `pkg.G[int]`), or nil.
-func wrappedSelector(e ast.Expr) *ast.SelectorExpr {
-	for {
-		switch t := e.(type) {
-		case *ast.SelectorExpr:
-			return t
-		case *ast.StarExpr:
-			e = t.X
-		case *ast.ParenExpr:
-			e = t.X
-		case *ast.IndexExpr:
-			e = t.X
-		case *ast.IndexListExpr:
-			e = t.X
-		default:
-			return nil
+// names reports whether name, in pkg, is the type declared by spec, directly or
+// through aliases of the same package (`type A = B`, `type B = spec`).
+func (pkg *pkgSource) names(name string, spec *ast.TypeSpec) bool {
+	for seen := map[string]bool{}; !seen[name]; {
+		seen[name] = true
+		t := findType(pkg, name)
+		if t == nil {
+			return false
 		}
+		if t.spec == spec {
+			return true
+		}
+		id, ok := unparen(t.spec.Type).(*ast.Ident)
+		if !ok || !t.spec.Assign.IsValid() {
+			return false
+		}
+		name = id.Name
 	}
+	return false
 }
 
 // renderPackage writes the exported surface of the package in dir.
@@ -621,7 +732,7 @@ func (l *loader) renderPackage(w io.Writer, dir, path string) error {
 				case token.VAR:
 					vars = append(vars, valueLines(d)...)
 				case token.TYPE:
-					ts, err := l.typeDecls(f, d)
+					ts, err := l.typeDecls(pkg, f, d)
 					if err != nil {
 						return err
 					}
@@ -635,7 +746,7 @@ func (l *loader) renderPackage(w io.Writer, dir, path string) error {
 					funcs = append(funcs, "func "+d.Name.Name+signature(d.Type))
 					continue
 				}
-				recv := d.Recv.List[0].Type
+				recv := unparen(d.Recv.List[0].Type)
 				base := receiverName(recv)
 				if base == "" || !ast.IsExported(base) {
 					continue
@@ -668,7 +779,10 @@ func (l *loader) renderPackage(w io.Writer, dir, path string) error {
 		}
 		ms := append(methods[t.name], t.methods...)
 		sort.Strings(ms)
-		for _, m := range ms {
+		for i, m := range ms {
+			if i > 0 && m == ms[i-1] { // declared through the alias and through the type it names
+				continue
+			}
 			fmt.Fprintln(w, m)
 		}
 	}
@@ -727,14 +841,14 @@ func valueLines(d *ast.GenDecl) []string {
 	return lines
 }
 
-func (l *loader) typeDecls(f *ast.File, d *ast.GenDecl) ([]typeDecl, error) {
+func (l *loader) typeDecls(pkg *pkgSource, f *ast.File, d *ast.GenDecl) ([]typeDecl, error) {
 	var out []typeDecl
 	for _, s := range d.Specs {
 		ts, ok := s.(*ast.TypeSpec)
 		if !ok || !ts.Name.IsExported() {
 			continue
 		}
-		target, err := l.resolveAlias(f, ts)
+		target, err := l.resolveAlias(pkg, f, ts)
 		if err != nil {
 			return nil, err
 		}
@@ -750,18 +864,20 @@ func (l *loader) typeDecls(f *ast.File, d *ast.GenDecl) ([]typeDecl, error) {
 // aliasDecl renders an alias into the module as if the alias were the type it
 // names: the head keeps the alias as written, the body is the target's, and
 // the target's exported methods follow under the alias's name, as a caller
-// writes them. Field and signature types keep the target source's spelling.
+// writes them. Field and signature types keep the target source's spelling. A
+// method counts whichever name of the type its receiver uses: the type's own, or
+// any alias of it in the target's package.
 func aliasDecl(ts *ast.TypeSpec, target *aliasTarget) typeDecl {
 	head := "type " + ts.Name.Name + " = " + expr(ts.Type)
 	decl := typeDecl{name: ts.Name.Name, lines: typeBody(head, target.spec.Type)}
 	for _, f := range target.pkg.files {
 		for _, d := range f.Decls {
 			fd, ok := d.(*ast.FuncDecl)
-			if !ok || fd.Recv == nil || !fd.Name.IsExported() || receiverName(fd.Recv.List[0].Type) != target.spec.Name.Name {
+			if !ok || fd.Recv == nil || !fd.Name.IsExported() || !target.pkg.names(receiverName(fd.Recv.List[0].Type), target.spec) {
 				continue
 			}
 			recv := ts.Name.Name
-			if _, ptr := fd.Recv.List[0].Type.(*ast.StarExpr); ptr {
+			if _, ptr := unparen(fd.Recv.List[0].Type).(*ast.StarExpr); ptr {
 				recv = "*" + recv
 			}
 			decl.methods = append(decl.methods, methodLine(fd, recv))
@@ -883,6 +999,8 @@ func receiverName(e ast.Expr) string {
 	for {
 		switch t := e.(type) {
 		case *ast.StarExpr:
+			e = t.X
+		case *ast.ParenExpr:
 			e = t.X
 		case *ast.IndexExpr:
 			e = t.X

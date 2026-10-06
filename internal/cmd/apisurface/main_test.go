@@ -620,3 +620,234 @@ func TestRunRejectsUnresolvableAliases(t *testing.T) {
 		})
 	}
 }
+
+// Every way an alias into the module can reach a type's fields or method set,
+// in one tree: methods declared through an alias of the type, in the target's
+// package, with a hop or without one, through a pointer, a parenthesised or an
+// unexported receiver; a dot import; a grouped type block; a blank import beside
+// a named one; a bare name of the listed package itself, unexported or not.
+const formsFixture = `package demo
+
+import (
+	_ "example.com/m/pkg/internal/inner"
+	. "example.com/m/pkg/internal/dot"
+	in "example.com/m/pkg/internal/inner"
+)
+
+type (
+	Stats  = in.Stats
+	Real   = in.Real
+	ViaDot = in.Y
+	Direct = Z
+	Paren  = (in.Real)
+	Local  = local
+	Seen   = Item
+	Basic  = in.Count
+)
+
+type Item struct{ N int }
+
+func (i (*Item)) Paren() {}
+
+type local struct{ A int }
+
+func (l *local) Bump() {}
+
+func (Local) Same() {}
+
+type Items = []Item
+`
+
+const formsInner = `package inner
+
+import . "example.com/m/pkg/internal/dot"
+
+type Stats = stats
+
+type stats struct{ Secret int }
+
+func (s *Stats) Total() int { return 0 }
+
+func (s stats) Base() int { return 0 }
+
+type Other = stats
+
+func (Other) Extra() {}
+
+type other = (stats)
+
+func (*other) Quiet() {}
+
+type Real struct{ Field int }
+
+type Alt = Real
+
+func (a Alt) ViaAlias() {}
+
+func (r (*Real)) Paren() {}
+
+func (r *(Real)) Paren2() {}
+
+func (r Real) drop() {}
+
+type Y = Z
+
+type Count = int
+`
+
+const wantForms = `
+type Basic = in.Count int
+
+type Direct = Z struct {
+	Deep int
+}
+func (Direct) Zed()
+
+type Item struct {
+	N int
+}
+func (*Item) Paren()
+
+type Items = []Item
+
+type Local = local struct {
+	A int
+}
+func (*Local) Bump()
+func (Local) Same()
+
+type Paren = (in.Real) struct {
+	Field int
+}
+func (*Paren) Paren()
+func (*Paren) Paren2()
+func (Paren) ViaAlias()
+
+type Real = in.Real struct {
+	Field int
+}
+func (*Real) Paren()
+func (*Real) Paren2()
+func (Real) ViaAlias()
+
+type Seen = Item
+
+type Stats = in.Stats struct {
+	Secret int
+}
+func (*Stats) Quiet()
+func (*Stats) Total() int
+func (Stats) Base() int
+func (Stats) Extra()
+
+type ViaDot = in.Y struct {
+	Deep int
+}
+func (ViaDot) Zed()
+`
+
+func formsTree(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	files := map[string]string{
+		"go.mod":                      "module example.com/m\n",
+		"pkg/demo.go":                 formsFixture,
+		"pkg/internal/inner/inner.go": formsInner,
+		"pkg/internal/dot/dot.go":     "package dot\n\ntype Z struct{ Deep int }\n\nfunc (Z) Zed() {}\n",
+	}
+	for name, content := range files {
+		write(t, filepath.Join(root, filepath.FromSlash(name)), content)
+	}
+	return root
+}
+
+func TestRunExpandsAliasForms(t *testing.T) {
+	_, body, _ := strings.Cut(listing(t, formsTree(t)), "package demo // example.com/m/pkg\n")
+	if body != wantForms {
+		t.Errorf("alias forms mismatch\n--- got ---\n%s\n--- want ---\n%s", body, wantForms)
+	}
+}
+
+// The regression for the method set: a method added through an alias name of
+// the type is caller-visible, so it has to change the listing, with or without
+// a hop in between.
+func TestRunSeesMethodAddedThroughAliasReceiver(t *testing.T) {
+	root := formsTree(t)
+	before := listing(t, root)
+	write(t, filepath.Join(root, "pkg", "internal", "inner", "more.go"),
+		"package inner\n\nfunc (s *Stats) Added() {}\n\nfunc (Alt) AddedToo() {}\n")
+	after := listing(t, root)
+	for _, line := range []string{"func (*Stats) Added()\n", "func (Real) AddedToo()\n"} {
+		if strings.Contains(before, line) || !strings.Contains(after, line) {
+			t.Errorf("%q should appear only after the method is declared\n--- before ---\n%s\n--- after ---\n%s", line, before, after)
+		}
+	}
+}
+
+// A first file that a build constraint excludes can be a different package (a
+// generator). It must not make the import look like another package, which
+// would let the alias pass through unexpanded.
+func TestRunRefusesConstrainedFirstFileOfTarget(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "go.mod"), "module example.com/m\n")
+	write(t, filepath.Join(root, "pkg", "demo.go"), "package demo\n\nimport \"example.com/m/pkg/internal/inner\"\n\ntype X = inner.Y\n")
+	write(t, filepath.Join(root, "pkg", "internal", "inner", "a.go"), "//go:build ignore\n\npackage main\n")
+	write(t, filepath.Join(root, "pkg", "internal", "inner", "b.go"), "package inner\n\ntype Y struct{ F int }\n")
+	var out strings.Builder
+	err := run(&out, filepath.Join(root, "pkg"))
+	if err == nil || !strings.Contains(err.Error(), "a.go") || !strings.Contains(err.Error(), "build constraints are not supported") {
+		t.Fatalf("want a build-constraint error naming a.go, got %v:\n%s", err, out.String())
+	}
+}
+
+// An alias whose right-hand side mentions a type of the module in any form that
+// is not a bare name is an error, whether the mention is in the listed package
+// or in a hop's, rather than a line that hides the type's fields.
+func TestRunRejectsUnexpandedAliasForms(t *testing.T) {
+	const gen = "package inner\n\ntype G[T any] struct{ F T }\n\ntype P struct{ F int }\n\ntype local struct{ F int }\n"
+	tests := []struct {
+		name string
+		demo string // the listed package's declarations, after its imports
+		more string // an extra file in the inner package
+		want string
+	}{
+		{name: "instantiation", demo: "type X = inner.G[int]"},
+		{name: "pointer", demo: "type X = *inner.P"},
+		{name: "parenthesised pointer", demo: "type X = (*inner.P)"},
+		{name: "slice", demo: "type X = []inner.P"},
+		{name: "map", demo: "type X = map[string]inner.P"},
+		{name: "func", demo: "type X = func(inner.P) error"},
+		{name: "struct literal", demo: "type X = struct{ F inner.P }"},
+		{name: "generic alias", demo: "type X[T any] = inner.G[T]"},
+		{name: "pointer through a hop", demo: "type X = inner.A", more: "import \"example.com/m/pkg/internal/inner/sub\"\n\ntype A = *sub.P\n"},
+		{name: "instantiation through a hop", demo: "type X = inner.A", more: "type A = G[int]\n"},
+		{name: "pointer to a bare name through a hop", demo: "type X = inner.A", more: "type A = *local\n"},
+		{name: "composite of a bare name through a hop", demo: "type X = inner.A", more: "type A = []P\n"},
+		{name: "unexported bare name of the listed package", demo: "type X = []x\n\ntype x struct{ F int }"},
+		{name: "same-package cycle", demo: "type X = inner.A", more: "type A = B\n\ntype B = A\n", want: "cycle"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.want == "" {
+				tt.want = "does not expand"
+			}
+			root := t.TempDir()
+			write(t, filepath.Join(root, "go.mod"), "module example.com/m\n")
+			write(t, filepath.Join(root, "pkg", "demo.go"),
+				"package demo\n\nimport \"example.com/m/pkg/internal/inner\"\n\n"+tt.demo+"\n")
+			write(t, filepath.Join(root, "pkg", "internal", "inner", "inner.go"), gen)
+			write(t, filepath.Join(root, "pkg", "internal", "inner", "sub", "sub.go"), "package sub\n\ntype P struct{ F int }\n")
+			if tt.more != "" {
+				write(t, filepath.Join(root, "pkg", "internal", "inner", "more.go"), "package inner\n\n"+tt.more)
+			}
+			var out strings.Builder
+			err := run(&out, filepath.Join(root, "pkg"))
+			if err == nil {
+				t.Fatalf("want an error, got none:\n%s", out.String())
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("error %q should mention %q", err, tt.want)
+			}
+		})
+	}
+}
