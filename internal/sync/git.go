@@ -156,9 +156,13 @@ func ClassifyGitError(remote string, args []string, err error, stderr []byte, st
 		}
 
 	// 5. Hash-algorithm mismatch between this repository and the remote.
-	// Placed directly before default so no earlier case can shadow it, and so
-	// it stays a plain unknown failure: writ supports SHA-1 repositories only,
-	// so there is nothing to retry and no dedicated FailureKind. git's two
+	// Cases are checked top to bottom, so every earlier case can shadow this
+	// one. Today neither message below matches cases 1-4, but the push stderr
+	// also carries "the remote end hung up unexpectedly": broadening an earlier
+	// case (a "hung up" network case, say) would misclassify this failure, so
+	// keep earlier cases narrower than that. It stays a plain unknown failure:
+	// writ supports SHA-1 repositories only, so there is nothing to retry and
+	// no dedicated FailureKind. git's two
 	// messages: push says "the receiving end does not support this
 	// repository's hash algorithm"; fetch says "mismatched algorithms: client
 	// sha1; server sha256" (client and server swap when a sha256 clone fetches
