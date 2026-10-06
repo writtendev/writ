@@ -108,7 +108,7 @@ var knownAsymmetries = map[string]bool{
 // let a null side, a null collar array, and an absent commit/path/blob
 // through that the producer refused.
 func TestProducerReaderAgreeOnSideShape(t *testing.T) {
-	tree := resolve.NewTree(map[string][]byte{"main.go": []byte("package main\n")}, resolve.SHA1)
+	tree := resolve.NewTree(map[string][]byte{"main.go": []byte("package main\n")})
 
 	var cases []sideCase
 

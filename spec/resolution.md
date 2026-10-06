@@ -51,8 +51,9 @@ For each file in the target tree:
 1. **Path format.** Paths follow standard git tree path conventions (UTF-8,
    non-empty, `/` separator, no leading/trailing `/`, no `.` or `..` segments).
 2. **Blob OID derivation.** The blob object ID (OID) for a file is computed
-   using standard git object hashing: `sha1("blob <size>\0<bytes>")` (for SHA-1
-   repositories) or `sha256("blob <size>\0<bytes>")` (for SHA-256 repositories).
+   using standard git object hashing: `sha1("blob <size>\0<bytes>")`. This
+   version of the format supports SHA-1 repositories only (`spec/op-envelope.md`
+   §The commit carrier, Object format).
 3. **Line splitting and normalization.** The target blob content is decoded and
    split into lines using the identical rules defined in `spec/anchors.md` §Lines
    and encoding:

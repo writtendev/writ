@@ -10,32 +10,6 @@ import (
 	"github.com/writtendev/writ/spec"
 )
 
-func detectHashAlgo(anchorRaw []byte) resolve.HashAlgo {
-	var a struct {
-		Old *struct {
-			Commit string `json:"commit"`
-			Blob   string `json:"blob"`
-		} `json:"old,omitempty"`
-		New *struct {
-			Commit string `json:"commit"`
-			Blob   string `json:"blob"`
-		} `json:"new,omitempty"`
-	}
-	if err := json.Unmarshal(anchorRaw, &a); err == nil {
-		if a.New != nil {
-			if len(a.New.Commit) == 64 || len(a.New.Blob) == 64 {
-				return resolve.SHA256
-			}
-		}
-		if a.Old != nil {
-			if len(a.Old.Commit) == 64 || len(a.Old.Blob) == 64 {
-				return resolve.SHA256
-			}
-		}
-	}
-	return resolve.SHA1
-}
-
 func TestConformanceVectors(t *testing.T) {
 	cases, err := spec.ResolutionVectors()
 	if err != nil {
@@ -49,8 +23,7 @@ func TestConformanceVectors(t *testing.T) {
 				files[p] = content
 			}
 
-			algo := detectHashAlgo(c.Anchor)
-			tree := resolve.NewTree(files, algo)
+			tree := resolve.NewTree(files)
 
 			// ResolveRaw, not ParseAnchor+Resolve: the conformance vectors
 			// are exactly the raw bytes materializeAnchors hands the

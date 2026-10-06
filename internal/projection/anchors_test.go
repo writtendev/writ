@@ -139,7 +139,7 @@ func TestAnchorResolutionAndCodeRefMove(t *testing.T) {
 
 	// Capture anchor for lines [2, 3] in commit 1
 	treeFiles1 := map[string][]byte{"main.go": []byte(fileV1)}
-	tree1 := resolve.NewTree(treeFiles1, resolve.SHA1)
+	tree1 := resolve.NewTree(treeFiles1)
 	blob1, _ := tree1.Blob("main.go")
 
 	anchor := &resolve.Anchor{
@@ -249,7 +249,7 @@ func TestAnchorResolutionAndCodeRefMove(t *testing.T) {
 	}
 
 	treeFiles2 := map[string][]byte{"main.go": []byte(fileV2)}
-	tree2 := resolve.NewTree(treeFiles2, resolve.SHA1)
+	tree2 := resolve.NewTree(treeFiles2)
 	expectedRes2 := resolve.Resolve(*anchor, tree2)
 
 	err = db.DB().QueryRow(`

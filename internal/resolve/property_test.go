@@ -27,8 +27,6 @@ func TestDeterminismShuffledMap(t *testing.T) {
 			// decode (WRIT-252), and ResolveRaw is the actual total
 			// read-side entry point this determinism property must hold
 			// for.
-			algo := detectHashAlgo(c.Anchor)
-
 			fileKeys := make([]string, 0, len(c.Target.Contents))
 			for k := range c.Target.Contents {
 				fileKeys = append(fileKeys, k)
@@ -46,7 +44,7 @@ func TestDeterminismShuffledMap(t *testing.T) {
 					shuffledFiles[k] = c.Target.Contents[k]
 				}
 
-				tree := resolve.NewTree(shuffledFiles, algo)
+				tree := resolve.NewTree(shuffledFiles)
 				res := resolve.ResolveRaw(c.Anchor, tree)
 
 				resJSON, err := json.Marshal(res)
@@ -89,8 +87,7 @@ func TestPurityNoInputMutation(t *testing.T) {
 				fileSnapshots[k] = bCopy
 			}
 
-			algo := detectHashAlgo(c.Anchor)
-			tree := resolve.NewTree(files, algo)
+			tree := resolve.NewTree(files)
 
 			// ResolveRaw, not ParseAnchor+Resolve — see TestDeterminismShuffledMap.
 			_ = resolve.ResolveRaw(rawAnchorCopy, tree)

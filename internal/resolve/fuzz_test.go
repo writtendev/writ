@@ -100,7 +100,7 @@ func FuzzResolve(f *testing.F) {
 			}
 			files[k] = []byte(v)
 		}
-		tree := resolve.NewTree(files, resolve.SHA1)
+		tree := resolve.NewTree(files)
 
 		// ResolveRaw is the total read-side entry point (WRIT-252): it must
 		// never panic on any byte input, schema-valid anchor or not, since

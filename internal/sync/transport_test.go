@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"strings"
 	"testing"
 
 	"github.com/go-git/go-git/v5/plumbing"
@@ -300,6 +301,52 @@ func TestTransport_UnknownRemote(t *testing.T) {
 	}
 	if !errors.Is(err, writsync.ErrUnknownRemote) {
 		t.Fatalf("expected ErrUnknownRemote, got: %v", err)
+	}
+}
+
+// TestTransport_HashAlgorithmMismatch syncs a SHA-1 store against a real
+// SHA-256 bare remote: git's own refusal surfaces as an unknown failure with
+// advice naming the object-format limit. The fetch-side message is covered by
+// the canned rows in TestClassifyGitError: fetching an empty sha256 remote
+// does not fail.
+func TestTransport_HashAlgorithmMismatch(t *testing.T) {
+	bareDir := t.TempDir()
+	if out, err := exec.Command("git", "init", "--bare", "--object-format=sha256", bareDir).CombinedOutput(); err != nil {
+		t.Fatalf("git cannot create a sha256 repository: %v\n%s", err, out)
+	}
+	localDir, _ := initTestRepo(t)
+
+	aliceIdent := testIdentity("0123456789abcdef", "Alice", "alice@example.com")
+	aliceStore := mustOpenStore(t, localDir, aliceIdent)
+	_ = appendTestOp(t, aliceStore, "widget", "w-1", "create", map[string]any{"title": "Op 1"})
+
+	cmd := exec.Command("git", "remote", "add", "origin", bareDir)
+	cmd.Dir = localDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git remote add: %v", err)
+	}
+
+	client, err := writsync.Open(localDir, aliceIdent)
+	if err != nil {
+		t.Fatalf("writsync.Open: %v", err)
+	}
+
+	_, err = client.Push(context.Background(), "origin")
+	if err == nil {
+		t.Fatalf("expected push to a sha256 remote to fail")
+	}
+	var gitErr *writsync.GitError
+	if !errors.As(err, &gitErr) {
+		t.Fatalf("expected *GitError, got %T: %v", err, err)
+	}
+	if gitErr.Kind != writsync.FailureKindUnknown {
+		t.Errorf("Kind = %q, want %q (stderr: %s)", gitErr.Kind, writsync.FailureKindUnknown, gitErr.Stderr)
+	}
+	if gitErr.Retryable() {
+		t.Errorf("Retryable() = true, want false")
+	}
+	if !strings.Contains(gitErr.Advice, "writ supports SHA-1 repositories only") {
+		t.Errorf("Advice = %q, want the SHA-1 limit", gitErr.Advice)
 	}
 }
 

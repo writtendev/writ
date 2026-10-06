@@ -155,6 +155,24 @@ func ClassifyGitError(remote string, args []string, err error, stderr []byte, st
 			advice = "remote rejected ref update; check server policy or repository permissions"
 		}
 
+	// 5. Hash-algorithm mismatch between this repository and the remote.
+	// Placed directly before default so no earlier case can shadow it, and so
+	// it stays a plain unknown failure: writ supports SHA-1 repositories only,
+	// so there is nothing to retry and no dedicated FailureKind. git's two
+	// messages: push says "the receiving end does not support this
+	// repository's hash algorithm"; fetch says "mismatched algorithms: client
+	// sha1; server sha256" (client and server swap when a sha256 clone fetches
+	// from a sha1 remote, hence the prefix match).
+	case strings.Contains(combined, "mismatched algorithms") ||
+		strings.Contains(combined, "does not support this repository's hash algorithm"):
+		kind = FailureKindUnknown
+		sentinel = err
+		if remote != "" {
+			advice = fmt.Sprintf("remote %s uses a different git object format (hash algorithm) than this repository; writ supports SHA-1 repositories only", remote)
+		} else {
+			advice = "the remote uses a different git object format (hash algorithm) than this repository; writ supports SHA-1 repositories only"
+		}
+
 	default:
 		kind = FailureKindUnknown
 		sentinel = err

@@ -123,7 +123,10 @@ not exercise it, the fixture repos of WRIT-19 do).
 ### OIDs
 
 `commit` and `blob` are lowercase hexadecimal object IDs: exactly 40
-characters (SHA-1 repos) or exactly 64 (SHA-256 repos). The containing
+characters (SHA-1) or exactly 64 (SHA-256). This version of the format
+supports SHA-1 repositories only (`spec/op-envelope.md` §The commit carrier,
+Object format), so OIDs in a supported repository are 40 hex; the grammar
+reserves 64 so that SHA-256 support stays additive. The containing
 repository's object format governs; all OIDs within one anchor MUST use the
 same length. Anchors do not record the hash algorithm — they are repo-local
 and the repository already fixes it.

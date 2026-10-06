@@ -16,7 +16,7 @@ func hostile100LineTree() *resolve.Tree {
 		lines = append(lines, fmt.Sprintf("line%d", i))
 	}
 	content := strings.Join(lines, "\n") + "\n"
-	return resolve.NewTree(map[string][]byte{"main.go": []byte(content)}, resolve.SHA1)
+	return resolve.NewTree(map[string][]byte{"main.go": []byte(content)})
 }
 
 func ctx64() []string {

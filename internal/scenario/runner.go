@@ -490,7 +490,7 @@ func buildSnapshot(t TestReporter, rt *deviceRuntime, checks []AnchorCheck) (Sna
 		if err != nil {
 			return Snapshot{}, fmt.Errorf("materialize tree for %s: %w", branchRef.Hash().String(), err)
 		}
-		tree := resolve.NewTree(files, resolve.SHA1)
+		tree := resolve.NewTree(files)
 		res := resolve.Resolve(anchor, tree)
 		status := deriveStatus(res)
 		snapshot.Resolutions = append(snapshot.Resolutions, ResolutionRecord{

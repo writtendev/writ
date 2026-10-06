@@ -232,7 +232,7 @@ func runOrphanAnchorsFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error
 		if err != nil {
 			return nil, fmt.Errorf("case %q: materialize target tree: %w", caseDesc.Name, err)
 		}
-		targetTree := resolve.NewTree(targetFiles, resolve.SHA1)
+		targetTree := resolve.NewTree(targetFiles)
 
 		var anchor resolve.Anchor
 		anchor.Version = 1
@@ -249,7 +249,7 @@ func runOrphanAnchorsFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error
 				if err != nil {
 					return nil, fmt.Errorf("case %q: materialize old tree: %w", caseDesc.Name, err)
 				}
-				oldTree := resolve.NewTree(oldFiles, resolve.SHA1)
+				oldTree := resolve.NewTree(oldFiles)
 
 				var oldRng *resolve.Range
 				if len(caseDesc.Anchor.Old.Range) == 2 {
@@ -271,7 +271,7 @@ func runOrphanAnchorsFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error
 				if err != nil {
 					return nil, fmt.Errorf("case %q: materialize new tree: %w", caseDesc.Name, err)
 				}
-				newTree := resolve.NewTree(newFiles, resolve.SHA1)
+				newTree := resolve.NewTree(newFiles)
 
 				var newRng *resolve.Range
 				if len(caseDesc.Anchor.New.Range) == 2 {
@@ -293,7 +293,7 @@ func runOrphanAnchorsFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error
 			if err != nil {
 				return nil, fmt.Errorf("case %q: materialize src tree: %w", caseDesc.Name, err)
 			}
-			srcTree := resolve.NewTree(srcFiles, resolve.SHA1)
+			srcTree := resolve.NewTree(srcFiles)
 
 			var rng *resolve.Range
 			if len(caseDesc.Anchor.Range) == 2 {
