@@ -32,6 +32,7 @@ const RejectSchemaViolation = codec.RejectSchemaViolation
 const SchemaConflictKeyColumnDisagreement SchemaConflictKind = "key-column-disagreement"
 const SchemaConflictNamespaceUngrammatical SchemaConflictKind = "namespace-ungrammatical"
 const SchemaConflictObjectIDMismatch SchemaConflictKind = "object-id-mismatch"
+const SchemaConflictOpTypeReserved SchemaConflictKind = "op-type-reserved"
 const SchemaConflictOpTypeUngrammatical SchemaConflictKind = "op-type-ungrammatical"
 const SchemaConflictRuleInvalid SchemaConflictKind = "rule-invalid"
 const SchemaConflictSchemaRedefined SchemaConflictKind = "schema-redefined"

@@ -1,0 +1,43 @@
+{
+  "objects": [
+    {
+      "object_id": "w-merge-chain",
+      "object_type": "acme.widget",
+      "total_order": [
+        {
+          "commit": "9fdc03fc326d64c893a884a850eebe73d4bb1ba1",
+          "label": "widget-create",
+          "t_star": 1767225600
+        },
+        {
+          "commit": "535fa0b281fd3f806358331d3526f50027c5de37",
+          "label": "widget-branch-a",
+          "t_star": 1767225660
+        },
+        {
+          "commit": "ce4887594f7e166d0c750081fc8c1d628446fb7f",
+          "label": "widget-branch-b",
+          "t_star": 1767225720
+        },
+        {
+          "commit": "084ad6bb3dc715d46b5a0f4bfd9b981658922e94",
+          "label": "widget-merge-link",
+          "t_star": 1767225780
+        },
+        {
+          "commit": "39166dafa48f2a6361bde3c90ce20686a925a3cf",
+          "label": "widget-final",
+          "t_star": 1767225840
+        }
+      ],
+      "state": {
+        "tags": [
+          "tag-a",
+          "tag-b",
+          "tag-c"
+        ],
+        "title": "Final Title"
+      }
+    }
+  ]
+}

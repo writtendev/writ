@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -236,10 +235,9 @@ func TestEnumerate_GiantObjectsAreSizedBeforeLoading(t *testing.T) {
 
 // TestAppendCausalParentsAgainstCommitBound pins the producer side of the
 // commit bound: an Append over a wide frontier is written while the commit
-// stays within codec.MaxCommitBytes (1 MiB), and refused, not written, once
-// the causal parents would push it past. 1,400 parents is the frontier a
-// peer could push when the bound was 64 KiB and so block every honest write
-// to an object; it now fits with room to spare.
+// stays within codec.MaxCommitBytes (1 MiB). When deduplicated causal parents
+// exceed codec.MaxCommitParents (20,000), Append chunks them into signed
+// merge link ops (WRIT-369).
 func TestAppendCausalParentsAgainstCommitBound(t *testing.T) {
 	dir, repo := initTestRepo(t)
 	ident := testIdentity(objectSizeCaseWriter, "Alice", "alice@example.test")
@@ -263,7 +261,7 @@ func TestAppendCausalParentsAgainstCommitBound(t *testing.T) {
 		t.Fatalf("CommitObject: %v", err)
 	}
 	var causal []string
-	// 48 bytes a parent line: 22,000 is over the 1 MiB bound.
+	// 48 bytes a parent line: 22,000 is over the 20,000 bound.
 	for i := 0; i < 22000; i++ {
 		causal = append(causal, storeRawCommit(t, repo, opCommit.TreeHash, plumbing.ZeroHash, fmt.Sprintf("parent %d\n", i)).String())
 	}
@@ -280,19 +278,50 @@ func TestAppendCausalParentsAgainstCommitBound(t *testing.T) {
 	}
 
 	before := snapshotRefs(t, repo)
-	_, err = store.Append(ctx, codec.Envelope{
+	op3, err := store.Append(ctx, codec.Envelope{
 		ObjectID: "w-1", ObjectType: "widget", OpType: "update", OpVersion: 1,
 		Body: json.RawMessage(`{"title":"Widget 3"}`),
 	}, causal)
-	if err == nil {
-		t.Fatalf("Append with %d causal parents succeeded, want commit-too-large", len(causal))
+	if err != nil {
+		t.Fatalf("Append with %d causal parents: %v", len(causal), err)
 	}
-	var rej *codec.RejectError
-	if !errors.As(err, &rej) || rej.Reason != codec.RejectCommitTooLarge {
-		t.Fatalf("Append err = %v, want commit-too-large", err)
+	if op3.ID == "" {
+		t.Fatalf("Append with %d causal parents returned no op id", len(causal))
 	}
 	after := snapshotRefs(t, repo)
-	if fmt.Sprint(before) != fmt.Sprint(after) {
-		t.Errorf("refs moved on a refused append: %v -> %v", before, after)
+	if fmt.Sprint(before) == fmt.Sprint(after) {
+		t.Errorf("refs did not move on successful chunked append")
+	}
+	// The final op names the last merge link as its single parent.
+	if len(op3.Parents) != 1 {
+		t.Fatalf("op3 parents = %v, want exactly 1 parent (last merge link)", op3.Parents)
+	}
+	lastMergeCommit, err := repo.CommitObject(plumbing.NewHash(op3.Parents[0]))
+	if err != nil {
+		t.Fatalf("CommitObject(lastMerge): %v", err)
+	}
+	lastMergeTree, err := repo.TreeObject(lastMergeCommit.TreeHash)
+	if err != nil {
+		t.Fatalf("TreeObject(lastMerge): %v", err)
+	}
+	opJSONEntry, err := lastMergeTree.FindEntry("op.json")
+	if err != nil {
+		t.Fatalf("FindEntry(op.json): %v", err)
+	}
+	blob, err := repo.BlobObject(opJSONEntry.Hash)
+	if err != nil {
+		t.Fatalf("BlobObject: %v", err)
+	}
+	r, err := blob.Reader()
+	if err != nil {
+		t.Fatalf("blob reader: %v", err)
+	}
+	defer r.Close()
+	var mergeEnv codec.Envelope
+	if err := json.NewDecoder(r).Decode(&mergeEnv); err != nil {
+		t.Fatalf("decode merge op.json: %v", err)
+	}
+	if mergeEnv.OpType != "merge" || mergeEnv.OpVersion != 1 {
+		t.Errorf("mergeEnv = %+v, want op_type: merge, op_version: 1", mergeEnv)
 	}
 }

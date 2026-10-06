@@ -223,6 +223,9 @@ func renderOpBlock(b *strings.Builder, g opGroup) error {
 		if err := validateNameForRender(k.opType, opTypeNamePattern, "op type name", keywords, ""); err != nil {
 			return err
 		}
+		if reservedOpTypeNames[k.opType] {
+			return fmt.Errorf("op type name %q is a reserved word and would not parse back%s", k.opType, reservedOpTypeNameReason)
+		}
 	}
 	b.WriteString("  op ")
 	for i, k := range g.Ops {

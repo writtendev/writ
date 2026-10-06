@@ -45,6 +45,18 @@ var reservedTypeNames = map[string]bool{"lock": true}
 // (or Render's validateNameForRender) rejects "lock" as a type's own name.
 const reservedTypeNameReason = "; a type named \"lock\" would qualify to an object_type ending in \".lock\", which git rejects outright as a ref path component (refs/writ/<writer-id>/<namespace>.lock)"
 
+// reservedOpTypeNames excludes op type names that are format-reserved
+// (WRIT-369): "merge" is format-reserved across all object types for causal
+// parent chaining when frontiers exceed the per-commit parent limit
+// (spec/op-envelope.md §Producer validation, spec/schema-ops.md §4.2).
+// Kept separate from keywords so TestKeywordsAreClosed stays focused on
+// grammar keywords.
+var reservedOpTypeNames = map[string]bool{"merge": true}
+
+// reservedOpTypeNameReason is appended to the diagnostic when validateName
+// (or Render's validateNameForRender) rejects "merge" as an op type name.
+const reservedOpTypeNameReason = "; \"merge\" is a format-reserved op type for causal parent chaining"
+
 // fieldReserved is the reserved-word set for a field name and a
 // target(...) argument (spec/schema-source.md §2). Every structural word
 // except deprecated is only a contextual keyword in these two slots —
@@ -460,6 +472,9 @@ func (p *parser) parseOpBlock() *OpBlock {
 			return nil
 		}
 		validateName(p, opTok, opTypeNamePattern, "op type name", keywords, "")
+		if reservedOpTypeNames[opTok.Text] {
+			p.errorf(opTok.Pos, "%q is a reserved op type name%s", opTok.Text, reservedOpTypeNameReason)
+		}
 
 		verTok, ok := p.expect(tokNumber, "op version number")
 		if !ok {

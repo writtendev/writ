@@ -212,6 +212,9 @@ func Fold(ops []codec.Op, rules []Rule) (ObjectState, error) {
 	var unknownOps []UnknownOp
 	rejected := make(map[string]bool)
 	for _, o := range orderedOps {
+		if o.Op.OpType == "merge" {
+			continue
+		}
 		known := false
 		for _, r := range rules {
 			if opMatchesRule(o.Op, r) {
@@ -237,7 +240,7 @@ func Fold(ops []codec.Op, rules []Rule) (ObjectState, error) {
 	matchedRulesByField := make(map[string][]Rule)
 	for _, r := range rules {
 		for _, o := range orderedOps {
-			if rejected[o.Op.ID] {
+			if rejected[o.Op.ID] || o.Op.OpType == "merge" {
 				continue
 			}
 			if opMatchesRule(o.Op, r) {
@@ -336,7 +339,7 @@ func Fold(ops []codec.Op, rules []Rule) (ObjectState, error) {
 	// strategy cares which of an operation's two writes lands first, both
 	// implementations agree without consulting either caller's slice order.
 	for _, o := range orderedOps {
-		if rejected[o.Op.ID] {
+		if rejected[o.Op.ID] || o.Op.OpType == "merge" {
 			continue
 		}
 		bm := bodyMap[o.Op.ID]

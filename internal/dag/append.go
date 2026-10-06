@@ -2,6 +2,7 @@ package dag
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -20,6 +21,8 @@ var (
 	// ErrCASExhausted is returned when atomic ref updates exceed the maximum retry count.
 	ErrCASExhausted = errors.New("dag: CAS ref update retry limit exceeded")
 )
+
+var maxCommitParents = codec.MaxCommitParents
 
 const maxCASRetries = 16
 
@@ -105,9 +108,47 @@ func (s *Store) Append(ctx context.Context, env codec.Envelope, causalParents []
 		}
 	}
 
+	// 3. Commit
+	if len(causal) <= maxCommitParents {
+		return s.commitOp(ctx, env, causal, vocabularies)
+	}
+
+	// When deduplicated causal parents exceed maxCommitParents, chunk them into
+	// sequential signed merge link ops (spec/op-envelope.md §Producer validation).
+	// Pre-flight check on env ensures an invalid envelope is refused before any
+	// merge link commits are authored.
+	if err := codec.ValidateBody(env, vocabularies); err != nil {
+		return nil, fmt.Errorf("dag: build commit: %w", err)
+	}
+
+	chunkSize := maxCommitParents - 1
+	mergeEnv := codec.Envelope{
+		ObjectID:   env.ObjectID,
+		ObjectType: env.ObjectType,
+		OpType:     "merge",
+		OpVersion:  1,
+		Body:       json.RawMessage("{}"),
+	}
+
+	for i := 0; i < len(causal); i += chunkSize {
+		end := i + chunkSize
+		if end > len(causal) {
+			end = len(causal)
+		}
+		chunk := causal[i:end]
+		if _, err := s.commitOp(ctx, mergeEnv, chunk, vocabularies); err != nil {
+			return nil, fmt.Errorf("dag: commit merge link: %w", err)
+		}
+	}
+
+	return s.commitOp(ctx, env, nil, vocabularies)
+}
+
+// commitOp executes the CAS loop for a single commit authoring attempt.
+func (s *Store) commitOp(ctx context.Context, env codec.Envelope, causal []string, vocabularies codec.Vocabularies) (*codec.Op, error) {
 	refName := LocalRefName(s.identity.WriterID, env.ObjectType)
 
-	// 3. CAS loop
+	// CAS loop
 	for attempt := 0; attempt < maxCASRetries; attempt++ {
 		oldRef, err := s.storer.Reference(refName)
 		if err != nil && !errors.Is(err, plumbing.ErrReferenceNotFound) {

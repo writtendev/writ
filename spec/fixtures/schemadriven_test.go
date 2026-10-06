@@ -77,6 +77,7 @@ var schemaConflictKinds = map[writ.SchemaConflictKind]bool{
 	writ.SchemaConflictTypeUngrammatical:      true,
 	writ.SchemaConflictTypeUnqualified:        true,
 	writ.SchemaConflictOpTypeUngrammatical:    true,
+	writ.SchemaConflictOpTypeReserved:         true,
 	writ.SchemaConflictRuleInvalid:            true,
 	writ.SchemaConflictKeyColumnDisagreement:  true,
 	writ.SchemaConflictTargetDisagreement:     true,

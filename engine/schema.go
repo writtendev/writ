@@ -62,6 +62,10 @@ const (
 	// declared op_type fails the op_type grammar.
 	SchemaConflictOpTypeUngrammatical SchemaConflictKind = "op-type-ungrammatical"
 
+	// SchemaConflictOpTypeReserved: a define-field's or a define-op's
+	// declared op_type names a format-reserved op type (such as "merge").
+	SchemaConflictOpTypeReserved SchemaConflictKind = "op-type-reserved"
+
 	// SchemaConflictRuleInvalid: spec.ValidateFieldRule rejects a field
 	// rule; it is dropped and not installed.
 	SchemaConflictRuleInvalid SchemaConflictKind = "rule-invalid"
@@ -1414,6 +1418,16 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 					continue
 				}
 
+				if sr.OpType == "merge" {
+					conflicts = append(conflicts, SchemaConflict{
+						Kind:       SchemaConflictOpTypeReserved,
+						ObjectType: t.Name,
+						ObjectIDs:  []string{sch.ObjectID},
+						Reason:     fmt.Sprintf("define-field op_type %q is a format-reserved op type and was not installed", sr.OpType),
+					})
+					continue
+				}
+
 				if err := spec.ValidateFieldRule(sr); err != nil {
 					conflicts = append(conflicts, SchemaConflict{
 						Kind:       SchemaConflictRuleInvalid,
@@ -1572,6 +1586,16 @@ func resolveSchemaTypes(schemas []state.Schema) resolvedSchemaTypes {
 						ObjectType: t.Name,
 						ObjectIDs:  []string{sch.ObjectID},
 						Reason:     fmt.Sprintf("define-op op_type %q is not a valid op type (must match ^[a-z][a-z0-9-]*$, max %d chars) and was not installed", o.OpType, opTypeMaxLength),
+					})
+					continue
+				}
+
+				if o.OpType == "merge" {
+					conflicts = append(conflicts, SchemaConflict{
+						Kind:       SchemaConflictOpTypeReserved,
+						ObjectType: t.Name,
+						ObjectIDs:  []string{sch.ObjectID},
+						Reason:     fmt.Sprintf("define-op op_type %q is a format-reserved op type and was not installed", o.OpType),
 					})
 					continue
 				}

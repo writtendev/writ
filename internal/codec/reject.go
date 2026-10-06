@@ -35,6 +35,12 @@ const MaxCommitBytes = 1 << 20
 // deliberately larger so the tree-shape reasons stay reachable.
 const MaxTreeBytes = 1 << 12
 
+// MaxCommitParents is the maximum number of causal parents a single op commit
+// may carry (spec/op-envelope.md §Producer validation). When an object's
+// deduplicated causal frontier exceeds this limit, a conforming producer chunks
+// the parents across sequential merge link ops.
+const MaxCommitParents = 20000
+
 // RejectError is returned when an op commit or payload fails validation —
 // reader validation of an op that arrived, or producer validation of one about
 // to be signed (spec/op-envelope.md).
