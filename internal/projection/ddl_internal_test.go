@@ -824,12 +824,24 @@ func TestIndexNamesAreCollisionFree(t *testing.T) {
 // across thousands of seeded random legal type/target sets, createSQL never
 // emits two identical index names, nor an index named like a table, and on a
 // sample ApplySchema on a fresh database succeeds without withholding
-// anything. Fragments deliberately mix "-" and "_" with the "f", "k", and
-// "op_id" pieces the generated names are built from.
+// anything.
+//
+// A uniform draw over a wide alphabet essentially never lines up the exact
+// splits the old "_"-joined names collided on, so the generator is biased
+// toward them: a tiny alphabet of the fragments the generated names are built
+// from ("f", "op_id", "_f_", "_", and the "-" a type name maps to "_"), plus
+// two constructed shapes, each tried on half the draws. Within a type, a
+// position target P gets a sibling target P + "_f_" + P + "__op_id", which
+// spelled the same name as P's (f_P, f_P__op_id) composite index. Across
+// types, a target containing "_f_" gets a sibling type T + "-f-" + prefix
+// carrying the suffix as its target, which spelled the same name as the
+// original type's single-column index. Reverting indexStatements to the old
+// naming makes this test fail (the mutation check in WRIT-322).
 func TestIndexNamesAreCollisionFreeProperty(t *testing.T) {
 	rng := rand.New(rand.NewSource(322))
-	frags := []string{"a", "b", "c", "f", "k", "t", "x", "op", "id", "op_id", "f_x", "1", "0"}
-	pick := func(sep string, min, max int) string {
+	targetFrags := []string{"a", "b", "c", "f", "x", "op_id", "_", "_f_", "f_x", "k"}
+	typeFrags := []string{"a", "b", "c", "f", "x", "op_id"}
+	cat := func(frags []string, sep string, min, max int) string {
 		n := min + rng.Intn(max-min+1)
 		parts := make([]string, n)
 		for i := range parts {
@@ -837,10 +849,12 @@ func TestIndexNamesAreCollisionFreeProperty(t *testing.T) {
 		}
 		return strings.Join(parts, sep)
 	}
-	ident := func() string { return "a" + pick("_", 0, 4) }
+	ident := func() string { return "a" + cat(targetFrags, "", 0, 4) }
 	objectType := func() string {
-		sep := []string{"-", "-", "--"}[rng.Intn(3)]
-		name := "a" + pick(sep, 0, 3)
+		name := "a"
+		if rng.Intn(3) > 0 {
+			name += "-" + cat(typeFrags, "-", 1, 3)
+		}
 		if rng.Intn(4) == 0 {
 			name = "ns." + name
 		}
@@ -849,18 +863,22 @@ func TestIndexNamesAreCollisionFreeProperty(t *testing.T) {
 	type shape struct {
 		strategy, valueType string
 	}
-	scalar := []shape{{"lww", ""}, {"lww", "string"}, {"lww", "position"}, {"lww", "int"}, {"create-once", "string"}, {"tombstone", "bool"}}
+	scalar := []shape{{"lww", ""}, {"lww", "string"}, {"lww", "position"}, {"lww", "position"}, {"lww", "int"}, {"create-once", "string"}, {"tombstone", "bool"}}
 	collection := []shape{{"set-union", "string"}, {"set-observed-remove", "string"}, {"multi-value", "string"}, {"append", "string"}}
 
 	const iterations, applyEvery = 3000, 25
-	indexes := 0
+	indexes, withinShape, crossShape := 0, 0, 0
 	for i := 0; i < iterations; i++ {
 		rules := make(map[string][]state.Rule)
+		add := func(ot string, r state.Rule) {
+			r.ObjectType = ot
+			r.Field = r.Target
+			rules[ot] = append(rules[ot], r)
+		}
 		for n := 1 + rng.Intn(4); n > 0; n-- {
 			ot := objectType()
 			for m := 1 + rng.Intn(5); m > 0; m-- {
-				r := state.Rule{OpType: "create", OpVersion: 1, Target: ident(), ObjectType: ot}
-				r.Field = r.Target
+				r := state.Rule{OpType: "create", OpVersion: 1, Target: ident()}
 				switch rng.Intn(3) {
 				case 0, 1:
 					sh := scalar[rng.Intn(len(scalar))]
@@ -880,7 +898,15 @@ func TestIndexNamesAreCollisionFreeProperty(t *testing.T) {
 						r.OpType = "link"
 					}
 				}
-				rules[ot] = append(rules[ot], r)
+				add(ot, r)
+				if r.ValueType == "position" && rng.Intn(2) == 0 {
+					add(ot, state.Rule{OpType: "create", OpVersion: 1, Strategy: "lww", ValueType: "string", Target: r.Target + "_f_" + r.Target + "__op_id"})
+					withinShape++
+				}
+				if pre, suf, ok := strings.Cut(r.Target, "_f_"); ok && validIdent(suf) && rng.Intn(2) == 0 {
+					add(ot+"-f-"+strings.ReplaceAll(pre, "_", "-"), state.Rule{OpType: "create", OpVersion: 1, Strategy: "lww", ValueType: "string", Target: suf})
+					crossShape++
+				}
 			}
 		}
 		desc, err := buildDescriptor(rules)
@@ -907,7 +933,7 @@ func TestIndexNamesAreCollisionFreeProperty(t *testing.T) {
 		}
 		db.Close()
 	}
-	if indexes == 0 {
-		t.Fatal("property test generated no indexes; the generator is not exercising anything")
+	if indexes == 0 || withinShape == 0 || crossShape == 0 {
+		t.Fatalf("generator is not exercising the collision shapes: indexes=%d within=%d cross=%d", indexes, withinShape, crossShape)
 	}
 }
