@@ -21,7 +21,7 @@ package projection
 // v0.1.0 (AGENTS.md): nothing has shipped, so there are no external readers
 // for a changelog of internal cache-invalidation bumps to serve, and several
 // of the entries it once carried named tables no release ever produced.
-const schemaVersion = 20
+const schemaVersion = 21
 
 // substrateTables lists the type-agnostic tables created unconditionally at
 // Open, before any schema is ever applied: meta, chain_tips, code_tips, ops,

@@ -3,6 +3,7 @@ package fixtures
 import (
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/go-git/go-git/v5"
@@ -65,7 +66,7 @@ func Generate(desc *Description, outDir string) (*Manifest, error) {
 					labels[cd.ID] = hash
 				}
 				parent = hash
-				state.Commits = append(state.Commits, commitState(commit, hash))
+				state.Commits = append(state.Commits, commitState(commit, hash, cd.CommitSize != 0))
 			}
 
 			isLast := gi == len(ref.History)-1
@@ -107,20 +108,12 @@ func setRef(repo *git.Repository, name string, hash plumbing.Hash) error {
 // buildCommit writes files or canonical op.json as a tree, constructs a commit object with the
 // given parents, signs it, applies any requested post-signing tamper, and stores it.
 func buildCommit(repo *git.Repository, sgnr *signer, cd CommitDesc, parents []plumbing.Hash) (*object.Commit, plumbing.Hash, error) {
+	files, err := commitFiles(cd)
+	if err != nil {
+		return nil, plumbing.ZeroHash, err
+	}
+	cd.Files = files
 	if cd.Op != nil {
-		var payloadBytes []byte
-		var err error
-		if cd.OpJSONSize != 0 {
-			payloadBytes, err = PadOpJSON(cd.Op, cd.OpJSONSize)
-		} else {
-			payloadBytes, err = BuildOpPayload(cd.Op)
-		}
-		if err != nil {
-			return nil, plumbing.ZeroHash, err
-		}
-		cd.Files = map[string]string{
-			"op.json": string(payloadBytes),
-		}
 		cd.Message = DeriveMessage(cd.Op)
 	}
 
@@ -147,7 +140,13 @@ func buildCommit(repo *git.Repository, sgnr *signer, cd CommitDesc, parents []pl
 		committerSig = object.Signature{Name: committerId.Name, Email: committerId.Email, When: cd.Timestamp.UTC()}
 	}
 
-	treeHash, err := buildTree(repo.Storer, cd.Files)
+	var treeHash plumbing.Hash
+	if cd.TreeBlobSize != 0 {
+		// tree_blob_size: the commit's tree header names a blob, not a tree.
+		treeHash, err = writeBlob(repo.Storer, strings.Repeat("x", cd.TreeBlobSize))
+	} else {
+		treeHash, err = buildTree(repo.Storer, cd.Files)
+	}
 	if err != nil {
 		return nil, plumbing.ZeroHash, err
 	}
@@ -160,12 +159,26 @@ func buildCommit(repo *git.Repository, sgnr *signer, cd CommitDesc, parents []pl
 		ParentHashes: parents,
 	}
 
+	if cd.CommitSize != 0 {
+		if err := padCommitMessage(repo.Storer, sgnr, signerId, commit, cd.Unsigned, cd.CommitSize); err != nil {
+			return nil, plumbing.ZeroHash, err
+		}
+	}
+
 	if !cd.Unsigned {
 		armored, err := signCommit(repo.Storer, sgnr, signerId, commit)
 		if err != nil {
 			return nil, plumbing.ZeroHash, err
 		}
 		commit.PGPSignature = armored
+	}
+
+	if cd.CommitSize != 0 {
+		if got, err := commitObjectSize(repo.Storer, commit); err != nil {
+			return nil, plumbing.ZeroHash, err
+		} else if got != int64(cd.CommitSize) {
+			return nil, plumbing.ZeroHash, fmt.Errorf("fixtures: commit_size %d: signed commit object is %d bytes", cd.CommitSize, got)
+		}
 	}
 
 	if cd.Tamper != "" {
@@ -187,6 +200,43 @@ func buildCommit(repo *git.Repository, sgnr *signer, cd CommitDesc, parents []pl
 	return commit, hash, nil
 }
 
+// commitObjectSize returns the size of commit's encoded object, signature
+// included.
+func commitObjectSize(store storer.EncodedObjectStorer, commit *object.Commit) (int64, error) {
+	obj := store.NewEncodedObject()
+	obj.SetType(plumbing.CommitObject)
+	if err := commit.Encode(obj); err != nil {
+		return 0, fmt.Errorf("fixtures: encode commit: %w", err)
+	}
+	return obj.Size(), nil
+}
+
+// padCommitMessage appends filler to commit's message so the signed commit
+// object is exactly size bytes (commit_size). The signature's armored length
+// does not depend on what it signs — fixture keys are ed25519 and an SSHSIG
+// over one is fixed-size — so the commit is measured once with a signature
+// in place and the padding computed from that; buildCommit signs the padded
+// commit afterwards and checks the result is exactly size.
+func padCommitMessage(store storer.EncodedObjectStorer, sgnr *signer, id identity, commit *object.Commit, unsigned bool, size int) error {
+	if !unsigned {
+		armored, err := signCommit(store, sgnr, id, commit)
+		if err != nil {
+			return err
+		}
+		commit.PGPSignature = armored
+	}
+	base, err := commitObjectSize(store, commit)
+	if err != nil {
+		return err
+	}
+	if base > int64(size) {
+		return fmt.Errorf("fixtures: commit_size %d is smaller than the unpadded signed commit (%d bytes)", size, base)
+	}
+	commit.Message += strings.Repeat("x", size-int(base))
+	commit.PGPSignature = ""
+	return nil
+}
+
 // signCommit returns an armored SSH signature, by id's key, over commit's
 // signed payload: the commit as encoded without its signature header.
 func signCommit(store storer.EncodedObjectStorer, sgnr *signer, id identity, commit *object.Commit) (string, error) {
@@ -205,12 +255,16 @@ func signCommit(store storer.EncodedObjectStorer, sgnr *signer, id identity, com
 	return sgnr.sign(id, payload)
 }
 
-func commitState(c *object.Commit, hash plumbing.Hash) CommitState {
+// commitState summarizes a generated commit for the manifest. A commit padded
+// to a pinned size (commit_size) records the byte length of its message in
+// MessageSize in place of the message, which is nothing but padding: the SHA
+// already pins the exact bytes, so the golden need not carry kilobytes of "x".
+func commitState(c *object.Commit, hash plumbing.Hash, padded bool) CommitState {
 	parents := make([]string, len(c.ParentHashes))
 	for i, p := range c.ParentHashes {
 		parents[i] = p.String()
 	}
-	return CommitState{
+	state := CommitState{
 		SHA:       hash.String(),
 		Tree:      c.TreeHash.String(),
 		Parents:   parents,
@@ -219,4 +273,9 @@ func commitState(c *object.Commit, hash plumbing.Hash) CommitState {
 		Message:   c.Message,
 		Signed:    c.PGPSignature != "",
 	}
+	if padded {
+		state.Message = ""
+		state.MessageSize = len(c.Message)
+	}
+	return state
 }

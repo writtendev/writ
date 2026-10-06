@@ -527,9 +527,8 @@ func writeCommitWithAbsentRootTree(repo *git.Repository, parent plumbing.Hash) (
 // whose own subtree hash names no object at all — the `--filter=tree:1`
 // shape. The root tree carries no "op.json" entry, so under WRIT-289's
 // round 2 orchestrator decision this is a known missing-op-json non-op
-// (rule 1, decided from the root tree's own entries) even though the
-// absent subtree also makes it RejectObjectUnavailable: either way the
-// walk must not expand its parents.
+// (rule 1, decided from the root tree's own entries; no subtree is ever
+// read, WRIT-313), so the walk must not expand its parents.
 func writeCommitWithAbsentSubtree(repo *git.Repository, parent plumbing.Hash) (plumbing.Hash, error) {
 	// A well-formed but never-stored subtree hash, same technique as
 	// writeCommitWithAbsentRootTree.

@@ -123,7 +123,8 @@ type EnumerateResult struct {
 	// rejected it, for a reader-validation reason or as object-unavailable.
 	// It does not count a commit the walk never reached at all: one behind
 	// a rejection that stops the walk along that path (WRIT-289), or one
-	// object.GetCommit itself failed to fetch. A commit behind an
+	// codec.GetCommit itself failed to fetch, including one it refused
+	// unread as commit-too-large. A commit behind an
 	// object-unavailable rejection is reached and counted only for the one
 	// shape that does not stop the walk — root tree passing every
 	// tree-shape rule, missing only its own op.json blob (see
@@ -424,15 +425,16 @@ func (s *Store) EnumerateSince(cursors CursorSet, opts ...EnumerateOption) (*Enu
 		currHash := queue[0]
 		queue = queue[1:]
 
-		commitObj, err := object.GetCommit(s.storer, currHash)
+		// codec.GetCommit sizes the commit object before loading it
+		// (spec/op-envelope.md §Reader validation rule 1): one above
+		// codec.MaxCommitBytes is rejected commit-too-large without ever
+		// being read, so its parents are never known and never followed —
+		// the same stop as any other reader-validation rejection.
+		commitObj, err := codec.GetCommit(cachedStorer, currHash)
 		if err != nil {
-			reason := codec.RejectMissingOpJSON
-			if errors.Is(err, plumbing.ErrObjectNotFound) && objectAbsent(s.storer, currHash) {
-				reason = RejectObjectUnavailable
-			}
 			result.Rejections = append(result.Rejections, Rejection{
 				CommitID: currHash.String(),
-				Reason:   reason,
+				Reason:   commitLoadReason(cachedStorer, currHash, err),
 				Err:      err.Error(),
 			})
 			continue
@@ -774,8 +776,15 @@ func (s *Store) StillObjectUnavailable(ids []string) (map[string]ObjectUnavailab
 	result := make(map[string]ObjectUnavailableVerdict, len(ids))
 	for _, id := range ids {
 		hash := plumbing.NewHash(id)
-		commitObj, err := object.GetCommit(cachedStorer, hash)
+		commitObj, err := codec.GetCommit(cachedStorer, hash)
 		if err != nil {
+			var rej *codec.RejectError
+			if errors.As(err, &rej) {
+				// An over-bound commit is a reader-validation rejection,
+				// never object-unavailable: a changed verdict.
+				result[id] = ObjectUnavailableVerdict{}
+				continue
+			}
 			if errors.Is(err, plumbing.ErrObjectNotFound) {
 				result[id] = ObjectUnavailableVerdict{Unavailable: true}
 				continue
@@ -819,7 +828,7 @@ func (s *Store) StillObjectUnavailable(ids []string) (map[string]ObjectUnavailab
 func decodeOpCommit(st storage.Storer, commitObj *object.Commit) (codec.Commit, codec.Op, *Rejection) {
 	// pureCommit.Payload comes from FromGitCommit (gogit.go), which builds
 	// it with commit.EncodeWithoutSignature. commitObj always comes from a
-	// caller's own object.GetCommit, so go-git still holds the encoded
+	// caller's own codec.GetCommit, so go-git still holds the encoded
 	// object it was decoded from, and EncodeWithoutSignature streams those
 	// raw bytes verbatim, dropping only the gpgsig/gpgsig-sha256 header
 	// lines and their continuations (stripObjectSignatures). The payload is
@@ -879,6 +888,23 @@ func objectAbsent(s storage.Storer, hash plumbing.Hash) bool {
 	return errors.Is(err, plumbing.ErrObjectNotFound)
 }
 
+// commitLoadReason names the reason a failed codec.GetCommit of hash is
+// reported under: the reader-validation reason a *codec.RejectError carries
+// (commit-too-large), object-unavailable when hash names no object at all,
+// and missing-op-json for any other failure to read a commit — the same
+// classification the walk gave object.GetCommit's failures before the commit
+// object was sized.
+func commitLoadReason(s storage.Storer, hash plumbing.Hash, err error) codec.RejectReason {
+	var rej *codec.RejectError
+	if errors.As(err, &rej) {
+		return rej.Reason
+	}
+	if errors.Is(err, plumbing.ErrObjectNotFound) && objectAbsent(s, hash) {
+		return RejectObjectUnavailable
+	}
+	return codec.RejectMissingOpJSON
+}
+
 // rootOpJSONBlobAbsent is the narrow test that decides whether a
 // RejectObjectUnavailable commit's parents are still worth expanding
 // (orchestrator decision, WRIT-289 round 3 review, narrowing the round 2
@@ -915,8 +941,8 @@ func objectAbsent(s storage.Storer, hash plumbing.Hash) bool {
 //     see — an extra entry beside op.json (however that entry's own blob
 //     reads, present or absent), op.json present as a directory instead
 //     of a blob, or op.json present at some mode other than 100644 — a
-//     reader-validation rejection (extra-tree-entry, op-json-subdirectory,
-//     or invalid-op-json-mode) waiting only on the blob read that never
+//     reader-validation rejection (extra-tree-entry, missing-op-json, or
+//     invalid-op-json-mode) waiting only on the blob read that never
 //     gets to run; the tree already settles the verdict without it (round
 //     3 review: the round 2 cut only checked that an entry named op.json
 //     existed and its blob was absent, so a tree with other visible
@@ -927,16 +953,18 @@ func objectAbsent(s storage.Storer, hash plumbing.Hash) bool {
 //   - the tree is present but names no top-level "op.json" entry at all,
 //     even when some other object it names (a subtree, most commonly) is
 //     also locally absent: rule 1 already rejects that shape on the
-//     entries this reader can see — missing-op-json, or
-//     op-json-subdirectory if the absent subtree itself turns out to hold
-//     an op.json a complete reader would find (this reader cannot tell
-//     which); either way it is a known non-op, so there is nothing left
-//     to learn by reading further.
+//     entries this reader can see — missing-op-json, a known non-op
+//     whatever an absent subtree might hold, since rule 1 looks at the
+//     root tree only, so there is nothing left to learn by reading
+//     further.
 //
 // commitObj.Tree() re-reads the root tree object decodeOpCommit's own
 // codec.FromGitCommit call already read moments earlier; both go through
 // st (the cachedStorer callers pass), so the second read is a cache hit,
-// not a second trip to the pack.
+// not a second trip to the pack. It never loads an oversized tree: this is
+// only reached for a RejectObjectUnavailable commit, and FromGitCommit sizes
+// the root tree before loading it, so a tree above codec.MaxTreeBytes is
+// rejected tree-too-large and never gets here.
 func rootOpJSONBlobAbsent(st storage.Storer, commitObj *object.Commit) bool {
 	tree, err := commitObj.Tree()
 	if err != nil {
@@ -982,7 +1010,7 @@ func isAncestor(s storage.Storer, tip, candidate plumbing.Hash) (bool, error) {
 		curr := queue[0]
 		queue = queue[1:]
 
-		commit, err := object.GetCommit(s, curr)
+		commit, err := codec.GetCommit(s, curr)
 		if err != nil {
 			continue
 		}

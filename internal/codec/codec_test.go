@@ -128,24 +128,43 @@ func TestDecodeCommitRejections(t *testing.T) {
 		}
 	})
 
-	t.Run("op.json in subdirectory", func(t *testing.T) {
+	t.Run("lone subdirectory is missing-op-json", func(t *testing.T) {
 		c := codec.Commit{
 			Author:    alice,
 			Committer: alice,
 			Tree: []codec.TreeEntry{
-				{
-					Name: "subdir",
-					Mode: "040000",
-					Entries: []codec.TreeEntry{
-						{Name: "op.json", Mode: "100644", Data: validRaw},
-					},
-				},
+				{Name: "subdir", Mode: "040000"},
 			},
 		}
 		_, err := codec.DecodeCommit(c)
 		var rej *codec.RejectError
-		if !errors.As(err, &rej) || rej.Reason != codec.RejectOpJSONSubdirectory {
-			t.Fatalf("got %v, want RejectOpJSONSubdirectory", err)
+		if !errors.As(err, &rej) || rej.Reason != codec.RejectMissingOpJSON {
+			t.Fatalf("got %v, want RejectMissingOpJSON", err)
+		}
+	})
+
+	t.Run("tree object over the bound", func(t *testing.T) {
+		for _, tc := range []struct {
+			size int64
+			want codec.RejectReason
+		}{
+			{codec.MaxTreeBytes, codec.RejectExtraTreeEntry},
+			{codec.MaxTreeBytes + 1, codec.RejectTreeTooLarge},
+		} {
+			c := codec.Commit{
+				Author:    alice,
+				Committer: alice,
+				TreeSize:  tc.size,
+				Tree: []codec.TreeEntry{
+					{Name: "op.json", Mode: "100644", Data: validRaw},
+					{Name: "extra.txt", Mode: "100644"},
+				},
+			}
+			_, err := codec.DecodeCommit(c)
+			var rej *codec.RejectError
+			if !errors.As(err, &rej) || rej.Reason != tc.want {
+				t.Fatalf("TreeSize %d: got %v, want %s", tc.size, err, tc.want)
+			}
 		}
 	})
 

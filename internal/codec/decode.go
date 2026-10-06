@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/writtendev/writ/internal/codec/canonicaljson"
@@ -80,27 +81,20 @@ func DecodePayload(raw []byte) (Envelope, error) {
 	return env, nil
 }
 
-func hasOpJSONInEntries(entries []TreeEntry) bool {
-	for _, e := range entries {
-		if e.Name == "op.json" {
-			return true
-		}
-		if hasOpJSONInEntries(e.Entries) {
-			return true
-		}
-	}
-	return false
-}
-
 // DecodeCommit decodes a Commit into an Op, applying reader-validation rules 1–4
-// in the spec's defined order: tree shape (including the rule 1 size bound,
-// MaxPayloadBytes), byte-equality, schema, committer/author identity.
+// in the spec's defined order: the root tree object's size bound (MaxTreeBytes),
+// tree shape, the op.json size bound (MaxPayloadBytes), byte-equality, schema,
+// committer/author identity. The commit object's own size bound
+// (MaxCommitBytes) is checked earlier still, by GetCommit, before there is a
+// Commit to decode.
 func DecodeCommit(commit Commit) (Op, error) {
 	// Rule 1: Tree validation
+	if commit.TreeSize > MaxTreeBytes {
+		return Op{}, &RejectError{Reason: RejectTreeTooLarge, Err: fmt.Errorf("root tree object is %d bytes, exceeds %d", commit.TreeSize, MaxTreeBytes)}
+	}
 	var opJsonFound bool
 	var opBlob []byte
 	var invalidMode bool
-	var opJsonInSubdir bool
 
 	for _, entry := range commit.Tree {
 		if entry.Name == "op.json" {
@@ -110,14 +104,8 @@ func DecodeCommit(commit Commit) (Op, error) {
 				invalidMode = true
 			}
 		}
-		if hasOpJSONInEntries(entry.Entries) {
-			opJsonInSubdir = true
-		}
 	}
 
-	if !opJsonFound && opJsonInSubdir {
-		return Op{}, &RejectError{Reason: RejectOpJSONSubdirectory, Err: errors.New("op.json in subdirectory")}
-	}
 	if !opJsonFound {
 		return Op{}, &RejectError{Reason: RejectMissingOpJSON, Err: errors.New("missing op.json in tree")}
 	}

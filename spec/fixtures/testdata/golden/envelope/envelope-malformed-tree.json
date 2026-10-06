@@ -54,11 +54,11 @@
       "verification_outcome": "valid",
       "expected": {
         "disposition": "reject",
-        "reason": "op-json-subdirectory"
+        "reason": "missing-op-json"
       },
       "observed": {
         "disposition": "reject",
-        "reason": "op-json-subdirectory"
+        "reason": "missing-op-json"
       }
     },
     {

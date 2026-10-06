@@ -1,0 +1,117 @@
+name: envelope-object-size
+description: >
+  Reader-validation rule 1's size bounds on the two git objects a reader
+  sizes before it loads anything: the root tree object at most 4,096 bytes
+  and the commit object at most 1,048,576 bytes, both inclusive. A tree of
+  exactly 4,096 bytes (op.json plus one padding entry) is not too large, so
+  the check that follows size, tree shape, still runs and rejects it as
+  extra-tree-entry: that pins the order, size before shape, and shows the
+  bound does not bite at the boundary. A tree of 4,097 bytes is rejected as
+  tree-too-large without being read. A commit of exactly 1,048,576 bytes is
+  accepted and one of 1,048,577 bytes is rejected as commit-too-large without
+  being loaded, which is why its golden record carries no fields that need
+  the decoded commit. Two more commits pin commit before tree: one of
+  1,048,576 bytes whose tree is 4,097 is tree-too-large (the commit bound is
+  inclusive and the tree is checked next), and one of 1,048,577 bytes whose
+  tree is also 4,097 is commit-too-large, never reaching the tree. Last, a
+  commit whose tree header names a blob rather than a tree pins that the
+  tree is sized whatever its type: a blob of 4,096 bytes is just a root tree
+  with no op.json (missing-op-json), one of 4,097 bytes is tree-too-large.
+  Each described commit is decoded and checked directly, not reached by
+  walking ancestry from a chain tip.
+
+refs:
+  - name: refs/writ/0123456789abcdef/widget
+    history:
+      - commits:
+          - id: tree-at-max
+            author: alice
+            timestamp: 2026-01-01T00:00:00Z
+            op:
+              object_id: widget-01
+              object_type: acme.widget
+              op_type: create
+              op_version: 1
+              body: {}
+            tree_size: 4096
+            expect:
+              reject: extra-tree-entry
+          - id: tree-over-max
+            author: alice
+            timestamp: 2026-01-01T00:01:00Z
+            op:
+              object_id: widget-01
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body: {}
+            tree_size: 4097
+            expect:
+              reject: tree-too-large
+          - id: commit-at-max
+            author: alice
+            timestamp: 2026-01-01T00:02:00Z
+            op:
+              object_id: widget-01
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "at the commit bound"
+            commit_size: 1048576
+            expect: accept
+          - id: commit-over-max
+            author: alice
+            timestamp: 2026-01-01T00:03:00Z
+            op:
+              object_id: widget-01
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "over the commit bound"
+            commit_size: 1048577
+            expect:
+              reject: commit-too-large
+          - id: commit-at-max-tree-over-max
+            author: alice
+            timestamp: 2026-01-01T00:04:00Z
+            op:
+              object_id: widget-01
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "commit at its bound, tree over its own"
+            tree_size: 4097
+            commit_size: 1048576
+            expect:
+              reject: tree-too-large
+          - id: commit-over-max-tree-over-max
+            author: alice
+            timestamp: 2026-01-01T00:05:00Z
+            op:
+              object_id: widget-01
+              object_type: acme.widget
+              op_type: update
+              op_version: 1
+              body:
+                title: "commit and tree both over"
+            tree_size: 4097
+            commit_size: 1048577
+            expect:
+              reject: commit-too-large
+          - id: tree-header-blob-at-max
+            author: alice
+            timestamp: 2026-01-01T00:06:00Z
+            message: "writ: update widget/widget-01\n"
+            tree_blob_size: 4096
+            expect:
+              reject: missing-op-json
+          - id: tree-header-blob-over-max
+            author: alice
+            timestamp: 2026-01-01T00:07:00Z
+            message: "writ: update widget/widget-01\n"
+            tree_blob_size: 4097
+            expect:
+              reject: tree-too-large

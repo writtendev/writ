@@ -194,10 +194,9 @@ operations. A conforming reader:
    history has, at every commit); a root tree present but without a
    top-level `op.json` entry, even when some other object it names is
    also absent (rule 1 already rejects that shape on the entries this
-   reader can see — `missing-op-json`, or `op-json-subdirectory` if the
-   absent subtree itself turns out to hold an `op.json` a complete reader
-   would find, which this reader cannot tell — so either way there is
-   nothing left to learn by reading further); and a root tree that
+   reader can see — `missing-op-json`, whatever the absent object might
+   hold, since rule 1 looks at the root tree only — so there is nothing
+   left to learn by reading further); and a root tree that
    already fails one of rule 1's other tree-shape checks on what this
    reader can see — an extra entry
    beside `op.json` whatever that entry's own blob holds, `op.json`
