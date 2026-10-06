@@ -254,8 +254,9 @@ Declining is bounded:
 
 A projection MAY still withhold a whole object type for a reason that is
 genuinely about the type — a generated table or column name colliding with
-one another type already owns, or a target key that is not a legal
-identifier in the storage engine — since there is then no narrower unit to
+one another type already owns, a target key that is not a legal
+identifier in the storage engine, or the storage engine refusing the type's
+generated schema — since there is then no narrower unit to
 withhold. That case remains covered by `FC-1`: the type's operations are
 retained verbatim as uninterpretable rather than discarded.
 

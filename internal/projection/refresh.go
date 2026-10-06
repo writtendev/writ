@@ -651,8 +651,8 @@ func (d *DB) rebuildWithConfig(store *dag.Store, cfg *refreshConfig, targetTips 
 	}()
 
 	// Clear every substrate table except meta (which carries schema_version,
-	// schema_digest, schema_tables, schema_descriptor and schema_query_shapes,
-	// none of which a data rebuild should touch) and every generated table
+	// schema_digest, schema_tables, schema_descriptor, schema_query_shapes and
+	// schema_withheld_types, none of which a data rebuild should touch) and every generated table
 	// the current descriptor knows about.
 	for _, t := range substrateTables {
 		if t == "meta" {

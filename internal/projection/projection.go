@@ -15,7 +15,7 @@ import (
 	"sync"
 
 	"github.com/writtendev/writ/internal/state"
-	_ "modernc.org/sqlite"
+	"modernc.org/sqlite"
 )
 
 // OpenOption configures an Open invocation on the projection database.
@@ -327,8 +327,8 @@ func tableHasRows(tx *sql.Tx, table string) (bool, error) {
 // below, even when the generated DDL is byte-identical.
 //
 // The meta keys (schema_digest, schema_tables, schema_descriptor,
-// schema_query_shapes) are written every call, regardless of whether the
-// digest changed. They must not be gated on the digest: schema_query_shapes
+// schema_query_shapes, schema_withheld_types) are written every call,
+// regardless of whether the digest changed. They must not be gated on the digest: schema_query_shapes
 // carries exactly ValueType and Strategy per target, and gating its write on
 // the digest ties its freshness to the digest catching every change that
 // could make it stale — a coupling that once broke exactly this way (the
@@ -346,13 +346,23 @@ func tableHasRows(tx *sql.Tx, table string) (bool, error) {
 // Equal digest still means no DDL is needed: generated tables already hold
 // correctly-shaped rows, so nothing is dropped or recreated and
 // needs_rebuild is not set. A different digest drops every table named in
-// the previously recorded descriptor, plus any stray o_-prefixed table not
-// in the new one (catches a torn write), emits the new DDL, truncates
-// anchor_resolutions (which targets are anchor-valued is a function of the
-// schema), and sets needs_rebuild so the next Refresh takes the
-// full-rebuild path exactly as a rewound tip does today — the
-// droppable-cache answer to a schema change is drop and rebuild, never
-// migrate (ARCHITECTURE.md, AGENTS.md).
+// the previously recorded descriptor, plus every other o_-prefixed table
+// (catches a torn write, and leaves no stale table for the new DDL to trip
+// on), emits the new DDL, truncates anchor_resolutions (which targets are
+// anchor-valued is a function of the schema), and sets needs_rebuild so the
+// next Refresh takes the full-rebuild path exactly as a rewound tip does
+// today — the droppable-cache answer to a schema change is drop and
+// rebuild, never migrate (ARCHITECTURE.md, AGENTS.md).
+//
+// A DDL error from peer data must never be fatal to the pass (WRIT-252's
+// principle, applied here): each type's DDL runs in its own savepoint, and
+// if SQLite refuses it with a plain SQLITE_ERROR the type is withheld — its
+// tables never exist, it is pruned from the descriptor (withhold), and its
+// objects fall to unknown_ops — while every other type carries on. Only
+// that class withholds, so the decision stays a function of the schema
+// alone; a resource or I/O failure (full disk, busy, ...) still fails the
+// pass. The withheld set is recorded in meta (schema_withheld_types) so an
+// equal-digest apply, which runs no DDL, prunes the same types.
 func (d *DB) ApplySchema(rules map[string][]state.Rule) error {
 	if d == nil || d.db == nil {
 		return fmt.Errorf("projection: database is closed")
@@ -390,7 +400,20 @@ func (d *DB) ApplySchema(rules map[string][]state.Rule) error {
 
 	metaWrites := map[string]string{}
 
-	if !sameDigest {
+	// withheld is the object types whose DDL SQLite refused, sorted because
+	// newDesc.order is. On the equal-digest path no DDL runs, so the set
+	// recorded by the apply that created these tables is read back instead;
+	// a cache that predates the key has never withheld anything.
+	var withheld []string
+
+	if sameDigest {
+		if raw, ok := loadMetaString(tx, "schema_withheld_types"); ok && raw != "" {
+			if err := json.Unmarshal([]byte(raw), &withheld); err != nil {
+				return fmt.Errorf("projection: unmarshal schema_withheld_types: %w", err)
+			}
+			newDesc.withhold(withheld)
+		}
+	} else {
 		drop := make(map[string]bool)
 		if raw, ok := loadMetaString(tx, "schema_tables"); ok && raw != "" {
 			var oldTables []persistedTable
@@ -399,11 +422,6 @@ func (d *DB) ApplySchema(rules map[string][]state.Rule) error {
 					drop[t.Name] = true
 				}
 			}
-		}
-
-		newNames := make(map[string]bool, len(newDesc.tables))
-		for _, t := range newDesc.tables {
-			newNames[t.Name] = true
 		}
 
 		strayRows, err := tx.Query(`SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'o\_%' ESCAPE '\'`)
@@ -424,9 +442,7 @@ func (d *DB) ApplySchema(rules map[string][]state.Rule) error {
 			return fmt.Errorf("projection: iterate generated tables: %w", err)
 		}
 		for _, name := range strayNames {
-			if !newNames[name] {
-				drop[name] = true
-			}
+			drop[name] = true
 		}
 
 		dropNames := make([]string, 0, len(drop))
@@ -440,11 +456,16 @@ func (d *DB) ApplySchema(rules map[string][]state.Rule) error {
 			}
 		}
 
-		if ddl := newDesc.createSQL(); ddl != "" {
-			if _, err := tx.Exec(ddl); err != nil {
-				return fmt.Errorf("projection: exec generated schema: %w", err)
+		for _, objectType := range newDesc.order {
+			refused, err := execTypeDDL(tx, typeCreateSQL(newDesc.types[objectType]))
+			if err != nil {
+				return fmt.Errorf("projection: exec generated schema for %s: %w", objectType, err)
+			}
+			if refused {
+				withheld = append(withheld, objectType)
 			}
 		}
+		newDesc.withhold(withheld)
 
 		if _, err := tx.Exec("DELETE FROM anchor_resolutions"); err != nil {
 			return fmt.Errorf("projection: truncate anchor_resolutions: %w", err)
@@ -482,6 +503,14 @@ func (d *DB) ApplySchema(rules map[string][]state.Rule) error {
 	if err != nil {
 		return fmt.Errorf("projection: marshal persisted query shapes: %w", err)
 	}
+	if withheld == nil {
+		withheld = []string{}
+	}
+	withheldJSON, err := json.Marshal(withheld)
+	if err != nil {
+		return fmt.Errorf("projection: marshal withheld types: %w", err)
+	}
+	metaWrites["schema_withheld_types"] = string(withheldJSON)
 	metaWrites["schema_digest"] = effectiveDigest
 	metaWrites["schema_tables"] = string(tablesJSON)
 	metaWrites["schema_descriptor"] = string(newDesc.canonicalJSON)
@@ -499,6 +528,41 @@ func (d *DB) ApplySchema(rules map[string][]state.Rule) error {
 
 	d.desc = newDesc
 	return nil
+}
+
+// sqliteError is SQLITE_ERROR, the generic "SQL logic error" primary result
+// code SQLite reports when it refuses a statement it cannot execute (an
+// object that already exists, say). It is the only code ApplySchema treats
+// as a withhold; spelled out here so the import allowlist stays as it is
+// rather than pulling in modernc.org/sqlite/lib for one number.
+const sqliteError = 1
+
+// execTypeDDL runs one object type's generated DDL inside its own savepoint.
+// refused is true (with a nil error) when SQLite rejected it with
+// SQLITE_ERROR: the savepoint is rolled back, so none of the type's tables or
+// indexes exist, and the caller withholds the type. Any other failure is
+// returned.
+func execTypeDDL(tx *sql.Tx, ddl string) (refused bool, err error) {
+	if _, err := tx.Exec("SAVEPOINT withhold_type"); err != nil {
+		return false, err
+	}
+	if _, execErr := tx.Exec(ddl); execErr != nil {
+		var se *sqlite.Error
+		if !errors.As(execErr, &se) || se.Code()&0xff != sqliteError {
+			return false, execErr
+		}
+		if _, err := tx.Exec("ROLLBACK TO withhold_type"); err != nil {
+			return false, err
+		}
+		if _, err := tx.Exec("RELEASE withhold_type"); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	if _, err := tx.Exec("RELEASE withhold_type"); err != nil {
+		return false, err
+	}
+	return false, nil
 }
 
 // descriptor returns the current in-memory schema descriptor, thread-safely.
