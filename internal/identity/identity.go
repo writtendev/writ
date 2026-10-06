@@ -31,7 +31,7 @@ func firstIdentCrud(s string) (rune, bool) {
 }
 
 // WriterID is an opaque 64-bit identifier (16 lowercase hex characters)
-// representing a writer device namespace under refs/writ/<writer-id>/.
+// representing one clone's writer namespace under refs/writ/<writer-id>/.
 type WriterID string
 
 // ParseWriterID parses and validates s as a WriterID matching ^[0-9a-f]{16}$.
@@ -42,7 +42,7 @@ type WriterID string
 // writ.writerId, but engine/dag runs the writer-id segment of a ref path
 // through here, and a malformed segment is usually someone else's id arriving
 // over a fetch. "Unset writ.writerId and re-mint" is the fix for the first and
-// a way to split your own device's ops across two ref namespaces for the
+// a way to split your own clone's ops across two ref namespaces for the
 // second. So the two config callers attach it — see withRemedy and
 // remintRemedy — and this one does not.
 func ParseWriterID(s string) (WriterID, error) {
@@ -120,7 +120,10 @@ func loadFailed(err error) Identity {
 
 // Load reads the current writer's identity out of git config in repoDir.
 // It executes git config to resolve system, global, and local repository
-// configuration with standard git precedence and include directives.
+// configuration with standard git precedence and include directives, except
+// for writ.writerId, which is read from local repository configuration only:
+// a writer-id names one clone's chain, so a value inherited from global or
+// system config is not a writer-id here.
 //
 // Load is called once and the value passed down — it must not be re-invoked
 // per op append or per sign.
@@ -131,6 +134,9 @@ func Load(ctx context.Context, repoDir string) (Identity, error) {
 	}
 
 	// 1. Writer ID: writ.writerId
+	//
+	// Read from local config alone, through its own read; every other key
+	// below comes from the merged map. See EnsureWriterID.
 	//
 	// The emptiness check trims; the parse does not. Only the guard was wrong.
 	// git config stores a whitespace-only value verbatim, so
@@ -149,15 +155,19 @@ func Load(ctx context.Context, repoDir string) (Identity, error) {
 	// run in it again. This is a ref-namespace decision, not a message: the
 	// set of strings that name a writer namespace is exactly the set
 	// ParseWriterID accepts, and widening it on one side of the pair splits a
-	// device's ops across two refs. Padding stays invalid, on both sides.
-	if strings.TrimSpace(cfg["writ.writerid"]) == "" {
+	// clone's ops across two refs. Padding stays invalid, on both sides.
+	localCfg, err := readLocalGitConfig(ctx, repoDir)
+	if err != nil {
+		return loadFailed(err), err
+	}
+	if strings.TrimSpace(localCfg["writ.writerid"]) == "" {
 		err := &ConfigError{
 			Key:     "writ.writerId",
 			Problem: ErrMissing,
 		}
 		return loadFailed(err), err
 	}
-	writerID, err := ParseWriterID(cfg["writ.writerid"])
+	writerID, err := ParseWriterID(localCfg["writ.writerid"])
 	if err != nil {
 		err = withRemedy(err, remintRemedy)
 		return loadFailed(err), err

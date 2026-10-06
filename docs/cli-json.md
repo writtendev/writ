@@ -68,7 +68,7 @@ Runs the same one-time repository setup as `writ init` — resolving or minting 
 | Field | Type | Description |
 |---|---|---|
 | `outcome` | string | One of `complete` (every remote configured, nothing skipped), `partial` (the run finished but skipped ≥1 discovered remote it could not configure), `stopped` (the run stopped part-way; re-run to finish). The exit code does **not** distinguish `complete` from `partial` — both exit `0` — so a caller that needs the difference reads this field instead of parsing stderr. |
-| `writer_id`, `writer_id_minted` | string, bool | This device's writer id, and whether this run minted it. |
+| `writer_id`, `writer_id_minted` | string, bool | This clone's writer id, and whether this run minted it. |
 | `repo_id`, `repo_id_minted` | string, bool | This repository's designator, and whether this run minted it. |
 | `person_id` | string, optional | The local writer's person identifier. Omitted when neither `writ.personId` nor `user.email` yields one. |
 | `person_id_source` | string, optional | `writ.personId` or `user.email`, naming where `person_id` came from. Omitted along with it. |

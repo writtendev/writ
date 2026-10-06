@@ -204,7 +204,7 @@ So Writ stores operations as **append chains**:
 `refs/writ/<writer-id>/<type>` points at that writer's latest operation of
 that type, each operation's git parent being their previous one. Which object
 an operation belongs to rides in the payload, never in the ref name. Ref count
-becomes O(writers × devices × types) — around 1,200 for a 300-person
+becomes O(writers × clones × types) — around 1,200 for a 300-person
 organization — and, crucially, stays constant as review activity grows, because
 appending moves an existing ref instead of creating a new one.
 
@@ -308,7 +308,7 @@ public front door and use Writ for everything behind it.
 ## The spec is the fixtures
 
 The standard is not the prose. It is the conformance corpus: fixture
-repositories exercising concurrent edits on every type, multi-device writers,
+repositories exercising concurrent edits on every type, multi-clone writers,
 orphaned anchors, unknown operation types, future versions, malformed
 signatures — plus golden folded outputs that any implementation must reproduce
 byte for byte.

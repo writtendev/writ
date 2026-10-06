@@ -179,3 +179,8 @@ func StoreParkNextChainsScan(s *Store) (parked <-chan struct{}, release func(), 
 			s.storer = real
 		}
 }
+
+// TakenWriterIDs exposes takenWriterIDs, the collision predicate Init hands to
+// identity.EnsureWriterID, so a test can pin which refs make a writer-id taken
+// without staging a mint that happens to collide.
+var TakenWriterIDs = takenWriterIDs

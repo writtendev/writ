@@ -911,17 +911,17 @@ identifier](#rendering-a-person-identifier) is).
 
 ### Relationship to `writer-id`
 
-Writ clearly separates device-scoped physical namespaces from collaborative actor
+Writ clearly separates per-clone physical namespaces from collaborative actor
 identities:
 
 | Concept | Format | Scope | Purpose |
 | --- | --- | --- | --- |
-| **`writer-id`** | 16 lowercase hex characters (`^[0-9a-f]{16}$`) | Device-scoped `(user, device)` | Git ref namespace (`refs/writ/<writer-id>/`) for append-only concurrent writes without locking. |
+| **`writer-id`** | 16 lowercase hex characters (`^[0-9a-f]{16}$`) | Per clone | Git ref namespace (`refs/writ/<writer-id>/`) for append-only concurrent writes without locking. |
 | **`person-id`** | `scheme ":" value`, normalized | Minted by a team or repository; stable across that actor's devices and repositories | Collaborative actor identity across multiple devices and repositories. |
 
 A single person (e.g. `email:alice@example.com`) may author ops from multiple
-machines and devices, each with its own distinct `writer-id` (e.g. laptop
-`4d8a23b35dd50102` and desktop `0123456789abcdef`). The `writer-id` partitions
+clones, each with its own distinct `writer-id` (e.g. a laptop clone
+`4d8a23b35dd50102` and a desktop clone `0123456789abcdef`). The `writer-id` partitions
 the git refspace; the `person-id` identifies the collaborative actor. A
 `writer-id` is never a person identifier: it has no scheme, and substituting
 one would be a bare identifier, which is invalid.
@@ -931,7 +931,7 @@ MUST NOT derive one identifier from the other. The format objection above is
 not the only one: the two identifiers have different scopes. A `person-id`,
 minted by a team or repository, names one collaborative actor across all of
 that actor's devices and repositories, while a `writer-id` names
-`(user, device)` — so the person above holds two of them. Substituting a
+one clone — so the person above holds two of them. Substituting a
 `writer-id` therefore splits one human into two collaborative actors: two
 assignees, two voters, and — because a `keyed-lww` register keyed on a
 `person-ref` component is keyed on the identifier itself
@@ -984,11 +984,9 @@ configuration. A present value that parses is reused unchanged; a present
 value that does not parse is a hard error naming the remedy (unset the key,
 then re-run `writ init`) rather than a silent re-mint. An engine reads the
 designator from local repository configuration only — never global or
-system config. This is narrower than the sibling key `writ.writerId`, whose
-global sourcing is deliberate (`spec/ref-layout.md` §Sourcing precedence):
-one `(user, device)` pair wants one writer-id across the repositories it
-works on. A repo-id has the opposite requirement — its only job is telling
-repositories apart — so a value inherited from global or system
+system config; the sibling key `writ.writerId` is read the same way
+(`spec/ref-layout.md` §Sourcing precedence). A repo-id's only job is telling
+repositories apart, so a value inherited from global or system
 config would let two repositories silently share one designator and
 `<repo-id>#<object-id>` would stop disambiguating anything. If the key is
 absent from local configuration, the repository has simply never been

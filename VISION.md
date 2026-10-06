@@ -52,7 +52,7 @@ Reviews home with the code they describe. Team-level objects — projects, cycle
 2. **Comment anchoring across force-pushes** — the genuinely hard problem of the space. Anchor to blob/hunk content, not line numbers; degrade gracefully to "orphaned but preserved."
 3. **Canonicalization** — signatures and content-addressing require byte-stable encoding; this is where the spec earns its keep.
 4. **Repo growth / GC story** — op history grows forever by design; the spec needs a compaction/archival answer eventually, not immediately.
-5. **Multi-device self-conflict** — writer-id = (user, device); the fold merges your own devices' ops like anyone else's.
+5. **Multi-clone self-conflict** — one writer-id per clone; the fold merges your own clones' ops like anyone else's.
 6. **Additional implementations** — if the convention succeeds, others will implement it. That's the goal: the conformance fixtures keep implementations compatible, and a second independent implementation would be welcome proof the spec stands on its own. `spec/` graduates to a neutral home when that community exists.
 7. **Naming collision checks** outstanding on "Writ."
 

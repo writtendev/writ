@@ -606,12 +606,17 @@ func TestLoad_WriterIDPrecedence(t *testing.T) {
 
 		setFileConfig(t, env.globalCfgPath, "writ.writerId", "2222222222222222")
 
-		id, err := identity.Load(context.Background(), env.repoDir)
-		if err != nil {
-			t.Fatalf("Load unexpected error: %v", err)
+		// A writer-id names one clone's chain, so a global value is not one.
+		_, err := identity.Load(context.Background(), env.repoDir)
+		if err == nil {
+			t.Fatal("Load accepted a writ.writerId that exists only in global config")
 		}
-		if id.WriterID != "2222222222222222" {
-			t.Errorf("id.WriterID = %q, want \"2222222222222222\"", id.WriterID)
+		if !errors.Is(err, identity.ErrMissing) {
+			t.Errorf("Load error = %v, want errors.Is ErrMissing", err)
+		}
+		var cfgErr *identity.ConfigError
+		if !errors.As(err, &cfgErr) || cfgErr.Key != "writ.writerId" {
+			t.Errorf("Load error = %v, want a *identity.ConfigError for writ.writerId", err)
 		}
 	})
 
@@ -635,7 +640,28 @@ func TestLoad_IncludePath(t *testing.T) {
 	env := setupTestEnv(t)
 	populateValidLocalConfig(t, env.repoDir)
 
-	// Remove local writerId
+	// Remove local user.name; a global include supplies it instead.
+	cmd := exec.Command("git", "config", "--unset", "user.name")
+	cmd.Dir = env.repoDir
+	_ = cmd.Run()
+
+	includedPath := filepath.Join(t.TempDir(), "included_gitconfig")
+	setFileConfig(t, includedPath, "user.name", "Included Name")
+	setFileConfig(t, env.globalCfgPath, "include.path", includedPath)
+
+	id, err := identity.Load(context.Background(), env.repoDir)
+	if err != nil {
+		t.Fatalf("Load unexpected error with include.path: %v", err)
+	}
+	if id.Author.Name != "Included Name" {
+		t.Errorf("id.Author.Name = %q, want included value \"Included Name\"", id.Author.Name)
+	}
+}
+
+func TestLoad_WriterIDIgnoresGlobalInclude(t *testing.T) {
+	env := setupTestEnv(t)
+	populateValidLocalConfig(t, env.repoDir)
+
 	cmd := exec.Command("git", "config", "--unset", "writ.writerId")
 	cmd.Dir = env.repoDir
 	_ = cmd.Run()
@@ -644,12 +670,9 @@ func TestLoad_IncludePath(t *testing.T) {
 	setFileConfig(t, includedPath, "writ.writerId", "4444444444444444")
 	setFileConfig(t, env.globalCfgPath, "include.path", includedPath)
 
-	id, err := identity.Load(context.Background(), env.repoDir)
-	if err != nil {
-		t.Fatalf("Load unexpected error with include.path: %v", err)
-	}
-	if id.WriterID != "4444444444444444" {
-		t.Errorf("id.WriterID = %q, want included value \"4444444444444444\"", id.WriterID)
+	_, err := identity.Load(context.Background(), env.repoDir)
+	if !errors.Is(err, identity.ErrMissing) {
+		t.Fatalf("Load error = %v, want errors.Is ErrMissing: a writer-id supplied only through a global include is not this clone's", err)
 	}
 }
 
