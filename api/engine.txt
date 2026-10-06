@@ -93,13 +93,39 @@ func WithSigner(signer Signer) Option
 func WithTargetRefs(refs ...string) Option
 func WithoutAutoRefresh() Option
 
-type Anchor = resolve.Anchor
+type Anchor = resolve.Anchor struct {
+	Version int `json:"version"`
+	Old *SideAnchor `json:"old,omitempty"`
+	New *SideAnchor `json:"new,omitempty"`
+	Unknown map[string]json.RawMessage `json:"-"`
+	Raw []byte `json:"-"`
+}
+func (Anchor) MarshalJSON() ([]byte, error)
 
-type Author = projection.Author
+type Author = projection.Author struct {
+	Name string `json:"name"`
+	Email string `json:"email"`
+}
 
-type ConfigError = identity.ConfigError
+type ConfigError = identity.ConfigError struct {
+	Key string
+	Value string
+	Problem error
+	Remedy string
+}
+func (*ConfigError) Error() string
+func (*ConfigError) Message() string
+func (*ConfigError) Unwrap() error
 
-type Envelope = codec.Envelope
+type Envelope = codec.Envelope struct {
+	ObjectID string `json:"object_id"`
+	ObjectType string `json:"object_type"`
+	OpType string `json:"op_type"`
+	OpVersion int64 `json:"op_version"`
+	Body json.RawMessage `json:"body"`
+	Unknown map[string]json.RawMessage `json:"-"`
+	Raw []byte `json:"-"`
+}
 
 type Event struct {
 	Kind EventKind `json:"kind"`
@@ -111,7 +137,7 @@ type Event struct {
 
 type EventKind string
 
-type FailureKind = writsync.FailureKind
+type FailureKind = writsync.FailureKind string
 
 type GitDirInfo struct {
 	WorkTree string
@@ -156,13 +182,40 @@ type Object struct {
 	Verification string
 }
 
-type ObjectChange = projection.ObjectChange
+type ObjectChange = projection.ObjectChange struct {
+	ObjectID string `json:"object_id"`
+	ObjectType string `json:"object_type"`
+	OpTypes []string `json:"op_types"`
+	Created bool `json:"created"`
+}
 
-type ObjectFilter = projection.ObjectFilter
+type ObjectFilter = projection.ObjectFilter struct {
+	Type []string
+	Author []string
+	Text string
+	IncludeDeleted bool
+	OrderBy OrderBy
+	Limit int
+	Offset int
+}
 
-type ObjectResult = projection.ObjectResult
+type ObjectResult = projection.ObjectResult struct {
+	ObjectID string `json:"object_id"`
+	ObjectType string `json:"object_type"`
+	Author Author `json:"author"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	OpCount int `json:"op_count"`
+	Verification string `json:"verification"`
+}
 
-type ObjectState = state.ObjectState
+type ObjectState = state.ObjectState struct {
+	ObjectID string `json:"object_id"`
+	ObjectType string `json:"object_type,omitempty"`
+	TotalOrder []OpRef `json:"total_order"`
+	State map[string]any `json:"state"`
+	UnknownOps []UnknownOp `json:"unknown_ops,omitempty"`
+}
 
 type Objects struct {
 	// unexported fields
@@ -171,13 +224,25 @@ func (*Objects) Apply(ctx context.Context, objectID string, op NewOp) error
 func (*Objects) Create(ctx context.Context, objectType string, op NewOp) (string, error)
 func (*Objects) Get(ctx context.Context, objectID string) (Object, error)
 
-type Op = codec.Op
+type Op = codec.Op struct {
+	Envelope
+	ID string `json:"id"`
+	Parents []string `json:"parents"`
+	Author Identity `json:"author"`
+	Committer Identity `json:"committer"`
+	Message string `json:"message"`
+	Signature string `json:"signature,omitempty"`
+	Verification Verification `json:"verification"`
+}
 
-type OpRef = state.OpRef
+type OpRef = state.OpRef struct {
+	Commit string `json:"commit"`
+	TStar int64 `json:"t_star"`
+}
 
 type Option func(*openConfig)
 
-type OrderBy = projection.OrderBy
+type OrderBy = projection.OrderBy string
 
 type Query struct {
 	// unexported fields
@@ -185,13 +250,29 @@ type Query struct {
 func (*Query) Object(id string) (ObjectResult, error)
 func (*Query) Objects(f ObjectFilter) ([]ObjectResult, error)
 
-type RefreshStats = projection.Stats
+type RefreshStats = projection.Stats struct {
+	OpsDecoded int `json:"ops_decoded"`
+	ObjectsTouched int `json:"objects_touched"`
+	AnchorsResolved int `json:"anchors_resolved"`
+	Rebuilt bool `json:"rebuilt"`
+	Changed []ObjectChange `json:"changed,omitempty"`
+	Rejections []dag.Rejection `json:"rejections,omitempty"`
+}
 
-type RejectError = codec.RejectError
+type RejectError = codec.RejectError struct {
+	Reason RejectReason
+	Err error
+}
+func (*RejectError) Error() string
+func (*RejectError) Unwrap() error
 
-type RejectReason = codec.RejectReason
+type RejectReason = codec.RejectReason string
 
-type Rejection = dag.Rejection
+type Rejection = dag.Rejection struct {
+	CommitID string `json:"commit_id"`
+	Reason codec.RejectReason `json:"reason"`
+	Err string `json:"error,omitempty"`
+}
 
 type RemoteInit struct {
 	Name string
@@ -202,9 +283,30 @@ type RemoteInit struct {
 	Err error
 }
 
-type Rule = state.Rule
+type Rule = state.Rule struct {
+	OpType string `json:"op_type,omitempty"`
+	OpVersion int64 `json:"op_version,omitempty"`
+	Field string `json:"field"`
+	Target string `json:"target,omitempty"`
+	Strategy string `json:"strategy"`
+	Key []string `json:"key,omitempty"`
+	Lattice []string `json:"lattice,omitempty"`
+	ValueType string `json:"value_type,omitempty"`
+	Enum []string `json:"enum,omitempty"`
+	MaxLength int64 `json:"max_length,omitempty"`
+	KeyTypes map[string]string `json:"key_types,omitempty"`
+	ObjectType string `json:"object_type,omitempty"`
+	Deprecated bool `json:"deprecated,omitempty"`
+}
+func (Rule) TargetKey() string
 
-type Schema = state.Schema
+type Schema = state.Schema struct {
+	ObjectID string `json:"object_id"`
+	Namespace string `json:"namespace,omitempty"`
+	Description string `json:"description,omitempty"`
+	Types []SchemaType `json:"types,omitempty"`
+	UnknownOps []UnknownOp `json:"unknown_ops,omitempty"`
+}
 
 type SchemaConflict struct {
 	Kind SchemaConflictKind `json:"kind"`
@@ -216,11 +318,29 @@ type SchemaConflict struct {
 
 type SchemaConflictKind string
 
-type SchemaErrorList = schemasrc.ErrorList
+type SchemaErrorList = schemasrc.ErrorList []*SyntaxError
+func (SchemaErrorList) Error() string
 
-type SchemaField = state.SchemaField
+type SchemaField = state.SchemaField struct {
+	Name string `json:"field"`
+	OpType string `json:"op_type"`
+	OpVersion int64 `json:"op_version"`
+	ValueType string `json:"value_type,omitempty"`
+	Enum []string `json:"enum,omitempty"`
+	MaxLength int64 `json:"max_length,omitempty"`
+	Strategy string `json:"strategy,omitempty"`
+	Key []string `json:"key,omitempty"`
+	KeyTypes map[string]string `json:"key_types,omitempty"`
+	Lattice []string `json:"lattice,omitempty"`
+	Target string `json:"target,omitempty"`
+	Deprecated bool `json:"deprecated,omitempty"`
+}
 
-type SchemaOp = state.SchemaOp
+type SchemaOp = state.SchemaOp struct {
+	OpType string `json:"op_type"`
+	OpVersion int64 `json:"op_version"`
+	Description string `json:"description,omitempty"`
+}
 
 type SchemaSource struct {
 	// unexported fields
@@ -228,11 +348,25 @@ type SchemaSource struct {
 func (*SchemaSource) Compile(objectID string) ([]Envelope, error)
 func (*SchemaSource) Namespace() string
 
-type SchemaSyntaxError = schemasrc.SyntaxError
+type SchemaSyntaxError = schemasrc.SyntaxError struct {
+	File string
+	Line int
+	Col int
+	Msg string
+}
+func (*SchemaSyntaxError) Error() string
 
-type SchemaType = state.SchemaType
+type SchemaType = state.SchemaType struct {
+	Name string `json:"type"`
+	Description string `json:"description,omitempty"`
+	Deprecated bool `json:"deprecated,omitempty"`
+	Fields []SchemaField `json:"fields,omitempty"`
+	Ops []SchemaOp `json:"ops,omitempty"`
+}
 
-type Signer = codec.Signer
+type Signer = codec.Signer interface {
+	Sign(ctx context.Context, payload []byte) (string, error)
+}
 
 type Store struct {
 	Objects *Objects
@@ -286,11 +420,17 @@ type TypeUnsynced struct {
 	Unsynced int `json:"unsynced"`
 }
 
-type UnknownOp = state.UnknownOp
+type UnknownOp = state.UnknownOp struct {
+	Commit string `json:"commit"`
+	ObjectType string `json:"object_type"`
+	OpType string `json:"op_type"`
+	OpVersion int64 `json:"op_version"`
+	Verification string `json:"verification"`
+}
 
-type VerificationOutcome = codec.VerificationOutcome
+type VerificationOutcome = codec.VerificationOutcome string
 
-type Vocabularies = codec.Vocabularies
+type Vocabularies = codec.Vocabularies map[string]Vocabulary
 
 type Writer struct {
 	ID string `json:"id"`
