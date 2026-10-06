@@ -1,12 +1,16 @@
 package fixtures
 
 import (
+	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"strings"
 
 	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/storer"
+
+	"github.com/writtendev/writ/internal/codec/sshsig"
 )
 
 const (
@@ -17,6 +21,8 @@ const (
 	TamperOpJsonModeExec = "op-json-mode-exec"
 	TamperArmorRewrap    = "armor-rewrap"
 	TamperSigTransplant  = "signature-transplant"
+	TamperSigPGP         = "signature-pgp"
+	TamperSigSSHSIGVer   = "signature-sshsig-version"
 )
 
 var validTamperEnums = map[string]bool{
@@ -27,6 +33,8 @@ var validTamperEnums = map[string]bool{
 	TamperOpJsonModeExec: true,
 	TamperArmorRewrap:    true,
 	TamperSigTransplant:  true,
+	TamperSigPGP:         true,
+	TamperSigSSHSIGVer:   true,
 }
 
 // IsValidTamper reports whether tamper is a recognized closed tamper enum value.
@@ -113,11 +121,45 @@ func applyTamper(store storer.EncodedObjectStorer, sgnr *signer, signerId identi
 		}
 		commit.PGPSignature = transplanted
 
+	case TamperSigPGP:
+		if commit.PGPSignature == "" {
+			return fmt.Errorf("tamper signature-pgp: commit is unsigned")
+		}
+		commit.PGPSignature = pgpSignatureBlock
+
+	case TamperSigSSHSIGVer:
+		if commit.PGPSignature == "" {
+			return fmt.Errorf("tamper signature-sshsig-version: commit is unsigned")
+		}
+		raw, err := sshsig.Unarmor(commit.PGPSignature)
+		if err != nil {
+			return fmt.Errorf("tamper signature-sshsig-version: %w", err)
+		}
+		if len(raw) < len(sshsig.Magic)+4 {
+			return fmt.Errorf("tamper signature-sshsig-version: signature blob too short")
+		}
+		binary.BigEndian.PutUint32(raw[len(sshsig.Magic):], sshsig.Version+1)
+		commit.PGPSignature = armorSSHSIG(base64.StdEncoding.EncodeToString(raw), sshsigArmorWidth, "\n")
+
 	default:
 		return fmt.Errorf("unknown tamper mode: %q", tamper)
 	}
 	return nil
 }
+
+// pgpSignatureBlock is signature-pgp's fixed replacement signature: PGP armor
+// shape and nothing more, since writ parses no OpenPGP. It is a constant so
+// the tampered commit's SHA is deterministic.
+const pgpSignatureBlock = `-----BEGIN PGP SIGNATURE-----
+
+iHUEABYIAB0WIQRSGVn0WFUb7xV1Qm2x0UtqHyPUUwUCZ9rDHAAKCRCx0UtqHyPU
+U4uPAQDv3u1X2lQ3b0VnXH4Qj1C5mJ3Zk9u0YfTQ0yQy8wYB3QEA3Qk0o9Qm1L2f
+=Zk3T
+-----END PGP SIGNATURE-----
+`
+
+// sshsigArmorWidth is the column width ssh-keygen -Y sign wraps armor at.
+const sshsigArmorWidth = 70
 
 // armorRewrapWidth is the column width armor-rewrap re-wraps a signature's
 // base64 body at. ssh-keygen -Y sign emits 70; anything else gives the same
@@ -148,14 +190,19 @@ func rewrapArmor(armored string, width int) (string, error) {
 	if !sawHeader || !sawFooter || body.Len() == 0 {
 		return "", fmt.Errorf("signature is not armored SSH signature")
 	}
-	b64 := body.String()
+	return armorSSHSIG(body.String(), width, trailing), nil
+}
+
+// armorSSHSIG wraps a base64 body at width columns between the SSH signature
+// armor header and footer, ending in trailing.
+func armorSSHSIG(b64 string, width int, trailing string) string {
 	var out strings.Builder
-	out.WriteString(header + "\n")
+	out.WriteString(sshsig.ArmorHeader + "\n")
 	for len(b64) > 0 {
 		n := min(width, len(b64))
 		out.WriteString(b64[:n] + "\n")
 		b64 = b64[n:]
 	}
-	out.WriteString(footer + trailing)
-	return out.String(), nil
+	out.WriteString(sshsig.ArmorFooter + trailing)
+	return out.String()
 }

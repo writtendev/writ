@@ -2,7 +2,7 @@
   "refs": [
     {
       "name": "refs/writ/0123456789abcdef/widget",
-      "commit": "35363078d2ecc8a771d2d402abb310c81f330c01"
+      "commit": "a8e616e9e4e1eb5c3394f43fd0b1e6e24278fea9"
     }
   ],
   "generations": [
@@ -60,6 +60,28 @@
           ],
           "author": "Alice Example \u003cAlice@Example.TEST\u003e",
           "timestamp": "2026-01-01T00:04:00Z",
+          "message": "writ: update acme.widget/widget-01\n",
+          "signed": true
+        },
+        {
+          "sha": "bb8f9259a8ac71f9affd82bddbad9f407aeb0736",
+          "tree": "26c8da0ff9bd626471784490cd5470317385b215",
+          "parents": [
+            "35363078d2ecc8a771d2d402abb310c81f330c01"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:05:00Z",
+          "message": "writ: update acme.widget/widget-01\n",
+          "signed": true
+        },
+        {
+          "sha": "a8e616e9e4e1eb5c3394f43fd0b1e6e24278fea9",
+          "tree": "a8face9895ef90d332ea9161d048d3c73fea3393",
+          "parents": [
+            "bb8f9259a8ac71f9affd82bddbad9f407aeb0736"
+          ],
+          "author": "Alice Example \u003calice@example.test\u003e",
+          "timestamp": "2026-01-01T00:06:00Z",
           "message": "writ: update acme.widget/widget-01\n",
           "signed": true
         }

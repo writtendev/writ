@@ -174,7 +174,7 @@ state out, no I/O") and WRIT-3:
 
 ## Verification Outcomes
 
-Verifiers MUST report one of the following closed set of outcomes:
+For this revision of the specification, verifiers MUST report one of the following outcomes:
 
 | Outcome | Meaning | Valid |
 | --- | --- | --- |
@@ -184,11 +184,19 @@ Verifiers MUST report one of the following closed set of outcomes:
 | `payload-mutated` | Cryptographic signature verification failed (the commit payload was modified after signing, or the signature does not match the public key). | `false` |
 | `corrupted-signature` | The signature header or binary SSHSIG payload is malformed, truncated, or unparseable. | `false` |
 
+A signature in a format or SSHSIG version this specification does not define
+MUST be reported as `corrupted-signature`. The outcome vocabulary may gain
+members in later revisions, and consumers MUST treat any outcome other than
+`valid` as not verified. The `envelope-bad-signatures` fixtures pin the rule
+(`bad-sig-unsupported-pgp`, `bad-sig-unsupported-sshsig-version`).
+
 ## Format Limitations (v1)
 
 1. **`cert-authority` unsupported:** OpenSSH `allowed_signers` lines specifying
    the `cert-authority` option are not supported in v1 and MUST be skipped
    as untrusted rather than honoured.
-2. **SSH only:** PGP signatures are unsupported (`gpg.format=ssh` only).
+2. **SSHSIG version 1 only:** Only SSHSIG version 1 (`gpg.format=ssh`) is
+   defined. A PGP or any other signature format, or an SSHSIG of another
+   version, is reported as `corrupted-signature` (§Verification Outcomes).
 3. **Key distribution:** Public key distribution and directory-identity mapping
    are out of scope for the op spec (per `ARCHITECTURE.md`).

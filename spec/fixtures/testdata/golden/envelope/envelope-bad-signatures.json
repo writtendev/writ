@@ -140,6 +140,62 @@
       "observed": {
         "disposition": "accept"
       }
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/widget",
+      "commit": "bb8f9259a8ac71f9affd82bddbad9f407aeb0736",
+      "parents": [
+        "35363078d2ecc8a771d2d402abb310c81f330c01"
+      ],
+      "author": "Alice Example \u003calice@example.test\u003e",
+      "committer": "Alice Example \u003calice@example.test\u003e",
+      "timestamp": "2026-01-01T00:05:00Z",
+      "tree_entries": [
+        {
+          "name": "op.json",
+          "mode": "0100644",
+          "sha": "c1b883f85f4c8274ca327f2b7ac296968a934890"
+        }
+      ],
+      "payload": "{\"body\":{\"title\":\"PGP-armored signature, a format the spec does not define\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"title\":\"PGP-armored signature, a format the spec does not define\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "signed": true,
+      "verification_outcome": "corrupted-signature",
+      "expected_verification": "corrupted-signature",
+      "expected": {
+        "disposition": "accept"
+      },
+      "observed": {
+        "disposition": "accept"
+      }
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/widget",
+      "commit": "a8e616e9e4e1eb5c3394f43fd0b1e6e24278fea9",
+      "parents": [
+        "bb8f9259a8ac71f9affd82bddbad9f407aeb0736"
+      ],
+      "author": "Alice Example \u003calice@example.test\u003e",
+      "committer": "Alice Example \u003calice@example.test\u003e",
+      "timestamp": "2026-01-01T00:06:00Z",
+      "tree_entries": [
+        {
+          "name": "op.json",
+          "mode": "0100644",
+          "sha": "c52c21a4a224ab21b26cf89d813f545218b59ecc"
+        }
+      ],
+      "payload": "{\"body\":{\"title\":\"SSHSIG version 2, a version the spec does not define\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "canonical_payload": "{\"body\":{\"title\":\"SSHSIG version 2, a version the spec does not define\"},\"object_id\":\"widget-01\",\"object_type\":\"acme.widget\",\"op_type\":\"update\",\"op_version\":1}",
+      "signed": true,
+      "verification_outcome": "corrupted-signature",
+      "expected_verification": "corrupted-signature",
+      "expected": {
+        "disposition": "accept"
+      },
+      "observed": {
+        "disposition": "accept"
+      }
     }
   ]
 }

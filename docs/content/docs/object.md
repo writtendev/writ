@@ -61,7 +61,7 @@ verification  valid
 title         Fix the thing
 ```
 
-`verification` reports the worst signature-verification outcome among the object's ops — `valid`, `unsigned`, `wrong-key`, `corrupted-signature`, or `payload-mutated` (`spec/signing.md` §Verification Model) — and it is reported, never enforced: an op that fails verification folds into `fields` exactly as a valid one would. A non-`valid` outcome in a repository with no `gpg.ssh.allowedSignersFile` configured is usually a configuration gap rather than tampering, and the command prints a one-line hint to stderr saying so — but a caller that treats this state as authentic is responsible for checking `verification` itself before doing so.
+`verification` reports the worst signature-verification outcome among the object's ops — `valid`, `unsigned`, `wrong-key`, `corrupted-signature`, or `payload-mutated` (`spec/signing.md` §Verification Model; the list is closed for v0.1, and any other value means not verified) — and it is reported, never enforced: an op that fails verification folds into `fields` exactly as a valid one would. A non-`valid` outcome in a repository with no `gpg.ssh.allowedSignersFile` configured is usually a configuration gap rather than tampering, and the command prints a one-line hint to stderr saying so — but a caller that treats this state as authentic is responsible for checking `verification` itself before doing so.
 
 ## `list`
 
