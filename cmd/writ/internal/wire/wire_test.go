@@ -198,7 +198,7 @@ func TestWire_FromInitResult_OutcomeAndRemoteStatus(t *testing.T) {
 		res := writ.InitResult{
 			WriterID: "w", RepoID: "r",
 			Remotes: []writ.RemoteInit{
-				{Name: "origin", Refspec: "+refs/writ/*:refs/remotes/origin/writ/*", Repaired: true},
+				{Name: "origin", Refspec: "+refs/writ/*:refs/writ-remotes/origin/*", Repaired: true},
 				{Name: "ghost", Skipped: true, Err: fmt.Errorf("remote %q: %w", "ghost", writ.ErrUnknownRemote)},
 				{Name: "-x", Skipped: true, Err: fmt.Errorf("remote %q: %w", "-x", writ.ErrInvalidRemoteName)},
 			},
@@ -225,7 +225,7 @@ func TestWire_FromInitResult_OutcomeAndRemoteStatus(t *testing.T) {
 		res := writ.InitResult{
 			WriterID: "w", RepoID: "r",
 			Remotes: []writ.RemoteInit{
-				{Name: "origin", Refspec: "+refs/writ/*:refs/remotes/origin/writ/*", Repaired: false},
+				{Name: "origin", Refspec: "+refs/writ/*:refs/writ-remotes/origin/*", Repaired: false},
 			},
 		}
 		got := wire.FromInitResult(res, nil, "")

@@ -11,7 +11,7 @@ import (
 
 // TestCorpusRefsAreDiscoverableChains is a corpus-wide static guard: every
 // ref name and keep_as any description in the corpus declares under
-// refs/writ/ or refs/remotes/<remote>/writ/ must parse with
+// refs/writ/ or refs/writ-remotes/<remote>/ must parse with
 // dag.ParseChainRef, the same production ref discovery
 // envelope_test.go's checkChainsDiscoverable exercises end-to-end for the
 // envelope family. A grammar-invalid writer-id (spec/ref-layout.md) is a

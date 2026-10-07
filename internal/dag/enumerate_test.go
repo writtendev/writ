@@ -423,8 +423,8 @@ func TestEnumerate_TwoReposGitFetch(t *testing.T) {
 		t.Fatalf("w1 push failed: %v (%s)", err, out)
 	}
 
-	// Writer 2 configures the normative fetch refspec: +refs/writ/*:refs/remotes/origin/writ/*
-	cmdConfig := exec.Command("git", "-C", w2Dir, "config", "--add", "remote.origin.fetch", "+refs/writ/*:refs/remotes/origin/writ/*")
+	// Writer 2 configures the normative fetch refspec: +refs/writ/*:refs/writ-remotes/origin/*
+	cmdConfig := exec.Command("git", "-C", w2Dir, "config", "--add", "remote.origin.fetch", "+refs/writ/*:refs/writ-remotes/origin/*")
 	if out, err := cmdConfig.CombinedOutput(); err != nil {
 		t.Fatalf("git config remote.origin.fetch failed: %v (%s)", err, out)
 	}
@@ -451,7 +451,7 @@ func TestEnumerate_TwoReposGitFetch(t *testing.T) {
 	if len(res.Ops["w-1"]) != 1 || res.Ops["w-1"][0].ID != op1.ID {
 		t.Fatalf("expected Alice's op %s in w2 enumeration, got %v", op1.ID, res.Ops["w-1"])
 	}
-	expectedRemoteRef := "refs/remotes/origin/writ/0123456789abcdef/widget"
+	expectedRemoteRef := "refs/writ-remotes/origin/0123456789abcdef/widget"
 	if res.Cursors[expectedRemoteRef] != op1.ID {
 		t.Fatalf("cursor %s = %s, want %s", expectedRemoteRef, res.Cursors[expectedRemoteRef], op1.ID)
 	}

@@ -86,7 +86,7 @@ func TestParseChainRef_Vectors(t *testing.T) {
 }
 
 // TestParseChainRef_RemoteVectors pins where <remote> ends in
-// refs/remotes/<remote>/writ/... against the normative vectors
+// refs/writ-remotes/<remote>/... against the normative vectors
 // (spec/ref-layout.md §Ref naming grammar).
 func TestParseChainRef_RemoteVectors(t *testing.T) {
 	doc := loadVectors(t)
@@ -132,29 +132,29 @@ func TestParseChainRef_RemoteTracking(t *testing.T) {
 		wantErr        bool
 	}{
 		{
-			ref:            "refs/remotes/origin/writ/0123456789abcdef/widget",
+			ref:            "refs/writ-remotes/origin/0123456789abcdef/widget",
 			wantRemote:     "origin",
 			wantWriterID:   "0123456789abcdef",
 			wantObjectType: "widget",
 			wantErr:        false,
 		},
 		{
-			ref:            "refs/remotes/upstream/writ/fedcba9876543210/waypoint",
+			ref:            "refs/writ-remotes/upstream/fedcba9876543210/waypoint",
 			wantRemote:     "upstream",
 			wantWriterID:   "fedcba9876543210",
 			wantObjectType: "waypoint",
 			wantErr:        false,
 		},
 		{
-			ref:     "refs/remotes/origin/heads/main",
+			ref:     "refs/writ-remotes/origin/heads/main",
 			wantErr: true,
 		},
 		{
-			ref:     "refs/remotes//writ/0123456789abcdef/widget",
+			ref:     "refs/writ-remotes//0123456789abcdef/widget",
 			wantErr: true,
 		},
 		{
-			ref:     "refs/remotes/origin/writ/invalid-id/widget",
+			ref:     "refs/writ-remotes/origin/invalid-id/widget",
 			wantErr: true,
 		},
 		{
@@ -162,7 +162,7 @@ func TestParseChainRef_RemoteTracking(t *testing.T) {
 			// refs/writ/<writer-id>/lock, so the remote-tracking arm must
 			// accept it too, the same as the local arm already does
 			// (spec/testdata/ref-names/vectors.json).
-			ref:            "refs/remotes/origin/writ/0123456789abcdef/lock",
+			ref:            "refs/writ-remotes/origin/0123456789abcdef/lock",
 			wantRemote:     "origin",
 			wantWriterID:   "0123456789abcdef",
 			wantObjectType: "lock",
@@ -173,7 +173,7 @@ func TestParseChainRef_RemoteTracking(t *testing.T) {
 			// component ending in ".lock" outright, so the remote-tracking
 			// arm must refuse it too. This is the one case the local arm's
 			// vectors.json coverage does not reach.
-			ref:     "refs/remotes/origin/writ/0123456789abcdef/acme.lock",
+			ref:     "refs/writ-remotes/origin/0123456789abcdef/acme.lock",
 			wantErr: true,
 		},
 	}
@@ -211,7 +211,7 @@ func TestChains(t *testing.T) {
 
 	// Set writ refs and unrelated refs
 	_ = s.SetReference(plumbing.NewHashReference(plumbing.ReferenceName("refs/writ/0123456789abcdef/widget"), h1))
-	_ = s.SetReference(plumbing.NewHashReference(plumbing.ReferenceName("refs/remotes/origin/writ/fedcba9876543210/waypoint"), h2))
+	_ = s.SetReference(plumbing.NewHashReference(plumbing.ReferenceName("refs/writ-remotes/origin/fedcba9876543210/waypoint"), h2))
 	_ = s.SetReference(plumbing.NewHashReference(plumbing.ReferenceName("refs/heads/main"), h3))
 	_ = s.SetReference(plumbing.NewHashReference(plumbing.ReferenceName("refs/tags/v1.0.0"), h3))
 	// Refs under the writ namespaces that fail the naming grammar are
@@ -220,7 +220,7 @@ func TestChains(t *testing.T) {
 	// ref with a reserved extra segment.
 	_ = s.SetReference(plumbing.NewHashReference(plumbing.ReferenceName("refs/writ/v2/0123456789abcdef/widget"), h3))
 	_ = s.SetReference(plumbing.NewHashReference(plumbing.ReferenceName("refs/writ/zz-not-hex/widget"), h3))
-	_ = s.SetReference(plumbing.NewHashReference(plumbing.ReferenceName("refs/remotes/origin/writ/v2/0123456789abcdef/widget"), h3))
+	_ = s.SetReference(plumbing.NewHashReference(plumbing.ReferenceName("refs/writ-remotes/origin/v2/0123456789abcdef/widget"), h3))
 
 	chains, err := dag.Chains(s)
 	if err != nil {
@@ -236,7 +236,7 @@ func TestChains(t *testing.T) {
 		t.Errorf("unexpected chain c1: %+v", c1)
 	}
 
-	c2, ok := chains["refs/remotes/origin/writ/fedcba9876543210/waypoint"]
+	c2, ok := chains["refs/writ-remotes/origin/fedcba9876543210/waypoint"]
 	if !ok || c2.Tip != h2 || c2.Ref.ObjectType != "waypoint" || c2.Ref.Remote != "origin" {
 		t.Errorf("unexpected chain c2: %+v", c2)
 	}
@@ -250,7 +250,7 @@ func TestRefConstructors(t *testing.T) {
 	}
 
 	remote := dag.RemoteRefName("origin", wID, "waypoint")
-	if remote != "refs/remotes/origin/writ/0123456789abcdef/waypoint" {
+	if remote != "refs/writ-remotes/origin/0123456789abcdef/waypoint" {
 		t.Errorf("RemoteRefName = %q", remote)
 	}
 }

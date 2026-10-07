@@ -55,7 +55,7 @@ $ writ sync                        # git push, to your own ref namespace
 
 That is the whole deployment story. No server, no database, no webhook, no
 account. `writ init` adds one line to `.git/config`
-(`remote.origin.fetch = +refs/writ/*:refs/remotes/origin/writ/*`) and from then
+(`remote.origin.fetch = +refs/writ/*:refs/writ-remotes/origin/*`) and from then
 on an ordinary `git fetch` carries review history along with the code.
 
 Four design choices carry most of the weight:

@@ -90,25 +90,26 @@ func parseRefName(ref string) (writerID, objectType string, err error) {
 }
 
 // parseRemoteRefName parses a remote-tracking chain per spec/ref-layout.md
-// §Ref naming grammar: <remote> is the one or more components between
-// refs/remotes/ and the first component equal to "writ" that follows at
-// least one component; what follows that component is the local grammar's
-// <writer-id>/<object-type>.
+// §Ref naming grammar: refs/writ-remotes/<remote>/<writer-id>/<object-type>.
+// <remote> MUST be a single path component (no /).
 func parseRemoteRefName(ref string) (remote, writerID, objectType string, err error) {
-	const prefix = "refs/remotes/"
+	const prefix = "refs/writ-remotes/"
 	if !strings.HasPrefix(ref, prefix) {
 		return "", "", "", fmt.Errorf("ref %q must start with %q", ref, prefix)
 	}
 	comps := strings.Split(strings.TrimPrefix(ref, prefix), "/")
-	for i := 1; i < len(comps); i++ {
-		if comps[i] != "writ" {
-			continue
-		}
-		local := "refs/writ/" + strings.Join(comps[i+1:], "/")
-		writerID, objectType, err = parseRefName(local)
-		return strings.Join(comps[:i], "/"), writerID, objectType, err
+	if len(comps) != 3 {
+		return "", "", "", fmt.Errorf("ref %q must have exactly 3 segments after %q, got %d", ref, prefix, len(comps))
 	}
-	return "", "", "", fmt.Errorf("ref %q has no writ component after a remote name", ref)
+	if comps[0] == "" {
+		return "", "", "", fmt.Errorf("ref %q has empty remote segment", ref)
+	}
+	local := "refs/writ/" + comps[1] + "/" + comps[2]
+	writerID, objectType, err = parseRefName(local)
+	if err != nil {
+		return "", "", "", err
+	}
+	return comps[0], writerID, objectType, nil
 }
 
 func requireGit(t *testing.T) {
@@ -130,7 +131,7 @@ func TestRefLayoutVectorsLoad(t *testing.T) {
 
 func TestRefspecsPinned(t *testing.T) {
 	doc := loadRefVectors(t)
-	const wantFetch = "+refs/writ/*:refs/remotes/<remote>/writ/*"
+	const wantFetch = "+refs/writ/*:refs/writ-remotes/<remote>/*"
 	const wantPush = "refs/writ/<writer-id>/*:refs/writ/<writer-id>/*"
 	if doc.Refspecs.Fetch != wantFetch {
 		t.Errorf("fetch refspec = %q, want %q", doc.Refspecs.Fetch, wantFetch)

@@ -131,7 +131,7 @@ func TestFetch_BringsAllWritersAndPreservesUnpushed(t *testing.T) {
 
 	// 5. Assert Bob's remote tracking ref for Alice was created/updated
 	bobRefs := snapshotAllRefs(t, bobRepo)
-	aliceTrackingRef := "refs/remotes/origin/writ/" + aliceID + "/widget"
+	aliceTrackingRef := "refs/writ-remotes/origin/" + aliceID + "/widget"
 	if tip, ok := bobRefs[aliceTrackingRef]; !ok || tip != aliceOpID {
 		t.Fatalf("expected %s = %s, got %s (refs: %v)", aliceTrackingRef, aliceOpID, tip, bobRefs)
 	}
@@ -157,7 +157,7 @@ func TestFetch_BringsAllWritersAndPreservesUnpushed(t *testing.T) {
 }
 
 // TestFetch_RollbackLands pins WRIT-270's forced fetch refspec
-// (+refs/writ/*:refs/remotes/<remote>/writ/*): a peer force-pushing a
+// (+refs/writ/*:refs/writ-remotes/<remote>/*): a peer force-pushing a
 // rewind of their own chain is a normal event (a backup restore, an
 // unpushed-history rebase, a plain --force), not an attack to reject, and
 // the projection already tolerates a Rewound chain and rebuilds. Fetch
@@ -202,7 +202,7 @@ func TestFetch_RollbackLands(t *testing.T) {
 		t.Fatalf("Initial Fetch: %v", err)
 	}
 
-	trackingRef := "refs/remotes/origin/writ/" + aliceID + "/widget"
+	trackingRef := "refs/writ-remotes/origin/" + aliceID + "/widget"
 	refsBefore := snapshotAllRefs(t, localRepo)
 	if refsBefore[trackingRef] != op2 {
 		t.Fatalf("expected tracking ref %s = %s, got %s", trackingRef, op2, refsBefore[trackingRef])

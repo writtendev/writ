@@ -72,24 +72,41 @@ func TestRefspec_EnsureIdempotentRepair(t *testing.T) {
 		{
 			name: "valid (forced) writ refspec already present",
 			initialConfig: []string{
-				"+refs/writ/*:refs/remotes/origin/writ/*",
+				"+refs/writ/*:refs/writ-remotes/origin/*",
 			},
 			initialState: writsync.StatusValid,
 		},
 		{
-			// The pre-WRIT-270 canonical form: a real old clone's
-			// .git/config, now drift that Ensure must repair.
-			name: "unforced writ refspec (old clone, no leading plus)",
+			// Unforced new form
+			name: "unforced writ refspec",
 			initialConfig: []string{
-				"refs/writ/*:refs/remotes/origin/writ/*",
+				"refs/writ/*:refs/writ-remotes/origin/*",
 			},
 			initialState: writsync.StatusUnforced,
 		},
 		{
-			name: "duplicate writ refspecs",
+			// The pre-WRIT-321 canonical form (forced): a real old clone's
+			// .git/config, now drift that Ensure must repair.
+			name: "old-form forced writ refspec (pre-WRIT-321)",
 			initialConfig: []string{
 				"+refs/writ/*:refs/remotes/origin/writ/*",
-				"+refs/writ/*:refs/remotes/origin/writ/*",
+			},
+			initialState: writsync.StatusWrongDestination,
+		},
+		{
+			// The pre-WRIT-270 canonical form (unforced, pre-WRIT-321):
+			// an even older clone's .git/config, now drift that Ensure must repair.
+			name: "old-form unforced writ refspec (pre-WRIT-321)",
+			initialConfig: []string{
+				"refs/writ/*:refs/remotes/origin/writ/*",
+			},
+			initialState: writsync.StatusWrongDestination,
+		},
+		{
+			name: "duplicate writ refspecs",
+			initialConfig: []string{
+				"+refs/writ/*:refs/writ-remotes/origin/*",
+				"+refs/writ/*:refs/writ-remotes/origin/*",
 			},
 			initialState: writsync.StatusDuplicate,
 		},
@@ -103,7 +120,7 @@ func TestRefspec_EnsureIdempotentRepair(t *testing.T) {
 		{
 			name: "wrong destination remote",
 			initialConfig: []string{
-				"+refs/writ/*:refs/remotes/other/writ/*",
+				"+refs/writ/*:refs/writ-remotes/other/*",
 			},
 			initialState: writsync.StatusWrongDestination,
 		},
@@ -203,7 +220,7 @@ func TestRefspec_EnsureIdempotentRepair(t *testing.T) {
 					foundHeads++
 				case "+refs/custom/*:refs/remotes/origin/custom/*":
 					foundCustom++
-				case "+refs/writ/*:refs/remotes/origin/writ/*":
+				case "+refs/writ/*:refs/writ-remotes/origin/*":
 					foundWrit++
 				}
 			}
@@ -224,20 +241,13 @@ func TestRefspec_EnsureIdempotentRepair(t *testing.T) {
 // TestValidateRemoteName pins the boring checks ValidateRemoteName runs, in
 // the order it runs them: empty, "-"-leading (the primary defense against
 // the argument-injection hole "writ sync -- --upload-pack=<script>" verified
-// to execute, WRIT-283), and go-git's own reference-name validation (with
+// to execute, WRIT-283), "/"-containing (writ remotes must be a single path
+// component, WRIT-321), and go-git's own reference-name validation (with
 // the lone-"@"-component override) as the catch-all.
-//
-// "/"-containing names ("team/fork", "a/@", "@/a") are pinned valid --
-// round-2 review finding: git itself accepts them ("git remote add" is the
-// oracle, verified against git 2.50.1) and a round-1 ban on the rationale
-// of git's valid_remote_nick rule rejected a class of remotes git supports,
-// stranding a writer's ops. "@" alone is pinned valid for the same reason:
-// go-git's reference-name validator rejects a lone "@" component where git
-// does not, and ValidateRemoteName routes around that one divergence.
 func TestValidateRemoteName(t *testing.T) {
 	valid := []string{
 		"origin", "up-stream", "a.b",
-		"team/fork", "@", "a/@", "@/a", "a/b/c", "üñîçødé",
+		"@", "üñîçødé",
 	}
 	for _, name := range valid {
 		t.Run(fmt.Sprintf("valid_%q", name), func(t *testing.T) {
@@ -250,6 +260,7 @@ func TestValidateRemoteName(t *testing.T) {
 	invalid := []string{
 		"", "-x", "--upload-pack=/bin/sh", "a b",
 		".", "..", "a..b", "x.lock", "he^ad", "q?", "a@{0}",
+		"team/fork", "team/writ/fork", "a/@", "@/a", "a/b/c",
 		"a//b", "/a", "a/", "a/.lock", "@{",
 	}
 	for _, name := range invalid {

@@ -2,7 +2,7 @@ name: multi-writer-chains
 description: >
   Two writer chains carrying interleaved ops for two object_ids (widget-01 and
   widget-02), one cross-chain causal DAG parent edge, one remote-tracking chain
-  under refs/remotes/origin/writ/*, and two breaks in reader-validation-failing
+  under refs/writ-remotes/origin/*, and two breaks in reader-validation-failing
   history (WRIT-289): alice's chain has a commit missing op.json, and the
   remote chain has a commit whose op.json is present but non-canonical. Both
   pin the ruled stopping rule ("a chain is a chain; a break in it is the end
@@ -95,7 +95,7 @@ refs:
               accept: true
               verification: unsigned
 
-  - name: refs/remotes/origin/writ/550e8400e29b41d4/widget
+  - name: refs/writ-remotes/origin/550e8400e29b41d4/widget
     history:
       - commits:
           - id: remote-0

@@ -49,25 +49,29 @@ exclusion) are what it checks. Rule 4's byte-identity with the ops'
 only, with the reader's treatment of a mismatch stated in rule 4. What a
 reader does with a ref under `refs/writ/` that fails recognition is
 §Reader enumeration's rule. The rules below state the local form. A remote-tracking chain
-(`refs/remotes/<remote>/writ/<writer-id>/<object-type>`) conforms when the
-part after `refs/remotes/<remote>/` matches them with `refs/` read as
-`refs/remotes/<remote>/`; the three-segment rule then counts the segments
-after that prefix. `<remote>` is the one or more path components between
-`refs/remotes/` and the first component equal to `writ` that follows at least
-one component; equivalently, split the part after `refs/remotes/` at its
-first `/writ/`. A remote name may itself contain a `writ` component (a remote
-named `writ`, `writ/fork` or `team/writ` is accepted), and the split reads it
-by position. A leading `writ` belongs to `<remote>`:
-`refs/remotes/writ/writ/<writer-id>/<object-type>` is a chain of remote
-`writ`, and `refs/remotes/writ/fork/writ/<writer-id>/<object-type>` is a chain
-of remote `writ/fork`. A later one does not: a remote named `team/writ` has no
-conforming remote-tracking chains, because
-`refs/remotes/team/writ/writ/<writer-id>/<object-type>` is read as remote
-`team`, whose second segment `writ` is reserved and ignored under §Reader
-enumeration, never as a chain of remote `team/writ`. The `remote_valid` and
-`remote_invalid` vectors in `spec/testdata/ref-names/vectors.json` pin this
-split. It is a known limitation, not a design: WRIT-321 moves the tracking
-destination out of `refs/remotes/`, which retires this clause.
+(`refs/writ-remotes/<remote>/<writer-id>/<object-type>`) conforms when the
+part after `refs/writ-remotes/<remote>/` matches them with `refs/` read as
+`refs/writ-remotes/<remote>/`. `<remote>` MUST be a single path component
+(containing no `/`), parsed left-to-right.
+
+Why the tracking destination sits outside `refs/remotes/`: git's default fetch
+refspec `+refs/heads/*:refs/remotes/<remote>/*` places remote branches directly
+under `refs/remotes/<remote>/`. If writ's tracking refs also sat under
+`refs/remotes/<remote>/writ/*`, any remote branch matching `writ/*` (such as the
+§Fallback escape hatch `writ/<writer-id>/<object-type>`) would map to the exact same
+destination as a writ tracking ref, causing git to fail fetches for the entire
+repository with a destination collision error. Placing tracking refs under
+`refs/writ-remotes/<remote>/` isolates them completely from branch tracking refs and makes
+branch collisions structurally impossible.
+
+Why `<remote>` is restricted to a single path component: parsing left-to-right,
+requiring `<remote>` to be a single path component ensures that every conforming
+remote-tracking ref has exactly three path segments after `refs/writ-remotes/`
+(`<remote>`, `<writer-id>`, `<object-type>`). This eliminates ambiguity with
+WRIT-314's reserved ref namespaces (`refs/writ-remotes/<remote>/v2/...`), where
+a second segment after `<remote>` that is not a 16-hex writer-id is reserved and
+ignored by conforming readers. The `remote_valid` and `remote_invalid` vectors in
+`spec/testdata/ref-names/vectors.json` pin this grammar.
 
 1. **Prefix:** The ref name MUST start with `refs/writ/`.
 2. **Path segments:** Exactly three path segments MUST follow `refs/`:
@@ -151,15 +155,16 @@ Readers MUST NOT rely on verifying the chain spine to discover or group
 operations. A conforming reader:
 
 1. Enumerates all refs under `refs/writ/*` (local writer) and
-   `refs/remotes/*/writ/*` (remote-tracking chains fetched from remotes)
+   `refs/writ-remotes/*` (remote-tracking chains fetched from remotes)
    that a reader recognizes as chains under §Ref naming grammar (the name's
    shape; rule 4's byte-identity with the ops' `object_type` is a producer
    obligation, not a recognition rule). A ref under `refs/writ/` (or
-   `refs/remotes/<remote>/writ/`) that fails recognition MUST be
+   `refs/writ-remotes/`) that fails recognition MUST be
    ignored by a reader: not enumerated, not walked, and not reported as an
-   error or a rejection. A second path segment (the one immediately after
-   `writ/`) that is not a 16-lowercase-hex `<writer-id>` (for example
-   `refs/writ/v2/...`) is reserved for future revisions of this format.
+   error or a rejection. A second path segment under `refs/writ/` (the one immediately after
+   `writ/`) or the segment after `<remote>/` under `refs/writ-remotes/` that is not a
+   16-lowercase-hex `<writer-id>` (for example `refs/writ/v2/...` or `refs/writ-remotes/origin/v2/...`)
+   is reserved for future revisions of this format.
    The `+refs/writ/*` fetch refspec still transfers such refs. Why: a future format change that is not additive can
    then live in its own namespace beside this one, readable by readers that
    know it and invisible to readers that do not, instead of forking every
@@ -314,7 +319,7 @@ checkouts.
   writers). At mint time `writ init` MUST NOT choose an id that already
   names a chain in the repository. That covers local chains
   (`refs/writ/<id>/*`) and remote-tracking ones
-  (`refs/remotes/<remote>/writ/<id>/*`, chains observed by a prior fetch). A
+  (`refs/writ-remotes/<remote>/<id>/*`, chains observed by a prior fetch). A
   fresh clone has observed no remote writ refs yet, and the 64-bit
   cryptographic randomness bound is what covers that case.
 
@@ -329,12 +334,12 @@ For each configured remote `<remote>`, `writ init` appends the following
 fetch refspec:
 
 ```
-remote.<remote>.fetch = +refs/writ/*:refs/remotes/<remote>/writ/*
+remote.<remote>.fetch = +refs/writ/*:refs/writ-remotes/<remote>/*
 ```
 
 Command executed:
 ```bash
-git config --add remote.<remote>.fetch '+refs/writ/*:refs/remotes/<remote>/writ/*'
+git config --add remote.<remote>.fetch '+refs/writ/*:refs/writ-remotes/<remote>/*'
 ```
 
 Key properties:
@@ -357,11 +362,15 @@ Key properties:
   (`ARCHITECTURE.md` §Ref layout), so nothing referenced from elsewhere in
   the DAG disappears — but this clone's view of that writer's history can
   move backward without warning.
-- **Remote-tracking namespace:** Fetching into `refs/remotes/<remote>/writ/*`
-  keeps remote chains isolated from the local writing namespace `refs/writ/*`.
+- **Remote-tracking namespace:** Fetching into `refs/writ-remotes/<remote>/*`
+  keeps remote chains isolated from both the local writing namespace `refs/writ/*`
+  and git's branch remote-tracking namespace `refs/remotes/<remote>/*`.
   This prevents plain `git fetch` from failing with non-fast-forward errors
-  when the local writer has unpushed operations, and prevents `git fetch --prune`
-  from deleting unpushed local chains.
+  when the local writer has unpushed operations, prevents `git fetch --prune`
+  from deleting unpushed local chains, and prevents remote branches from colliding
+  with writ tracking refs. Note that `git remote rename` does not automatically
+  rename tracking refs under `refs/writ-remotes/<old>/*`; `writ sync` or `writ init`
+  (`Ensure`) repairs the fetch refspec in `.git/config` on the next invocation.
 - **Idempotency:** `writ init` MUST check existing `remote.<remote>.fetch`
   entries and avoid adding duplicate lines on repeated invocations.
 
@@ -381,7 +390,7 @@ push refspec in git config would alter the default behavior of ordinary
 ### The `--prune` behavior
 
 When `fetch.prune` is enabled or `git fetch --prune` is run, git prunes
-remote-tracking refs under `refs/remotes/<remote>/writ/*` that no longer
+remote-tracking refs under `refs/writ-remotes/<remote>/*` that no longer
 exist on the remote. Because local chains live under `refs/writ/*`,
 `--prune` never touches unpushed local chains.
 
@@ -419,14 +428,16 @@ This fallback:
   `<object-type>`) under `refs/heads/`.
 - Must be used with caution, as `refs/heads/*` is subject to branch-protection
   rules and CI push triggers (`on: push`) on many hosting platforms.
+- No longer collides with writ tracking refs, because writ tracking refs reside
+  in `refs/writ-remotes/<remote>/*` rather than under `refs/remotes/<remote>/`.
 
 ## Conformance data
 
 - `spec/testdata/ref-names/vectors.json` — normative test vectors for ref
   name parsing, valid and invalid forms, and pinned refspec strings. Its
-  `remote_valid` and `remote_invalid` lists pin where `<remote>` ends in a
-  remote-tracking ref (remotes `origin`, `writ`, `writ/fork` and `team/fork`,
-  and the ignored `team/writ` split), each valid entry naming the expected
+  `remote_valid` and `remote_invalid` lists pin the three-segment
+  `refs/writ-remotes/<remote>/<writer-id>/<object-type>` structure (covering
+  remotes `origin`, `upstream`, and `writ`), each valid entry naming the expected
   `remote`.
 - `spec/ref_layout_test.go` — test suite asserting grammar conformance and
   `git check-ref-format` validation.
@@ -465,6 +476,6 @@ This fallback:
   fold golden (`spec/fixtures/testdata/golden/fold/reserved-ref-namespaces.json`)
   — the §Reader enumeration MUST-ignore rule (WRIT-314): a conforming chain
   beside a `refs/writ/v2/...` ref, a `refs/writ/zz-not-hex/...` ref, and a
-  `refs/remotes/origin/writ/v2/...` ref, each carrying something a reader
+  `refs/writ-remotes/origin/v2/...` ref, each carrying something a reader
   would surface if it walked the ref, pinning that only the conforming
   chain's operations are held and the fold golden records no rejections.

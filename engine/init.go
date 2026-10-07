@@ -61,7 +61,7 @@ type RemoteInit struct {
 	// Name is the remote's name.
 	Name string
 	// Refspec is the fetch refspec Init expects for this remote
-	// (+refs/writ/*:refs/remotes/<name>/writ/*). Set for a remote Init
+	// (+refs/writ/*:refs/writ-remotes/<name>/*). Set for a remote Init
 	// configured, whether repaired or found already correct; empty for a
 	// skipped remote, a not-attempted one (NotAttempted), or the one hard
 	// failure that stopped the run.
@@ -337,7 +337,7 @@ func Init(ctx context.Context, path string, opts InitOptions) (InitResult, error
 // takenWriterIDs returns the collision predicate Init hands to
 // identity.EnsureWriterID: it reports whether a writer-id already names a chain
 // in the repository. It covers local chains (refs/writ/<id>/*) and
-// remote-tracking ones (refs/remotes/<remote>/writ/<id>/*, chains observed by a
+// remote-tracking ones (refs/writ-remotes/<remote>/<id>/*, chains observed by a
 // prior fetch), both through dag.Chains. Best effort by design: a listing that
 // fails yields a nil predicate, which costs a collision check, not the run.
 func takenWriterIDs(s storage.Storer) func(identity.WriterID) bool {
