@@ -68,14 +68,14 @@ func PushRefspec(writerID identity.WriterID) string {
 }
 
 // isWritRefspec returns true if a refspec pattern pertains to the Writ namespace.
+// Only patterns rooted in refs/writ/ or refs/writ-remotes/ pertain to Writ;
+// substring matching (e.g. "/writ/") must not be used because it falsely
+// matches git's default branch fetch refspec +refs/heads/*:refs/remotes/writ/*
+// when a remote is named "writ".
 func isWritRefspec(refspec string) bool {
 	clean := strings.TrimPrefix(refspec, "+")
-	if strings.HasPrefix(clean, "refs/writ/") || strings.HasPrefix(clean, "refs/writ-remotes/") {
-		return true
-	}
-	parts := strings.Split(clean, ":")
-	for _, p := range parts {
-		if strings.HasPrefix(p, "refs/writ/") || strings.HasPrefix(p, "refs/writ-remotes/") || strings.Contains(p, "/writ/") {
+	for _, p := range strings.Split(clean, ":") {
+		if strings.HasPrefix(p, "refs/writ/") || strings.HasPrefix(p, "refs/writ-remotes/") {
 			return true
 		}
 	}
