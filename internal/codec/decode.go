@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/writtendev/writ/internal/codec/canonicaljson"
 )
@@ -17,13 +16,7 @@ func DecodePayload(raw []byte) (Envelope, error) {
 	// Rule 2: Byte-equality rule (canonicalization check)
 	canon, err := canonicaljson.Marshal(raw)
 	if err != nil {
-		reason := RejectNonCanonicalPayload
-		if strings.Contains(err.Error(), "duplicate") {
-			reason = RejectDuplicateKey
-		} else if strings.Contains(err.Error(), "lone surrogate") {
-			reason = RejectLoneSurrogate
-		}
-		return Envelope{}, &RejectError{Reason: reason, Err: err}
+		return Envelope{}, &RejectError{Reason: RejectNonCanonicalPayload, Err: err}
 	}
 	if !bytes.Equal(canon, raw) {
 		return Envelope{}, &RejectError{
@@ -92,35 +85,25 @@ func DecodeCommit(commit Commit) (Op, error) {
 	if commit.TreeSize > MaxTreeBytes {
 		return Op{}, &RejectError{Reason: RejectTreeTooLarge, Err: fmt.Errorf("root tree object is %d bytes, exceeds %d", commit.TreeSize, MaxTreeBytes)}
 	}
-	var opJsonFound bool
-	var opBlob []byte
-	var invalidMode bool
-
-	for _, entry := range commit.Tree {
-		if entry.Name == "op.json" {
-			opJsonFound = true
-			opBlob = entry.Data
-			if entry.Mode != "100644" && entry.Mode != "100644\n" && entry.Mode != "0100644" {
-				invalidMode = true
-			}
-		}
-	}
-
-	if !opJsonFound {
-		return Op{}, &RejectError{Reason: RejectMissingOpJSON, Err: errors.New("missing op.json in tree")}
+	if len(commit.Tree) == 0 {
+		return Op{}, &RejectError{Reason: RejectTreeShape, Err: errors.New("missing op.json in tree")}
 	}
 	if len(commit.Tree) > 1 {
-		return Op{}, &RejectError{Reason: RejectExtraTreeEntry, Err: errors.New("extra tree entries beside op.json")}
+		return Op{}, &RejectError{Reason: RejectTreeShape, Err: errors.New("extra tree entries beside op.json")}
 	}
-	if invalidMode {
-		return Op{}, &RejectError{Reason: RejectInvalidOpJSONMode, Err: errors.New("invalid op.json file mode, must be 100644")}
+	entry := commit.Tree[0]
+	if entry.Name != "op.json" {
+		return Op{}, &RejectError{Reason: RejectTreeShape, Err: fmt.Errorf("missing op.json in tree (found %q)", entry.Name)}
 	}
-	if len(opBlob) > MaxPayloadBytes {
+	if entry.Mode != "100644" && entry.Mode != "0100644" {
+		return Op{}, &RejectError{Reason: RejectTreeShape, Err: fmt.Errorf("invalid op.json file mode %q, must be 100644", entry.Mode)}
+	}
+	if len(entry.Data) > MaxPayloadBytes {
 		return Op{}, &RejectError{Reason: RejectPayloadTooLarge, Err: errors.New("op.json exceeds maximum payload size")}
 	}
 
 	// Rules 2 & 3: Payload byte-equality and schema validation
-	env, err := DecodePayload(opBlob)
+	env, err := DecodePayload(entry.Data)
 	if err != nil {
 		return Op{}, err
 	}

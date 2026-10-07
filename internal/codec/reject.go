@@ -3,18 +3,15 @@ package codec
 import "fmt"
 
 // RejectReason represents the machine-readable reason an op commit or payload is rejected.
+// The reader rejection-reason set is closed and mirrors spec/op-envelope.md §Reader validation.
 type RejectReason string
 
 const (
-	RejectMissingOpJSON       RejectReason = "missing-op-json"
-	RejectExtraTreeEntry      RejectReason = "extra-tree-entry"
-	RejectInvalidOpJSONMode   RejectReason = "invalid-op-json-mode"
-	RejectCommitterMismatch   RejectReason = "committer-mismatch"
-	RejectNonCanonicalPayload RejectReason = "non-canonical-payload"
-	RejectDuplicateKey        RejectReason = "duplicate-key"
-	RejectLoneSurrogate       RejectReason = "lone-surrogate"
-	RejectSchemaViolation     RejectReason = "schema-violation"
+	RejectTreeShape           RejectReason = "tree-shape"
 	RejectPayloadTooLarge     RejectReason = "payload-too-large"
+	RejectNonCanonicalPayload RejectReason = "non-canonical-payload"
+	RejectSchemaViolation     RejectReason = "schema-violation"
+	RejectCommitterMismatch   RejectReason = "committer-mismatch"
 	RejectCommitTooLarge      RejectReason = "commit-too-large"
 	RejectTreeTooLarge        RejectReason = "tree-too-large"
 )
@@ -32,7 +29,7 @@ const MaxCommitBytes = 1 << 20
 // MaxTreeBytes is the maximum size, in bytes, of an op commit's root tree
 // object a conforming reader accepts, inclusive (spec/op-envelope.md §Reader
 // validation rule 1). A legitimate op tree is 35 bytes; the bound is
-// deliberately larger so the tree-shape reasons stay reachable.
+// deliberately larger so tree-shape stays reachable.
 const MaxTreeBytes = 1 << 12
 
 // MaxCommitParents is the maximum number of causal parents a single op commit

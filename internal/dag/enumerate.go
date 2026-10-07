@@ -33,7 +33,7 @@ type Rejection struct {
 // belongs in the spec instead is a normative question this ticket
 // (WRIT-271) deliberately leaves open for Matt rather than deciding
 // here. Before this reason existed, an absent object was misreported as
-// a malformed op (missing-op-json or non-canonical-payload) — the same
+// a malformed op (tree-shape or non-canonical-payload) — the same
 // category error, for a different commit, that WRIT-255 round 2 review
 // found in packedObjectSize.
 const RejectObjectUnavailable codec.RejectReason = "object-unavailable"
@@ -843,7 +843,7 @@ func decodeOpCommit(st storage.Storer, commitObj *object.Commit) (codec.Commit, 
 	// caller-supplied-Payload trust point is not reachable from here.
 	pureCommit, err := codec.FromGitCommit(st, commitObj)
 	if err != nil {
-		reason := codec.RejectMissingOpJSON
+		reason := codec.RejectTreeShape
 		if errors.Is(err, plumbing.ErrObjectNotFound) {
 			reason = RejectObjectUnavailable
 		}
@@ -891,7 +891,7 @@ func objectAbsent(s storage.Storer, hash plumbing.Hash) bool {
 // commitLoadReason names the reason a failed codec.GetCommit of hash is
 // reported under: the reader-validation reason a *codec.RejectError carries
 // (commit-too-large), object-unavailable when hash names no object at all,
-// and missing-op-json for any other failure to read a commit — the same
+// and tree-shape for any other failure to read a commit — the same
 // classification the walk gave object.GetCommit's failures before the commit
 // object was sized.
 func commitLoadReason(s storage.Storer, hash plumbing.Hash, err error) codec.RejectReason {
@@ -902,7 +902,7 @@ func commitLoadReason(s storage.Storer, hash plumbing.Hash, err error) codec.Rej
 	if errors.Is(err, plumbing.ErrObjectNotFound) && objectAbsent(s, hash) {
 		return RejectObjectUnavailable
 	}
-	return codec.RejectMissingOpJSON
+	return codec.RejectTreeShape
 }
 
 // rootOpJSONBlobAbsent is the narrow test that decides whether a
@@ -941,19 +941,18 @@ func commitLoadReason(s storage.Storer, hash plumbing.Hash, err error) codec.Rej
 //     see — an extra entry beside op.json (however that entry's own blob
 //     reads, present or absent), op.json present as a directory instead
 //     of a blob, or op.json present at some mode other than 100644 — a
-//     reader-validation rejection (extra-tree-entry, missing-op-json, or
-//     invalid-op-json-mode) waiting only on the blob read that never
-//     gets to run; the tree already settles the verdict without it (round
-//     3 review: the round 2 cut only checked that an entry named op.json
-//     existed and its blob was absent, so a tree with other visible
-//     defects — an extra entry, op.json as a directory, or the wrong mode
-//     — still returned true here, walking unbounded into code history
-//     that happens to carry a root-level op.json under a
+//     reader-validation rejection (tree-shape) waiting only on the blob
+//     read that never gets to run; the tree already settles the verdict
+//     without it (round 3 review: the round 2 cut only checked that an
+//     entry named op.json existed and its blob was absent, so a tree with
+//     other visible defects — an extra entry, op.json as a directory, or
+//     the wrong mode — still returned true here, walking unbounded into
+//     code history that happens to carry a root-level op.json under a
 //     --filter=blob:none or --filter=tree:1 clone);
 //   - the tree is present but names no top-level "op.json" entry at all,
 //     even when some other object it names (a subtree, most commonly) is
 //     also locally absent: rule 1 already rejects that shape on the
-//     entries this reader can see — missing-op-json, a known non-op
+//     entries this reader can see — tree-shape, a known non-op
 //     whatever an absent subtree might hold, since rule 1 looks at the
 //     root tree only, so there is nothing left to learn by reading
 //     further.

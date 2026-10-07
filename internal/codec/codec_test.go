@@ -107,8 +107,8 @@ func TestDecodeCommitRejections(t *testing.T) {
 		}
 		_, err := codec.DecodeCommit(c)
 		var rej *codec.RejectError
-		if !errors.As(err, &rej) || rej.Reason != codec.RejectMissingOpJSON {
-			t.Fatalf("got %v, want RejectMissingOpJSON", err)
+		if !errors.As(err, &rej) || rej.Reason != codec.RejectTreeShape {
+			t.Fatalf("got %v, want RejectTreeShape", err)
 		}
 	})
 
@@ -123,12 +123,12 @@ func TestDecodeCommitRejections(t *testing.T) {
 		}
 		_, err := codec.DecodeCommit(c)
 		var rej *codec.RejectError
-		if !errors.As(err, &rej) || rej.Reason != codec.RejectExtraTreeEntry {
-			t.Fatalf("got %v, want RejectExtraTreeEntry", err)
+		if !errors.As(err, &rej) || rej.Reason != codec.RejectTreeShape {
+			t.Fatalf("got %v, want RejectTreeShape", err)
 		}
 	})
 
-	t.Run("lone subdirectory is missing-op-json", func(t *testing.T) {
+	t.Run("lone subdirectory is tree-shape", func(t *testing.T) {
 		c := codec.Commit{
 			Author:    alice,
 			Committer: alice,
@@ -138,8 +138,24 @@ func TestDecodeCommitRejections(t *testing.T) {
 		}
 		_, err := codec.DecodeCommit(c)
 		var rej *codec.RejectError
-		if !errors.As(err, &rej) || rej.Reason != codec.RejectMissingOpJSON {
-			t.Fatalf("got %v, want RejectMissingOpJSON", err)
+		if !errors.As(err, &rej) || rej.Reason != codec.RejectTreeShape {
+			t.Fatalf("got %v, want RejectTreeShape", err)
+		}
+	})
+
+	t.Run("subdirectory and extra entry is tree-shape", func(t *testing.T) {
+		c := codec.Commit{
+			Author:    alice,
+			Committer: alice,
+			Tree: []codec.TreeEntry{
+				{Name: "subdir", Mode: "040000"},
+				{Name: "extra.txt", Mode: "100644", Data: []byte("extra")},
+			},
+		}
+		_, err := codec.DecodeCommit(c)
+		var rej *codec.RejectError
+		if !errors.As(err, &rej) || rej.Reason != codec.RejectTreeShape {
+			t.Fatalf("got %v, want RejectTreeShape", err)
 		}
 	})
 
@@ -148,7 +164,7 @@ func TestDecodeCommitRejections(t *testing.T) {
 			size int64
 			want codec.RejectReason
 		}{
-			{codec.MaxTreeBytes, codec.RejectExtraTreeEntry},
+			{codec.MaxTreeBytes, codec.RejectTreeShape},
 			{codec.MaxTreeBytes + 1, codec.RejectTreeTooLarge},
 		} {
 			c := codec.Commit{
@@ -178,8 +194,36 @@ func TestDecodeCommitRejections(t *testing.T) {
 		}
 		_, err := codec.DecodeCommit(c)
 		var rej *codec.RejectError
-		if !errors.As(err, &rej) || rej.Reason != codec.RejectInvalidOpJSONMode {
-			t.Fatalf("got %v, want RejectInvalidOpJSONMode", err)
+		if !errors.As(err, &rej) || rej.Reason != codec.RejectTreeShape {
+			t.Fatalf("got %v, want RejectTreeShape", err)
+		}
+	})
+
+	t.Run("mode with newline is rejected as tree-shape", func(t *testing.T) {
+		c := codec.Commit{
+			Author:    alice,
+			Committer: alice,
+			Tree: []codec.TreeEntry{
+				{Name: "op.json", Mode: "100644\n", Data: validRaw},
+			},
+		}
+		_, err := codec.DecodeCommit(c)
+		var rej *codec.RejectError
+		if !errors.As(err, &rej) || rej.Reason != codec.RejectTreeShape {
+			t.Fatalf("got %v, want RejectTreeShape", err)
+		}
+	})
+
+	t.Run("mode 0100644 is accepted", func(t *testing.T) {
+		c := codec.Commit{
+			Author:    alice,
+			Committer: alice,
+			Tree: []codec.TreeEntry{
+				{Name: "op.json", Mode: "0100644", Data: validRaw},
+			},
+		}
+		if _, err := codec.DecodeCommit(c); err != nil {
+			t.Fatalf("DecodeCommit with mode 0100644: %v", err)
 		}
 	})
 

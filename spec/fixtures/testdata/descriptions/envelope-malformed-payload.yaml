@@ -40,7 +40,7 @@ refs:
             files:
               op.json: '{"body":{},"object_id":"r1","object_id":"r2","object_type":"widget","op_type":"create","op_version":1}'
             expect:
-              reject: duplicate-key
+              reject: non-canonical-payload
           - id: payload-lone-surrogate
             author: alice
             timestamp: 2026-01-01T00:04:00Z
@@ -48,7 +48,7 @@ refs:
             files:
               op.json: '{"body":{"text":"\ud800"},"object_id":"r1","object_type":"widget","op_type":"create","op_version":1}'
             expect:
-              reject: lone-surrogate
+              reject: non-canonical-payload
           - id: payload-missing-field
             author: alice
             timestamp: 2026-01-01T00:05:00Z

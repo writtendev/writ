@@ -17,7 +17,7 @@ description: >
 # rejected commit, with no other path reaching it. alice-1 is held only
 # because bob-2's causal parent edge reaches it directly, bypassing
 # alice-malformed on alice's own chain. 2 rejections: alice-malformed
-# (missing-op-json) and remote-malformed (non-canonical-payload).
+# (tree-shape) and remote-malformed (non-canonical-payload).
 
 refs:
   - name: refs/writ/0123456789abcdef/widget
@@ -52,7 +52,7 @@ refs:
             files:
               README.md: "no op.json in this commit"
             expect:
-              reject: missing-op-json
+              reject: tree-shape
           - id: alice-3
             author: alice
             timestamp: 2026-01-01T00:03:00Z

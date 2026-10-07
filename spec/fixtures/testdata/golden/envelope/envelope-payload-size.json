@@ -156,11 +156,11 @@
       "verification_outcome": "valid",
       "expected": {
         "disposition": "reject",
-        "reason": "extra-tree-entry"
+        "reason": "tree-shape"
       },
       "observed": {
         "disposition": "reject",
-        "reason": "extra-tree-entry"
+        "reason": "tree-shape"
       }
     },
     {
@@ -185,11 +185,11 @@
       "verification_outcome": "payload-mutated",
       "expected": {
         "disposition": "reject",
-        "reason": "invalid-op-json-mode"
+        "reason": "tree-shape"
       },
       "observed": {
         "disposition": "reject",
-        "reason": "invalid-op-json-mode"
+        "reason": "tree-shape"
       }
     }
   ]

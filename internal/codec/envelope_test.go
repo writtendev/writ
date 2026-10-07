@@ -91,16 +91,7 @@ func TestInvalidEnvelopesReject(t *testing.T) {
 			case "schema":
 				wantReason = codec.RejectSchemaViolation
 			case "canonicalization":
-				switch entry.Category {
-				case "duplicate-key":
-					wantReason = codec.RejectDuplicateKey
-				case "lone-surrogate":
-					wantReason = codec.RejectLoneSurrogate
-				case "not-one-value", "not-canonical":
-					wantReason = codec.RejectNonCanonicalPayload
-				default:
-					t.Fatalf("unrecognized canonicalization category: %s", entry.Category)
-				}
+				wantReason = codec.RejectNonCanonicalPayload
 			default:
 				t.Fatalf("unrecognized rejects type: %s", entry.Rejects)
 			}

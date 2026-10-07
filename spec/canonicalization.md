@@ -117,8 +117,11 @@ one of two forms:
 A conforming canonicalizer MUST produce exactly `canonical` for every
 entry of the first form and MUST reject every entry of the second form.
 Rejection categories (`duplicate-key`, `lone-surrogate`,
-`non-finite-number`, `not-one-value`) classify the reason;
-the error surface (message text, error codes) is implementation-defined,
+`non-finite-number`, `not-one-value`) classify the reason in the canonicalizer
+test vectors; for a reader validating an op payload, all canonicalizer
+rejections fall under the reader rejection reason `non-canonical-payload`
+(see [`spec/op-envelope.md`](op-envelope.md#reader-validation)).
+The error surface (message text, error codes) is implementation-defined,
 but a test harness SHOULD verify its implementation rejects each entry
 for the categorized reason, not merely that it rejects — the reference
 implementation's tests do. Plain syntax errors carry no category and are

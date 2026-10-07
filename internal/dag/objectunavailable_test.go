@@ -57,7 +57,7 @@ func writeCommitWithMissingOpJSONBlob(repo *git.Repository, parent plumbing.Hash
 // is not a blob — either because the entry's own mode says it isn't a
 // regular file (mode passed as filemode.Dir), or because a regular-mode
 // entry's hash happens to name a tree instead of a blob. Both are reader-
-// validation rejections that predate WRIT-271 (invalid-op-json-mode and
+// validation rejections that predate WRIT-271 (tree-shape and
 // non-canonical-payload respectively): go-git's typed object lookups
 // report plumbing.ErrObjectNotFound for this "present but wrong type"
 // case exactly as they do for genuine absence, so these must not
@@ -266,7 +266,7 @@ func TestEnumerate_AbsentParentCommitIsObjectUnavailable(t *testing.T) {
 	if rej.Reason != dag.RejectObjectUnavailable {
 		t.Errorf("rejection reason = %q, want %q", rej.Reason, dag.RejectObjectUnavailable)
 	}
-	if rej.Reason == codec.RejectMissingOpJSON {
+	if rej.Reason == codec.RejectTreeShape {
 		t.Errorf("rejection reason = %q, must not be a reader-validation reason for a merely-absent commit", rej.Reason)
 	}
 
@@ -281,7 +281,7 @@ func TestEnumerate_AbsentParentCommitIsObjectUnavailable(t *testing.T) {
 // absent-vs-malformed split at the dag layer: a chain whose tip's op.json
 // blob is absent from the object store — the shape a partial
 // clone leaves behind — is reported with reason object-unavailable, not
-// missing-op-json (a genuine tree-shape violation) and not
+// tree-shape (a genuine tree-shape violation) and not
 // non-canonical-payload (a genuinely malformed payload). Before this fix,
 // codec.FromGitCommit's readOpJSONBlob swallowed the open()/Reader()
 // failure to nil, nil, so this exact shape decoded as an empty payload and
@@ -345,7 +345,7 @@ func TestEnumerate_ObjectUnavailableDistinctFromMalformed(t *testing.T) {
 	if rej.Reason != dag.RejectObjectUnavailable {
 		t.Errorf("rejection reason = %q, want %q", rej.Reason, dag.RejectObjectUnavailable)
 	}
-	if rej.Reason == codec.RejectMissingOpJSON || rej.Reason == codec.RejectNonCanonicalPayload {
+	if rej.Reason == codec.RejectTreeShape || rej.Reason == codec.RejectNonCanonicalPayload {
 		t.Errorf("rejection reason = %q, must not be a reader-validation reason for a merely-absent object", rej.Reason)
 	}
 
@@ -430,7 +430,7 @@ func TestEnumerate_ObjectUnavailableMidChainDoesNotStopWalk(t *testing.T) {
 // row of WRIT-271 round 1's finding: an op.json entry with a non-regular
 // mode (040000) naming a tree that IS present in the store violates
 // spec/op-envelope.md rule 1 (op.json must be mode 100644) and must be
-// reported invalid-op-json-mode, not object-unavailable — the repository
+// reported tree-shape, not object-unavailable — the repository
 // is complete, so telling the operator the object is missing from this
 // clone is wrong.
 func TestEnumerate_InvalidModePresentTreeNotObjectUnavailable(t *testing.T) {
@@ -469,8 +469,8 @@ func TestEnumerate_InvalidModePresentTreeNotObjectUnavailable(t *testing.T) {
 	if len(res.Rejections) != 1 {
 		t.Fatalf("rejections = %v, want exactly one", res.Rejections)
 	}
-	if rej := res.Rejections[0]; rej.Reason != codec.RejectInvalidOpJSONMode {
-		t.Errorf("rejection reason = %q, want %q", rej.Reason, codec.RejectInvalidOpJSONMode)
+	if rej := res.Rejections[0]; rej.Reason != codec.RejectTreeShape {
+		t.Errorf("rejection reason = %q, want %q", rej.Reason, codec.RejectTreeShape)
 	}
 }
 
@@ -522,7 +522,7 @@ func TestEnumerate_ValidModeHashNamesTreeNotObjectUnavailable(t *testing.T) {
 // TestEnumerate_InvalidModePresentBlobNotObjectUnavailable pins WRIT-271
 // round 2's finding: an op.json entry with a non-regular mode (040000)
 // whose hash names a *blob* that IS present in the store must be reported
-// invalid-op-json-mode, not object-unavailable. This is the case round
+// tree-shape, not object-unavailable. This is the case round
 // 1's TestEnumerate_InvalidModePresentTreeNotObjectUnavailable failed to
 // cover — it points its bad entry at a present tree, the one shape
 // object.GetTree succeeds on, so it passed while this bug (an unprobed
@@ -570,15 +570,15 @@ func TestEnumerate_InvalidModePresentBlobNotObjectUnavailable(t *testing.T) {
 	if len(res.Rejections) != 1 {
 		t.Fatalf("rejections = %v, want exactly one", res.Rejections)
 	}
-	if rej := res.Rejections[0]; rej.Reason != codec.RejectInvalidOpJSONMode {
-		t.Errorf("rejection reason = %q, want %q", rej.Reason, codec.RejectInvalidOpJSONMode)
+	if rej := res.Rejections[0]; rej.Reason != codec.RejectTreeShape {
+		t.Errorf("rejection reason = %q, want %q", rej.Reason, codec.RejectTreeShape)
 	}
 }
 
 // TestEnumerate_ExtraTreeEntryPresentBlobNotObjectUnavailable pins
 // WRIT-271 round 2's finding: an "extra" tree entry (mode 040000) besides
 // op.json, whose hash names a *blob* that IS present in the store, must
-// be reported extra-tree-entry, not object-unavailable — the same
+// be reported tree-shape, not object-unavailable — the same
 // unprobed object.GetTree call as
 // TestEnumerate_InvalidModePresentBlobNotObjectUnavailable, exercised
 // through a second tree entry instead of op.json itself.
@@ -630,15 +630,15 @@ func TestEnumerate_ExtraTreeEntryPresentBlobNotObjectUnavailable(t *testing.T) {
 	if len(res.Rejections) != 1 {
 		t.Fatalf("rejections = %v, want exactly one", res.Rejections)
 	}
-	if rej := res.Rejections[0]; rej.Reason != codec.RejectExtraTreeEntry {
-		t.Errorf("rejection reason = %q, want %q", rej.Reason, codec.RejectExtraTreeEntry)
+	if rej := res.Rejections[0]; rej.Reason != codec.RejectTreeShape {
+		t.Errorf("rejection reason = %q, want %q", rej.Reason, codec.RejectTreeShape)
 	}
 }
 
 // TestEnumerate_MissingOpJSONPresentBlobTreeHashNotObjectUnavailable pins
 // WRIT-271 round 2's finding: a commit whose TreeHash names a *blob* that
 // IS present in the store, rather than a tree at all, must be reported
-// missing-op-json, not object-unavailable — fromGitCommit's commit.Tree()
+// tree-shape, not object-unavailable — fromGitCommit's commit.Tree()
 // call was the other typed lookup round 2 found unprobed.
 func TestEnumerate_MissingOpJSONPresentBlobTreeHashNotObjectUnavailable(t *testing.T) {
 	dir, repo := initTestRepo(t)
@@ -681,8 +681,8 @@ func TestEnumerate_MissingOpJSONPresentBlobTreeHashNotObjectUnavailable(t *testi
 	if len(res.Rejections) != 1 {
 		t.Fatalf("rejections = %v, want exactly one", res.Rejections)
 	}
-	if rej := res.Rejections[0]; rej.Reason != codec.RejectMissingOpJSON {
-		t.Errorf("rejection reason = %q, want %q", rej.Reason, codec.RejectMissingOpJSON)
+	if rej := res.Rejections[0]; rej.Reason != codec.RejectTreeShape {
+		t.Errorf("rejection reason = %q, want %q", rej.Reason, codec.RejectTreeShape)
 	}
 }
 
@@ -722,7 +722,7 @@ func TestEnumerate_RootOpJSONBlobAbsentTreeShapes(t *testing.T) {
 	}{
 		{
 			// Reviewer shape 1: op.json plus another top-level entry.
-			// extra-tree-entry, whatever the other entry's own blob
+			// tree-shape, whatever the other entry's own blob
 			// holds — here a blob that IS present, the shape a
 			// blob:limit filter that let a small README through but
 			// withheld a large op.json would leave behind.
@@ -741,7 +741,7 @@ func TestEnumerate_RootOpJSONBlobAbsentTreeShapes(t *testing.T) {
 		},
 		{
 			// Reviewer shape 2: op.json present as a directory, its
-			// subtree absent. invalid-op-json-mode territory — op.json is
+			// subtree absent. tree-shape territory — op.json is
 			// not a blob at all.
 			name:        "op_json_as_absent_directory",
 			wantDecoded: 1,
@@ -752,7 +752,7 @@ func TestEnumerate_RootOpJSONBlobAbsentTreeShapes(t *testing.T) {
 			},
 		},
 		{
-			// Reviewer shape 3: op.json at mode 100755. invalid-op-json-mode.
+			// Reviewer shape 3: op.json at mode 100755. tree-shape.
 			name:        "op_json_invalid_mode",
 			wantDecoded: 1,
 			buildEntries: func(repo *git.Repository) ([]object.TreeEntry, error) {

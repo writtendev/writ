@@ -15,11 +15,11 @@
       "verification_outcome": "valid",
       "expected": {
         "disposition": "reject",
-        "reason": "extra-tree-entry"
+        "reason": "tree-shape"
       },
       "observed": {
         "disposition": "reject",
-        "reason": "extra-tree-entry"
+        "reason": "tree-shape"
       }
     },
     {
@@ -137,11 +137,11 @@
       "verification_outcome": "valid",
       "expected": {
         "disposition": "reject",
-        "reason": "missing-op-json"
+        "reason": "tree-shape"
       },
       "observed": {
         "disposition": "reject",
-        "reason": "missing-op-json"
+        "reason": "tree-shape"
       }
     },
     {

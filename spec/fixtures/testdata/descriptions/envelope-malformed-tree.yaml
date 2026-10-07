@@ -1,11 +1,9 @@
 name: envelope-malformed-tree
 description: >
-  Negative tree and committer validation test cases: extra tree entry beside
-  op.json, op.json inside a subdirectory (reader validation rule 1 reads the
-  root tree only, so a lone subdirectory is missing-op-json), op.json absent
-  from tree, op.json
-  with executable file mode 100755, and committer identity/timestamp diverging
-  from author.
+  Negative tree and committer validation test cases: tree-shape violations
+  (extra tree entry beside op.json, op.json inside a subdirectory, op.json absent
+  from tree, op.json with executable file mode 100755, and op.json in a subdirectory
+  beside an extra tree entry), and committer identity/timestamp diverging from author.
 
 refs:
   - name: refs/writ/0123456789abcdef/widget
@@ -19,7 +17,7 @@ refs:
               op.json: '{"body":{},"object_id":"r1","object_type":"acme.widget","op_type":"create","op_version":1}'
               extra.txt: "unauthorized extra file"
             expect:
-              reject: extra-tree-entry
+              reject: tree-shape
           - id: tree-subdirectory
             author: alice
             timestamp: 2026-01-01T00:01:00Z
@@ -27,7 +25,7 @@ refs:
             files:
               subdir/op.json: '{"body":{},"object_id":"r1","object_type":"acme.widget","op_type":"create","op_version":1}'
             expect:
-              reject: missing-op-json
+              reject: tree-shape
           - id: tree-missing-op-json
             author: alice
             timestamp: 2026-01-01T00:02:00Z
@@ -35,7 +33,7 @@ refs:
             files:
               README.md: "no op.json here"
             expect:
-              reject: missing-op-json
+              reject: tree-shape
           - id: tree-executable-mode
             author: alice
             tamper: op-json-mode-exec
@@ -47,7 +45,7 @@ refs:
               op_version: 1
               body: {}
             expect:
-              reject: invalid-op-json-mode
+              reject: tree-shape
           - id: committer-mismatch
             author: alice
             committer: bob
@@ -60,3 +58,12 @@ refs:
               body: {}
             expect:
               reject: committer-mismatch
+          - id: tree-subdir-and-extra
+            author: alice
+            timestamp: 2026-01-01T00:05:00Z
+            message: "writ: create widget/r1\n"
+            files:
+              subdir/op.json: '{"body":{},"object_id":"r1","object_type":"acme.widget","op_type":"create","op_version":1}'
+              extra.txt: "unauthorized extra file"
+            expect:
+              reject: tree-shape

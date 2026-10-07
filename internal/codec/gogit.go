@@ -56,7 +56,7 @@ func fromGitCommit(s storage.Storer, commit *object.Commit) (Commit, error) {
 			}
 			// commit.TreeHash names a present object, just not a tree: there
 			// are no tree entries to report, which DecodeCommit's rule 1 turns
-			// into missing-op-json — the same reason this shape reported
+			// into tree-shape — the same reason this shape reported
 			// before this typed lookup's failure was ever probed (WRIT-271
 			// round 2 review: commit.Tree() was one of two typed lookups still
 			// misreporting a present-but-wrong-type object as
@@ -71,12 +71,11 @@ func fromGitCommit(s storage.Storer, commit *object.Commit) (Commit, error) {
 	// name the same large subtree. A blob is read only once the tree's
 	// shape is known to be a single regular-mode op.json entry — rule 1
 	// checks shape before it reads any blob, and DecodeCommit rejects every
-	// other shape (missing-op-json, extra-tree-entry, invalid-op-json-mode)
-	// without looking at the blob. Reading per entry named op.json instead
-	// would let a tree of duplicates, each naming the same large blob (a
-	// tree that fails fsck, but not every host runs it), retain one blob per
-	// entry. So the most this retains beyond the entries is one blob,
-	// capped at MaxPayloadBytes+1.
+	// other shape (tree-shape) without looking at the blob. Reading per entry
+	// named op.json instead would let a tree of duplicates, each naming the
+	// same large blob (a tree that fails fsck, but not every host runs it),
+	// retain one blob per entry. So the most this retains beyond the entries
+	// is one blob, capped at MaxPayloadBytes+1.
 	readOpJSON := len(tree.Entries) == 1 && tree.Entries[0].Name == "op.json" && tree.Entries[0].Mode == filemode.Regular
 	var treeEntries []TreeEntry
 	for _, entry := range tree.Entries {

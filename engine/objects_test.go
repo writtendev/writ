@@ -436,7 +436,7 @@ func TestObjectsGet_NotFound(t *testing.T) {
 // tree entry beside op.json -- the same "extra tree entry beside op.json"
 // shape internal/dag/objectunavailable_test.go and
 // engine/schema_test.go's writeForeignSchemaOp use elsewhere, here to
-// produce a bare codec.RejectExtraTreeEntry. Rejection at this point
+// produce a bare codec.RejectTreeShape. Rejection at this point
 // happens before the commit's op.json payload -- the bytes carrying
 // object_id -- is ever decoded (internal/codec/decode.go's tree-entry
 // count check runs ahead of DecodePayload), which is exactly why
@@ -495,7 +495,7 @@ func writeRejectedOpCommit(t *testing.T, dir, writerID, objectType, objectID str
 
 // TestObjectsGet_RejectedOpsSentinel_SharpCase is the sharp case: a
 // repository holding one commit that fails reader validation (here,
-// RejectExtraTreeEntry) makes every subsequent not-found Get in that same
+// RejectTreeShape) makes every subsequent not-found Get in that same
 // repository indeterminate, because Enumerate's rejections are
 // repository-wide and cannot be attributed to the id the rejected commit
 // would have named. This must fail if engine/objects.go's conditional

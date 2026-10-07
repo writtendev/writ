@@ -15,7 +15,7 @@ description: >
 #   v2-1 would add an op to widget-01's total order if refs/writ/v2/... were
 #   walked, since its causal parent is alice-1.
 #   zz-not-hex-tip carries no op.json; walking its ref would add a
-#   missing-op-json rejection.
+#   tree-shape rejection.
 #   remote-v2-1 would add a whole object, widget-02, if its ref were walked.
 # The conforming ref comes first because the generator points HEAD at it.
 
@@ -63,7 +63,7 @@ refs:
             files:
               README.md: "no op.json in this commit"
             expect:
-              reject: missing-op-json
+              reject: tree-shape
 
   - name: refs/remotes/origin/writ/v2/0123456789abcdef/acme.widget
     ignored: true
