@@ -5,7 +5,7 @@ description: >
   and the commit object at most 1,048,576 bytes, both inclusive. A tree of
   exactly 4,096 bytes (op.json plus one padding entry) is not too large, so
   the check that follows size, tree shape, still runs and rejects it as
-  extra-tree-entry: that pins the order, size before shape, and shows the
+  tree-shape: that pins the order, size before shape, and shows the
   bound does not bite at the boundary. A tree of 4,097 bytes is rejected as
   tree-too-large without being read. A commit of exactly 1,048,576 bytes is
   accepted and one of 1,048,577 bytes is rejected as commit-too-large without
@@ -16,7 +16,7 @@ description: >
   tree is also 4,097 is commit-too-large, never reaching the tree. Last, a
   commit whose tree header names a blob rather than a tree pins that the
   tree is sized whatever its type: a blob of 4,096 bytes is just a root tree
-  with no op.json (missing-op-json), one of 4,097 bytes is tree-too-large.
+  with no op.json (tree-shape), one of 4,097 bytes is tree-too-large.
   Each described commit is decoded and checked directly, not reached by
   walking ancestry from a chain tip.
 
@@ -35,7 +35,7 @@ refs:
               body: {}
             tree_size: 4096
             expect:
-              reject: extra-tree-entry
+              reject: tree-shape
           - id: tree-over-max
             author: alice
             timestamp: 2026-01-01T00:01:00Z
@@ -107,7 +107,7 @@ refs:
             message: "writ: update widget/widget-01\n"
             tree_blob_size: 4096
             expect:
-              reject: missing-op-json
+              reject: tree-shape
           - id: tree-header-blob-over-max
             author: alice
             timestamp: 2026-01-01T00:07:00Z

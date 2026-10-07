@@ -26,11 +26,11 @@
       "verification_outcome": "valid",
       "expected": {
         "disposition": "reject",
-        "reason": "extra-tree-entry"
+        "reason": "tree-shape"
       },
       "observed": {
         "disposition": "reject",
-        "reason": "extra-tree-entry"
+        "reason": "tree-shape"
       }
     },
     {
@@ -54,11 +54,11 @@
       "verification_outcome": "valid",
       "expected": {
         "disposition": "reject",
-        "reason": "missing-op-json"
+        "reason": "tree-shape"
       },
       "observed": {
         "disposition": "reject",
-        "reason": "missing-op-json"
+        "reason": "tree-shape"
       }
     },
     {
@@ -82,11 +82,11 @@
       "verification_outcome": "valid",
       "expected": {
         "disposition": "reject",
-        "reason": "missing-op-json"
+        "reason": "tree-shape"
       },
       "observed": {
         "disposition": "reject",
-        "reason": "missing-op-json"
+        "reason": "tree-shape"
       }
     },
     {
@@ -112,11 +112,11 @@
       "verification_outcome": "payload-mutated",
       "expected": {
         "disposition": "reject",
-        "reason": "invalid-op-json-mode"
+        "reason": "tree-shape"
       },
       "observed": {
         "disposition": "reject",
-        "reason": "invalid-op-json-mode"
+        "reason": "tree-shape"
       }
     },
     {
@@ -147,6 +147,39 @@
       "observed": {
         "disposition": "reject",
         "reason": "committer-mismatch"
+      }
+    },
+    {
+      "ref": "refs/writ/0123456789abcdef/widget",
+      "commit": "7d9623b1b087c823d400bf4a6a8753209afdecf9",
+      "parents": [
+        "dbe5961d5b56f4a5d23e7d961e8dcee39a10264a"
+      ],
+      "author": "Alice Example \u003calice@example.test\u003e",
+      "committer": "Alice Example \u003calice@example.test\u003e",
+      "timestamp": "2026-01-01T00:05:00Z",
+      "tree_entries": [
+        {
+          "name": "extra.txt",
+          "mode": "0100644",
+          "sha": "ca5736a68391fe8d757bf41491c0230d7bb7b297"
+        },
+        {
+          "name": "subdir",
+          "mode": "0040000",
+          "sha": "60044c98107651bc7acb2d6ebaa7f73f6ead7e43"
+        }
+      ],
+      "signed": true,
+      "signature_key_fingerprint": "SHA256:wDVIYagWNF4y7O9lMha3+MljfIDuV15tOKMYNG78oeA",
+      "verification_outcome": "valid",
+      "expected": {
+        "disposition": "reject",
+        "reason": "tree-shape"
+      },
+      "observed": {
+        "disposition": "reject",
+        "reason": "tree-shape"
       }
     }
   ]

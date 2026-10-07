@@ -66,8 +66,8 @@ func TestEnumerate_MultiWriterChainsFixture(t *testing.T) {
 	for _, rej := range res.Rejections {
 		gotReasons[rej.Reason] = true
 	}
-	if !gotReasons[codec.RejectMissingOpJSON] {
-		t.Errorf("rejections = %v, want one with reason %q", res.Rejections, codec.RejectMissingOpJSON)
+	if !gotReasons[codec.RejectTreeShape] {
+		t.Errorf("rejections = %v, want one with reason %q", res.Rejections, codec.RejectTreeShape)
 	}
 	if !gotReasons[codec.RejectNonCanonicalPayload] {
 		t.Errorf("rejections = %v, want one with reason %q", res.Rejections, codec.RejectNonCanonicalPayload)

@@ -225,15 +225,11 @@ var validOutcomes = map[string]bool{
 }
 
 var validRejectReasons = map[string]bool{
-	"non-canonical-payload": true,
-	"duplicate-key":         true,
-	"lone-surrogate":        true,
-	"schema-violation":      true,
-	"extra-tree-entry":      true,
-	"missing-op-json":       true,
-	"invalid-op-json-mode":  true,
-	"committer-mismatch":    true,
+	"tree-shape":            true,
 	"payload-too-large":     true,
+	"non-canonical-payload": true,
+	"schema-violation":      true,
+	"committer-mismatch":    true,
 	"commit-too-large":      true,
 	"tree-too-large":        true,
 }

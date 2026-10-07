@@ -439,7 +439,7 @@ func writeNonOpCommit(repo *git.Repository) (plumbing.Hash, error) {
 
 // writeNonOpCommitWithParent writes an ordinary commit with no op.json —
 // the shape of a commit that reader validation rejects with
-// missing-op-json — as a child of parent, or a root commit when parent is
+// tree-shape — as a child of parent, or a root commit when parent is
 // the zero hash. Used by WRIT-289's stopping-rule tests to build "ordinary
 // code history" a writ ref should never be pointed at: a conforming reader
 // walk MUST stop the moment it reaches a commit shaped like this, rather
@@ -526,7 +526,7 @@ func writeCommitWithAbsentRootTree(repo *git.Repository, parent plumbing.Hash) (
 // in repo's store and holds exactly one entry, a directory named "src"
 // whose own subtree hash names no object at all — the `--filter=tree:1`
 // shape. The root tree carries no "op.json" entry, so under WRIT-289's
-// round 2 orchestrator decision this is a known missing-op-json non-op
+// round 2 orchestrator decision this is a known tree-shape non-op
 // (rule 1, decided from the root tree's own entries; no subtree is ever
 // read, WRIT-313), so the walk must not expand its parents.
 func writeCommitWithAbsentSubtree(repo *git.Repository, parent plumbing.Hash) (plumbing.Hash, error) {

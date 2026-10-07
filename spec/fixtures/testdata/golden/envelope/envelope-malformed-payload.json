@@ -110,11 +110,11 @@
       "verification_outcome": "valid",
       "expected": {
         "disposition": "reject",
-        "reason": "duplicate-key"
+        "reason": "non-canonical-payload"
       },
       "observed": {
         "disposition": "reject",
-        "reason": "duplicate-key"
+        "reason": "non-canonical-payload"
       }
     },
     {
@@ -139,11 +139,11 @@
       "verification_outcome": "valid",
       "expected": {
         "disposition": "reject",
-        "reason": "lone-surrogate"
+        "reason": "non-canonical-payload"
       },
       "observed": {
         "disposition": "reject",
-        "reason": "lone-surrogate"
+        "reason": "non-canonical-payload"
       }
     },
     {

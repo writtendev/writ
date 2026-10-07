@@ -93,7 +93,7 @@ refs:
             op_json_size: 1048577
             tree_size: 100
             expect:
-              reject: extra-tree-entry
+              reject: tree-shape
           - id: executable-mode-over-max
             author: alice
             timestamp: 2026-01-01T00:03:00Z
@@ -106,4 +106,4 @@ refs:
             op_json_size: 1048577
             tamper: op-json-mode-exec
             expect:
-              reject: invalid-op-json-mode
+              reject: tree-shape

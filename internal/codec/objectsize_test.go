@@ -206,8 +206,8 @@ func TestGetCommitAndFromGitCommitSizeBoundaries(t *testing.T) {
 			if pure.TreeSize != codec.MaxTreeBytes || len(pure.Tree) != 2 {
 				t.Errorf("tree at bound: TreeSize %d, %d entries; want %d, 2", pure.TreeSize, len(pure.Tree), codec.MaxTreeBytes)
 			}
-			if _, err := codec.DecodeCommit(pure); rejectReason(err) != codec.RejectExtraTreeEntry {
-				t.Errorf("DecodeCommit at tree bound: %v, want extra-tree-entry", err)
+			if _, err := codec.DecodeCommit(pure); rejectReason(err) != codec.RejectTreeShape {
+				t.Errorf("DecodeCommit at tree bound: %v, want tree-shape", err)
 			}
 
 			over, err := codec.GetCommit(s, commitOverTreeOver)
@@ -249,7 +249,7 @@ func TestSizeBoundsWithInMemoryStorer(t *testing.T) {
 // TestFromGitCommitTreeHashNamingBlob pins shape (a): a commit whose tree
 // hash names a blob far over the tree bound is sized and never loaded, as a
 // tree or to probe its type; one at or under the bound keeps the old path
-// (present but not a tree: no entries, missing-op-json).
+// (present but not a tree: no entries, tree-shape).
 func TestFromGitCommitTreeHashNamingBlob(t *testing.T) {
 	s := memory.NewStorage()
 	big := storeObject(t, s, plumbing.BlobObject, bytes.Repeat([]byte("x"), codec.MaxTreeBytes+1))
@@ -262,7 +262,7 @@ func TestFromGitCommitTreeHashNamingBlob(t *testing.T) {
 		size int64
 	}{
 		{"over the bound", big, codec.RejectTreeTooLarge, codec.MaxTreeBytes + 1},
-		{"under the bound", small, codec.RejectMissingOpJSON, 4},
+		{"under the bound", small, codec.RejectTreeShape, 4},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			commit := commitOfSize(t, s, tc.tree, 200)
@@ -284,11 +284,10 @@ func TestFromGitCommitTreeHashNamingBlob(t *testing.T) {
 	}
 }
 
-// TestFromGitCommitLoneSubdirectoryIsMissingOpJSON pins the deleted
-// op-json-subdirectory reason: a root tree whose only entry is a directory
-// holding op.json is missing-op-json, and the subtree is never read — here it
-// is not even in the store.
-func TestFromGitCommitLoneSubdirectoryIsMissingOpJSON(t *testing.T) {
+// TestFromGitCommitLoneSubdirectoryIsTreeShape pins that a root tree
+// whose only entry is a directory holding op.json is tree-shape, and
+// the subtree is never read — here it is not even in the store.
+func TestFromGitCommitLoneSubdirectoryIsTreeShape(t *testing.T) {
 	s := memory.NewStorage()
 	absent := plumbing.NewHash("1111111111111111111111111111111111111111")
 	tree := storeTree(t, s, []object.TreeEntry{{Name: "subdir", Mode: filemode.Dir, Hash: absent}})
@@ -300,8 +299,8 @@ func TestFromGitCommitLoneSubdirectoryIsMissingOpJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FromGitCommit: %v", err)
 	}
-	if _, err := codec.DecodeCommit(pure); rejectReason(err) != codec.RejectMissingOpJSON {
-		t.Errorf("DecodeCommit: %v, want missing-op-json", err)
+	if _, err := codec.DecodeCommit(pure); rejectReason(err) != codec.RejectTreeShape {
+		t.Errorf("DecodeCommit: %v, want tree-shape", err)
 	}
 }
 
@@ -506,16 +505,16 @@ func TestFromGitCommitNeverRetainsMoreThanTheBound(t *testing.T) {
 		// The tree-shape reason does not depend on the blob having been read.
 		switch {
 		case opJSONs == 0:
-			if rejectReason(decErr) != codec.RejectMissingOpJSON {
-				t.Fatalf("no op.json: DecodeCommit %v, want missing-op-json", decErr)
+			if rejectReason(decErr) != codec.RejectTreeShape {
+				t.Fatalf("no op.json: DecodeCommit %v, want tree-shape", decErr)
 			}
 		case len(entries) > 1:
-			if rejectReason(decErr) != codec.RejectExtraTreeEntry {
-				t.Fatalf("%d entries (%d op.json): DecodeCommit %v, want extra-tree-entry", len(entries), opJSONs, decErr)
+			if rejectReason(decErr) != codec.RejectTreeShape {
+				t.Fatalf("%d entries (%d op.json): DecodeCommit %v, want tree-shape", len(entries), opJSONs, decErr)
 			}
 		case entries[0].Mode != filemode.Regular:
-			if rejectReason(decErr) != codec.RejectInvalidOpJSONMode {
-				t.Fatalf("op.json mode %s: DecodeCommit %v, want invalid-op-json-mode", entries[0].Mode, decErr)
+			if rejectReason(decErr) != codec.RejectTreeShape {
+				t.Fatalf("op.json mode %s: DecodeCommit %v, want tree-shape", entries[0].Mode, decErr)
 			}
 		}
 	}
@@ -581,8 +580,8 @@ func TestFromGitCommitDuplicateOpJSONEntriesAreNotRead(t *testing.T) {
 	if retained != 0 {
 		t.Errorf("retained %d bytes of op.json blob content from a tree that is not a single op.json entry, want none", retained)
 	}
-	if _, err := codec.DecodeCommit(pure); rejectReason(err) != codec.RejectExtraTreeEntry {
-		t.Errorf("DecodeCommit: %v, want extra-tree-entry", err)
+	if _, err := codec.DecodeCommit(pure); rejectReason(err) != codec.RejectTreeShape {
+		t.Errorf("DecodeCommit: %v, want tree-shape", err)
 	}
 	delta := after.TotalAlloc - before.TotalAlloc
 	t.Logf("FromGitCommit allocated %d bytes for %d duplicate op.json entries over a %d-byte blob", delta, duplicates, blobBytes)
@@ -608,19 +607,19 @@ func TestFromGitCommitNilStorer(t *testing.T) {
 	}{
 		{"mode 100755", func(b plumbing.Hash) []object.TreeEntry {
 			return []object.TreeEntry{{Name: "op.json", Mode: filemode.Executable, Hash: b}}
-		}, codec.RejectInvalidOpJSONMode},
+		}, codec.RejectTreeShape},
 		{"duplicate op.json entries", func(b plumbing.Hash) []object.TreeEntry {
 			return []object.TreeEntry{
 				{Name: "op.json", Mode: filemode.Regular, Hash: b},
 				{Name: "op.json", Mode: filemode.Regular, Hash: b},
 			}
-		}, codec.RejectExtraTreeEntry},
+		}, codec.RejectTreeShape},
 		{"extra entry beside op.json", func(b plumbing.Hash) []object.TreeEntry {
 			return []object.TreeEntry{
 				{Name: "extra", Mode: filemode.Regular, Hash: b},
 				{Name: "op.json", Mode: filemode.Regular, Hash: b},
 			}
-		}, codec.RejectExtraTreeEntry},
+		}, codec.RejectTreeShape},
 	}
 	for _, sh := range shapes {
 		t.Run(sh.name, func(t *testing.T) {

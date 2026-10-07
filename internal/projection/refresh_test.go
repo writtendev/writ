@@ -792,8 +792,8 @@ func TestRefresh_SurfacesRejections(t *testing.T) {
 	if rej.CommitID != malformedHash {
 		t.Errorf("rejection commit = %s, want %s", rej.CommitID, malformedHash)
 	}
-	if rej.Reason != codec.RejectExtraTreeEntry {
-		t.Errorf("rejection reason = %q, want %q", rej.Reason, codec.RejectExtraTreeEntry)
+	if rej.Reason != codec.RejectTreeShape {
+		t.Errorf("rejection reason = %q, want %q", rej.Reason, codec.RejectTreeShape)
 	}
 
 	// The cursor still advances past the rejected commit (WRIT-271's
@@ -1703,8 +1703,8 @@ func TestRebuild_SurfacesRejections(t *testing.T) {
 	if rej.CommitID != malformedHash {
 		t.Errorf("rejection commit = %s, want %s", rej.CommitID, malformedHash)
 	}
-	if rej.Reason != codec.RejectExtraTreeEntry {
-		t.Errorf("rejection reason = %q, want %q", rej.Reason, codec.RejectExtraTreeEntry)
+	if rej.Reason != codec.RejectTreeShape {
+		t.Errorf("rejection reason = %q, want %q", rej.Reason, codec.RejectTreeShape)
 	}
 }
 

@@ -151,7 +151,7 @@ func TestEnumerate_GiantObjectsAreSizedBeforeLoading(t *testing.T) {
 			},
 			// Sixteen directories and no op.json: rule 1 reads the root tree
 			// only, so no subtree is ever loaded.
-			wantReason:  codec.RejectMissingOpJSON,
+			wantReason:  codec.RejectTreeShape,
 			wantDecoded: 1,
 			budget:      subtreeAllocBudget,
 		},
