@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/internal/codec"
 	"github.com/writtendev/writ/internal/identity"
 	"github.com/writtendev/writ/internal/resolve"
+	"github.com/writtendev/writ/internal/state"
 )
 
 // Writer represents a human author across one or more devices.
@@ -133,9 +133,9 @@ type Scenario struct {
 // snapshot. It is schema-shaped: the object types it carries are whatever
 // the scenario's log declares, not a set writ ships.
 type ObjectRecord struct {
-	ObjectID    string           `json:"object_id"`
-	ObjectType  string           `json:"object_type"`
-	ObjectState writ.ObjectState `json:"object_state"`
+	ObjectID    string            `json:"object_id"`
+	ObjectType  string            `json:"object_type"`
+	ObjectState state.ObjectState `json:"object_state"`
 }
 
 // ResolutionRecord records the deterministic resolution of an anchored object.

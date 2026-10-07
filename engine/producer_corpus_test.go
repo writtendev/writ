@@ -3,11 +3,12 @@ package writ_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
-	writ "github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/internal/codec"
+	"github.com/writtendev/writ/internal/state"
 	"github.com/writtendev/writ/spec"
 )
 
@@ -15,18 +16,18 @@ import (
 // spec/testdata/producer/: WRIT-188's regression net that producer
 // validation and reader tolerance move in lockstep, not just individually.
 // It lives here rather than in package spec because package spec cannot
-// import engine/codec (spec sits below engine in the dependency graph, and
+// import internal/codec (spec sits below engine in the dependency graph, and
 // a producer-verdict driver needs codec.BuildCommit); the "index.json
 // covers every case file" completeness check lives in
 // spec/producer_test.go, the pattern spec/testdata/*/invalid/index.json
 // already uses.
 //
 // Each case declares zero or more schema objects (folded exactly as the
-// log would fold them, via writ.SchemaFromEnvelopes) and one op envelope.
+// log would fold them, via state.FoldSchema) and one op envelope.
 // index.json names, per case, the producer verdict codec.BuildCommit must
 // return and the reader disposition the exact same op must have when
 // folded with the rules those same schemas resolve to
-// (writ.RulesFromSchemas) — proving every rejected case is nonetheless
+// (state.RulesFromSchemas) — proving every rejected case is nonetheless
 // tolerated by a reader, and every accepted case's schema resolution is
 // the one the reader itself would use.
 func TestProducerCorpus(t *testing.T) {
@@ -80,31 +81,40 @@ func TestProducerCorpus(t *testing.T) {
 				t.Fatalf("decoding case %s: %v", file, err)
 			}
 
-			var schemas []writ.Schema
+			var schemas []state.Schema
 			for _, so := range c.Schemas {
-				envs := make([]codec.Envelope, len(so.Ops))
+				ops := make([]codec.Op, len(so.Ops))
 				for i, op := range so.Ops {
 					bodyRaw, err := json.Marshal(op.Body)
 					if err != nil {
 						t.Fatalf("marshal schema op body: %v", err)
 					}
-					envs[i] = codec.Envelope{
-						ObjectID:   so.ObjectID,
-						ObjectType: "schema",
-						OpType:     op.OpType,
-						OpVersion:  1,
-						Body:       bodyRaw,
+					var parents []string
+					if i > 0 {
+						parents = []string{ops[i-1].ID}
+					}
+					ops[i] = codec.Op{
+						ID: fmt.Sprintf("schema-op-%d", i),
+						Envelope: codec.Envelope{
+							ObjectID:   so.ObjectID,
+							ObjectType: "schema",
+							OpType:     op.OpType,
+							OpVersion:  1,
+							Body:       bodyRaw,
+						},
+						Parents: parents,
+						Author:  author,
 					}
 				}
-				sch, err := writ.SchemaFromEnvelopes(envs)
+				sch, err := state.FoldSchema(ops)
 				if err != nil {
-					t.Fatalf("SchemaFromEnvelopes(%s): %v", so.ObjectID, err)
+					t.Fatalf("FoldSchema(%s): %v", so.ObjectID, err)
 				}
 				schemas = append(schemas, sch)
 			}
 
-			vocabularies, _ := writ.VocabulariesFromSchemas(schemas)
-			rules, _ := writ.RulesFromSchemas(schemas)
+			vocabularies, _ := state.VocabulariesFromSchemas(schemas)
+			rules, _ := state.RulesFromSchemas(schemas)
 
 			envBody, err := json.Marshal(c.Envelope.Body)
 			if err != nil {
@@ -144,7 +154,7 @@ func TestProducerCorpus(t *testing.T) {
 				Envelope: env,
 				Author:   codec.Identity{When: time.Unix(1, 0).UTC()},
 			}
-			objState, err := writ.Fold([]codec.Op{dataOp}, rules[c.Envelope.ObjectType])
+			objState, err := state.Fold([]codec.Op{dataOp}, rules[c.Envelope.ObjectType])
 			if err != nil {
 				t.Fatalf("reader Fold errored (a reader must never error on unrecognized input): %v", err)
 			}

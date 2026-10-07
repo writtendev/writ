@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/internal/codec"
 	"github.com/writtendev/writ/internal/schemasrc"
 	"github.com/writtendev/writ/internal/state"
@@ -117,7 +116,7 @@ func TestValidCorpus(t *testing.T) {
 			// promise on the corpus itself, not only on
 			// version-bump.schema's target(priority_v2) happening to
 			// avoid the disagreement.
-			if _, conflicts := writ.RulesFromSchemas([]state.Schema{folded}); len(conflicts) != 0 {
+			if _, conflicts := state.RulesFromSchemas([]state.Schema{folded}); len(conflicts) != 0 {
 				t.Errorf("RulesFromSchemas reported conflicts for a file Compile accepted: %+v", conflicts)
 			}
 

@@ -1,26 +1,19 @@
 package writ
 
 import (
-	"github.com/writtendev/writ/internal/resolve"
 	"github.com/writtendev/writ/internal/state"
 )
 
-// Anchor is a content-based position in code (v1), a value type any
-// schema-declared object can carry (spec/anchors.md).
-// Fold carries anchors verbatim as data per spec/fold.md §6.
-type Anchor = resolve.Anchor
-
-// OpRef identifies an operation in an object's total order sequence L
-// along with its causality-monotone effective timestamp t*.
-type OpRef = state.OpRef
-
 // UnknownOp records an operation that was preserved in the DAG and participated
 // in ordering and ancestry, but whose (op_type, op_version) had no declared rules
-// per spec/fold.md §7.
-type UnknownOp = state.UnknownOp
-
-// ObjectState is the folded state produced by the fold driver for a collaborative object.
-type ObjectState = state.ObjectState
+// per spec/fold.md §7 or whose body a declared rule found uninterpretable per §7.1.
+type UnknownOp struct {
+	Commit       string `json:"commit"`
+	ObjectType   string `json:"object_type"`
+	OpType       string `json:"op_type"`
+	OpVersion    int64  `json:"op_version"`
+	Verification string `json:"verification"`
+}
 
 // NormalizePerson normalizes a person identifier string per spec/identifiers.md
 // (scheme lowercased; value trimmed and case-folded).

@@ -1,4 +1,4 @@
-package writ_test
+package state_test
 
 import (
 	"bytes"
@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	writ "github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/internal/codec"
 	"github.com/writtendev/writ/internal/codec/canonicaljson"
+	s "github.com/writtendev/writ/internal/state"
 	"github.com/writtendev/writ/spec"
 )
 
@@ -125,7 +125,7 @@ func toSpecOps(ops []codec.Op) []spec.MergeOp {
 	return mergeOps
 }
 
-func toSpecRules(rules []writ.Rule) []spec.FieldRule {
+func toSpecRules(rules []s.Rule) []spec.FieldRule {
 	specRules := make([]spec.FieldRule, 0, len(rules))
 	for _, r := range rules {
 		specRules = append(specRules, spec.FieldRule{
@@ -154,8 +154,8 @@ func toSpecRules(rules []writ.Rule) []spec.FieldRule {
 // "" or an unknown string must not reach NewAccumulator here either
 // (WRIT-196) — that recurrence, after this filter lands, is a real
 // failure, not the flake it fixes.
-func filterValidRules(rules []writ.Rule) []writ.Rule {
-	var out []writ.Rule
+func filterValidRules(rules []s.Rule) []s.Rule {
+	var out []s.Rule
 	for i, sr := range toSpecRules(rules) {
 		if spec.ValidateFieldRule(sr) == nil {
 			out = append(out, rules[i])
@@ -177,7 +177,7 @@ func toCanonicalJSON(t *testing.T, v any) []byte {
 	return canon
 }
 
-// The five rule tables below are stated here as literal []writ.Rule values.
+// The five rule tables below are stated here as literal []s.Rule values.
 // Writ hard-codes no object type but `schema`, so there is no installed
 // vocabulary to read realistic field-rule shapes out of any more: a property
 // suite over the fold declares its own, exactly as a consumer's schema
@@ -209,8 +209,8 @@ var (
 // an add/remove pair collapsed onto one target, and two multi-column
 // keyed-lww groups — one of which keys on a person-ref column, the shape
 // spec/fold.md §5.7 normalizes and regressionVectorWRIT112 pins.
-func widgetRules() []writ.Rule {
-	return []writ.Rule{
+func widgetRules() []s.Rule {
+	return []s.Rule{
 		{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
 		{OpType: "create", OpVersion: 1, Field: "description", Strategy: "lww", ValueType: "string"},
 		{OpType: "update", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
@@ -245,8 +245,8 @@ func widgetRules() []writ.Rule {
 // gadgetRules adds the numeric and ordering value types — int, number and
 // position — to the same set-observed-remove and single-column keyed-lww
 // shapes widgetRules carries.
-func gadgetRules() []writ.Rule {
-	return []writ.Rule{
+func gadgetRules() []s.Rule {
+	return []s.Rule{
 		{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
 		{OpType: "create", OpVersion: 1, Field: "description", Strategy: "lww", ValueType: "string"},
 		{OpType: "create", OpVersion: 1, Field: "rank", Strategy: "lww", ValueType: "int"},
@@ -274,8 +274,8 @@ func gadgetRules() []writ.Rule {
 // untyped create-once field kept byte-exact (spec/fold.md §5.2), a text
 // field under lww beside one under multi-value, and a tombstone driven by
 // the `delete` op type rather than a body field.
-func sprocketRules() []writ.Rule {
-	return []writ.Rule{
+func sprocketRules() []s.Rule {
+	return []s.Rule{
 		{OpType: "create", OpVersion: 1, Field: "subject", Strategy: "create-once"},
 		{OpType: "create", OpVersion: 1, Field: "text", Strategy: "lww", ValueType: "text"},
 		{OpType: "create", OpVersion: 1, Field: "body", Strategy: "multi-value", ValueType: "text"},
@@ -293,8 +293,8 @@ func sprocketRules() []writ.Rule {
 // collapse onto a shared target (two op types writing the same field name
 // instead), plus the two catalogue strategies no other table here uses —
 // set-union and lattice.
-func gizmoRules() []writ.Rule {
-	return []writ.Rule{
+func gizmoRules() []s.Rule {
+	return []s.Rule{
 		{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
 		{OpType: "create", OpVersion: 1, Field: "description", Strategy: "lww", ValueType: "string"},
 		{OpType: "update", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
@@ -310,8 +310,8 @@ func gizmoRules() []writ.Rule {
 
 // thingRules pairs timestamp-valued lww fields written by two different op
 // types with the same non-collapsing membership pair gizmoRules uses.
-func thingRules() []writ.Rule {
-	return []writ.Rule{
+func thingRules() []s.Rule {
+	return []s.Rule{
 		{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww", ValueType: "string"},
 		{OpType: "create", OpVersion: 1, Field: "starts_at", Strategy: "lww", ValueType: "timestamp"},
 		{OpType: "create", OpVersion: 1, Field: "ends_at", Strategy: "lww", ValueType: "timestamp"},
@@ -329,7 +329,7 @@ func thingRules() []writ.Rule {
 // 3. Three-Way Assertions
 // --------------------------------------------------------------------------
 
-func assertUnknownOpsParity(t *testing.T, writU []writ.UnknownOp, specU []spec.UnknownOp) {
+func assertUnknownOpsParity(t *testing.T, writU []s.UnknownOp, specU []spec.UnknownOp) {
 	t.Helper()
 	if len(writU) != len(specU) {
 		t.Fatalf("unknown ops length mismatch: writ=%d, spec=%d", len(writU), len(specU))
@@ -342,7 +342,7 @@ func assertUnknownOpsParity(t *testing.T, writU []writ.UnknownOp, specU []spec.U
 	}
 }
 
-func assertTotalOrderMatchesSpec(t *testing.T, ops []codec.Op, writRefs []writ.OpRef) {
+func assertTotalOrderMatchesSpec(t *testing.T, ops []codec.Op, writRefs []s.OpRef) {
 	t.Helper()
 	if len(ops) == 0 {
 		return
@@ -370,9 +370,9 @@ func assertTotalOrderMatchesSpec(t *testing.T, ops []codec.Op, writRefs []writ.O
 	}
 }
 
-func assertThreeWayFoldAbstract(t *testing.T, ops []codec.Op, rules []writ.Rule) {
+func assertThreeWayFoldAbstract(t *testing.T, ops []codec.Op, rules []s.Rule) {
 	t.Helper()
-	writRes, writErr := writ.Fold(ops, rules)
+	writRes, writErr := s.Fold(ops, rules)
 	mergeOps := toSpecOps(ops)
 	specRules := toSpecRules(rules)
 	specRes, specErr := spec.Fold(mergeOps, specRules)
@@ -394,7 +394,7 @@ func assertThreeWayFoldAbstract(t *testing.T, ops []codec.Op, rules []writ.Rule)
 	writJSON := toCanonicalJSON(t, writRes.State)
 	specJSON := toCanonicalJSON(t, specRes.State)
 	if !bytes.Equal(writJSON, specJSON) {
-		t.Fatalf("canonical JSON mismatch between writ.Fold and spec.Fold:\n writ: %s\n spec: %s", string(writJSON), string(specJSON))
+		t.Fatalf("canonical JSON mismatch between s.Fold and spec.Fold:\n writ: %s\n spec: %s", string(writJSON), string(specJSON))
 	}
 }
 
@@ -510,11 +510,11 @@ func generateDAGSkeleton(rng *rand.Rand, numOps int, objectID, objectType string
 	return allOps
 }
 
-func generateAbstractSyntheticStream(rng *rand.Rand) ([]codec.Op, []writ.Rule) {
+func generateAbstractSyntheticStream(rng *rand.Rand) ([]codec.Op, []s.Rule) {
 	numOps := 5 + rng.Intn(15)
 	ops := generateDAGSkeleton(rng, numOps, "obj-synthetic", "synthetic")
 
-	rules := []writ.Rule{
+	rules := []s.Rule{
 		{OpType: "op", OpVersion: 1, Field: "field_lww", Strategy: "lww"},
 		{OpType: "op", OpVersion: 1, Field: "field_create_once", Strategy: "create-once"},
 		{OpType: "op", OpVersion: 1, Field: "field_set_union", Strategy: "set-union"},
@@ -674,7 +674,7 @@ func generateAbstractSyntheticStream(rng *rand.Rand) ([]codec.Op, []writ.Rule) {
 	return ops, rules
 }
 
-func generateWidgetStream(rng *rand.Rand) ([]codec.Op, []writ.Rule, string) {
+func generateWidgetStream(rng *rand.Rand) ([]codec.Op, []s.Rule, string) {
 	numOps := 6 + rng.Intn(12)
 	ops := generateDAGSkeleton(rng, numOps, "w-property", "widget")
 	rules := widgetRules()
@@ -807,7 +807,7 @@ func generateWidgetStream(rng *rand.Rand) ([]codec.Op, []writ.Rule, string) {
 	return ops, rules, ""
 }
 
-func generateGadgetStream(rng *rand.Rand) ([]codec.Op, []writ.Rule, string) {
+func generateGadgetStream(rng *rand.Rand) ([]codec.Op, []s.Rule, string) {
 	numOps := 5 + rng.Intn(10)
 	ops := generateDAGSkeleton(rng, numOps, "g-property", "gadget")
 	rules := gadgetRules()
@@ -877,7 +877,7 @@ func generateGadgetStream(rng *rand.Rand) ([]codec.Op, []writ.Rule, string) {
 	return ops, rules, ""
 }
 
-func generateSprocketStream(rng *rand.Rand) ([]codec.Op, []writ.Rule) {
+func generateSprocketStream(rng *rand.Rand) ([]codec.Op, []s.Rule) {
 	numOps := 4 + rng.Intn(8)
 	ops := generateDAGSkeleton(rng, numOps, "s-property", "sprocket")
 	rules := sprocketRules()
@@ -939,7 +939,7 @@ func generateSprocketStream(rng *rand.Rand) ([]codec.Op, []writ.Rule) {
 	return ops, rules
 }
 
-func generateGizmoStream(rng *rand.Rand) ([]codec.Op, []writ.Rule) {
+func generateGizmoStream(rng *rand.Rand) ([]codec.Op, []s.Rule) {
 	numOps := 4 + rng.Intn(6)
 	ops := generateDAGSkeleton(rng, numOps, "gz-property", "gizmo")
 	rules := gizmoRules()
@@ -1000,7 +1000,7 @@ func generateGizmoStream(rng *rand.Rand) ([]codec.Op, []writ.Rule) {
 	return ops, rules
 }
 
-func generateThingStream(rng *rand.Rand) ([]codec.Op, []writ.Rule) {
+func generateThingStream(rng *rand.Rand) ([]codec.Op, []s.Rule) {
 	numOps := 4 + rng.Intn(6)
 	ops := generateDAGSkeleton(rng, numOps, "th-property", "thing")
 	rules := thingRules()
@@ -1049,10 +1049,10 @@ func generateThingStream(rng *rand.Rand) ([]codec.Op, []writ.Rule) {
 // --------------------------------------------------------------------------
 
 type FuzzCase struct {
-	ObjectType string      `json:"object_type,omitempty"`
-	Rules      []writ.Rule `json:"rules,omitempty"`
-	Ops        []codec.Op  `json:"ops"`
-	Mode       string      `json:"mode,omitempty"`
+	ObjectType string     `json:"object_type,omitempty"`
+	Rules      []s.Rule   `json:"rules,omitempty"`
+	Ops        []codec.Op `json:"ops"`
+	Mode       string     `json:"mode,omitempty"`
 }
 
 // WRIT-112: keyed-lww approval subject denormalized / case-folded subject key.
@@ -1222,7 +1222,7 @@ func regressionVectorWRIT125() FuzzCase {
 // WRIT-126: Non-string and null elements in set-union and append triggering op-level rejection into UnknownOps, plus empty array append producing [].
 func regressionVectorWRIT126() FuzzCase {
 	now := time.Unix(100, 0).UTC()
-	rules := []writ.Rule{
+	rules := []s.Rule{
 		{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww"},
 		{OpType: "add-remote", OpVersion: 1, Field: "remote", Strategy: "set-union"},
 		{OpType: "append-entries", OpVersion: 1, Field: "entries", Strategy: "append"},
@@ -1325,7 +1325,7 @@ func regressionVectorWRIT126() FuzzCase {
 // (engine/internal/fold/strategy.go) as `unknown strategy ""`.
 func regressionVectorWRIT196() FuzzCase {
 	now := time.Unix(100, 0).UTC()
-	rules := []writ.Rule{
+	rules := []s.Rule{
 		{OpType: "create", OpVersion: 1, Field: "title", Strategy: "lww"},
 		{OpType: "create", OpVersion: 1, Field: "empty_strategy", Strategy: ""},
 		{OpType: "create", OpVersion: 1, Field: "unknown_strategy", Strategy: "not-a-real-strategy"},
@@ -1367,13 +1367,13 @@ func regressionVectorWRIT196() FuzzCase {
 // through Go's (UTF-8-tolerant) JSON syntax scanner straight into Fold.
 // There a create-once field's byte-exact raw preservation
 // (engine/internal/fold/strategy.go) carries the invalid bytes into State
-// unchanged, and canonicalizing that State for the writ.Fold/spec.Fold
+// unchanged, and canonicalizing that State for the s.Fold/spec.Fold
 // byte-equality comparison (toCanonicalJSON) fails with "canonicaljson:
 // input is not valid UTF-8" -- a refusal DecodePayload would have produced
 // too, just earlier, on the op itself rather than on the folded state.
 func regressionVectorWRIT197() FuzzCase {
 	now := time.Unix(100, 0).UTC()
-	rules := []writ.Rule{
+	rules := []s.Rule{
 		{OpType: "create", OpVersion: 1, Field: "title", Strategy: "create-once"},
 	}
 	// 0xff is not a valid UTF-8 byte on its own. It survives Go's JSON
@@ -1421,7 +1421,7 @@ func regressionVectorWRIT197() FuzzCase {
 // the op itself.
 func regressionVectorWRIT197LoneSurrogate() FuzzCase {
 	now := time.Unix(100, 0).UTC()
-	rules := []writ.Rule{
+	rules := []s.Rule{
 		{OpType: "create", OpVersion: 1, Field: "title", Strategy: "create-once"},
 	}
 	ops := []codec.Op{
@@ -1464,7 +1464,7 @@ func regressionVectorWRIT197LoneSurrogate() FuzzCase {
 // itself.
 func regressionVectorWRIT197DuplicateKey() FuzzCase {
 	now := time.Unix(100, 0).UTC()
-	rules := []writ.Rule{
+	rules := []s.Rule{
 		{OpType: "create", OpVersion: 1, Field: "subject", Strategy: "create-once"},
 	}
 	ops := []codec.Op{
@@ -1747,7 +1747,7 @@ func FuzzFoldThreeWay(f *testing.F) {
 				return
 			}
 			if fc.ObjectType != "" {
-				var rules []writ.Rule
+				var rules []s.Rule
 				switch fc.ObjectType {
 				case "widget":
 					rules = widgetRules()

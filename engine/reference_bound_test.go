@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	writ "github.com/writtendev/writ/engine"
-	"github.com/writtendev/writ/internal/codec"
 )
 
 // referenceBoundSchemaSrc declares a "ticket" type with one
@@ -112,11 +111,11 @@ func TestLinkTargetLengthBoundIsEnforcedOnTheProducerPath(t *testing.T) {
 	if err == nil {
 		t.Fatal("a 290-code-point target is over the bound and must be refused")
 	}
-	var reject *codec.RejectError
+	var reject *writ.RejectError
 	if !errors.As(err, &reject) {
 		t.Errorf("refusal should be a codec reject, got %T: %v", err, err)
-	} else if reject.Reason != codec.RejectSchemaViolation {
-		t.Errorf("reject reason = %q, want %q", reject.Reason, codec.RejectSchemaViolation)
+	} else if reject.Reason != writ.RejectSchemaViolation {
+		t.Errorf("reject reason = %q, want %q", reject.Reason, writ.RejectSchemaViolation)
 	}
 
 	// The refusal must be total. An op log that recorded the over-long link

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/internal/codec"
 	"github.com/writtendev/writ/internal/codec/canonicaljson"
 	"github.com/writtendev/writ/internal/dag"
@@ -186,7 +185,7 @@ func runFoldFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 	// Schema objects themselves are not folded into the golden's objects:
 	// here they are the rule source, and their own materialization is the
 	// schema family's subject (TestSchemaFamily).
-	var schemas []writ.Schema
+	var schemas []state.Schema
 	nonSchemaOps := make(map[string][]codec.Op)
 	var nonSchemaIDs []string
 	for _, objID := range objectIDs {
@@ -199,9 +198,9 @@ func runFoldFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 			}
 		}
 		if len(schemaOps) > 0 {
-			sch, err := writ.FoldSchema(schemaOps)
+			sch, err := state.FoldSchema(schemaOps)
 			if err != nil {
-				return nil, fmt.Errorf("writ.FoldSchema for object %s in %s: %w", objID, fix.Name, err)
+				return nil, fmt.Errorf("state.FoldSchema for object %s in %s: %w", objID, fix.Name, err)
 			}
 			schemas = append(schemas, sch)
 		}
@@ -211,7 +210,7 @@ func runFoldFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 		}
 	}
 
-	rulesByType, conflicts := writ.RulesFromSchemas(schemas)
+	rulesByType, conflicts := state.RulesFromSchemas(schemas)
 	// How RulesFromSchemas reports a collision is the schema-driven family's
 	// subject. No fold fixture declares one, and a conflict here would
 	// withhold rules for the affected type and silently empty a golden's
@@ -237,16 +236,16 @@ func runFoldFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 		// types present does exactly that.
 		writRules := rulesForObject(rulesByType, codecOps)
 
-		// Cross-check: public writ.Fold produces byte-identical canonical
+		// Cross-check: public state.Fold produces byte-identical canonical
 		// state, TotalOrder and UnknownOps against the spec reference
 		// reducer. This fixture family's own golden is built from the
 		// reference fold's output (crossCheckSpecFold's returned State,
 		// TotalOrder, EffectiveTimes and UnknownOps below), not the
 		// engine's, so a divergence fails loudly here rather than baking
 		// itself into the golden silently.
-		engineRes, err := writ.Fold(codecOps, writRules)
+		engineRes, err := state.Fold(codecOps, writRules)
 		if err != nil {
-			return nil, fmt.Errorf("writ.Fold for object %s: %w", objID, err)
+			return nil, fmt.Errorf("state.Fold for object %s: %w", objID, err)
 		}
 
 		cc, err := crossCheckSpecFold(t, fix.Name, objID, codecOps, writRules, engineRes)
@@ -617,7 +616,7 @@ func TestFoldCoverage(t *testing.T) {
 // rulesForObject returns the rules governing one object's ops: the union, in
 // ascending object_type order, of the rules resolved for every object_type
 // present among them.
-func rulesForObject(rulesByType map[string][]writ.Rule, ops []codec.Op) []writ.Rule {
+func rulesForObject(rulesByType map[string][]state.Rule, ops []codec.Op) []state.Rule {
 	seen := make(map[string]bool, len(ops))
 	var objTypes []string
 	for _, op := range ops {
@@ -629,7 +628,7 @@ func rulesForObject(rulesByType map[string][]writ.Rule, ops []codec.Op) []writ.R
 	}
 	sort.Strings(objTypes)
 
-	var rules []writ.Rule
+	var rules []state.Rule
 	for _, objType := range objTypes {
 		rules = append(rules, rulesByType[objType]...)
 	}
@@ -661,8 +660,8 @@ type specFoldCrossCheck struct {
 // crossCheckSpecFold folds codecOps through the reference implementation
 // (spec.Fold, spec.TotalOrder, spec.EffectiveTimes, built from writRules the
 // same way the engine's own rule table is) and requires the result to agree
-// byte-for-byte with engineRes -- codecOps folded through the public
-// writ.Fold, using the same writRules -- on canonical State, TotalOrder
+// byte-for-byte with engineRes -- codecOps folded through state.Fold,
+// using the same writRules -- on canonical State, TotalOrder
 // (commit + t*), and UnknownOps.
 //
 // Both runFoldFixture (fold-* / forward-compat-* fixtures) and
@@ -670,7 +669,7 @@ type specFoldCrossCheck struct {
 // non-schema object, so a divergence between the engine and the reference
 // reducer can't hide in either fixture family (WRIT-274) -- before this, only
 // the fold-* family ran the comparison at all.
-func crossCheckSpecFold(t *testing.T, fixName, objID string, codecOps []codec.Op, writRules []writ.Rule, engineRes writ.ObjectState) (specFoldCrossCheck, error) {
+func crossCheckSpecFold(t *testing.T, fixName, objID string, codecOps []codec.Op, writRules []state.Rule, engineRes state.ObjectState) (specFoldCrossCheck, error) {
 	t.Helper()
 
 	var rules []spec.FieldRule

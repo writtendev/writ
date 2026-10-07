@@ -3,55 +3,109 @@ package writ
 import (
 	"context"
 	"fmt"
+	"time"
 
-	"github.com/writtendev/writ/internal/codec"
-	"github.com/writtendev/writ/internal/dag"
 	"github.com/writtendev/writ/internal/projection"
 )
 
-// Re-exported filter, ordering, and grouping types.
-type (
-	// ObjectFilter specifies filter criteria when querying collaborative objects cross-type.
-	ObjectFilter = projection.ObjectFilter
+// ObjectFilter specifies filter criteria when querying collaborative objects cross-type.
+type ObjectFilter struct {
+	Type           []string
+	Author         []string
+	Text           string
+	IncludeDeleted bool
+	OrderBy        OrderBy
+	Limit          int
+	Offset         int
+}
 
-	// OrderBy specifies the sort order for query results.
-	OrderBy = projection.OrderBy
-
-	// ObjectResult represents summary metadata for any collaborative object cross-type.
-	ObjectResult = projection.ObjectResult
-
-	// Author holds the author display name and email address derived from an object's operations.
-	Author = projection.Author
-
-	// RefreshStats reports the work performed during a Refresh pass.
-	RefreshStats = projection.Stats
-
-	// ObjectChange describes the modifications made to a collaborative object in an incremental refresh batch.
-	ObjectChange = projection.ObjectChange
-
-	// Rejection records an op commit that Refresh or Rebuild could not
-	// accept, as reported by RefreshStats.Rejections — either because it
-	// failed reader validation, or because an object it references was
-	// not present in this clone; see RejectObjectUnavailable for the two
-	// shapes that takes. Reason distinguishes which.
-	Rejection = dag.Rejection
-
-	// RejectReason is the machine-readable reason a Rejection carries.
-	RejectReason = codec.RejectReason
-)
+// OrderBy specifies the sort order for query results.
+type OrderBy string
 
 const (
 	// OrderByCreatedAtAsc sorts results by created_at ascending.
-	OrderByCreatedAtAsc = projection.OrderByCreatedAtAsc
+	OrderByCreatedAtAsc OrderBy = "created_at_asc"
 
 	// OrderByCreatedAtDesc sorts results by created_at descending.
-	OrderByCreatedAtDesc = projection.OrderByCreatedAtDesc
+	OrderByCreatedAtDesc OrderBy = "created_at_desc"
 
 	// OrderByUpdatedAtAsc sorts results by updated_at ascending.
-	OrderByUpdatedAtAsc = projection.OrderByUpdatedAtAsc
+	OrderByUpdatedAtAsc OrderBy = "updated_at_asc"
 
 	// OrderByUpdatedAtDesc sorts results by updated_at descending.
-	OrderByUpdatedAtDesc = projection.OrderByUpdatedAtDesc
+	OrderByUpdatedAtDesc OrderBy = "updated_at_desc"
+)
+
+// ObjectResult represents summary metadata for any collaborative object cross-type.
+type ObjectResult struct {
+	ObjectID     string    `json:"object_id"`
+	ObjectType   string    `json:"object_type"`
+	Author       Author    `json:"author"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	OpCount      int       `json:"op_count"`
+	Verification string    `json:"verification"`
+}
+
+// Author holds the author display name and email address derived from an object's operations.
+type Author struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+// RefreshStats reports the work performed during a Refresh pass.
+type RefreshStats struct {
+	OpsDecoded      int            `json:"ops_decoded"`
+	ObjectsTouched  int            `json:"objects_touched"`
+	AnchorsResolved int            `json:"anchors_resolved"`
+	Rebuilt         bool           `json:"rebuilt"`
+	Changed         []ObjectChange `json:"changed,omitempty"`
+	Rejections      []Rejection    `json:"rejections,omitempty"`
+}
+
+// ObjectChange describes the modifications made to a collaborative object in an incremental refresh batch.
+type ObjectChange struct {
+	ObjectID   string   `json:"object_id"`
+	ObjectType string   `json:"object_type"`
+	OpTypes    []string `json:"op_types"`
+	Created    bool     `json:"created"`
+}
+
+// Rejection records an op commit that Refresh or Rebuild could not
+// accept, as reported by RefreshStats.Rejections — either because it
+// failed reader validation, or because an object it references was
+// not present in this clone; see RejectObjectUnavailable for the two
+// shapes that takes. Reason distinguishes which. It carries no commit SHA:
+// git plumbing does not reach callers.
+type Rejection struct {
+	Reason RejectReason `json:"reason"`
+	Err    string       `json:"error,omitempty"`
+}
+
+// RejectReason is the machine-readable reason a Rejection carries.
+type RejectReason string
+
+const (
+	// RejectTreeShape reports an op commit whose root tree is malformed.
+	RejectTreeShape RejectReason = "tree-shape"
+
+	// RejectPayloadTooLarge reports an op.json blob exceeding MaxPayloadBytes.
+	RejectPayloadTooLarge RejectReason = "payload-too-large"
+
+	// RejectNonCanonicalPayload reports an op.json blob that is not byte-for-byte canonical JSON.
+	RejectNonCanonicalPayload RejectReason = "non-canonical-payload"
+
+	// RejectSchemaViolation reports an op body that violates schema rules.
+	RejectSchemaViolation RejectReason = "schema-violation"
+
+	// RejectCommitterMismatch reports a commit whose committer does not match its author.
+	RejectCommitterMismatch RejectReason = "committer-mismatch"
+
+	// RejectCommitTooLarge reports an op commit exceeding MaxCommitBytes.
+	RejectCommitTooLarge RejectReason = "commit-too-large"
+
+	// RejectTreeTooLarge reports an op root tree exceeding MaxTreeBytes.
+	RejectTreeTooLarge RejectReason = "tree-too-large"
 
 	// RejectObjectUnavailable reports that an op-commit chain references
 	// an object absent from this clone: a tree or op.json blob missing
@@ -60,7 +114,7 @@ const (
 	// clone's object store (no filter produces that — a filter withholds
 	// blobs and trees, not commits). It is engine-local, not part of
 	// spec/op-envelope.md's closed reader-validation rejection set.
-	RejectObjectUnavailable = dag.RejectObjectUnavailable
+	RejectObjectUnavailable RejectReason = "object-unavailable"
 )
 
 // Query provides read queries over collaborative objects, served from the projection SQLite cache.
@@ -82,7 +136,11 @@ func (q *Query) Objects(f ObjectFilter) ([]ObjectResult, error) {
 	if err := q.store.maybeAutoRefresh(context.Background()); err != nil {
 		return nil, err
 	}
-	return q.store.projection.Objects(f)
+	res, err := q.store.projection.Objects(toProjectionFilter(f))
+	if err != nil {
+		return nil, err
+	}
+	return fromProjectionResults(res), nil
 }
 
 // Object fetches summary metadata for a single collaborative object by its ID, returning ErrNotFound if not found.
@@ -97,5 +155,47 @@ func (q *Query) Object(id string) (ObjectResult, error) {
 	if err := q.store.maybeAutoRefresh(context.Background()); err != nil {
 		return ObjectResult{}, err
 	}
-	return q.store.projection.Object(id)
+	r, err := q.store.projection.Object(id)
+	if err != nil {
+		return ObjectResult{}, err
+	}
+	return fromProjectionResult(r), nil
+}
+
+func toProjectionFilter(f ObjectFilter) projection.ObjectFilter {
+	return projection.ObjectFilter{
+		Type:           f.Type,
+		Author:         f.Author,
+		Text:           f.Text,
+		IncludeDeleted: f.IncludeDeleted,
+		OrderBy:        projection.OrderBy(f.OrderBy),
+		Limit:          f.Limit,
+		Offset:         f.Offset,
+	}
+}
+
+func fromProjectionResult(r projection.ObjectResult) ObjectResult {
+	return ObjectResult{
+		ObjectID:   r.ObjectID,
+		ObjectType: r.ObjectType,
+		Author: Author{
+			Name:  r.Author.Name,
+			Email: r.Author.Email,
+		},
+		CreatedAt:    r.CreatedAt,
+		UpdatedAt:    r.UpdatedAt,
+		OpCount:      r.OpCount,
+		Verification: r.Verification,
+	}
+}
+
+func fromProjectionResults(res []projection.ObjectResult) []ObjectResult {
+	if res == nil {
+		return nil
+	}
+	out := make([]ObjectResult, len(res))
+	for i, r := range res {
+		out[i] = fromProjectionResult(r)
+	}
+	return out
 }

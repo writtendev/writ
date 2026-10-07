@@ -17,12 +17,12 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/go-git/go-git/v5/storage"
-	"github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/internal/codec"
 	"github.com/writtendev/writ/internal/dag"
 	"github.com/writtendev/writ/internal/fold"
 	"github.com/writtendev/writ/internal/identity"
 	"github.com/writtendev/writ/internal/resolve"
+	"github.com/writtendev/writ/internal/state"
 	writsync "github.com/writtendev/writ/internal/sync"
 	"github.com/writtendev/writ/spec/fixtures"
 )
@@ -439,7 +439,7 @@ func buildSnapshot(t TestReporter, rt *deviceRuntime, checks []AnchorCheck) (Sna
 	if err != nil {
 		return Snapshot{}, err
 	}
-	rules, _ := writ.RulesFromSchemas(schemas)
+	rules, _ := state.RulesFromSchemas(schemas)
 
 	var objectIDs []string
 	for objID := range enumRes.Ops {
@@ -454,7 +454,7 @@ func buildSnapshot(t TestReporter, rt *deviceRuntime, checks []AnchorCheck) (Sna
 			continue
 		}
 		objectType := fold.DetermineObjectType(ops)
-		st, err := writ.Fold(ops, rules[objectType])
+		st, err := state.Fold(ops, rules[objectType])
 		if err != nil {
 			return Snapshot{}, fmt.Errorf("fold %s %s: %w", objectType, id, err)
 		}
@@ -513,13 +513,13 @@ func buildSnapshot(t TestReporter, rt *deviceRuntime, checks []AnchorCheck) (Sna
 // producer-vocabularies resolver each device's store is opened with and by
 // the snapshot's own rule resolution, so a scenario cannot write against one
 // set of declarations and be folded against another.
-func schemasFromLog(enumRes *dag.EnumerateResult) ([]writ.Schema, error) {
-	var schemas []writ.Schema
+func schemasFromLog(enumRes *dag.EnumerateResult) ([]state.Schema, error) {
+	var schemas []state.Schema
 	for _, ops := range enumRes.Ops {
 		if len(ops) == 0 || ops[0].ObjectType != "schema" {
 			continue
 		}
-		sch, err := writ.FoldSchema(ops)
+		sch, err := state.FoldSchema(ops)
 		if err != nil {
 			return nil, fmt.Errorf("fold schema object: %w", err)
 		}
@@ -542,7 +542,7 @@ func vocabulariesFromLog(store *dag.Store) (codec.Vocabularies, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve vocabularies: %w", err)
 	}
-	vocabularies, _ := writ.VocabulariesFromSchemas(schemas)
+	vocabularies, _ := state.VocabulariesFromSchemas(schemas)
 	return vocabularies, nil
 }
 

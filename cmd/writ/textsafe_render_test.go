@@ -751,7 +751,7 @@ func TestSchemaShow_HostileTypeNameRendersEscaped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("store.Schema: %v", err)
 	}
-	_, conflicts := writ.RulesFromSchemas(schemas)
+	conflicts := writ.SchemaConflicts(schemas)
 
 	var foundConflict bool
 	for _, c := range conflicts {

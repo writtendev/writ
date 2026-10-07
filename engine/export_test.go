@@ -10,6 +10,7 @@ import (
 	"github.com/writtendev/writ/internal/codec"
 	"github.com/writtendev/writ/internal/dag"
 	"github.com/writtendev/writ/internal/projection"
+	"github.com/writtendev/writ/internal/state"
 )
 
 // StoreDAGStore returns the underlying dag.Store for testing.
@@ -51,7 +52,7 @@ func StoreVocabulariesForAppend(s *Store, ctx context.Context) (codec.Vocabulari
 // check skips must still return its own freshly resolved rule table to
 // this call's caller, never a cache a skipped write-back left stale or, on
 // a store whose cache had never been populated, nil.
-func StoreRules(s *Store, ctx context.Context) (map[string][]Rule, error) {
+func StoreRules(s *Store, ctx context.Context) (map[string][]state.Rule, error) {
 	return s.rules(ctx)
 }
 

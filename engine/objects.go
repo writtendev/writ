@@ -136,7 +136,7 @@ func (o *Objects) Create(ctx context.Context, objectType string, op NewOp) (stri
 	}
 
 	if _, err := o.store.dagStore.Append(ctx, env, nil); err != nil {
-		return "", fmt.Errorf("writ: create object: %w", err)
+		return "", fmt.Errorf("writ: create object: %w", wrapRejectError(err))
 	}
 
 	_ = o.store.maybeAutoRefresh(ctx)
@@ -200,7 +200,7 @@ func (o *Objects) Apply(ctx context.Context, objectID string, op NewOp) error {
 	}
 
 	if _, err := o.store.dagStore.Append(ctx, env, frontier); err != nil {
-		return fmt.Errorf("writ: apply object: %w", err)
+		return fmt.Errorf("writ: apply object: %w", wrapRejectError(err))
 	}
 
 	_ = o.store.maybeAutoRefresh(ctx)
@@ -321,11 +321,25 @@ func (o *Objects) Get(ctx context.Context, objectID string) (Object, error) {
 		outcomes[i] = op.Verification.Outcome
 	}
 
+	var unknownOps []UnknownOp
+	if st.UnknownOps != nil {
+		unknownOps = make([]UnknownOp, len(st.UnknownOps))
+		for i, u := range st.UnknownOps {
+			unknownOps[i] = UnknownOp{
+				Commit:       u.Commit,
+				ObjectType:   u.ObjectType,
+				OpType:       u.OpType,
+				OpVersion:    u.OpVersion,
+				Verification: u.Verification,
+			}
+		}
+	}
+
 	return Object{
 		ObjectID:     objectID,
 		ObjectType:   objectType,
 		Fields:       fields,
-		UnknownOps:   st.UnknownOps,
+		UnknownOps:   unknownOps,
 		Verification: string(codec.WorstOutcome(outcomes...)),
 	}, nil
 }
