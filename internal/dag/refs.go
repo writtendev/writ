@@ -59,10 +59,10 @@ type DiscoveredChain struct {
 
 // ParseChainRef parses a reference name string into a ChainRef.
 // It accepts local chains (refs/writ/<writer-id>/<object-type>) and
-// remote-tracking chains (refs/remotes/<remote>/writ/<writer-id>/<object-type>).
+// remote-tracking chains (refs/writ-remotes/<remote>/<writer-id>/<object-type>).
 func ParseChainRef(ref string) (ChainRef, error) {
 	const localPrefix = "refs/writ/"
-	const remotePrefix = "refs/remotes/"
+	const remotePrefix = "refs/writ-remotes/"
 
 	if strings.HasPrefix(ref, localPrefix) {
 		rem := strings.TrimPrefix(ref, localPrefix)
@@ -70,16 +70,9 @@ func ParseChainRef(ref string) (ChainRef, error) {
 		if len(parts) != 2 {
 			return ChainRef{}, fmt.Errorf("dag: invalid chain ref %q: must have exactly 2 segments after %q", ref, localPrefix)
 		}
-		wID, err := identity.ParseWriterID(parts[0])
+		wID, objType, err := parseChainTail(ref, parts[0], parts[1])
 		if err != nil {
-			return ChainRef{}, fmt.Errorf("dag: invalid writer-id in ref %q: %w", ref, err)
-		}
-		objType := parts[1]
-		if len(objType) == 0 || len(objType) > objectTypeMaxLength || !objectTypeRegexp.MatchString(objType) {
-			return ChainRef{}, fmt.Errorf("dag: invalid object-type %q in ref %q", objType, ref)
-		}
-		if objectTypeEndsInDotLock(objType) {
-			return ChainRef{}, fmt.Errorf("dag: object-type %q in ref %q cannot own a chain: git rejects a ref path component ending in \".lock\"", objType, ref)
+			return ChainRef{}, err
 		}
 		return ChainRef{
 			Name:       plumbing.ReferenceName(ref),
@@ -91,27 +84,17 @@ func ParseChainRef(ref string) (ChainRef, error) {
 
 	if strings.HasPrefix(ref, remotePrefix) {
 		rem := strings.TrimPrefix(ref, remotePrefix)
-		const writMarker = "/writ/"
-		idx := strings.Index(rem, writMarker)
-		if idx <= 0 {
-			return ChainRef{}, fmt.Errorf("dag: invalid remote chain ref %q: missing /writ/ segment", ref)
+		parts := strings.Split(rem, "/")
+		if len(parts) != 3 {
+			return ChainRef{}, fmt.Errorf("dag: invalid remote chain ref %q: must have exactly 3 segments after %q", ref, remotePrefix)
 		}
-		remote := rem[:idx]
-		tail := rem[idx+len(writMarker):]
-		parts := strings.Split(tail, "/")
-		if len(parts) != 2 {
-			return ChainRef{}, fmt.Errorf("dag: invalid remote chain ref %q: must have exactly 2 segments after /writ/", ref)
+		remote := parts[0]
+		if remote == "" {
+			return ChainRef{}, fmt.Errorf("dag: invalid remote chain ref %q: empty remote segment", ref)
 		}
-		wID, err := identity.ParseWriterID(parts[0])
+		wID, objType, err := parseChainTail(ref, parts[1], parts[2])
 		if err != nil {
-			return ChainRef{}, fmt.Errorf("dag: invalid writer-id in ref %q: %w", ref, err)
-		}
-		objType := parts[1]
-		if len(objType) == 0 || len(objType) > objectTypeMaxLength || !objectTypeRegexp.MatchString(objType) {
-			return ChainRef{}, fmt.Errorf("dag: invalid object-type %q in ref %q", objType, ref)
-		}
-		if objectTypeEndsInDotLock(objType) {
-			return ChainRef{}, fmt.Errorf("dag: object-type %q in ref %q cannot own a chain: git rejects a ref path component ending in \".lock\"", objType, ref)
+			return ChainRef{}, err
 		}
 		return ChainRef{
 			Name:       plumbing.ReferenceName(ref),
@@ -124,6 +107,20 @@ func ParseChainRef(ref string) (ChainRef, error) {
 	return ChainRef{}, fmt.Errorf("dag: ref %q is not a writ chain ref", ref)
 }
 
+func parseChainTail(ref, writerIDStr, objType string) (identity.WriterID, string, error) {
+	wID, err := identity.ParseWriterID(writerIDStr)
+	if err != nil {
+		return "", "", fmt.Errorf("dag: invalid writer-id in ref %q: %w", ref, err)
+	}
+	if len(objType) == 0 || len(objType) > objectTypeMaxLength || !objectTypeRegexp.MatchString(objType) {
+		return "", "", fmt.Errorf("dag: invalid object-type %q in ref %q", objType, ref)
+	}
+	if objectTypeEndsInDotLock(objType) {
+		return "", "", fmt.Errorf("dag: object-type %q in ref %q cannot own a chain: git rejects a ref path component ending in \".lock\"", objType, ref)
+	}
+	return wID, objType, nil
+}
+
 // LocalRefName constructs the canonical plumbing.ReferenceName for a local writer's chain.
 func LocalRefName(writerID identity.WriterID, objectType string) plumbing.ReferenceName {
 	return plumbing.ReferenceName(fmt.Sprintf("refs/writ/%s/%s", writerID, objectType))
@@ -131,7 +128,7 @@ func LocalRefName(writerID identity.WriterID, objectType string) plumbing.Refere
 
 // RemoteRefName constructs the canonical plumbing.ReferenceName for a remote-tracking chain.
 func RemoteRefName(remote string, writerID identity.WriterID, objectType string) plumbing.ReferenceName {
-	return plumbing.ReferenceName(fmt.Sprintf("refs/remotes/%s/writ/%s/%s", remote, writerID, objectType))
+	return plumbing.ReferenceName(fmt.Sprintf("refs/writ-remotes/%s/%s/%s", remote, writerID, objectType))
 }
 
 // Chains performs a single-pass scan of storer's references and returns all discovered

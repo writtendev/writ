@@ -46,9 +46,9 @@ var (
 
 	// ErrInvalidRemoteName indicates that a remote name is syntactically
 	// unusable: empty, "-"-leading (which a git subcommand would parse as
-	// a flag -- see ValidateRemoteName), or otherwise not usable as the
-	// <name> path component of the fetch-refspec destination
-	// refs/remotes/<name>/writ/*.
+	// a flag -- see ValidateRemoteName), contains "/", or otherwise not
+	// usable as the <name> path component of the fetch-refspec destination
+	// refs/writ-remotes/<name>/*.
 	ErrInvalidRemoteName = errors.New("invalid remote name")
 
 	// ErrAuth indicates that git remote authentication failed.

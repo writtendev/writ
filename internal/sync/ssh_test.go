@@ -99,7 +99,7 @@ func TestSSH_TransportViaShim(t *testing.T) {
 
 	// 5. Verify Bob has Alice's remote tracking ref
 	bobRefs := snapshotAllRefs(t, bobRepo)
-	trackingRef := "refs/remotes/origin/writ/" + aliceID + "/widget"
+	trackingRef := "refs/writ-remotes/origin/" + aliceID + "/widget"
 	if tip, ok := bobRefs[trackingRef]; !ok || tip != aliceOpID {
 		t.Fatalf("bob missing tracking ref %s = %s, refs: %v", trackingRef, aliceOpID, bobRefs)
 	}

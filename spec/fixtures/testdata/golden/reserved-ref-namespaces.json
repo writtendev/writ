@@ -13,7 +13,7 @@
       "commit": "3ca3c2e472a51943392901faaab4c7f29f393a97"
     },
     {
-      "name": "refs/remotes/origin/writ/v2/0123456789abcdef/acme.widget",
+      "name": "refs/writ-remotes/origin/v2/0123456789abcdef/acme.widget",
       "commit": "34070c72b8ac0301f7ac49f678a821a3bb02fa33"
     }
   ],
@@ -66,7 +66,7 @@
       ]
     },
     {
-      "ref": "refs/remotes/origin/writ/v2/0123456789abcdef/acme.widget",
+      "ref": "refs/writ-remotes/origin/v2/0123456789abcdef/acme.widget",
       "index": 0,
       "commits": [
         {

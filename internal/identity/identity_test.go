@@ -457,7 +457,7 @@ func TestWriterIDRemedyIsAttachedWhereTheValueIsRead(t *testing.T) {
 		// The consumer the paragraph above is about, tested through it. An
 		// external test package may import a package that imports the package
 		// under test, so this is the real call and not a restatement of it.
-		_, err := dag.ParseChainRef("refs/remotes/origin/writ/" + malformed + "/comment")
+		_, err := dag.ParseChainRef("refs/writ-remotes/origin/" + malformed + "/comment")
 		if err == nil {
 			t.Fatal("ParseChainRef accepted a malformed writer-id segment")
 		}

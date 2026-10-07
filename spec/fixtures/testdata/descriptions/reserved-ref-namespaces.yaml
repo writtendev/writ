@@ -1,10 +1,10 @@
 name: reserved-ref-namespaces
 description: >
   Refs deliberately outside the spec/ref-layout.md §Ref naming grammar, under
-  both refs/writ/ and refs/remotes/<remote>/writ/ (WRIT-314): a four-segment
+  both refs/writ/ and refs/writ-remotes/<remote>/ (WRIT-314): a four-segment
   refs/writ/v2/... ref, a refs/writ/zz-not-hex/... ref whose second segment is
-  not a 16-lowercase-hex writer-id, and a remote-tracking refs/remotes/origin/
-  writ/v2/... ref. §Reader enumeration requires a conforming reader to ignore
+  not a 16-lowercase-hex writer-id, and a remote-tracking refs/writ-remotes/origin/
+  v2/... ref. §Reader enumeration requires a conforming reader to ignore
   each one: not enumerated, not walked, and not reported as a rejection, so a
   future non-additive format revision can live in its own namespace beside
   this one instead of forking the repository's writ data. Each ignored ref
@@ -65,7 +65,7 @@ refs:
             expect:
               reject: tree-shape
 
-  - name: refs/remotes/origin/writ/v2/0123456789abcdef/acme.widget
+  - name: refs/writ-remotes/origin/v2/0123456789abcdef/acme.widget
     ignored: true
     history:
       - commits:

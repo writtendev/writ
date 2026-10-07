@@ -95,7 +95,7 @@ Deliberately absent: the identity/person *warnings* and their remediation `git c
 |---|---|---|
 | `remote` | string | The remote's name. |
 | `status` | string | One of the five values above. |
-| `refspec` | string, optional | The writ fetch refspec (`+refs/writ/*:refs/remotes/<name>/writ/*`). Set on `configured`/`already-configured`. |
+| `refspec` | string, optional | The writ fetch refspec (`+refs/writ/*:refs/writ-remotes/<name>/*`). Set on `configured`/`already-configured`. |
 | `reason` | object, optional | `{code, message}`, set on `skipped`/`failed`. `code` is a closed catalogue: `unknown-remote` (a url-less remote section — nothing was ever configured for it), `invalid-name` (a real remote writ cannot name), `other` (any other failure, including a config write failure). |
 
 #### `starter_schema` Fields
@@ -123,7 +123,7 @@ A partial run — `origin` configured, a discovered `ghost` remote (a url-less r
     "repo_id": "0123456789abcdef0123456789abcdef",
     "repo_id_minted": true,
     "remotes": [
-      { "remote": "origin", "status": "configured", "refspec": "+refs/writ/*:refs/remotes/origin/writ/*" },
+      { "remote": "origin", "status": "configured", "refspec": "+refs/writ/*:refs/writ-remotes/origin/*" },
       { "remote": "ghost", "status": "skipped", "reason": { "code": "unknown-remote", "message": "remote \"ghost\": unknown remote" } }
     ],
     "starter_schema": { "path": "/repo/writ.schema", "namespace": "acme", "written": true, "existed": false }

@@ -61,7 +61,7 @@ type RefDesc struct {
 	History []Generation `yaml:"history"`
 
 	// Ignored marks a ref deliberately outside the spec/ref-layout.md §Ref
-	// naming grammar, under refs/writ/ or refs/remotes/<remote>/writ/: a
+	// naming grammar, under refs/writ/ or refs/writ-remotes/<remote>/: a
 	// conforming reader must ignore it (§Reader enumeration). The corpus-wide
 	// ref-grammar guard inverts for it — it must fail dag.ParseChainRef,
 	// rather than parse — so the knob can't hide a typo'd writer-id on a ref
@@ -248,13 +248,13 @@ var validVerificationOutcomes = map[string]bool{
 }
 
 // isWritNamespaceRef reports whether ref is under a namespace where a writ
-// chain ref belongs: refs/writ/ or refs/remotes/<remote>/writ/, the same two
+// chain ref belongs: refs/writ/ or refs/writ-remotes/<remote>/, the same two
 // prefixes dag.ParseChainRef recognizes.
 func isWritNamespaceRef(ref string) bool {
 	if strings.HasPrefix(ref, "refs/writ/") {
 		return true
 	}
-	return strings.HasPrefix(ref, "refs/remotes/") && strings.Contains(ref, "/writ/")
+	return strings.HasPrefix(ref, "refs/writ-remotes/")
 }
 
 // Load parses a single fixture description from YAML and validates its integrity.
@@ -282,7 +282,7 @@ func Load(data []byte) (*Description, error) {
 		}
 		seenRefNames[r.Name] = fmt.Sprintf("ref %q", r.Name)
 		if r.Ignored && !isWritNamespaceRef(r.Name) {
-			return nil, fmt.Errorf("fixtures: description %q ref %q is marked ignored but is not under refs/writ/ or refs/remotes/<remote>/writ/", d.Name, r.Name)
+			return nil, fmt.Errorf("fixtures: description %q ref %q is marked ignored but is not under refs/writ/ or refs/writ-remotes/<remote>/", d.Name, r.Name)
 		}
 		if len(r.History) == 0 {
 			return nil, fmt.Errorf("fixtures: description %q ref %q has no history", d.Name, r.Name)

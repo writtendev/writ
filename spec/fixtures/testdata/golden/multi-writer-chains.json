@@ -9,7 +9,7 @@
       "commit": "5064ca8b6890f770b37f60720e3881df71593e35"
     },
     {
-      "name": "refs/remotes/origin/writ/550e8400e29b41d4/widget",
+      "name": "refs/writ-remotes/origin/550e8400e29b41d4/widget",
       "commit": "88f4460e88e9558b2612ad9b42a0ba0e98bbb42e"
     }
   ],
@@ -90,7 +90,7 @@
       ]
     },
     {
-      "ref": "refs/remotes/origin/writ/550e8400e29b41d4/widget",
+      "ref": "refs/writ-remotes/origin/550e8400e29b41d4/widget",
       "index": 0,
       "commits": [
         {

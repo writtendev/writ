@@ -72,24 +72,41 @@ func TestRefspec_EnsureIdempotentRepair(t *testing.T) {
 		{
 			name: "valid (forced) writ refspec already present",
 			initialConfig: []string{
-				"+refs/writ/*:refs/remotes/origin/writ/*",
+				"+refs/writ/*:refs/writ-remotes/origin/*",
 			},
 			initialState: writsync.StatusValid,
 		},
 		{
-			// The pre-WRIT-270 canonical form: a real old clone's
-			// .git/config, now drift that Ensure must repair.
-			name: "unforced writ refspec (old clone, no leading plus)",
+			// Unforced new form
+			name: "unforced writ refspec",
 			initialConfig: []string{
-				"refs/writ/*:refs/remotes/origin/writ/*",
+				"refs/writ/*:refs/writ-remotes/origin/*",
 			},
 			initialState: writsync.StatusUnforced,
 		},
 		{
-			name: "duplicate writ refspecs",
+			// The pre-WRIT-321 canonical form (forced): a real old clone's
+			// .git/config, now drift that Ensure must repair.
+			name: "old-form forced writ refspec (pre-WRIT-321)",
 			initialConfig: []string{
 				"+refs/writ/*:refs/remotes/origin/writ/*",
-				"+refs/writ/*:refs/remotes/origin/writ/*",
+			},
+			initialState: writsync.StatusWrongDestination,
+		},
+		{
+			// The pre-WRIT-270 canonical form (unforced, pre-WRIT-321):
+			// an even older clone's .git/config, now drift that Ensure must repair.
+			name: "old-form unforced writ refspec (pre-WRIT-321)",
+			initialConfig: []string{
+				"refs/writ/*:refs/remotes/origin/writ/*",
+			},
+			initialState: writsync.StatusWrongDestination,
+		},
+		{
+			name: "duplicate writ refspecs",
+			initialConfig: []string{
+				"+refs/writ/*:refs/writ-remotes/origin/*",
+				"+refs/writ/*:refs/writ-remotes/origin/*",
 			},
 			initialState: writsync.StatusDuplicate,
 		},
@@ -103,7 +120,7 @@ func TestRefspec_EnsureIdempotentRepair(t *testing.T) {
 		{
 			name: "wrong destination remote",
 			initialConfig: []string{
-				"+refs/writ/*:refs/remotes/other/writ/*",
+				"+refs/writ/*:refs/writ-remotes/other/*",
 			},
 			initialState: writsync.StatusWrongDestination,
 		},
@@ -203,7 +220,7 @@ func TestRefspec_EnsureIdempotentRepair(t *testing.T) {
 					foundHeads++
 				case "+refs/custom/*:refs/remotes/origin/custom/*":
 					foundCustom++
-				case "+refs/writ/*:refs/remotes/origin/writ/*":
+				case "+refs/writ/*:refs/writ-remotes/origin/*":
 					foundWrit++
 				}
 			}
@@ -224,20 +241,13 @@ func TestRefspec_EnsureIdempotentRepair(t *testing.T) {
 // TestValidateRemoteName pins the boring checks ValidateRemoteName runs, in
 // the order it runs them: empty, "-"-leading (the primary defense against
 // the argument-injection hole "writ sync -- --upload-pack=<script>" verified
-// to execute, WRIT-283), and go-git's own reference-name validation (with
+// to execute, WRIT-283), "/"-containing (writ remotes must be a single path
+// component, WRIT-321), and go-git's own reference-name validation (with
 // the lone-"@"-component override) as the catch-all.
-//
-// "/"-containing names ("team/fork", "a/@", "@/a") are pinned valid --
-// round-2 review finding: git itself accepts them ("git remote add" is the
-// oracle, verified against git 2.50.1) and a round-1 ban on the rationale
-// of git's valid_remote_nick rule rejected a class of remotes git supports,
-// stranding a writer's ops. "@" alone is pinned valid for the same reason:
-// go-git's reference-name validator rejects a lone "@" component where git
-// does not, and ValidateRemoteName routes around that one divergence.
 func TestValidateRemoteName(t *testing.T) {
 	valid := []string{
 		"origin", "up-stream", "a.b",
-		"team/fork", "@", "a/@", "@/a", "a/b/c", "üñîçødé",
+		"@", "üñîçødé",
 	}
 	for _, name := range valid {
 		t.Run(fmt.Sprintf("valid_%q", name), func(t *testing.T) {
@@ -250,6 +260,7 @@ func TestValidateRemoteName(t *testing.T) {
 	invalid := []string{
 		"", "-x", "--upload-pack=/bin/sh", "a b",
 		".", "..", "a..b", "x.lock", "he^ad", "q?", "a@{0}",
+		"team/fork", "team/writ/fork", "a/@", "@/a", "a/b/c",
 		"a//b", "/a", "a/", "a/.lock", "@{",
 	}
 	for _, name := range invalid {
@@ -474,4 +485,90 @@ func TestSync_ArgvIncludesEndOfOptions(t *testing.T) {
 		}
 		assertEndOfOptionsPrecedesRemote(t, argv, "origin")
 	})
+}
+
+// TestRefspec_RemoteNamedWrit pins that Check and Ensure handle a remote
+// named "writ" cleanly without false positives from git's default branch
+// fetch refspec (+refs/heads/*:refs/remotes/writ/*). Substring matching on
+// "/writ/" previously classified the branch refspec as a writ refspec,
+// causing Check to report duplicate and Ensure to fail idempotency.
+func TestRefspec_RemoteNamedWrit(t *testing.T) {
+	dir, _ := initTestRepo(t)
+	ident := testIdentity("0123456789abcdef", "Alice", "alice@example.test")
+
+	// Set remote.writ.url and standard branch tracking refspec
+	cmd := exec.Command("git", "config", "remote.writ.url", "https://example.test/writ.git")
+	cmd.Dir = dir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("set remote.writ.url: %v", err)
+	}
+	cmd = exec.Command("git", "config", "--add", "remote.writ.fetch", "+refs/heads/*:refs/remotes/writ/*")
+	cmd.Dir = dir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("add branch refspec: %v", err)
+	}
+
+	client, err := writsync.Open(dir, ident)
+	if err != nil {
+		t.Fatalf("Open client: %v", err)
+	}
+
+	ctx := context.Background()
+
+	// 1. Initial check: branch refspec must not be counted as a writ refspec
+	status, err := client.Check(ctx, "writ")
+	if err != nil {
+		t.Fatalf("Check(writ): %v", err)
+	}
+	if status.State != writsync.StatusMissing {
+		t.Fatalf("Check initial state = %q, want %q", status.State, writsync.StatusMissing)
+	}
+	if len(status.WritEntries) != 0 {
+		t.Fatalf("Check initial writ entries = %v, want empty", status.WritEntries)
+	}
+
+	// 2. Ensure repairs to valid
+	repaired, err := client.Ensure(ctx, "writ")
+	if err != nil {
+		t.Fatalf("Ensure(writ): %v", err)
+	}
+	if repaired.State != writsync.StatusValid {
+		t.Fatalf("Ensure state = %q, want %q", repaired.State, writsync.StatusValid)
+	}
+	if !repaired.Repaired {
+		t.Fatalf("Ensure Repaired = false, want true")
+	}
+
+	// 3. Second Ensure is idempotent and reports Repaired = false
+	second, err := client.Ensure(ctx, "writ")
+	if err != nil {
+		t.Fatalf("second Ensure(writ): %v", err)
+	}
+	if second.State != writsync.StatusValid {
+		t.Fatalf("second Ensure state = %q, want %q", second.State, writsync.StatusValid)
+	}
+	if second.Repaired {
+		t.Fatalf("second Ensure must not re-repair (Repaired = false)")
+	}
+
+	// 4. Assert both branch refspec and writ refspec exist in git config
+	cmd = exec.Command("git", "config", "--get-all", "remote.writ.fetch")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git config --get-all: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	expected := []string{
+		"+refs/heads/*:refs/remotes/writ/*",
+		"+refs/writ/*:refs/writ-remotes/writ/*",
+	}
+	if len(lines) != len(expected) {
+		t.Fatalf("git config remote.writ.fetch = %v, want %v", lines, expected)
+	}
+	for i, exp := range expected {
+		if lines[i] != exp {
+			t.Errorf("line %d = %q, want %q", i, lines[i], exp)
+		}
+	}
 }

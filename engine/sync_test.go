@@ -485,8 +485,8 @@ func TestStoreSync_FetchFailureDoesNotBlockPush(t *testing.T) {
 	// only needs write permission on the containing directory, not on the
 	// file it replaces -- chmod-ing the file alone doesn't stop it.
 	gitDir := filepath.Join(aliceDir, ".git")
-	runGitCmd(t, aliceDir, "config", "--unset-all", "remote.origin.fetch", `^(\+)?refs/writ/`)
-	runGitCmd(t, aliceDir, "config", "--add", "remote.origin.fetch", "refs/writ/*:refs/remotes/origin/writ/*")
+	runGitCmd(t, aliceDir, "config", "--unset-all", "remote.origin.fetch", `^(\+)?refs/writ`)
+	runGitCmd(t, aliceDir, "config", "--add", "remote.origin.fetch", "refs/writ/*:refs/writ-remotes/origin/*")
 	if err := os.Chmod(gitDir, 0o555); err != nil {
 		t.Fatalf("chmod .git read-only: %v", err)
 	}

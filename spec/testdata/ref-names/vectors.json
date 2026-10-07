@@ -1,6 +1,6 @@
 {
   "refspecs": {
-    "fetch": "+refs/writ/*:refs/remotes/<remote>/writ/*",
+    "fetch": "+refs/writ/*:refs/writ-remotes/<remote>/*",
     "push": "refs/writ/<writer-id>/*:refs/writ/<writer-id>/*"
   },
   "valid": [
@@ -233,50 +233,60 @@
   ],
   "remote_valid": [
     {
-      "ref": "refs/remotes/origin/writ/0123456789abcdef/widget",
+      "ref": "refs/writ-remotes/origin/0123456789abcdef/widget",
       "remote": "origin",
       "writer_id": "0123456789abcdef",
       "object_type": "widget"
     },
     {
-      "ref": "refs/remotes/writ/writ/0123456789abcdef/widget",
+      "ref": "refs/writ-remotes/upstream/0123456789abcdef/widget",
+      "remote": "upstream",
+      "writer_id": "0123456789abcdef",
+      "object_type": "widget"
+    },
+    {
+      "ref": "refs/writ-remotes/writ/0123456789abcdef/widget",
       "remote": "writ",
-      "writer_id": "0123456789abcdef",
-      "object_type": "widget"
-    },
-    {
-      "ref": "refs/remotes/writ/fork/writ/0123456789abcdef/widget",
-      "remote": "writ/fork",
-      "writer_id": "0123456789abcdef",
-      "object_type": "widget"
-    },
-    {
-      "ref": "refs/remotes/team/fork/writ/0123456789abcdef/widget",
-      "remote": "team/fork",
       "writer_id": "0123456789abcdef",
       "object_type": "widget"
     }
   ],
   "remote_invalid": [
     {
-      "ref": "refs/remotes/team/writ/writ/0123456789abcdef/widget",
-      "reason": "remote is team (the first writ component that follows a component ends it); the second segment writ is reserved and the tail has three segments, not two"
+      "ref": "refs/writ-remotes//0123456789abcdef/widget",
+      "reason": "empty remote segment"
     },
     {
-      "ref": "refs/remotes/writ/writ/writ/0123456789abcdef/widget",
-      "reason": "remote is writ; the tail writ/<writer-id>/<object-type> has three segments, not two"
+      "ref": "refs/writ-remotes/team/fork/0123456789abcdef/widget",
+      "reason": "remote contains slash; remotes must be a single path component"
     },
     {
-      "ref": "refs/remotes/writ/0123456789abcdef/widget",
-      "reason": "no component precedes the first writ component, so there is no remote"
+      "ref": "refs/writ-remotes/team/writ/fork/0123456789abcdef/widget",
+      "reason": "remote contains multiple slashes and writ segment"
     },
     {
-      "ref": "refs/remotes/origin/writ/v2/0123456789abcdef/widget",
-      "reason": "tail has three segments; the second segment v2 is reserved"
+      "ref": "refs/writ-remotes/origin/v2/0123456789abcdef/widget",
+      "reason": "tail has three segments; the segment after remote v2 is reserved"
     },
     {
-      "ref": "refs/remotes/writ/fork/writ/zz-not-hex/widget",
-      "reason": "remote is writ/fork; the writer-id segment is not 16 lowercase hex characters"
+      "ref": "refs/writ-remotes/origin/zz-not-hex/widget",
+      "reason": "writer-id segment is not 16 lowercase hex characters"
+    },
+    {
+      "ref": "refs/writ-remotes/origin/0123456789abcdef/acme.lock",
+      "reason": "object-type ends in .lock"
+    },
+    {
+      "ref": "refs/writ-remotes/origin/0123456789abcdef",
+      "reason": "too few path segments (missing object-type)"
+    },
+    {
+      "ref": "refs/writ-remotes/origin/0123456789abcdef/widget/extra",
+      "reason": "too many path segments"
+    },
+    {
+      "ref": "refs/remotes/origin/writ/0123456789abcdef/widget",
+      "reason": "legacy refs/remotes tracking ref form is not recognized as a writ chain ref"
     }
   ]
 }

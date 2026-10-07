@@ -192,15 +192,10 @@ func TestSync_RoundTripAndRefold(t *testing.T) {
 	}
 }
 
-// TestSync_SlashContainingRemoteName is the regression pin for round 2's
-// first finding (WRIT-283): ValidateRemoteName's blanket "/" ban rejected
-// remote names git itself accepts and writ previously synced fine on --
-// "git remote add team/fork <url>; writ sync team/fork" pushed ops before
-// this fix and, with the ban in place, exited 2 with nothing pushed. Git
-// 2.50.1's "git remote add" is the oracle here (verified out-of-band): it
-// accepts "team/fork" as a remote name, and a push/fetch against it
-// round-trips through refs/remotes/team/fork/writ/* without ambiguity, so
-// writ must accept it too rather than stranding a writer's ops.
+// TestSync_SlashContainingRemoteName pins WRIT-321's invariant that writ
+// remote names must be a single path component: no "/" is permitted.
+// A slash-containing remote name (e.g. "team/fork") is rejected upfront
+// with exit code 2 (usage error), leaving nothing pushed or stranded.
 func TestSync_SlashContainingRemoteName(t *testing.T) {
 	bareDir, aliceDir, _ := setupSyncTestHarness(t)
 	ctx := context.Background()
@@ -223,34 +218,169 @@ func TestSync_SlashContainingRemoteName(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code := run(ctx, []string{"-C", aliceDir, "sync", "team/fork"}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf(`sync "team/fork" exited with %d (want 0, nothing should strand); stderr: %s`, code, stderr.String())
+	if code != 2 {
+		t.Fatalf(`sync "team/fork" exited with %d (want 2 for usage error / invalid remote name); stderr: %s`, code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "pushed") {
-		t.Errorf(`sync "team/fork" stdout does not mention pushed ops: %s`, stdout.String())
+	if !strings.Contains(stderr.String(), "invalid remote name") {
+		t.Errorf(`sync "team/fork" stderr does not mention "invalid remote name": %s`, stderr.String())
 	}
 
-	// Confirm the ops actually landed in the bare repo, not just that the
-	// CLI reported success.
+	// Confirm nothing was pushed to the bare repo.
 	cmd := exec.Command("git", "for-each-ref", "refs/writ/0123456789abcdef")
 	cmd.Dir = bareDir
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("git for-each-ref in bare repo: %v", err)
 	}
-	if strings.TrimSpace(string(out)) == "" {
-		t.Errorf(`sync "team/fork" reported success but the bare repo has no refs/writ/* ref for Alice's writer ID`)
+	if strings.TrimSpace(string(out)) != "" {
+		t.Errorf(`sync "team/fork" pushed ops despite rejection: %s`, string(out))
 	}
 
-	// Same again for a remote whose name is exactly "@" -- go-git's own
+	// A single-component remote whose name is exactly "@" -- go-git's own
 	// reference-name validator wrongly rejects a lone "@" path component
 	// where git does not; ValidateRemoteName is expected to route around
-	// that divergence the same way it does for "/".
+	// that divergence and accept it.
 	addRemote(t, aliceDir, "@", bareDir)
 	var stdoutAt, stderrAt bytes.Buffer
 	codeAt := run(ctx, []string{"-C", aliceDir, "sync", "@"}, &stdoutAt, &stderrAt)
 	if codeAt != 0 {
 		t.Fatalf(`sync "@" exited with %d (want 0); stderr: %s`, codeAt, stderrAt.String())
+	}
+}
+
+// TestSync_BranchWithWritPrefixDoesNotCollide pins the core WRIT-321 regression:
+// tracking refs now live under refs/writ-remotes/<remote>/* rather than
+// refs/remotes/<remote>/writ/*. A git branch matching writ/<writer-id>/<type>
+// pushed to the remote creates refs/remotes/origin/writ/... upon fetch, which
+// must not collide with or confuse writ's tracking refs, and must not break
+// git fetch or git pull for other clones.
+func TestSync_BranchWithWritPrefixDoesNotCollide(t *testing.T) {
+	_, aliceDir, bobDir := setupSyncTestHarness(t)
+	ctx := context.Background()
+
+	// 1. Bob creates a schema and ticket op, then syncs to origin
+	sB, err := writ.Open(bobDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Open Bob failed: %v", err)
+	}
+	applyTicketSchemaViaStore(t, ctx, sB, bobDir)
+	bobObjID, err := sB.Objects.Create(ctx, "acme.ticket", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Bob Ticket"},
+	})
+	if err != nil {
+		sB.Close()
+		t.Fatalf("Bob create ticket: %v", err)
+	}
+	sB.Close()
+
+	var stdoutB, stderrB bytes.Buffer
+	if code := run(ctx, []string{"-C", bobDir, "sync", "origin"}, &stdoutB, &stderrB); code != 0 {
+		t.Fatalf("Bob sync exited with %d; stderr: %s", code, stderrB.String())
+	}
+
+	// 2. Bob pushes a normal git branch named writ/<bobid>/acme.ticket
+	bobID := "fedcba9876543210"
+	branchName := "writ/" + bobID + "/acme.ticket"
+	cmd := exec.Command("git", "branch", branchName)
+	cmd.Dir = bobDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("create branch %s: %v (%s)", branchName, err, string(out))
+	}
+	cmd = exec.Command("git", "push", "origin", "refs/heads/"+branchName+":refs/heads/"+branchName)
+	cmd.Dir = bobDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("push branch %s: %v (%s)", branchName, err, string(out))
+	}
+
+	// 3. Alice runs plain git fetch origin - must succeed without ref collisions
+	cmd = exec.Command("git", "fetch", "origin")
+	cmd.Dir = aliceDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("Alice plain git fetch failed: %v (%s)", err, string(out))
+	}
+
+	// 4. Alice runs writ sync origin - must succeed cleanly
+	var stdoutA, stderrA bytes.Buffer
+	if code := run(ctx, []string{"-C", aliceDir, "sync", "origin"}, &stdoutA, &stderrA); code != 0 {
+		t.Fatalf("Alice writ sync exited with %d; stderr: %s", code, stderrA.String())
+	}
+
+	// 5. Alice opens store: Bob's branch in refs/remotes/origin/writ/...
+	// must NOT be treated as a chain ref; only the tracking ref under
+	// refs/writ-remotes/origin/... should be recognized.
+	sA, err := writ.Open(aliceDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Open Alice failed: %v", err)
+	}
+	defer sA.Close()
+
+	got, err := sA.Objects.Get(ctx, bobObjID)
+	if err != nil {
+		t.Fatalf("Alice read Bob's object: %v", err)
+	}
+	if got.Fields["title"] != "Bob Ticket" {
+		t.Errorf("object title = %v, want Bob Ticket", got.Fields["title"])
+	}
+
+	// 6. Alice runs plain git pull or git fetch again - must remain clean
+	cmd = exec.Command("git", "fetch", "origin")
+	cmd.Dir = aliceDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("Alice second git fetch failed: %v (%s)", err, string(out))
+	}
+}
+
+// TestSync_RemoteNamedWrit pins that a remote named "writ" syncs cleanly
+// and reports 0 unsynced ops, without splitting ambiguities in ParseChainRef.
+func TestSync_RemoteNamedWrit(t *testing.T) {
+	bareDir, aliceDir, _ := setupSyncTestHarness(t)
+	ctx := context.Background()
+
+	addRemote(t, aliceDir, "writ", bareDir)
+
+	sA, err := writ.Open(aliceDir, writ.WithSigner(dummySigner()))
+	if err != nil {
+		t.Fatalf("Open Alice failed: %v", err)
+	}
+	applyTicketSchemaViaStore(t, ctx, sA, aliceDir)
+	if _, err := sA.Objects.Create(ctx, "acme.ticket", writ.NewOp{
+		Type:   "create",
+		Fields: map[string]any{"title": "Remote Writ Ticket"},
+	}); err != nil {
+		sA.Close()
+		t.Fatalf("Alice create object: %v", err)
+	}
+	sA.Close()
+
+	var stdout, stderr bytes.Buffer
+	code := run(ctx, []string{"-C", aliceDir, "sync", "writ"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("sync remote writ exited with %d; stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "pushed") {
+		t.Errorf("sync remote writ stdout does not mention pushed ops: %s", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run(ctx, []string{"-C", aliceDir, "sync", "--status", "writ"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("sync status remote writ exited with %d; stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "writ: up to date") {
+		t.Errorf("expected 'writ: up to date' for remote writ, got: %s", stdout.String())
+	}
+
+	// Also verify with --json that unsynced ops are 0
+	stdout.Reset()
+	stderr.Reset()
+	code = run(ctx, []string{"-C", aliceDir, "sync", "--status", "--json", "writ"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("sync status --json remote writ exited with %d; stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"unsynced":0`) {
+		t.Errorf("expected unsynced: 0 in JSON output for remote writ, got: %s", stdout.String())
 	}
 }
 
@@ -384,7 +514,7 @@ func TestSync_RefspecSelfHealing(t *testing.T) {
 	afterFetch := getGitConfigAll(t, freshDir, "remote.origin.fetch")
 	hasWritRefspec := false
 	for _, f := range afterFetch {
-		if f == "+refs/writ/*:refs/remotes/origin/writ/*" {
+		if f == "+refs/writ/*:refs/writ-remotes/origin/*" {
 			hasWritRefspec = true
 			break
 		}

@@ -302,7 +302,7 @@ func TestTakenWriterIDsCoversRemoteTrackingChains(t *testing.T) {
 	s := memory.NewStorage()
 	hash := plumbing.NewHash("1111111111111111111111111111111111111111")
 	for _, name := range []string{
-		"refs/remotes/origin/writ/bbbbbbbbbbbbbbbb/x",
+		"refs/writ-remotes/origin/bbbbbbbbbbbbbbbb/x",
 		"refs/writ/cccccccccccccccc/x",
 	} {
 		if err := s.SetReference(plumbing.NewHashReference(plumbing.ReferenceName(name), hash)); err != nil {
