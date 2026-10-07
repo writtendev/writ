@@ -86,7 +86,7 @@ deterministically folding an object&rsquo;s operations in causal order.</p>
 </span></span><span class="line"><span class="cl"><span class="gp">$</span> writ sync                        <span class="c1"># git push, to your own ref namespace</span>
 </span></span></code></pre></div><p>That is the whole deployment story. No server, no database, no webhook, no
 account. <code>writ init</code> adds one line to <code>.git/config</code>
-(<code>remote.origin.fetch = +refs/writ/*:refs/remotes/origin/writ/*</code>) and from then
+(<code>remote.origin.fetch = +refs/writ/*:refs/writ-remotes/origin/*</code>) and from then
 on an ordinary <code>git fetch</code> carries review history along with the code.</p>
 <p>Four design choices carry most of the weight:</p>
 <p><strong>Per-writer namespaces.</strong> You only ever push to <code>refs/writ/&lt;your-writer-id&gt;/*</code>,
