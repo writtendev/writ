@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	writ "github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/internal/codec"
 	"github.com/writtendev/writ/internal/codec/canonicaljson"
+	"github.com/writtendev/writ/internal/state"
 	"github.com/writtendev/writ/spec"
 )
 
@@ -259,14 +259,14 @@ func sortedFieldNames(fields map[string]spec.StrategyConfig) []string {
 func assertEngineAgrees(t *testing.T, vec spec.MergeVector, wantStateJSON []byte, wantUnknown []spec.UnknownOp) {
 	t.Helper()
 
-	var rules []writ.Rule
+	var rules []state.Rule
 	for _, fieldName := range sortedFieldNames(vec.Fields) {
 		cfg := vec.Fields[fieldName]
 		field := cfg.Field
 		if field == "" {
 			field = fieldName
 		}
-		rules = append(rules, writ.Rule{
+		rules = append(rules, state.Rule{
 			OpType:     cfg.OpType,
 			OpVersion:  cfg.OpVersion,
 			Field:      field,
@@ -305,15 +305,15 @@ func assertEngineAgrees(t *testing.T, vec spec.MergeVector, wantStateJSON []byte
 		})
 	}
 
-	res, err := writ.Fold(ops, rules)
+	res, err := state.Fold(ops, rules)
 	if vec.ExpectedRefusal {
 		if err == nil {
-			t.Fatalf("writ.Fold: expected an error for a rule table fold must refuse, got none")
+			t.Fatalf("state.Fold: expected an error for a rule table fold must refuse, got none")
 		}
 		return
 	}
 	if err != nil {
-		t.Fatalf("writ.Fold failed: %v", err)
+		t.Fatalf("state.Fold failed: %v", err)
 	}
 
 	gotJSON, err := canonicaljson.Marshal(mustJSON(t, res.State))
@@ -475,18 +475,18 @@ func TestFold_TargetNamingParity(t *testing.T) {
 			Author: codec.Identity{When: time.Unix(200, 0).UTC()},
 		},
 	}
-	engineRules := []writ.Rule{
+	engineRules := []state.Rule{
 		{OpType: "endorse", OpVersion: 1, Field: "a", Target: "a", Strategy: "keyed-lww", Key: []string{}},
 		{OpType: "endorse", OpVersion: 1, Field: "b", Target: "b", Strategy: "keyed-lww", Key: []string{"k"}},
 		{OpType: "endorse", OpVersion: 2, Field: "b", Target: "b", Strategy: "keyed-lww", Key: []string{"k", "k2"}},
 	}
 
-	_, engineErr := writ.Fold(engineOps, engineRules)
+	_, engineErr := state.Fold(engineOps, engineRules)
 	if engineErr == nil {
-		t.Fatal("writ.Fold: expected error, got nil")
+		t.Fatal("state.Fold: expected error, got nil")
 	}
 	if !strings.Contains(engineErr.Error(), `target "a"`) {
-		t.Fatalf("writ.Fold: expected error naming target \"a\", got: %v", engineErr)
+		t.Fatalf("state.Fold: expected error naming target \"a\", got: %v", engineErr)
 	}
 }
 

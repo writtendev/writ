@@ -22,13 +22,19 @@ const FailureKindNetwork = writsync.FailureKindNetwork
 const FailureKindNotFound = writsync.FailureKindNotFound
 const FailureKindRejected = writsync.FailureKindRejected
 const FailureKindUnknown = writsync.FailureKindUnknown
-const OrderByCreatedAtAsc = projection.OrderByCreatedAtAsc
-const OrderByCreatedAtDesc = projection.OrderByCreatedAtDesc
-const OrderByUpdatedAtAsc = projection.OrderByUpdatedAtAsc
-const OrderByUpdatedAtDesc = projection.OrderByUpdatedAtDesc
+const OrderByCreatedAtAsc OrderBy = "created_at_asc"
+const OrderByCreatedAtDesc OrderBy = "created_at_desc"
+const OrderByUpdatedAtAsc OrderBy = "updated_at_asc"
+const OrderByUpdatedAtDesc OrderBy = "updated_at_desc"
 const PersonIDKey = identity.PersonIDKey
-const RejectObjectUnavailable = dag.RejectObjectUnavailable
-const RejectSchemaViolation = codec.RejectSchemaViolation
+const RejectCommitTooLarge RejectReason = "commit-too-large"
+const RejectCommitterMismatch RejectReason = "committer-mismatch"
+const RejectNonCanonicalPayload RejectReason = "non-canonical-payload"
+const RejectObjectUnavailable RejectReason = "object-unavailable"
+const RejectPayloadTooLarge RejectReason = "payload-too-large"
+const RejectSchemaViolation RejectReason = "schema-violation"
+const RejectTreeShape RejectReason = "tree-shape"
+const RejectTreeTooLarge RejectReason = "tree-too-large"
 const SchemaConflictKeyColumnDisagreement SchemaConflictKind = "key-column-disagreement"
 const SchemaConflictNamespaceUngrammatical SchemaConflictKind = "namespace-ungrammatical"
 const SchemaConflictObjectIDMismatch SchemaConflictKind = "object-id-mismatch"
@@ -50,12 +56,9 @@ const VerificationValid = codec.OutcomeValid
 const VerificationWrongKey = codec.OutcomeWrongKey
 
 var ErrAuth = writsync.ErrAuth
-var ErrCycle = state.ErrCycle
-var ErrDuplicateOpID = state.ErrDuplicateOpID
 var ErrInvalidConfig = identity.ErrInvalid
 var ErrInvalidRemoteName = writsync.ErrInvalidRemoteName
 var ErrMissingConfig = identity.ErrMissing
-var ErrMixedObjects = state.ErrMixedObjects
 var ErrNetwork = writsync.ErrNetwork
 var ErrNoIdentity = errors.New("identity: no writer identity configured")
 var ErrNoSigningKey = errors.New("identity: no signing key configured")
@@ -73,36 +76,23 @@ func CheckTrustStore(ctx context.Context, path string) TrustStoreStatus
 func DeriveSchemaObjectID(namespace string) string
 func EscapeForbidden(s string) string
 func EscapeForbiddenKeepingNewlines(s string) string
-func Fold(ops []codec.Op, rules []Rule) (ObjectState, error)
-func FoldSchema(ops []codec.Op) (Schema, error)
 func Init(ctx context.Context, path string, opts InitOptions) (InitResult, error)
 func NormalizePerson(s string) string
 func Open(path string, opts ...Option) (*Store, error)
 func ParseSchemaSource(name string, src []byte) (*SchemaSource, error)
 func RenderSchemaSource(s Schema) ([]byte, error)
 func ResolveGitDir(path string) (GitDirInfo, error)
-func RulesFromSchemas(schemas []Schema) (map[string][]Rule, []SchemaConflict)
-func SchemaFromEnvelopes(envs []codec.Envelope) (Schema, error)
+func SchemaConflicts(schemas []Schema) []SchemaConflict
+func SchemaFromEnvelopes(envs []Envelope) (Schema, error)
 func SchemaInstallable(s Schema) bool
-func SchemaRules() []Rule
 func ValidateNamespace(name string) error
-func VocabulariesFromSchemas(schemas []Schema) (codec.Vocabularies, []SchemaConflict)
 func WithCacheDir(dir string) Option
 func WithGitBinary(gitBin string) Option
 func WithSigner(signer Signer) Option
 func WithTargetRefs(refs ...string) Option
 func WithoutAutoRefresh() Option
 
-type Anchor = resolve.Anchor struct {
-	Version int `json:"version"`
-	Old *SideAnchor `json:"old,omitempty"`
-	New *SideAnchor `json:"new,omitempty"`
-	Unknown map[string]json.RawMessage `json:"-"`
-	Raw []byte `json:"-"`
-}
-func (Anchor) MarshalJSON() ([]byte, error)
-
-type Author = projection.Author struct {
+type Author struct {
 	Name string `json:"name"`
 	Email string `json:"email"`
 }
@@ -117,14 +107,12 @@ func (*ConfigError) Error() string
 func (*ConfigError) Message() string
 func (*ConfigError) Unwrap() error
 
-type Envelope = codec.Envelope struct {
+type Envelope struct {
 	ObjectID string `json:"object_id"`
 	ObjectType string `json:"object_type"`
 	OpType string `json:"op_type"`
 	OpVersion int64 `json:"op_version"`
 	Body json.RawMessage `json:"body"`
-	Unknown map[string]json.RawMessage `json:"-"`
-	Raw []byte `json:"-"`
 }
 
 type Event struct {
@@ -182,14 +170,14 @@ type Object struct {
 	Verification string
 }
 
-type ObjectChange = projection.ObjectChange struct {
+type ObjectChange struct {
 	ObjectID string `json:"object_id"`
 	ObjectType string `json:"object_type"`
 	OpTypes []string `json:"op_types"`
 	Created bool `json:"created"`
 }
 
-type ObjectFilter = projection.ObjectFilter struct {
+type ObjectFilter struct {
 	Type []string
 	Author []string
 	Text string
@@ -199,7 +187,7 @@ type ObjectFilter = projection.ObjectFilter struct {
 	Offset int
 }
 
-type ObjectResult = projection.ObjectResult struct {
+type ObjectResult struct {
 	ObjectID string `json:"object_id"`
 	ObjectType string `json:"object_type"`
 	Author Author `json:"author"`
@@ -209,14 +197,6 @@ type ObjectResult = projection.ObjectResult struct {
 	Verification string `json:"verification"`
 }
 
-type ObjectState = state.ObjectState struct {
-	ObjectID string `json:"object_id"`
-	ObjectType string `json:"object_type,omitempty"`
-	TotalOrder []OpRef `json:"total_order"`
-	State map[string]any `json:"state"`
-	UnknownOps []UnknownOp `json:"unknown_ops,omitempty"`
-}
-
 type Objects struct {
 	// unexported fields
 }
@@ -224,25 +204,9 @@ func (*Objects) Apply(ctx context.Context, objectID string, op NewOp) error
 func (*Objects) Create(ctx context.Context, objectType string, op NewOp) (string, error)
 func (*Objects) Get(ctx context.Context, objectID string) (Object, error)
 
-type Op = codec.Op struct {
-	Envelope
-	ID string `json:"id"`
-	Parents []string `json:"parents"`
-	Author Identity `json:"author"`
-	Committer Identity `json:"committer"`
-	Message string `json:"message"`
-	Signature string `json:"signature,omitempty"`
-	Verification Verification `json:"verification"`
-}
-
-type OpRef = state.OpRef struct {
-	Commit string `json:"commit"`
-	TStar int64 `json:"t_star"`
-}
-
 type Option func(*openConfig)
 
-type OrderBy = projection.OrderBy string
+type OrderBy string
 
 type Query struct {
 	// unexported fields
@@ -250,27 +214,26 @@ type Query struct {
 func (*Query) Object(id string) (ObjectResult, error)
 func (*Query) Objects(f ObjectFilter) ([]ObjectResult, error)
 
-type RefreshStats = projection.Stats struct {
+type RefreshStats struct {
 	OpsDecoded int `json:"ops_decoded"`
 	ObjectsTouched int `json:"objects_touched"`
 	AnchorsResolved int `json:"anchors_resolved"`
 	Rebuilt bool `json:"rebuilt"`
 	Changed []ObjectChange `json:"changed,omitempty"`
-	Rejections []dag.Rejection `json:"rejections,omitempty"`
+	Rejections []Rejection `json:"rejections,omitempty"`
 }
 
-type RejectError = codec.RejectError struct {
+type RejectError struct {
 	Reason RejectReason
 	Err error
 }
 func (*RejectError) Error() string
 func (*RejectError) Unwrap() error
 
-type RejectReason = codec.RejectReason string
+type RejectReason string
 
-type Rejection = dag.Rejection struct {
-	CommitID string `json:"commit_id"`
-	Reason codec.RejectReason `json:"reason"`
+type Rejection struct {
+	Reason RejectReason `json:"reason"`
 	Err string `json:"error,omitempty"`
 }
 
@@ -283,24 +246,7 @@ type RemoteInit struct {
 	Err error
 }
 
-type Rule = state.Rule struct {
-	OpType string `json:"op_type,omitempty"`
-	OpVersion int64 `json:"op_version,omitempty"`
-	Field string `json:"field"`
-	Target string `json:"target,omitempty"`
-	Strategy string `json:"strategy"`
-	Key []string `json:"key,omitempty"`
-	Lattice []string `json:"lattice,omitempty"`
-	ValueType string `json:"value_type,omitempty"`
-	Enum []string `json:"enum,omitempty"`
-	MaxLength int64 `json:"max_length,omitempty"`
-	KeyTypes map[string]string `json:"key_types,omitempty"`
-	ObjectType string `json:"object_type,omitempty"`
-	Deprecated bool `json:"deprecated,omitempty"`
-}
-func (Rule) TargetKey() string
-
-type Schema = state.Schema struct {
+type Schema struct {
 	ObjectID string `json:"object_id"`
 	Namespace string `json:"namespace,omitempty"`
 	Description string `json:"description,omitempty"`
@@ -321,7 +267,7 @@ type SchemaConflictKind string
 type SchemaErrorList = schemasrc.ErrorList []*SyntaxError
 func (SchemaErrorList) Error() string
 
-type SchemaField = state.SchemaField struct {
+type SchemaField struct {
 	Name string `json:"field"`
 	OpType string `json:"op_type"`
 	OpVersion int64 `json:"op_version"`
@@ -336,7 +282,7 @@ type SchemaField = state.SchemaField struct {
 	Deprecated bool `json:"deprecated,omitempty"`
 }
 
-type SchemaOp = state.SchemaOp struct {
+type SchemaOp struct {
 	OpType string `json:"op_type"`
 	OpVersion int64 `json:"op_version"`
 	Description string `json:"description,omitempty"`
@@ -356,7 +302,7 @@ type SchemaSyntaxError = schemasrc.SyntaxError struct {
 }
 func (*SchemaSyntaxError) Error() string
 
-type SchemaType = state.SchemaType struct {
+type SchemaType struct {
 	Name string `json:"type"`
 	Description string `json:"description,omitempty"`
 	Deprecated bool `json:"deprecated,omitempty"`
@@ -364,7 +310,7 @@ type SchemaType = state.SchemaType struct {
 	Ops []SchemaOp `json:"ops,omitempty"`
 }
 
-type Signer = codec.Signer interface {
+type Signer interface {
 	Sign(ctx context.Context, payload []byte) (string, error)
 }
 
@@ -373,12 +319,12 @@ type Store struct {
 	Query *Query
 	// unexported fields
 }
-func (*Store) ApplySchema(ctx context.Context, envs []codec.Envelope) error
+func (*Store) ApplySchema(ctx context.Context, envs []Envelope) error
 func (*Store) Close() error
 func (*Store) Rebuild(ctx context.Context) (RefreshStats, error)
 func (*Store) Refresh(ctx context.Context) (RefreshStats, error)
 func (*Store) Schema(ctx context.Context) ([]Schema, error)
-func (*Store) SchemaAfterApply(ctx context.Context, objectID string, delta []codec.Envelope) (Schema, error)
+func (*Store) SchemaAfterApply(ctx context.Context, objectID string, delta []Envelope) (Schema, error)
 func (*Store) Sync(ctx context.Context, remote string) (SyncResult, error)
 func (*Store) SyncStatus(ctx context.Context, remote string) (SyncStatus, error)
 func (*Store) Types(ctx context.Context) ([]SchemaType, error)
@@ -420,7 +366,7 @@ type TypeUnsynced struct {
 	Unsynced int `json:"unsynced"`
 }
 
-type UnknownOp = state.UnknownOp struct {
+type UnknownOp struct {
 	Commit string `json:"commit"`
 	ObjectType string `json:"object_type"`
 	OpType string `json:"op_type"`
@@ -429,8 +375,6 @@ type UnknownOp = state.UnknownOp struct {
 }
 
 type VerificationOutcome = codec.VerificationOutcome string
-
-type Vocabularies = codec.Vocabularies map[string]Vocabulary
 
 type Writer struct {
 	ID string `json:"id"`

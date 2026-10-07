@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/internal/codec"
 	"github.com/writtendev/writ/internal/codec/canonicaljson"
 	"github.com/writtendev/writ/internal/dag"
@@ -22,8 +21,8 @@ import (
 
 // TestSchemaDrivenFoldFamily registers the schema-driven fixture family: the
 // ticket's central claim made executable. Every schema object in a fixture
-// is folded with writ.FoldSchema, resolved into per-object_type rules with
-// writ.RulesFromSchemas, and every other object is folded against the rules
+// is folded with state.FoldSchema, resolved into per-object_type rules with
+// state.RulesFromSchemas, and every other object is folded against the rules
 // resolved for its own object_type -- with no new engine code, exactly as
 // ARCHITECTURE.md §The six machines describes the schema-driven fold path.
 func TestSchemaDrivenFoldFamily(t *testing.T) {
@@ -40,48 +39,48 @@ func TestSchemaDrivenFoldFamily(t *testing.T) {
 // SchemaDrivenGolden is the family's pinned shape: every schema object
 // present, the conflicts RulesFromSchemas resolved between them, and every
 // other object's folded ObjectState (object_id, object_type, total_order,
-// state, unknown_ops -- writ.ObjectState's own JSON shape, reused verbatim).
+// state, unknown_ops -- state.ObjectState's own JSON shape, reused verbatim).
 type SchemaDrivenGolden struct {
 	Schemas   []SchemaDrivenSchemaGolden   `json:"schemas"`
 	Conflicts []SchemaDrivenConflictGolden `json:"conflicts,omitempty"`
-	Objects   []writ.ObjectState           `json:"objects"`
+	Objects   []state.ObjectState          `json:"objects"`
 }
 
 type SchemaDrivenSchemaGolden struct {
-	ObjectID string      `json:"object_id"`
-	Schema   writ.Schema `json:"schema"`
+	ObjectID string       `json:"object_id"`
+	Schema   state.Schema `json:"schema"`
 }
 
 // SchemaDrivenConflictGolden is the corpus-pinned projection of
-// writ.SchemaConflict: kind, object_type, namespace, and object_ids only
+// state.SchemaConflict: kind, object_type, namespace, and object_ids only
 // (spec/schema-ops.md §6). Reason is deliberately absent -- it is
 // human-readable, free to change wording in any release, and no independent
 // implementation can be expected to reproduce writ's exact English or Go's
 // %v slice formatting (WRIT-335). The closed Kind catalogue is what the
 // corpus byte-compares.
 type SchemaDrivenConflictGolden struct {
-	Kind       writ.SchemaConflictKind `json:"kind"`
-	ObjectType string                  `json:"object_type,omitempty"`
-	Namespace  string                  `json:"namespace,omitempty"`
-	ObjectIDs  []string                `json:"object_ids"`
+	Kind       state.SchemaConflictKind `json:"kind"`
+	ObjectType string                   `json:"object_type,omitempty"`
+	Namespace  string                   `json:"namespace,omitempty"`
+	ObjectIDs  []string                 `json:"object_ids"`
 }
 
 // schemaConflictKinds is the closed set this family's runner checks every
 // golden conflict's Kind against (spec/schema-ops.md §6): a test failure
 // here, not a silently-passing golden, is what catches a new
 // SchemaConflict construction site added without a Kind.
-var schemaConflictKinds = map[writ.SchemaConflictKind]bool{
-	writ.SchemaConflictNamespaceUngrammatical: true,
-	writ.SchemaConflictObjectIDMismatch:       true,
-	writ.SchemaConflictSchemaRedefined:        true,
-	writ.SchemaConflictTypeUngrammatical:      true,
-	writ.SchemaConflictTypeUnqualified:        true,
-	writ.SchemaConflictOpTypeUngrammatical:    true,
-	writ.SchemaConflictOpTypeReserved:         true,
-	writ.SchemaConflictRuleInvalid:            true,
-	writ.SchemaConflictKeyColumnDisagreement:  true,
-	writ.SchemaConflictTargetDisagreement:     true,
-	writ.SchemaConflictValueTypeUnknown:       true,
+var schemaConflictKinds = map[state.SchemaConflictKind]bool{
+	state.SchemaConflictNamespaceUngrammatical: true,
+	state.SchemaConflictObjectIDMismatch:       true,
+	state.SchemaConflictSchemaRedefined:        true,
+	state.SchemaConflictTypeUngrammatical:      true,
+	state.SchemaConflictTypeUnqualified:        true,
+	state.SchemaConflictOpTypeUngrammatical:    true,
+	state.SchemaConflictOpTypeReserved:         true,
+	state.SchemaConflictRuleInvalid:            true,
+	state.SchemaConflictKeyColumnDisagreement:  true,
+	state.SchemaConflictTargetDisagreement:     true,
+	state.SchemaConflictValueTypeUnknown:       true,
 }
 
 func runSchemaDrivenFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
@@ -143,7 +142,7 @@ func runSchemaDrivenFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error)
 	r := rand.New(rand.NewSource(42))
 
 	var golden SchemaDrivenGolden
-	var schemas []writ.Schema
+	var schemas []state.Schema
 	nonSchemaOps := make(map[string][]codec.Op)
 	var nonSchemaIDs []string
 
@@ -159,9 +158,9 @@ func runSchemaDrivenFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error)
 		}
 
 		if len(schemaOps) > 0 {
-			sch, err := writ.FoldSchema(schemaOps)
+			sch, err := state.FoldSchema(schemaOps)
 			if err != nil {
-				return nil, fmt.Errorf("writ.FoldSchema for object %s in %s: %w", objID, fix.Name, err)
+				return nil, fmt.Errorf("state.FoldSchema for object %s in %s: %w", objID, fix.Name, err)
 			}
 			schemas = append(schemas, sch)
 			golden.Schemas = append(golden.Schemas, SchemaDrivenSchemaGolden{ObjectID: objID, Schema: sch})
@@ -178,7 +177,7 @@ func runSchemaDrivenFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error)
 				shuffled := make([]codec.Op, len(schemaOps))
 				copy(shuffled, schemaOps)
 				r.Shuffle(len(shuffled), func(a, b int) { shuffled[a], shuffled[b] = shuffled[b], shuffled[a] })
-				shuffledSchema, err := writ.FoldSchema(shuffled)
+				shuffledSchema, err := state.FoldSchema(shuffled)
 				if err != nil {
 					t.Fatalf("commutativity violation on permutation #%d for schema object %s in %s: %v", i, objID, fix.Name, err)
 				}
@@ -199,7 +198,7 @@ func runSchemaDrivenFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error)
 		}
 	}
 
-	rules, conflicts := writ.RulesFromSchemas(schemas)
+	rules, conflicts := state.RulesFromSchemas(schemas)
 	for _, c := range conflicts {
 		if c.Kind == "" || !schemaConflictKinds[c.Kind] {
 			return nil, fmt.Errorf("schema conflict in %s has Kind %q, want a non-empty member of the closed SchemaConflictKind set (spec/schema-ops.md §6): %+v", fix.Name, c.Kind, c)
@@ -216,10 +215,10 @@ func runSchemaDrivenFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error)
 	// enumeration order").
 	if len(schemas) > 1 {
 		for i := 0; i < 20; i++ {
-			shuffled := make([]writ.Schema, len(schemas))
+			shuffled := make([]state.Schema, len(schemas))
 			copy(shuffled, schemas)
 			r.Shuffle(len(shuffled), func(a, b int) { shuffled[a], shuffled[b] = shuffled[b], shuffled[a] })
-			shuffledRules, shuffledConflicts := writ.RulesFromSchemas(shuffled)
+			shuffledRules, shuffledConflicts := state.RulesFromSchemas(shuffled)
 			if !reflect.DeepEqual(shuffledRules, rules) {
 				t.Fatalf("RulesFromSchemas order-dependence on permutation #%d in %s:\n got:  %+v\nwant: %+v",
 					i, fix.Name, shuffledRules, rules)
@@ -236,9 +235,9 @@ func runSchemaDrivenFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error)
 		ops := nonSchemaOps[objID]
 		objType := state.DetermineObjectType(ops)
 
-		objState, err := writ.Fold(ops, rules[objType])
+		objState, err := state.Fold(ops, rules[objType])
 		if err != nil {
-			return nil, fmt.Errorf("writ.Fold for object %s (%s) in %s: %w", objID, objType, fix.Name, err)
+			return nil, fmt.Errorf("state.Fold for object %s (%s) in %s: %w", objID, objType, fix.Name, err)
 		}
 
 		// Cross-check: the spec reference reducer must agree with the engine
@@ -258,7 +257,7 @@ func runSchemaDrivenFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error)
 			shuffled := make([]codec.Op, len(ops))
 			copy(shuffled, ops)
 			r.Shuffle(len(shuffled), func(a, b int) { shuffled[a], shuffled[b] = shuffled[b], shuffled[a] })
-			shuffledState, err := writ.Fold(shuffled, rules[objType])
+			shuffledState, err := state.Fold(shuffled, rules[objType])
 			if err != nil {
 				t.Fatalf("commutativity violation on permutation #%d for object %s in %s: %v", i, objID, fix.Name, err)
 			}

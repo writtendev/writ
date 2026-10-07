@@ -358,7 +358,7 @@ func buildSchemaPlan(ctx context.Context, store *writ.Store, dir string) (*schem
 	if err != nil {
 		return nil, fmt.Errorf("writ schema: %w", err)
 	}
-	_, conflicts := writ.RulesFromSchemas(schemas)
+	conflicts := writ.SchemaConflicts(schemas)
 
 	objectID, err := resolveSchemaTarget(schemas, f.Namespace())
 	if err != nil {
@@ -645,7 +645,7 @@ func conflictsIntroducedByApply(schemas []writ.Schema, before []writ.SchemaConfl
 		after = append(after, planned)
 	}
 
-	_, afterConflicts := writ.RulesFromSchemas(after)
+	afterConflicts := writ.SchemaConflicts(after)
 
 	seen := make(map[string]bool, len(before))
 	for _, c := range before {

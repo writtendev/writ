@@ -9,7 +9,6 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/internal/codec"
 	"github.com/writtendev/writ/internal/dag"
 	"github.com/writtendev/writ/internal/identity"
@@ -19,8 +18,8 @@ import (
 )
 
 // fixtureRules resolves a fixture repo's merge rules from the repo itself:
-// every `schema` object folded with writ.FoldSchema, the results handed to
-// writ.RulesFromSchemas. Writ hard-codes one object type, so a fixture's rule
+// every `schema` object folded with state.FoldSchema, the results handed to
+// state.RulesFromSchemas. Writ hard-codes one object type, so a fixture's rule
 // table is data in its own log — the projection is handed exactly what a
 // reader of that repo would resolve, not a table this test invents.
 func fixtureRules(t *testing.T, store *dag.Store) map[string][]state.Rule {
@@ -37,7 +36,7 @@ func fixtureRules(t *testing.T, store *dag.Store) map[string][]state.Rule {
 	}
 	sort.Strings(objectIDs)
 
-	var schemas []writ.Schema
+	var schemas []state.Schema
 	for _, objID := range objectIDs {
 		var schemaOps []codec.Op
 		for _, op := range enumRes.Ops[objID] {
@@ -48,14 +47,14 @@ func fixtureRules(t *testing.T, store *dag.Store) map[string][]state.Rule {
 		if len(schemaOps) == 0 {
 			continue
 		}
-		sch, err := writ.FoldSchema(schemaOps)
+		sch, err := state.FoldSchema(schemaOps)
 		if err != nil {
-			t.Fatalf("writ.FoldSchema for object %s: %v", objID, err)
+			t.Fatalf("state.FoldSchema for object %s: %v", objID, err)
 		}
 		schemas = append(schemas, sch)
 	}
 
-	rules, _ := writ.RulesFromSchemas(schemas)
+	rules, _ := state.RulesFromSchemas(schemas)
 	return rules
 }
 

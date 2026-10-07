@@ -2,6 +2,7 @@ package writ
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/writtendev/writ/internal/codec"
 	"github.com/writtendev/writ/internal/gitdir"
@@ -13,17 +14,37 @@ import (
 // reader validation of an op that arrived, or producer validation of one
 // about to be signed (spec/op-envelope.md). Its two fields, Reason and
 // Err, leak nothing git-shaped.
-type RejectError = codec.RejectError
+type RejectError struct {
+	Reason RejectReason
+	Err    error
+}
 
-// RejectSchemaViolation is the RejectReason a RejectError carries when an
-// op's body violates the type it declares against the schema folded from
-// the log (cmd/writ's renderObjectMutationErr). RejectReason itself, and
-// RejectObjectUnavailable, are already public (see query.go); this is the
-// one further member cmd/writ compares against, not the whole RejectReason
-// catalogue -- unlike FailureKind and VerificationOutcome below, this is
-// not one of the two closed catalogues the WRIT-296 plan's orchestrator
-// decision widened to a complete export.
-const RejectSchemaViolation = codec.RejectSchemaViolation
+// Error returns the formatted rejection string, including the reason code.
+func (e *RejectError) Error() string {
+	if e.Err != nil {
+		return fmt.Sprintf("writ: reject %s: %v", e.Reason, e.Err)
+	}
+	return fmt.Sprintf("writ: reject %s", e.Reason)
+}
+
+// Unwrap returns the underlying error, if any.
+func (e *RejectError) Unwrap() error {
+	return e.Err
+}
+
+func wrapRejectError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var codecRej *codec.RejectError
+	if errors.As(err, &codecRej) {
+		return &RejectError{
+			Reason: RejectReason(codecRej.Reason),
+			Err:    codecRej.Err,
+		}
+	}
+	return err
+}
 
 // VerificationOutcome classifies the result of verifying an op commit's
 // signature (codec.Verify, surfaced as Object.Verification and

@@ -1,10 +1,20 @@
 package writ
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/writtendev/writ/internal/schemasrc"
 )
+
+// Envelope represents an unsigned operation envelope as submitted to Store.Apply or Store.ApplySchema.
+type Envelope struct {
+	ObjectID   string          `json:"object_id"`
+	ObjectType string          `json:"object_type"`
+	OpType     string          `json:"op_type"`
+	OpVersion  int64           `json:"op_version"`
+	Body       json.RawMessage `json:"body"`
+}
 
 // SchemaSource is a parsed writ.schema working-tree source file
 // (spec/schema-source.md, WRIT-187): the human-editable form `writ schema
@@ -64,7 +74,21 @@ func (s *SchemaSource) Compile(objectID string) ([]Envelope, error) {
 	if s == nil || s.file == nil {
 		return nil, fmt.Errorf("writ: schema source is nil")
 	}
-	return schemasrc.Compile(s.file, objectID)
+	envs, err := schemasrc.Compile(s.file, objectID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Envelope, len(envs))
+	for i, env := range envs {
+		out[i] = Envelope{
+			ObjectID:   env.ObjectID,
+			ObjectType: env.ObjectType,
+			OpType:     env.OpType,
+			OpVersion:  env.OpVersion,
+			Body:       env.Body,
+		}
+	}
+	return out, nil
 }
 
 // RenderSchemaSource renders s — folded schema object state, typically
@@ -80,7 +104,7 @@ func (s *SchemaSource) Compile(objectID string) ([]Envelope, error) {
 // internal type itself, not on the opaque front end this ticket is
 // scoped to (WRIT-310 plan §5, "the alias trap").
 func RenderSchemaSource(s Schema) ([]byte, error) {
-	return schemasrc.Render(s)
+	return schemasrc.Render(toStateSchema(s))
 }
 
 // ValidateNamespace reports whether name satisfies the same namespace

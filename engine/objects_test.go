@@ -628,7 +628,7 @@ func TestObjectsCreate_ValidationErrors(t *testing.T) {
 func TestObjectsCreate_DeclaredTypeWithNoFieldsIsCreatable(t *testing.T) {
 	store, ctx := openWritableStore(t)
 
-	schemaEnvs := []codec.Envelope{
+	schemaEnvs := []writ.Envelope{
 		schemaEnv(t, "schema:acme", "create", map[string]any{"namespace": "acme"}),
 		schemaEnv(t, "schema:acme", "define-type", map[string]any{"type": "acme.widget"}),
 		schemaEnv(t, "schema:acme", "define-op", map[string]any{"type": "acme.widget", "op_type": "create", "op_version": "1"}),

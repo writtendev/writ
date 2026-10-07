@@ -13,9 +13,9 @@ import (
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
-	writ "github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/internal/codec"
 	"github.com/writtendev/writ/internal/codec/canonicaljson"
+	"github.com/writtendev/writ/internal/state"
 	"github.com/writtendev/writ/spec"
 )
 
@@ -492,9 +492,9 @@ func TestForwardCompatFC5(t *testing.T) {
 			}
 
 			// 2. Engine fold assertion
-			var writRules []writ.Rule
+			var writRules []state.Rule
 			for _, r := range rules {
-				writRules = append(writRules, writ.Rule{
+				writRules = append(writRules, state.Rule{
 					OpType:    r.OpType,
 					OpVersion: r.OpVersion,
 					Field:     r.Field,
@@ -511,7 +511,7 @@ func TestForwardCompatFC5(t *testing.T) {
 			if err != nil {
 				t.Fatalf("marshaling body: %v", err)
 			}
-			engineRes, err := writ.Fold([]codec.Op{{
+			engineRes, err := state.Fold([]codec.Op{{
 				ID: tc.file,
 				Envelope: codec.Envelope{
 					ObjectID:   env.ObjectID,
@@ -522,10 +522,10 @@ func TestForwardCompatFC5(t *testing.T) {
 				},
 			}}, writRules)
 			if err != nil {
-				t.Fatalf("writ.Fold failed: %v", err)
+				t.Fatalf("state.Fold failed: %v", err)
 			}
 			if len(engineRes.UnknownOps) != 1 {
-				t.Fatalf("writ.Fold expected 1 UnknownOp, got %d", len(engineRes.UnknownOps))
+				t.Fatalf("state.Fold expected 1 UnknownOp, got %d", len(engineRes.UnknownOps))
 			}
 			engU := engineRes.UnknownOps[0]
 			if engU.Commit != tc.file {

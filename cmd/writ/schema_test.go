@@ -1262,12 +1262,23 @@ type widget {
 		t.Fatalf("expected the schema object id to be %s, got %s", want, schemas[0].ObjectID)
 	}
 
-	rules, conflicts := writ.RulesFromSchemas(schemas)
+	conflicts := writ.SchemaConflicts(schemas)
 	if len(conflicts) != 0 {
 		t.Fatalf("expected no schema conflicts once both writers converge on one object, got %+v", conflicts)
 	}
-	if len(rules["offline-demo.widget"]) == 0 {
-		t.Fatalf("expected rules for the declared type %q, got none; rules: %+v", "offline-demo.widget", rules)
+	types, err := sA.Types(ctx)
+	if err != nil {
+		t.Fatalf("Alice Types: %v", err)
+	}
+	var found bool
+	for _, ty := range types {
+		if ty.Name == "offline-demo.widget" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected declared type %q in store.Types, got none; types: %+v", "offline-demo.widget", types)
 	}
 }
 
@@ -1335,7 +1346,7 @@ type widget {
 		if len(schemas) != 1 {
 			t.Fatalf("expected exactly one schema object, got %d: %+v", len(schemas), schemas)
 		}
-		_, conflicts = writ.RulesFromSchemas(schemas)
+		conflicts = writ.SchemaConflicts(schemas)
 		for _, ty := range schemas[0].Types {
 			if ty.Name != "conflict-demo.widget" {
 				continue

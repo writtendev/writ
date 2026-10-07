@@ -11,11 +11,11 @@ import (
 	"testing"
 
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/internal/codec"
 	"github.com/writtendev/writ/internal/codec/canonicaljson"
 	"github.com/writtendev/writ/internal/dag"
 	"github.com/writtendev/writ/internal/identity"
+	"github.com/writtendev/writ/internal/state"
 	"github.com/writtendev/writ/spec/fixtures"
 )
 
@@ -55,8 +55,8 @@ type SchemaGolden struct {
 }
 
 type SchemaObjectGolden struct {
-	ObjectID string      `json:"object_id"`
-	Schema   writ.Schema `json:"schema"`
+	ObjectID string       `json:"object_id"`
+	Schema   state.Schema `json:"schema"`
 }
 
 // canonicalOpVersionPattern mirrors spec/schemas/schema-ops.schema.json's
@@ -155,14 +155,14 @@ func runSchemaFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 			continue
 		}
 
-		schemaState, err := writ.FoldSchema(schemaOps)
+		schemaState, err := state.FoldSchema(schemaOps)
 		if err != nil {
-			return nil, fmt.Errorf("writ.FoldSchema for object %s in %s: %w", objID, fix.Name, err)
+			return nil, fmt.Errorf("state.FoldSchema for object %s in %s: %w", objID, fix.Name, err)
 		}
 
-		objectState, err := writ.Fold(schemaOps, writ.SchemaRules())
+		objectState, err := state.Fold(schemaOps, state.SchemaRules())
 		if err != nil {
-			return nil, fmt.Errorf("writ.Fold for object %s in %s: %w", objID, fix.Name, err)
+			return nil, fmt.Errorf("state.Fold for object %s in %s: %w", objID, fix.Name, err)
 		}
 		assertSchemaFoldSuperset(t, schemaState, objectState, fix.Name, objID, opByID)
 
@@ -178,7 +178,7 @@ func runSchemaFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 				shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
 			})
 
-			shuffledSchema, err := writ.FoldSchema(shuffled)
+			shuffledSchema, err := state.FoldSchema(shuffled)
 			if err != nil {
 				t.Fatalf("commutativity violation on permutation #%d for object %s in %s: %v", i, objID, fix.Name, err)
 			}
@@ -214,7 +214,7 @@ func runSchemaFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 // assertSchemaFoldSuperset is the asymmetric cross-check spec/schema-ops.md
 // §3.1, §3.3, §3.4, §4.5, and §4.6 require. Do not copy
 // assertSettingsFoldAgreement (settings_test.go) as a symmetric equality:
-// writ.Fold(ops, writ.SchemaRules()) does NOT quarantine a non-canonical
+// state.Fold(ops, state.SchemaRules()) does NOT quarantine a non-canonical
 // op_version body field, because ruleAccepts treats "01" as an ordinary
 // keyed-lww key-component string, nor an unrepresentable max_length, because
 // ruleAccepts' keyed-lww case (max_length's own meta-rule) only asks
@@ -225,7 +225,7 @@ func runSchemaFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 // body field is not literally true, because that keyed-lww rule's
 // ruleAccepts arm accepts any non-null value regardless of the rule's
 // declared bool value_type — both checks live one layer up, in the typed
-// writ.FoldSchema reducer (state.FoldSchema's canonicalOpVersion,
+// state.FoldSchema reducer (state.FoldSchema's canonicalOpVersion,
 // decodeMaxLength, namespace-implied-by-id, and deprecated-not-true gates).
 // A symmetric assertion fails on this family by construction, and
 // weakening the golden to make it pass would delete the rule this stage
@@ -238,21 +238,21 @@ func runSchemaFixture(t *testing.T, fix *fixtures.Fixture) ([]byte, error) {
 // disagrees with the id's own suffix, or omits it entirely (WRIT-254), and
 // (d) deprecate-type/deprecate-field ops whose deprecated body field is
 // not literally true — false, any non-boolean, or absent (WRIT-338).
-func assertSchemaFoldSuperset(t *testing.T, sch writ.Schema, state writ.ObjectState, fixtureName, objectID string, opByID map[string]codec.Op) {
+func assertSchemaFoldSuperset(t *testing.T, sch state.Schema, objState state.ObjectState, fixtureName, objectID string, opByID map[string]codec.Op) {
 	t.Helper()
 
 	schemaUnknown := make(map[string]bool, len(sch.UnknownOps))
 	for _, u := range sch.UnknownOps {
 		schemaUnknown[u.Commit] = true
 	}
-	genericUnknown := make(map[string]bool, len(state.UnknownOps))
-	for _, u := range state.UnknownOps {
+	genericUnknown := make(map[string]bool, len(objState.UnknownOps))
+	for _, u := range objState.UnknownOps {
 		genericUnknown[u.Commit] = true
 	}
 
 	for id := range genericUnknown {
 		if !schemaUnknown[id] {
-			t.Errorf("[%s/%s] op %s is unknown under writ.Fold but known under writ.FoldSchema; FoldSchema's UnknownOps must be a superset of Fold's (spec/schema-ops.md §3.1)",
+			t.Errorf("[%s/%s] op %s is unknown under state.Fold but known under state.FoldSchema; FoldSchema's UnknownOps must be a superset of Fold's (spec/schema-ops.md §3.1)",
 				fixtureName, objectID, id)
 		}
 	}

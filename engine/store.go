@@ -13,6 +13,7 @@ import (
 	"github.com/writtendev/writ/internal/dag"
 	"github.com/writtendev/writ/internal/identity"
 	"github.com/writtendev/writ/internal/projection"
+	"github.com/writtendev/writ/internal/state"
 	writsync "github.com/writtendev/writ/internal/sync"
 )
 
@@ -33,8 +34,10 @@ type Writer struct {
 	PersonIDErr error `json:"-"`
 }
 
-// Signer is an alias for codec.Signer.
-type Signer = codec.Signer
+// Signer signs commit payload bytes, returning an armored SSH signature string.
+type Signer interface {
+	Sign(ctx context.Context, payload []byte) (string, error)
+}
 
 // Store is the top-level handle for interacting with schema-declared
 // collaborative objects stored in a git repository.
@@ -162,12 +165,12 @@ type Store struct {
 	// measurable at the hit), which is why this was left as three calls
 	// rather than restructured into one — but that is a cost judgement, not
 	// a description of what the code does.
-	ruleCache map[string][]Rule
-	// typesCache is resolveSchemaTypes's own result, recomputed in the same
+	ruleCache map[string][]state.Rule
+	// typesCache is state.ResolveSchemaTypes's own result, recomputed in the same
 	// cache-miss branch as vocabCache and ruleCache: Store.Types builds
 	// SchemaType values straight from it (Name, Fields, Ops, Description,
 	// Deprecated), which fields/ops-only ruleCache cannot carry.
-	typesCache resolvedSchemaTypes
+	typesCache state.ResolvedSchemaTypes
 }
 
 // clock returns the time source Store.vocabularies and vocabulariesForAppend
@@ -283,7 +286,7 @@ func (s *Store) Refresh(ctx context.Context) (RefreshStats, error) {
 
 	s.emitLocked(stats)
 
-	return RefreshStats(stats), nil
+	return toRefreshStats(stats), nil
 }
 
 // Rebuild completely discards and recreates the folded projection cache from a cold walk of all writ chains.
@@ -328,7 +331,40 @@ func (s *Store) Rebuild(ctx context.Context) (RefreshStats, error) {
 
 	s.emitLocked(stats)
 
-	return RefreshStats(stats), nil
+	return toRefreshStats(stats), nil
+}
+
+func toRefreshStats(stats projection.Stats) RefreshStats {
+	var changed []ObjectChange
+	if stats.Changed != nil {
+		changed = make([]ObjectChange, len(stats.Changed))
+		for i, c := range stats.Changed {
+			changed[i] = ObjectChange{
+				ObjectID:   c.ObjectID,
+				ObjectType: c.ObjectType,
+				OpTypes:    c.OpTypes,
+				Created:    c.Created,
+			}
+		}
+	}
+	var rejections []Rejection
+	if stats.Rejections != nil {
+		rejections = make([]Rejection, len(stats.Rejections))
+		for i, r := range stats.Rejections {
+			rejections[i] = Rejection{
+				Reason: RejectReason(r.Reason),
+				Err:    r.Err,
+			}
+		}
+	}
+	return RefreshStats{
+		OpsDecoded:      stats.OpsDecoded,
+		ObjectsTouched:  stats.ObjectsTouched,
+		AnchorsResolved: stats.AnchorsResolved,
+		Rebuilt:         stats.Rebuilt,
+		Changed:         changed,
+		Rejections:      rejections,
+	}
 }
 
 // Writer returns the active writer identity.

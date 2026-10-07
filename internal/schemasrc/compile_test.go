@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/writtendev/writ/engine"
 	"github.com/writtendev/writ/internal/schemasrc"
 	"github.com/writtendev/writ/internal/state"
 )
@@ -61,7 +60,7 @@ type widget {
 		t.Fatalf("FoldSchema: %v", err)
 	}
 
-	rules, conflicts := writ.RulesFromSchemas([]state.Schema{folded})
+	rules, conflicts := state.RulesFromSchemas([]state.Schema{folded})
 	if len(conflicts) != 0 {
 		t.Fatalf("unexpected conflicts: %+v", conflicts)
 	}

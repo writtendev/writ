@@ -2,6 +2,10 @@ package writ_test
 
 import (
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -10,6 +14,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/writtendev/writ/engine"
+	"github.com/writtendev/writ/internal/state"
 )
 
 func TestAPIShapeNoGitInternalsLeak(t *testing.T) {
@@ -24,14 +29,18 @@ func TestAPIShapeNoGitInternalsLeak(t *testing.T) {
 		writ.ObjectFilter{},
 		writ.RefreshStats{},
 		writ.ObjectChange{},
+		writ.Rejection{},
 		writ.Event{},
 		writ.EventKind(""),
 		writ.Objects{},
 		writ.NewOp{},
 		writ.Object{},
+		writ.Schema{},
 		writ.SchemaType{},
 		writ.SchemaField{},
 		writ.SchemaOp{},
+		writ.SchemaConflict{},
+		writ.Envelope{},
 		writ.Writer{},
 		writ.SchemaSource{},
 		writ.InitOptions{},
@@ -464,9 +473,9 @@ func containsSubstring(haystack []string, substr string) bool {
 // remaining blind spots (an any-typed field, a differently-named string
 // type) are noted on its doc comment.
 func TestObjectOmitsOpCommitSHAs(t *testing.T) {
-	opRefType := reflect.TypeOf(writ.OpRef{})
+	opRefType := reflect.TypeOf(state.OpRef{})
 	if reachesType(reflect.TypeOf(writ.Object{}), opRefType, make(map[reflect.Type]bool)) {
-		t.Errorf("writ.Object reaches writ.OpRef: Object must not carry a raw OpRef (see Object's doc comment) — a caller who asked only for an object id never asked for one")
+		t.Errorf("writ.Object reaches state.OpRef: Object must not carry a raw OpRef (see Object's doc comment) — a caller who asked only for an object id never asked for one")
 	}
 }
 
@@ -623,5 +632,76 @@ func assertNoGitLeak(report func(format string, args ...any), context string, ty
 	case reflect.Map:
 		assertNoGitLeak(report, context, typ.Key(), visited)
 		assertNoGitLeak(report, context, typ.Elem(), visited)
+	}
+}
+
+// TestNoUnapprovedInternalTypeAliases enforces the WRIT-325 boundary guard:
+// no public type in the engine package may be a type alias to an internal package,
+// outside a closed, explicit allow-list of 5 symbols.
+func TestNoUnapprovedInternalTypeAliases(t *testing.T) {
+	fset := token.NewFileSet()
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+
+	allowedAliases := map[string]bool{
+		"ConfigError":         true,
+		"FailureKind":         true,
+		"SchemaErrorList":     true,
+		"SchemaSyntaxError":   true,
+		"VerificationOutcome": true,
+	}
+
+	for _, entry := range entries {
+		filename := entry.Name()
+		if !strings.HasSuffix(filename, ".go") || strings.HasSuffix(filename, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, filename, nil, parser.ParseComments)
+		if err != nil {
+			t.Fatalf("ParseFile %s: %v", filename, err)
+		}
+		for _, decl := range file.Decls {
+			genDecl, ok := decl.(*ast.GenDecl)
+			if !ok || genDecl.Tok != token.TYPE {
+				continue
+			}
+			for _, spec := range genDecl.Specs {
+				typeSpec, ok := spec.(*ast.TypeSpec)
+				if !ok {
+					continue
+				}
+				// Only check type aliases (type T = ...)
+				if typeSpec.Assign == token.NoPos {
+					continue
+				}
+				typeName := typeSpec.Name.Name
+				selExpr, ok := typeSpec.Type.(*ast.SelectorExpr)
+				if !ok {
+					continue
+				}
+				ident, ok := selExpr.X.(*ast.Ident)
+				if !ok {
+					continue
+				}
+				pkgIdent := ident.Name
+				for _, imp := range file.Imports {
+					importPath := strings.Trim(imp.Path.Value, `"`)
+					var match bool
+					if imp.Name != nil {
+						match = imp.Name.Name == pkgIdent
+					} else {
+						match = strings.HasSuffix(importPath, "/"+pkgIdent) || importPath == pkgIdent
+					}
+					if match && strings.Contains(importPath, "/internal/") {
+						if !allowedAliases[typeName] {
+							t.Errorf("unapproved type alias to internal package in %s: type %s = %s.%s (from %q)",
+								filename, typeName, pkgIdent, selExpr.Sel.Name, importPath)
+						}
+					}
+				}
+			}
+		}
 	}
 }
